@@ -7,9 +7,9 @@ on:
       - master
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages and gh-pages branch
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -40,26 +40,14 @@ jobs:
       - name: Build Vite project
         run: npm run build
 
-      # Step 1: Deploy to gh-pages branch (supports "Deploy from a branch: gh-pages")
-      - name: Deploy to gh-pages branch
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
-        continue-on-error: true
-
-      # Step 2: Deploy to GitHub Pages directly (supports "Source: GitHub Actions")
       - name: Setup Pages
         uses: actions/configure-pages@v4
-        continue-on-error: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: './dist'
-        continue-on-error: true
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-        continue-on-error: true

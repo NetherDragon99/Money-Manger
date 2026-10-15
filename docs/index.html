@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en" style="background-color: #000000; color: #ffffff;">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Personal Finance Tracker</title>
+    <meta name="description" content="An offline-first, OLED dark-themed personal finance tracker PWA with running balances, multi-account management, custom cycles, and budgeting." />
+    <meta property="og:title" content="Personal Finance Tracker" />
+    <meta property="og:description" content="An offline-first, OLED dark-themed personal finance tracker PWA with running balances, multi-account management, custom cycles, and budgeting." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="FinanceApp" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="alternate icon" type="image/png" href="./favicon.png" />
+    <script>
+      (function() {
+        // If served as raw unbundled development HTML on GitHub Pages, redirect to compiled /docs/
+        var isRawDevelopmentHtml = document.querySelector('script[src*="main.tsx"]');
+        if (isRawDevelopmentHtml && window.location.hostname.endsWith('github.io')) {
+          var cleanPath = window.location.pathname.replace(/\/+$/, '');
+          if (!cleanPath.endsWith('/docs') && !cleanPath.endsWith('/dist')) {
+            window.location.replace(cleanPath + '/docs/');
+          }
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-DVSVI7o6.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-Ccq3ZMTO.css">
+  <link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>
+  <body class="bg-black text-white antialiased selection:bg-blue-600 selection:text-white" style="background-color: #000000; color: #ffffff; margin: 0; padding: 0;">
+    <noscript>
+      <div style="background-color: #000000; color: #ffffff; padding: 32px; text-align: center; font-family: sans-serif;">
+        <h2>JavaScript is required</h2>
+        <p>Please enable JavaScript in your browser to run Personal Finance Tracker.</p>
+      </div>
+    </noscript>
+    <div id="root"></div>
+  </body>
+</html>
