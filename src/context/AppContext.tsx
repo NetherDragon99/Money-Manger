@@ -16,6 +16,7 @@ import {
   saveTransactions,
   saveSettings,
 } from '../utils/storage';
+import { requestPersistentStorage, loadFullDataFromIndexedDB } from '../utils/indexedDB';
 import { syncAllAccountBalances } from '../utils/balanceEngine';
 import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
 import { translations } from '../utils/translations';
@@ -189,7 +190,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return (translations[lang] && translations[lang][key]) || translations.en[key] || key;
   };
 
-  // Sync to localStorage
+  // Initialize Permanent IndexedDB Storage and verify backup
+  useEffect(() => {
+    // Request permanent browser storage permission
+    requestPersistentStorage();
+
+    // Check if IndexedDB has preserved data
+    loadFullDataFromIndexedDB()
+      .then((idbData) => {
+        if (idbData) {
+          if (idbData.transactions && idbData.transactions.length > 0 && transactions.length === 0) {
+            setTransactions(idbData.transactions);
+            if (idbData.accounts && idbData.accounts.length > 0) {
+              setAccounts(syncAllAccountBalances(idbData.accounts, idbData.transactions));
+            }
+          }
+          if (idbData.categories && idbData.categories.length > categories.length) {
+            setCategories(idbData.categories);
+          }
+        }
+      })
+      .catch((err) => console.warn('[Storage] IDB startup check:', err));
+  }, []);
+
+  // Sync to localStorage & IndexedDB
   useEffect(() => {
     saveAccounts(accounts);
   }, [accounts]);
