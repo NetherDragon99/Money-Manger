@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+/* Modern Web & PWA base styles */
+html {
+  -webkit-tap-highlight-color: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+body {
+  background-color: #000000;
+  color: #ffffff;
+  overflow-x: hidden;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+/* Light Mode Theme Overrides */
+html.light-mode body {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+html.light-mode .bg-black {
+  background-color: #f8fafc !important;
+}
+html.light-mode .bg-zinc-950 {
+  background-color: #ffffff !important;
+}
+html.light-mode .bg-zinc-900 {
+  background-color: #ffffff !important;
+}
+html.light-mode .bg-zinc-900\/90,
+html.light-mode .bg-zinc-900\/95,
+html.light-mode .bg-zinc-900\/80,
+html.light-mode .bg-zinc-900\/60,
+html.light-mode .bg-zinc-900\/50,
+html.light-mode .bg-zinc-900\/40 {
+  background-color: #ffffff !important;
+}
+html.light-mode .bg-zinc-800,
+html.light-mode .bg-zinc-800\/80,
+html.light-mode .bg-zinc-800\/50,
+html.light-mode .bg-zinc-800\/40 {
+  background-color: #f1f5f9 !important;
+}
+html.light-mode .border-zinc-800,
+html.light-mode .border-zinc-800\/80,
+html.light-mode .border-zinc-800\/60,
+html.light-mode .border-zinc-800\/50,
+html.light-mode .border-zinc-700,
+html.light-mode .border-zinc-700\/80 {
+  border-color: #e2e8f0 !important;
+}
+html.light-mode .text-white {
+  color: #0f172a !important;
+}
+html.light-mode .text-zinc-200,
+html.light-mode .text-zinc-300 {
+  color: #1e293b !important;
+}
+html.light-mode .text-zinc-400 {
+  color: #475569 !important;
+}
+html.light-mode .text-zinc-500 {
+  color: #64748b !important;
+}
