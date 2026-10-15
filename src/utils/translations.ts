@@ -133,7 +133,7 @@ export const translations = {
     installedPWA: 'PWA is installed and running',
     exportAllData: 'Export All Data (JSON)',
     importData: 'Import Data (JSON)',
-    version: 'Version: Beta 1.0.5',
+    version: 'Version: Beta 1.0.6',
 
     // Categories Modal
     categoryType: 'Category Type',
@@ -285,7 +285,7 @@ export const translations = {
     installedPWA: 'التطبيق مثبت ويعمل كـ PWA',
     exportAllData: 'تصدير كافة البيانات (JSON)',
     importData: 'استيراد البيانات (JSON)',
-    version: 'الإصدار: Beta 1.0.5',
+    version: 'الإصدار: Beta 1.0.6',
 
     // Categories Modal
     categoryType: 'نوع الفئة',

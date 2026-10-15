@@ -16,7 +16,7 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.png', 'apple-touch-icon.png', 'icon.svg'],
+        includeAssets: ['favicon.png', 'apple-touch-icon.png', 'icon.svg', 'version.json'],
         manifest: {
           id: base,
           name: 'Personal Finance Tracker',
@@ -25,10 +25,12 @@ export default defineConfig(() => {
           theme_color: '#000000',
           background_color: '#000000',
           display: 'standalone',
-          display_override: ['standalone', 'window-controls-overlay'],
-          orientation: 'portrait',
+          display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
+          orientation: 'portrait-primary',
           start_url: base,
           scope: base,
+          categories: ['finance', 'productivity', 'utilities'],
+          prefer_related_applications: false,
           icons: [
             {
               src: 'pwa-192x192.png',
@@ -47,6 +49,31 @@ export default defineConfig(() => {
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
+            },
+          ],
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest,json}'],
+          skipWaiting: true,
+          clientsClaim: true,
+          cleanupOutdatedCaches: true,
+          runtimeCaching: [
+            {
+              urlPattern: ({ request }) =>
+                request.destination === 'document' ||
+                request.destination === 'script' ||
+                request.destination === 'style' ||
+                request.destination === 'image' ||
+                request.destination === 'font',
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'app-offline-cache',
+                expiration: {
+                  maxEntries: 100,
+                  maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+                },
+                networkTimeoutSeconds: 2,
+              },
             },
           ],
         },

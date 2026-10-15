@@ -85,7 +85,7 @@ export function downloadOfflineAppBundle(currentData: AppData, lang: 'en' | 'ar'
   </head>
   <body>
     <div class="card">
-      <div class="badge">OFFLINE STANDALONE PWA v1.0.5</div>
+      <div class="badge">OFFLINE STANDALONE PWA v1.0.6</div>
       <h1>${title}</h1>
       <p>${isArabic ? 'حزمة التطبيق الكاملة بدون إنترنت محفوظة محلياً على جهازك مع دعم التخزين الدائم IndexedDB.' : 'Your complete standalone application package saved directly on your device storage with permanent IndexedDB sync.'}</p>
       

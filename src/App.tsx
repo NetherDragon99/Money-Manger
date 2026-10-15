@@ -21,7 +21,8 @@ import { ResetPeriodModal } from './components/ResetPeriodModal';
 import { AdvancedFilterModal } from './components/AdvancedFilterModal';
 import { EmojiPickerModal } from './components/EmojiPickerModal';
 import { ToastContainer } from './components/Toast';
-import { WifiOff } from 'lucide-react';
+import { WifiOff, Sparkles } from 'lucide-react';
+import { checkForAppUpdates, applyLatestAppUpdate } from './utils/versionChecker';
 
 const OfflineBanner: React.FC = () => {
   const [isOnline, setIsOnline] = useState(
@@ -52,7 +53,55 @@ const OfflineBanner: React.FC = () => {
 };
 
 const MainAppContent: React.FC = () => {
-  const { currentTab, selectedAccountId, isEmojiPickerOpen, closeEmojiPicker, selectEmoji } = useApp();
+  const { currentTab, selectedAccountId, isEmojiPickerOpen, closeEmojiPicker, selectEmoji, showToast, settings } = useApp();
+  const [updating, setUpdating] = useState(false);
+
+  // Auto-check GitHub for newest updates on every app open and resume
+  useEffect(() => {
+    let checkInProgress = false;
+
+    const performUpdateCheck = async () => {
+      if (checkInProgress || updating || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+      checkInProgress = true;
+      try {
+        const res = await checkForAppUpdates();
+        if (res.hasUpdate) {
+          setUpdating(true);
+          showToast(
+            settings.language === 'ar'
+              ? `تم العثور على إصدار جديد (v${res.latestVersion}) في GitHub! جارٍ التحديث التلقائي...`
+              : `New version (v${res.latestVersion}) detected on GitHub! Updating automatically...`,
+            'info'
+          );
+          setTimeout(() => {
+            applyLatestAppUpdate();
+          }, 1200);
+        }
+      } catch (e) {
+        console.warn('Update check failed:', e);
+      } finally {
+        checkInProgress = false;
+      }
+    };
+
+    // Check immediately on startup
+    performUpdateCheck();
+
+    // Check when user resumes or focuses the app
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        performUpdateCheck();
+      }
+    };
+
+    window.addEventListener('focus', performUpdateCheck);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', performUpdateCheck);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [settings.language]);
 
   return (
     <div className="min-h-screen bg-black text-white relative selection:bg-blue-600 selection:text-white">
