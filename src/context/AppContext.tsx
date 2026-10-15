@@ -19,6 +19,7 @@ import {
 import { syncAllAccountBalances } from '../utils/balanceEngine';
 import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
 import { translations } from '../utils/translations';
+import { DEFAULT_SETTINGS } from '../utils/constants';
 
 export interface ToastItem {
   id: string;
