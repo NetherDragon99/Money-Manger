@@ -29,34 +29,70 @@ body {
 }
 
 /* Light Mode Theme Overrides */
-html.light-mode body {
-  background-color: #f8fafc;
-  color: #0f172a;
+html.light-mode {
+  color-scheme: light;
 }
+
+html.light-mode body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Backgrounds */
 html.light-mode .bg-black {
   background-color: #f8fafc !important;
 }
-html.light-mode .bg-zinc-950 {
-  background-color: #ffffff !important;
+html.light-mode .bg-black\/90,
+html.light-mode .bg-black\/95 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  color: #0f172a !important;
 }
-html.light-mode .bg-zinc-900 {
-  background-color: #ffffff !important;
-}
-html.light-mode .bg-zinc-900\/90,
+html.light-mode .bg-zinc-950,
+html.light-mode .bg-zinc-900,
 html.light-mode .bg-zinc-900\/95,
+html.light-mode .bg-zinc-900\/90,
 html.light-mode .bg-zinc-900\/80,
 html.light-mode .bg-zinc-900\/60,
 html.light-mode .bg-zinc-900\/50,
 html.light-mode .bg-zinc-900\/40 {
   background-color: #ffffff !important;
 }
+html.light-mode .bg-zinc-950\/60,
+html.light-mode .bg-zinc-950\/80 {
+  background-color: #f8fafc !important;
+}
 html.light-mode .bg-zinc-800,
+html.light-mode .bg-zinc-850,
+html.light-mode .bg-zinc-800\/90,
 html.light-mode .bg-zinc-800\/80,
 html.light-mode .bg-zinc-800\/50,
 html.light-mode .bg-zinc-800\/40 {
   background-color: #f1f5f9 !important;
 }
+
+/* Hover States */
+html.light-mode .hover\:bg-zinc-800:hover,
+html.light-mode .hover\:bg-zinc-900:hover,
+html.light-mode .hover\:bg-zinc-850:hover {
+  background-color: #f1f5f9 !important;
+}
+
+/* Form Inputs, Selects, Textareas */
+html.light-mode input:not([type="checkbox"]):not([type="radio"]),
+html.light-mode select,
+html.light-mode textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+html.light-mode input::placeholder,
+html.light-mode textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Borders */
 html.light-mode .border-zinc-800,
+html.light-mode .border-zinc-800\/90,
 html.light-mode .border-zinc-800\/80,
 html.light-mode .border-zinc-800\/60,
 html.light-mode .border-zinc-800\/50,
@@ -64,16 +100,56 @@ html.light-mode .border-zinc-700,
 html.light-mode .border-zinc-700\/80 {
   border-color: #e2e8f0 !important;
 }
+
+/* General Typography */
 html.light-mode .text-white {
-  color: #0f172a !important;
+  color: #0f172a;
 }
 html.light-mode .text-zinc-200,
 html.light-mode .text-zinc-300 {
-  color: #1e293b !important;
+  color: #334155 !important;
 }
 html.light-mode .text-zinc-400 {
-  color: #475569 !important;
+  color: #64748b !important;
 }
 html.light-mode .text-zinc-500 {
-  color: #64748b !important;
+  color: #94a3b8 !important;
+}
+
+/* Cards & Floating Elements Shadows */
+html.light-mode .shadow-2xl,
+html.light-mode .shadow-xl {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* CRITICAL: Protect Solid Colored Buttons and Active Pills from turning text black */
+html.light-mode .bg-blue-600,
+html.light-mode .bg-blue-500,
+html.light-mode .bg-red-600,
+html.light-mode .bg-red-500,
+html.light-mode .bg-emerald-600,
+html.light-mode .bg-emerald-500,
+html.light-mode .bg-blue-600 *,
+html.light-mode .bg-blue-500 *,
+html.light-mode .bg-red-600 *,
+html.light-mode .bg-red-500 *,
+html.light-mode .bg-emerald-600 *,
+html.light-mode .bg-emerald-500 * {
+  color: #ffffff !important;
+}
+
+/* Numpad in Light Mode */
+html.light-mode .grid-cols-4 button {
+  background-color: #ffffff;
+  color: #0f172a;
+  border-color: #e2e8f0;
+}
+html.light-mode .grid-cols-4 button:active {
+  background-color: #e2e8f0;
+}
+
+/* Disabled State */
+html.light-mode button:disabled {
+  background-color: #e2e8f0 !important;
+  color: #94a3b8 !important;
 }

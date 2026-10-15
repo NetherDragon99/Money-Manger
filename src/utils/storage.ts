@@ -101,7 +101,7 @@ export function saveSettings(settings: AppSettings): void {
  */
 export function exportAllDataAsJSON(data: AppData): void {
   const exportPayload = {
-    version: '1.0.2',
+    version: '1.0.3',
     exportDate: new Date().toISOString(),
     ...data,
   };
@@ -125,7 +125,7 @@ export function exportAccountAsJSON(account: Account, allTransactions: Transacti
     (tx) => tx.accountId === account.id || tx.toAccountId === account.id
   );
   const payload = {
-    version: '1.0.2',
+    version: '1.0.3',
     type: 'single_account_backup',
     exportDate: new Date().toISOString(),
     account,
