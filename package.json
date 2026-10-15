@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
+    "build": "vite build && node -e \"const fs=require('fs'),path=require('path');if(!fs.existsSync('assets'))fs.mkdirSync('assets');for(const f of fs.readdirSync('dist/assets'))fs.copyFileSync(path.join('dist/assets',f),path.join('assets',f));const j=fs.readdirSync('dist/assets').find(f=>f.startsWith('index-')&&f.endsWith('.js')),c=fs.readdirSync('dist/assets').find(f=>f.startsWith('index-')&&f.endsWith('.css'));fs.copyFileSync(path.join('dist/assets',j),'assets/app.js');fs.copyFileSync(path.join('dist/assets',c),'assets/app.css');\"",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
