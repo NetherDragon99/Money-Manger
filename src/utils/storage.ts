@@ -14,20 +14,40 @@ export function loadInitialData(): AppData {
     const rawTransactions = localStorage.getItem(TRANSACTIONS_KEY);
     const rawSettings = localStorage.getItem(SETTINGS_KEY);
 
-    let accounts: Account[] = rawAccounts ? JSON.parse(rawAccounts) : DEFAULT_ACCOUNTS;
-    let categories: Category[] = rawCategories ? JSON.parse(rawCategories) : INITIAL_CATEGORIES;
-    let transactions: Transaction[] = rawTransactions ? JSON.parse(rawTransactions) : [];
-    let settings: AppSettings = rawSettings ? { ...DEFAULT_SETTINGS, ...JSON.parse(rawSettings) } : DEFAULT_SETTINGS;
+    let accounts: Account[] = DEFAULT_ACCOUNTS;
+    let categories: Category[] = INITIAL_CATEGORIES;
+    let transactions: Transaction[] = [];
+    let settings: AppSettings = DEFAULT_SETTINGS;
 
-    // Guarantee at least 1 account exists
-    if (!accounts || accounts.length === 0) {
-      accounts = DEFAULT_ACCOUNTS;
-    }
+    try {
+      if (rawAccounts) {
+        const parsed = JSON.parse(rawAccounts);
+        if (Array.isArray(parsed) && parsed.length > 0) accounts = parsed;
+      }
+    } catch {}
 
-    // Guarantee default categories exist if empty
-    if (!categories || categories.length === 0) {
-      categories = INITIAL_CATEGORIES;
-    }
+    try {
+      if (rawCategories) {
+        const parsed = JSON.parse(rawCategories);
+        if (Array.isArray(parsed) && parsed.length > 0) categories = parsed;
+      }
+    } catch {}
+
+    try {
+      if (rawTransactions) {
+        const parsed = JSON.parse(rawTransactions);
+        if (Array.isArray(parsed)) transactions = parsed;
+      }
+    } catch {}
+
+    try {
+      if (rawSettings) {
+        const parsed = JSON.parse(rawSettings);
+        if (parsed && typeof parsed === 'object') {
+          settings = { ...DEFAULT_SETTINGS, ...parsed };
+        }
+      }
+    } catch {}
 
     // Always ensure balances accurately match transaction history
     accounts = syncAllAccountBalances(accounts, transactions);
@@ -81,7 +101,7 @@ export function saveSettings(settings: AppSettings): void {
  */
 export function exportAllDataAsJSON(data: AppData): void {
   const exportPayload = {
-    version: '1.0.0',
+    version: '1.0.2',
     exportDate: new Date().toISOString(),
     ...data,
   };
@@ -105,7 +125,7 @@ export function exportAccountAsJSON(account: Account, allTransactions: Transacti
     (tx) => tx.accountId === account.id || tx.toAccountId === account.id
   );
   const payload = {
-    version: '1.0.0',
+    version: '1.0.2',
     type: 'single_account_backup',
     exportDate: new Date().toISOString(),
     account,
