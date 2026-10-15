@@ -18,15 +18,17 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.png', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
-          id: './',
+          id: base,
           name: 'Personal Finance Tracker',
           short_name: 'FinanceApp',
           description: 'An offline-first, OLED dark-themed personal finance tracker PWA with running balances, multi-account management, custom cycles, and budgeting.',
           theme_color: '#000000',
           background_color: '#000000',
           display: 'standalone',
-          start_url: './',
-          scope: './',
+          display_override: ['standalone', 'window-controls-overlay'],
+          orientation: 'portrait',
+          start_url: base,
+          scope: base,
           icons: [
             {
               src: 'pwa-192x192.png',

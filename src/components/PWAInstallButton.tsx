@@ -9,16 +9,25 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
   const { t, settings, accounts, categories, transactions, showToast } = useApp();
 
   const handleDownloadAndInstall = async () => {
-    // 1. If native PWA browser installation is available, trigger native prompt immediately
+    // 1. If native PWA browser installation is available, trigger native home-screen install prompt
     if (isInstallable) {
       try {
-        await install();
+        const accepted = await install();
+        if (accepted) {
+          showToast(
+            settings.language === 'ar'
+              ? 'تم تثبيت التطبيق على الشاشة الرئيسية بنجاح!'
+              : 'App installed to your Home Screen successfully!',
+            'success'
+          );
+          return;
+        }
       } catch (err) {
         console.warn('Native install prompt error:', err);
       }
     }
 
-    // 2. Download the complete offline application file directly to device storage
+    // 2. Trigger direct file download of the standalone application package to device storage
     try {
       downloadOfflineAppBundle(
         { accounts, categories, transactions, settings },
@@ -26,7 +35,7 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
       );
       showToast(
         settings.language === 'ar'
-          ? 'تم تنزيل التطبيق بنجاح إلى ذاكرة جهازك!'
+          ? 'تم تنزيل حزمة التطبيق إلى ذاكرة جهازك بنجاح!'
           : 'App downloaded directly to your device storage!',
         'success'
       );
