@@ -73,7 +73,8 @@ interface AppContextType {
   closeAccountModal: () => void;
   isCategoryModalOpen: boolean;
   editingCategory: Category | null;
-  openAddCategoryModal: () => void;
+  defaultCategoryType: 'expense' | 'income';
+  openAddCategoryModal: (defaultType?: 'expense' | 'income') => void;
   openEditCategoryModal: (cat: Category) => void;
   closeCategoryModal: () => void;
   isUserProfileModalOpen: boolean;
@@ -164,6 +165,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [defaultCategoryType, setDefaultCategoryType] = useState<'expense' | 'income'>('expense');
 
   const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false);
   const [isResetPeriodModalOpen, setIsResetPeriodModalOpen] = useState(false);
@@ -291,12 +293,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setEditingAccount(null);
   };
 
-  const openAddCategoryModal = () => {
+  const openAddCategoryModal = (defaultType: 'expense' | 'income' = 'expense') => {
+    setDefaultCategoryType(defaultType);
     setEditingCategory(null);
     setIsCategoryModalOpen(true);
   };
 
   const openEditCategoryModal = (cat: Category) => {
+    setDefaultCategoryType(cat.type);
     setEditingCategory(cat);
     setIsCategoryModalOpen(true);
   };
@@ -304,6 +308,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const closeCategoryModal = () => {
     setIsCategoryModalOpen(false);
     setEditingCategory(null);
+    setDefaultCategoryType('expense');
   };
 
   const openEmojiPicker = (onSelect: (emoji: string) => void) => {
@@ -649,6 +654,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         closeAccountModal,
         isCategoryModalOpen,
         editingCategory,
+        defaultCategoryType,
         openAddCategoryModal,
         openEditCategoryModal,
         closeCategoryModal,

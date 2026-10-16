@@ -174,7 +174,7 @@ export const BudgetView: React.FC = () => {
         </div>
         <button
           type="button"
-          onClick={openAddCategoryModal}
+          onClick={() => openAddCategoryModal(categoryTab)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-semibold text-blue-400 hover:text-white hover:border-zinc-700 transition cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -275,6 +275,28 @@ export const BudgetView: React.FC = () => {
             <span className="text-[11px] text-zinc-500">
               {settings.language === 'ar' ? 'انقر على الفئة لتعديلها أو حذفها' : 'Tap card to edit or delete'}
             </span>
+          </div>
+
+          {/* Expense Summary Banner (matching the Income tab banner) */}
+          <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-900/50 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <ArrowDownRight className="w-5 h-5 text-rose-400" />
+              <div>
+                <div className="text-xs text-zinc-300">
+                  {settings.language === 'ar' ? 'إجمالي مصروفات هذه الدورة' : 'Total Cycle Expenses Spent'}
+                </div>
+                <div className="text-lg font-black font-mono text-rose-400">
+                  {formatCurrency(totalSpent, currencySymbol)}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => openAddCategoryModal('expense')}
+              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-lg shadow-rose-900/30 cursor-pointer"
+            >
+              + {settings.language === 'ar' ? 'إضافة فئة مصروفات' : 'Add Expense Category'}
+            </button>
           </div>
 
           <div className="space-y-2.5">
@@ -410,7 +432,7 @@ export const BudgetView: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={openAddCategoryModal}
+              onClick={() => openAddCategoryModal('income')}
               className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-900/30 cursor-pointer"
             >
               + {settings.language === 'ar' ? 'إضافة فئة دخل' : 'Add Income Category'}
@@ -430,7 +452,7 @@ export const BudgetView: React.FC = () => {
               </p>
               <button
                 type="button"
-                onClick={openAddCategoryModal}
+                onClick={() => openAddCategoryModal('income')}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer"
               >
                 <Plus className="w-4 h-4" />

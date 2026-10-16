@@ -500,7 +500,7 @@ export const TransactionModal: React.FC = () => {
                 {/* Fixed, uncompressed "+ Add Category" button right next to header */}
                 <button
                   type="button"
-                  onClick={openAddCategoryModal}
+                  onClick={() => openAddCategoryModal(type === 'income' ? 'income' : 'expense')}
                   className="flex items-center gap-1 text-xs font-semibold text-blue-400 hover:text-blue-300 transition shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />

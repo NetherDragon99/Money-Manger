@@ -8,6 +8,7 @@ export const CategoryModal: React.FC = () => {
   const {
     isCategoryModalOpen,
     editingCategory,
+    defaultCategoryType,
     closeCategoryModal,
     addCategory,
     updateCategory,
@@ -32,11 +33,11 @@ export const CategoryModal: React.FC = () => {
       setBudgetLimit(editingCategory.budgetLimit ? String(editingCategory.budgetLimit) : '0');
     } else {
       setName('');
-      setIcon('🛍️');
-      setType('expense');
+      setIcon(defaultCategoryType === 'income' ? '💵' : '🛍️');
+      setType(defaultCategoryType || 'expense');
       setBudgetLimit('0');
     }
-  }, [editingCategory, isCategoryModalOpen]);
+  }, [editingCategory, isCategoryModalOpen, defaultCategoryType]);
 
   if (!isCategoryModalOpen) return null;
 
@@ -167,7 +168,7 @@ export const CategoryModal: React.FC = () => {
             </div>
           </div>
 
-          {/* Type Toggle: Expense or Income */}
+          {/* Type Toggle: Expense or Income (strictly synced with current app language) */}
           <div>
             <label className="block text-xs font-semibold text-zinc-400 mb-1.5">
               {settings.language === 'ar' ? 'نوع الفئة' : 'Category Type'}
@@ -176,24 +177,24 @@ export const CategoryModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setType('expense')}
-                className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer ${
                   type === 'expense'
                     ? 'bg-red-600 text-white shadow-md'
                     : 'text-zinc-400 hover:text-white'
                 }`}
               >
-                {t('expense')} (مصروفات)
+                {t('expense')}
               </button>
               <button
                 type="button"
                 onClick={() => setType('income')}
-                className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer ${
                   type === 'income'
                     ? 'bg-emerald-600 text-white shadow-md'
                     : 'text-zinc-400 hover:text-white'
                 }`}
               >
-                {t('income')} (إيرادات واردة)
+                {t('income')}
               </button>
             </div>
             {type === 'income' && (
@@ -214,7 +215,7 @@ export const CategoryModal: React.FC = () => {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Salary, Groceries, Rent"
+              placeholder={settings.language === 'ar' ? 'مثال: الراتب، البقالة، الإيجار' : 'e.g. Salary, Groceries, Rent'}
               className="w-full px-4 py-3 rounded-xl bg-zinc-900 border border-zinc-800 focus:border-blue-500 text-white text-sm outline-none transition"
               required
             />
@@ -257,7 +258,7 @@ export const CategoryModal: React.FC = () => {
                         className={`h-10 rounded-xl flex items-center justify-center text-xl transition active:scale-90 ${
                           icon === em
                             ? 'bg-blue-600/30 border-2 border-blue-500 scale-105'
-                            : 'bg-zinc-900 border border-zinc-800 hover:bg-zinc-800'
+                            : 'bg-zinc-900 border border-zinc-800 hover:bg-zinc-850'
                         }`}
                       >
                         {em}
@@ -273,7 +274,7 @@ export const CategoryModal: React.FC = () => {
           <div className="pt-2 pb-4">
             <button
               type="submit"
-              className="w-full py-3.5 rounded-full bg-blue-600 hover:bg-blue-500 active:scale-98 text-white font-bold text-sm shadow-lg shadow-blue-900/40 transition"
+              className="w-full py-3.5 rounded-full bg-blue-600 hover:bg-blue-500 active:scale-98 text-white font-bold text-sm shadow-lg shadow-blue-900/40 transition cursor-pointer"
             >
               {editingCategory
                 ? (settings.language === 'ar' ? 'تحديث الفئة' : 'Update Category')
