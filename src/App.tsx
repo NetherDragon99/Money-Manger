@@ -20,6 +20,8 @@ import { UserProfileModal } from './components/UserProfileModal';
 import { ResetPeriodModal } from './components/ResetPeriodModal';
 import { AdvancedFilterModal } from './components/AdvancedFilterModal';
 import { EmojiPickerModal } from './components/EmojiPickerModal';
+import { AppFeaturesModal } from './components/AppFeaturesModal';
+import { WhatsNewModal } from './components/WhatsNewModal';
 import { ToastContainer } from './components/Toast';
 import { WifiOff, Sparkles } from 'lucide-react';
 import { checkForAppUpdates, applyLatestAppUpdate } from './utils/versionChecker';
@@ -53,7 +55,17 @@ const OfflineBanner: React.FC = () => {
 };
 
 const MainAppContent: React.FC = () => {
-  const { currentTab, selectedAccountId, isEmojiPickerOpen, closeEmojiPicker, selectEmoji, showToast, settings } = useApp();
+  const {
+    currentTab,
+    selectedAccountId,
+    isEmojiPickerOpen,
+    closeEmojiPicker,
+    selectEmoji,
+    showToast,
+    settings,
+    isFeaturesModalOpen,
+    setIsFeaturesModalOpen,
+  } = useApp();
   const [updating, setUpdating] = useState(false);
 
   // Auto-check GitHub for newest updates on every app open and resume
@@ -130,6 +142,15 @@ const MainAppContent: React.FC = () => {
       <UserProfileModal />
       <ResetPeriodModal />
       <AdvancedFilterModal />
+
+      {/* App Features & Release Notes Modal */}
+      <AppFeaturesModal
+        isOpen={isFeaturesModalOpen}
+        onClose={() => setIsFeaturesModalOpen(false)}
+      />
+
+      {/* Automatic What's New on First Launch of each version */}
+      <WhatsNewModal />
 
       {/* Global Emoji Picker */}
       <EmojiPickerModal

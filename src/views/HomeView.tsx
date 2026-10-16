@@ -21,6 +21,7 @@ import {
   getDaysInMonth,
 } from '../utils/dateCycle';
 import { GroupedTransactionList } from '../components/GroupedTransactionList';
+import { MiniDateTimePicker } from '../components/MiniDateTimePicker';
 
 export const HomeView: React.FC = () => {
   const {
@@ -44,6 +45,7 @@ export const HomeView: React.FC = () => {
 
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
   const [showCustomRangePicker, setShowCustomRangePicker] = useState(false);
+  const [customTarget, setCustomTarget] = useState<'start' | 'end'>('start');
 
   // Calendar view specific state
   const [calendarMonthOffset, setCalendarMonthOffset] = useState(0);
@@ -366,7 +368,7 @@ export const HomeView: React.FC = () => {
 
       {/* Custom Date Range Popover */}
       {showCustomRangePicker && (
-        <div className="p-4 mx-4 mt-2 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3">
+        <div className="p-4 mx-4 mt-2 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3 animate-in fade-in">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-white uppercase">{t('customRange')}</span>
             <button
@@ -377,31 +379,52 @@ export const HomeView: React.FC = () => {
               Close
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              type="date"
-              value={customDateRange.startDate}
-              onChange={(e) =>
-                setCustomDateRange({ ...customDateRange, startDate: e.target.value })
-              }
-              className="px-2.5 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
-            />
-            <input
-              type="date"
-              value={customDateRange.endDate}
-              onChange={(e) =>
-                setCustomDateRange({ ...customDateRange, endDate: e.target.value })
-              }
-              className="px-2.5 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
-            />
+          <div className="flex rounded-xl bg-zinc-950 p-1 border border-zinc-800">
+            <button
+              type="button"
+              onClick={() => setCustomTarget('start')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition ${
+                customTarget === 'start'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Start: {customDateRange.startDate}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCustomTarget('end')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition ${
+                customTarget === 'end'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              End: {customDateRange.endDate}
+            </button>
           </div>
+          <MiniDateTimePicker
+            date={customTarget === 'start' ? customDateRange.startDate : customDateRange.endDate}
+            time="00:00"
+            hasTime={false}
+            onDateChange={(newD) => {
+              if (customTarget === 'start') {
+                setCustomDateRange({ ...customDateRange, startDate: newD });
+              } else {
+                setCustomDateRange({ ...customDateRange, endDate: newD });
+              }
+            }}
+            onTimeChange={() => {}}
+            onToggleHasTime={() => {}}
+            lang={settings.language}
+          />
           <button
             type="button"
             onClick={() => {
               setPeriodFilter('custom');
               setShowCustomRangePicker(false);
             }}
-            className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition"
+            className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition shadow-lg shadow-blue-900/30"
           >
             {t('apply')}
           </button>

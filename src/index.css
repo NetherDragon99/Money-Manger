@@ -139,12 +139,14 @@ html.light-mode .bg-emerald-500 * {
 }
 
 /* Numpad in Light Mode */
-html.light-mode .grid-cols-4 button {
+html.light-mode .grid-cols-4 button,
+html.light-mode .grid-cols-3 button {
   background-color: #ffffff;
   color: #0f172a;
   border-color: #e2e8f0;
 }
-html.light-mode .grid-cols-4 button:active {
+html.light-mode .grid-cols-4 button:active,
+html.light-mode .grid-cols-3 button:active {
   background-color: #e2e8f0;
 }
 
@@ -153,3 +155,45 @@ html.light-mode button:disabled {
   background-color: #e2e8f0 !important;
   color: #94a3b8 !important;
 }
+
+/* Tactile Press Micro-interactions for All Interactive Elements */
+button,
+[role="button"] {
+  transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
+  will-change: transform;
+}
+
+button:active:not(:disabled),
+[role="button"]:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+/* Smooth Spring & Fade Animations for All Modals and Windows */
+@keyframes modalSlideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes backdropFade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.fixed.inset-0.z-50 {
+  animation: backdropFade 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.fixed.inset-0.z-50 > div {
+  animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+

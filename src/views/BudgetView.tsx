@@ -169,17 +169,9 @@ export const BudgetView: React.FC = () => {
         <div>
           <h2 className="text-xl font-black tracking-tight">{t('budget')} & Categories</h2>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Cycle: {cycleRange.startDate} → {cycleRange.endDate}
+            {settings.language === 'ar' ? 'شهر التطبيق' : 'App Month'}: {cycleRange.startDate} → {cycleRange.endDate}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => openAddCategoryModal(categoryTab)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-semibold text-blue-400 hover:text-white hover:border-zinc-700 transition cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>{t('addCategory')}</span>
-        </button>
       </div>
 
       {/* Top Summary Block */}

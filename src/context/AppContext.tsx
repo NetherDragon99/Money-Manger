@@ -83,6 +83,8 @@ interface AppContextType {
   setIsResetPeriodModalOpen: (open: boolean) => void;
   isFilterModalOpen: boolean;
   setIsFilterModalOpen: (open: boolean) => void;
+  isFeaturesModalOpen: boolean;
+  setIsFeaturesModalOpen: (open: boolean) => void;
 
   // Emoji Picker
   isEmojiPickerOpen: boolean;
@@ -170,6 +172,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false);
   const [isResetPeriodModalOpen, setIsResetPeriodModalOpen] = useState(false);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
 
   // Emoji picker
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
@@ -664,6 +667,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsResetPeriodModalOpen,
         isFilterModalOpen,
         setIsFilterModalOpen,
+        isFeaturesModalOpen,
+        setIsFeaturesModalOpen,
         isEmojiPickerOpen,
         openEmojiPicker,
         closeEmojiPicker,

@@ -4,6 +4,7 @@ import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Plus, ChevronDown } fr
 import { TransactionType } from '../types';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatFullDateTime } from '../utils/dateCycle';
 import { Numpad } from './Numpad';
+import { MiniDateTimePicker } from './MiniDateTimePicker';
 
 export const TransactionModal: React.FC = () => {
   const {
@@ -249,41 +250,18 @@ export const TransactionModal: React.FC = () => {
               </button>
             </div>
 
-            {/* Collapsible Date/Time Picker */}
+            {/* Interactive Visual Mini Calendar & Clock Picker */}
             {showDateTimePicker && (
-              <div className="mt-3 p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-left space-y-3 animate-in fade-in">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] text-zinc-400 mb-1">Date</label>
-                    <input
-                      type="date"
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                      className="w-full px-2.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[11px] text-zinc-400">Time</label>
-                      <button
-                        type="button"
-                        onClick={() => setHasTime(!hasTime)}
-                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                          hasTime ? 'bg-blue-600/30 text-blue-400' : 'bg-zinc-800 text-zinc-500'
-                        }`}
-                      >
-                        {hasTime ? 'Enabled' : 'None'}
-                      </button>
-                    </div>
-                    <input
-                      type="time"
-                      disabled={!hasTime}
-                      value={time}
-                      onChange={(e) => setTime(e.target.value)}
-                      className="w-full px-2.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white disabled:opacity-40"
-                    />
-                  </div>
-                </div>
+              <div className="mt-3 text-left">
+                <MiniDateTimePicker
+                  date={date}
+                  time={time}
+                  hasTime={hasTime}
+                  onDateChange={setDate}
+                  onTimeChange={setTime}
+                  onToggleHasTime={setHasTime}
+                  lang={settings.language}
+                />
               </div>
             )}
           </div>

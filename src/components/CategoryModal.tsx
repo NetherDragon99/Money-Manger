@@ -231,7 +231,20 @@ export const CategoryModal: React.FC = () => {
                 type="number"
                 step="any"
                 value={budgetLimit}
-                onChange={(e) => setBudgetLimit(e.target.value)}
+                onFocus={(e) => {
+                  if (e.target.value === '0') setBudgetLimit('');
+                }}
+                onBlur={(e) => {
+                  if (!e.target.value.trim()) setBudgetLimit('0');
+                }}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                    setBudgetLimit(val.replace(/^0+/, ''));
+                  } else {
+                    setBudgetLimit(val);
+                  }
+                }}
                 placeholder="0 = No limit"
                 className="w-full px-4 py-3 rounded-xl bg-zinc-900 border border-zinc-800 focus:border-blue-500 text-white text-sm outline-none transition"
               />

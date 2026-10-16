@@ -161,7 +161,20 @@ export const AccountModal: React.FC = () => {
               type="number"
               step="any"
               value={balance}
-              onChange={(e) => setBalance(e.target.value)}
+              onFocus={(e) => {
+                if (e.target.value === '0') setBalance('');
+              }}
+              onBlur={(e) => {
+                if (!e.target.value.trim()) setBalance('0');
+              }}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                  setBalance(val.replace(/^0+/, ''));
+                } else {
+                  setBalance(val);
+                }
+              }}
               placeholder="0.00"
               className="w-full px-4 py-3 rounded-xl bg-zinc-900 border border-zinc-800 focus:border-blue-500 text-white text-sm outline-none transition"
               required

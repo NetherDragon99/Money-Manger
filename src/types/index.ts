@@ -64,6 +64,7 @@ export interface AdvancedFilter {
 export interface UserProfile {
   name: string;
   avatarEmoji: string;
+  customAvatarUrl?: string;
 }
 
 export interface AppSettings {

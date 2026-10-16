@@ -23,6 +23,7 @@ import {
 import { exportAccountAsJSON } from '../utils/storage';
 import { GroupedTransactionList } from './GroupedTransactionList';
 import { getAccountTransactions } from '../utils/balanceEngine';
+import { MiniDateTimePicker } from './MiniDateTimePicker';
 
 export const AccountDetailsView: React.FC = () => {
   const {
@@ -52,6 +53,7 @@ export const AccountDetailsView: React.FC = () => {
     endDate: new Date().toISOString().slice(0, 10),
   });
   const [showCustomModal, setShowCustomModal] = useState(false);
+  const [customTarget, setCustomTarget] = useState<'start' | 'end'>('start');
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -330,7 +332,7 @@ export const AccountDetailsView: React.FC = () => {
 
         {/* Custom Date Range Popover */}
         {showCustomModal && (
-          <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3">
+          <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3 animate-in fade-in">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-white uppercase">{t('customRange')}</span>
               <button
@@ -341,27 +343,52 @@ export const AccountDetailsView: React.FC = () => {
                 Close
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="date"
-                value={customRange.startDate}
-                onChange={(e) => setCustomRange((prev) => ({ ...prev, startDate: e.target.value }))}
-                className="px-2.5 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
-              />
-              <input
-                type="date"
-                value={customRange.endDate}
-                onChange={(e) => setCustomRange((prev) => ({ ...prev, endDate: e.target.value }))}
-                className="px-2.5 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
-              />
+            <div className="flex rounded-xl bg-zinc-950 p-1 border border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setCustomTarget('start')}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  customTarget === 'start'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Start: {customRange.startDate}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomTarget('end')}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  customTarget === 'end'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                End: {customRange.endDate}
+              </button>
             </div>
+            <MiniDateTimePicker
+              date={customTarget === 'start' ? customRange.startDate : customRange.endDate}
+              time="00:00"
+              hasTime={false}
+              onDateChange={(newD) => {
+                if (customTarget === 'start') {
+                  setCustomRange((prev) => ({ ...prev, startDate: newD }));
+                } else {
+                  setCustomRange((prev) => ({ ...prev, endDate: newD }));
+                }
+              }}
+              onTimeChange={() => {}}
+              onToggleHasTime={() => {}}
+              lang={settings.language}
+            />
             <button
               type="button"
               onClick={() => {
                 setPeriodType('custom');
                 setShowCustomModal(false);
               }}
-              className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition"
+              className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition shadow-lg shadow-blue-900/30"
             >
               {t('apply')}
             </button>

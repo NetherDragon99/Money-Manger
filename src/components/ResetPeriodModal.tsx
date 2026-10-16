@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { X, Clock, Calendar, RotateCcw } from 'lucide-react';
 import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
+import { MiniDateTimePicker } from './MiniDateTimePicker';
 
 export const ResetPeriodModal: React.FC = () => {
   const { isResetPeriodModalOpen, setIsResetPeriodModalOpen, applyPeriodReset, t, settings } = useApp();
@@ -81,25 +82,16 @@ export const ResetPeriodModal: React.FC = () => {
           </button>
 
           {mode === 'custom' && (
-            <div className="pl-4 pr-1 py-2 space-y-2 border-l-2 border-amber-500/50">
-              <div>
-                <label className="block text-[11px] text-zinc-400 mb-1">Date</label>
-                <input
-                  type="date"
-                  value={customDate}
-                  onChange={(e) => setCustomDate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] text-zinc-400 mb-1">Time</label>
-                <input
-                  type="time"
-                  value={customTime}
-                  onChange={(e) => setCustomTime(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-sm"
-                />
-              </div>
+            <div className="pt-1">
+              <MiniDateTimePicker
+                date={customDate}
+                time={customTime}
+                hasTime={true}
+                onDateChange={setCustomDate}
+                onTimeChange={setCustomTime}
+                onToggleHasTime={() => {}}
+                lang={settings.language}
+              />
             </div>
           )}
 
