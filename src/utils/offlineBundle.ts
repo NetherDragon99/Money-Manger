@@ -154,7 +154,7 @@ export function downloadOfflineAppBundle(currentData: AppData, lang: 'en' | 'ar'
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'Personal_Finance_Tracker_v1.0.5.html';
+  a.download = 'Personal_Finance_Tracker_v1.0.6.html';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

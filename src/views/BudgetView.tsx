@@ -1,12 +1,13 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   Plus,
   ArrowUp,
   ArrowDown,
-  GripVertical,
   AlertCircle,
   CheckCircle2,
+  TrendingUp,
+  ArrowDownRight,
 } from 'lucide-react';
 import { Category } from '../types';
 import {
@@ -26,6 +27,8 @@ export const BudgetView: React.FC = () => {
     t,
   } = useApp();
 
+  const [categoryTab, setCategoryTab] = useState<'expense' | 'income'>('expense');
+
   // Current monthly cycle date range based on Global Default Month Start Day
   const cycleRange = useMemo(() => {
     return getMonthCycleRange(new Date(), settings.defaultMonthStartDay, 0);
@@ -35,6 +38,13 @@ export const BudgetView: React.FC = () => {
   const cycleExpenseTxs = useMemo(() => {
     return transactions.filter(
       (tx) => tx.type === 'expense' && isTransactionInRange(tx, cycleRange)
+    );
+  }, [transactions, cycleRange]);
+
+  // Current cycle transactions for income calculation
+  const cycleIncomeTxs = useMemo(() => {
+    return transactions.filter(
+      (tx) => tx.type === 'income' && isTransactionInRange(tx, cycleRange)
     );
   }, [transactions, cycleRange]);
 
@@ -49,7 +59,18 @@ export const BudgetView: React.FC = () => {
     return map;
   }, [cycleExpenseTxs]);
 
-  // Transaction count per category for smart sorting
+  // Income received per category in this cycle
+  const categoryIncomeMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const tx of cycleIncomeTxs) {
+      if (tx.categoryId) {
+        map.set(tx.categoryId, (map.get(tx.categoryId) || 0) + tx.amount);
+      }
+    }
+    return map;
+  }, [cycleIncomeTxs]);
+
+  // Frequency of each category used in all transactions (for smart default sort)
   const categoryFrequencyMap = useMemo(() => {
     const map = new Map<string, number>();
     for (const tx of transactions) {
@@ -60,12 +81,7 @@ export const BudgetView: React.FC = () => {
     return map;
   }, [transactions]);
 
-  // Expense categories sorted:
-  // If user has a persisted manual order (settings.categoryOrder), use that.
-  // Otherwise, smart default sort:
-  // 1. Categories with an active Budget (budget > 0) first.
-  // 2. Most frequently used categories next.
-  // 3. Remaining categories last.
+  // Expense categories sorted
   const expenseCategories = useMemo(() => {
     const expOnly = categories.filter((c) => c.type === 'expense');
 
@@ -94,8 +110,19 @@ export const BudgetView: React.FC = () => {
     });
   }, [categories, settings.categoryOrder, categoryFrequencyMap]);
 
-  // Top Summary Block:
-  // Total of all active category budgets for current cycle
+  // Income categories sorted
+  const incomeCategories = useMemo(() => {
+    return categories
+      .filter((c) => c.type === 'income')
+      .sort((a, b) => {
+        const incA = categoryIncomeMap.get(a.id) || 0;
+        const incB = categoryIncomeMap.get(b.id) || 0;
+        if (incA !== incB) return incB - incA;
+        return a.name.localeCompare(b.name);
+      });
+  }, [categories, categoryIncomeMap]);
+
+  // Top Summary Block: Total of all active category budgets for current cycle
   const { totalBudget, totalSpent } = useMemo(() => {
     let bSum = 0;
     let sSum = 0;
@@ -109,9 +136,15 @@ export const BudgetView: React.FC = () => {
     return { totalBudget: bSum, totalSpent: sSum };
   }, [expenseCategories, categorySpentMap]);
 
+  // Total income received in cycle
+  const totalIncomeReceived = useMemo(() => {
+    return cycleIncomeTxs.reduce((sum, tx) => sum + tx.amount, 0);
+  }, [cycleIncomeTxs]);
+
   const remainingBudget = totalBudget - totalSpent;
-  const isOverBudget = totalSpent > totalBudget && totalBudget > 0;
-  const overallPercentage = totalBudget > 0 ? Math.min(100, (totalSpent / totalBudget) * 100) : 0;
+  const isOverBudget = remainingBudget < 0;
+  const overallPercentage =
+    totalBudget > 0 ? Math.min(100, (totalSpent / totalBudget) * 100) : 0;
 
   // Move up/down handlers
   const handleMove = (index: number, direction: 'up' | 'down') => {
@@ -134,7 +167,7 @@ export const BudgetView: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-black tracking-tight">{t('budget')}</h2>
+          <h2 className="text-xl font-black tracking-tight">{t('budget')} & Categories</h2>
           <p className="text-xs text-zinc-400 mt-0.5">
             Cycle: {cycleRange.startDate} → {cycleRange.endDate}
           </p>
@@ -142,14 +175,14 @@ export const BudgetView: React.FC = () => {
         <button
           type="button"
           onClick={openAddCategoryModal}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-semibold text-blue-400 hover:text-white hover:border-zinc-700 transition"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-semibold text-blue-400 hover:text-white hover:border-zinc-700 transition cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>{t('addCategory')}</span>
         </button>
       </div>
 
-      {/* Top Summary Block: Total Spent / Total Budget, Remaining Budget, progress bar */}
+      {/* Top Summary Block */}
       <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden space-y-4">
         <div className="flex items-center justify-between">
           <div>
@@ -197,126 +230,255 @@ export const BudgetView: React.FC = () => {
           </div>
           <div className="flex justify-between text-[11px] text-zinc-400 font-mono">
             <span>{Math.round(overallPercentage)}% used</span>
-            <span>{totalBudget > 0 ? `${expenseCategories.filter((c) => c.budgetLimit > 0).length} active budgets` : 'No limits set'}</span>
+            <span>
+              {totalBudget > 0
+                ? `${expenseCategories.filter((c) => c.budgetLimit > 0).length} active budgets`
+                : 'No limits set'}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Reorderable Category Budget List */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-            Category Budgets ({expenseCategories.length})
-          </h3>
-          <span className="text-[11px] text-zinc-500">Tap card to edit</span>
-        </div>
+      {/* Segmented Control: Expense Categories vs Income Categories */}
+      <div className="flex p-1 rounded-2xl bg-zinc-900 border border-zinc-800">
+        <button
+          type="button"
+          onClick={() => setCategoryTab('expense')}
+          className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer ${
+            categoryTab === 'expense'
+              ? 'bg-zinc-800 text-white shadow-md'
+              : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          {settings.language === 'ar' ? 'فئات المصروفات' : 'Expense Categories'} ({expenseCategories.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setCategoryTab('income')}
+          className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer ${
+            categoryTab === 'income'
+              ? 'bg-zinc-800 text-emerald-400 shadow-md'
+              : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          {settings.language === 'ar' ? 'فئات الإيرادات (الواردة)' : 'Income Categories'} ({incomeCategories.length})
+        </button>
+      </div>
 
-        <div className="space-y-2.5">
-          {expenseCategories.map((cat, idx) => {
-            const spent = categorySpentMap.get(cat.id) || 0;
-            const hasBudget = cat.budgetLimit > 0;
-            const isCatOver = hasBudget && spent > cat.budgetLimit;
-            const catProgress = hasBudget ? Math.min(100, (spent / cat.budgetLimit) * 100) : 0;
+      {/* EXPENSE CATEGORIES TAB */}
+      {categoryTab === 'expense' && (
+        <div className="space-y-3 animate-in fade-in">
+          <div className="flex items-center justify-between px-1">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+              {settings.language === 'ar' ? 'ميزانية فئات المصروفات' : 'Expense Budgets'} ({expenseCategories.length})
+            </h3>
+            <span className="text-[11px] text-zinc-500">
+              {settings.language === 'ar' ? 'انقر على الفئة لتعديلها أو حذفها' : 'Tap card to edit or delete'}
+            </span>
+          </div>
 
-            return (
-              <div
-                key={cat.id}
-                onClick={() => openEditCategoryModal(cat)}
-                role="button"
-                tabIndex={0}
-                className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700 active:scale-[0.99] transition cursor-pointer group"
-              >
-                {/* Left: Move buttons + Category Emoji + Name */}
-                <div className="flex items-center gap-2.5 min-w-0">
-                  {/* Move Up/Down Controls */}
-                  <div
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex flex-col gap-0.5 text-zinc-500"
-                  >
-                    <button
-                      type="button"
-                      disabled={idx === 0}
-                      onClick={() => handleMove(idx, 'up')}
-                      aria-label="Move Up"
-                      className="p-1 hover:text-white disabled:opacity-20 transition"
+          <div className="space-y-2.5">
+            {expenseCategories.map((cat, idx) => {
+              const spent = categorySpentMap.get(cat.id) || 0;
+              const hasBudget = cat.budgetLimit > 0;
+              const isCatOver = hasBudget && spent > cat.budgetLimit;
+              const catProgress = hasBudget ? Math.min(100, (spent / cat.budgetLimit) * 100) : 0;
+
+              return (
+                <div
+                  key={cat.id}
+                  onClick={() => openEditCategoryModal(cat)}
+                  role="button"
+                  tabIndex={0}
+                  className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700 active:scale-[0.99] transition cursor-pointer group"
+                >
+                  {/* Left: Move buttons + Category Emoji + Name */}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex flex-col gap-0.5 text-zinc-500"
                     >
-                      <ArrowUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={idx === expenseCategories.length - 1}
-                      onClick={() => handleMove(idx, 'down')}
-                      aria-label="Move Down"
-                      className="p-1 hover:text-white disabled:opacity-20 transition"
-                    >
-                      <ArrowDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
-                    {cat.icon}
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs group-hover:text-blue-300 transition">
-                      {cat.name}
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => handleMove(idx, 'up')}
+                        aria-label="Move Up"
+                        className="p-1 hover:text-white disabled:opacity-20 transition"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === expenseCategories.length - 1}
+                        onClick={() => handleMove(idx, 'down')}
+                        aria-label="Move Down"
+                        className="p-1 hover:text-white disabled:opacity-20 transition"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                    {hasBudget && (
-                      <div className="text-[10px] text-zinc-400 mt-0.5">
-                        {isCatOver ? (
-                          <span className="text-red-400 flex items-center gap-1">
-                            <AlertCircle className="w-3 h-3" /> Over by {formatCurrency(spent - cat.budgetLimit, currencySymbol)}
+
+                    <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
+                      {cat.icon}
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs group-hover:text-blue-300 transition">
+                        {cat.name}
+                      </div>
+                      {hasBudget && (
+                        <div className="text-[10px] text-zinc-400 mt-0.5">
+                          {isCatOver ? (
+                            <span className="text-red-400 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" /> Over by{' '}
+                              {formatCurrency(spent - cat.budgetLimit, currencySymbol)}
+                            </span>
+                          ) : (
+                            <span>
+                              {formatCurrency(cat.budgetLimit - spent, currencySymbol)} remaining
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Side: £ Spent / £ Budget */}
+                  <div className="text-right shrink-0 pl-3">
+                    {hasBudget ? (
+                      <div>
+                        <div className="text-sm font-black font-mono text-white">
+                          {formatCurrency(spent, currencySymbol)}
+                          <span className="text-xs font-normal text-zinc-500">
+                            {' '}
+                            / {formatCurrency(cat.budgetLimit, currencySymbol)}
                           </span>
-                        ) : (
-                          <span>{formatCurrency(cat.budgetLimit - spent, currencySymbol)} remaining</span>
-                        )}
+                        </div>
+                        <div className="w-24 sm:w-32 h-1.5 rounded-full bg-zinc-950 overflow-hidden mt-1.5 ml-auto">
+                          <div
+                            style={{ width: `${catProgress}%` }}
+                            className={`h-full rounded-full ${
+                              isCatOver
+                                ? 'bg-red-500'
+                                : catProgress > 85
+                                ? 'bg-amber-400'
+                                : 'bg-emerald-500'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-right">
+                        <span className="text-xs font-mono font-medium text-zinc-400">
+                          {spent > 0 ? formatCurrency(spent, currencySymbol) : 'No budget'}
+                        </span>
+                        <div className="text-[10px] text-zinc-500">Tap to set limit</div>
                       </div>
                     )}
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-                {/* Right Side: £ Spent / £ Budget OR "Edit" if no budget is set */}
-                <div className="text-right shrink-0 pl-3">
-                  {hasBudget ? (
-                    <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">
-                        <span className={isCatOver ? 'text-red-400 font-black' : 'text-zinc-200'}>
-                          {formatCurrency(spent, currencySymbol)}
-                        </span>{' '}
-                        <span className="text-zinc-500">/ {formatCurrency(cat.budgetLimit, currencySymbol)}</span>
-                      </div>
-                      <div className="w-24 h-1.5 rounded-full bg-zinc-950 overflow-hidden ml-auto">
-                        <div
-                          style={{ width: `${catProgress}%` }}
-                          className={`h-full rounded-full ${
-                            isCatOver ? 'bg-red-500' : catProgress > 80 ? 'bg-amber-400' : 'bg-emerald-500'
-                          }`}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <span className="text-xs font-semibold text-blue-400 group-hover:underline">
-                      Set Budget
-                    </span>
-                  )}
+      {/* INCOME CATEGORIES TAB */}
+      {categoryTab === 'income' && (
+        <div className="space-y-3 animate-in fade-in">
+          <div className="flex items-center justify-between px-1">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+              {settings.language === 'ar' ? 'فئات الإيرادات والدخل الوارد' : 'Incoming Income Categories'} ({incomeCategories.length})
+            </h3>
+            <span className="text-[11px] text-zinc-500">
+              {settings.language === 'ar' ? 'انقر على الفئة لتعديلها أو حذفها' : 'Tap card to edit or delete'}
+            </span>
+          </div>
+
+          {/* Income Summary Banner */}
+          <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-900/50 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <TrendingUp className="w-5 h-5 text-emerald-400" />
+              <div>
+                <div className="text-xs text-zinc-300">
+                  {settings.language === 'ar' ? 'إجمالي الدخل الوارد بهذه الدورة' : 'Total Cycle Income Received'}
+                </div>
+                <div className="text-lg font-black font-mono text-emerald-400">
+                  {formatCurrency(totalIncomeReceived, currencySymbol)}
                 </div>
               </div>
-            );
-          })}
-        </div>
+            </div>
+            <button
+              type="button"
+              onClick={openAddCategoryModal}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-900/30 cursor-pointer"
+            >
+              + {settings.language === 'ar' ? 'إضافة فئة دخل' : 'Add Income Category'}
+            </button>
+          </div>
 
-        {/* Bottom Button: A clear "+ Add Category" button */}
-        <div className="pt-2">
-          <button
-            type="button"
-            onClick={openAddCategoryModal}
-            className="w-full py-3.5 rounded-2xl bg-zinc-900 border border-dashed border-zinc-700 hover:border-zinc-500 text-zinc-300 hover:text-white font-bold text-xs flex items-center justify-center gap-2 transition"
-          >
-            <Plus className="w-4 h-4 text-blue-400" />
-            <span>{t('addCategory')}</span>
-          </button>
+          {incomeCategories.length === 0 ? (
+            <div className="text-center py-12 px-4 rounded-3xl bg-zinc-900/40 border border-zinc-800 text-zinc-400 space-y-3">
+              <div className="text-3xl">💰</div>
+              <p className="text-sm font-semibold text-white">
+                {settings.language === 'ar' ? 'لا توجد فئات دخل حتى الآن' : 'No income categories yet'}
+              </p>
+              <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                {settings.language === 'ar'
+                  ? 'أضف فئات مثل الراتب، المكافآت، الاستثمارات، وغيرها لتصنيف الدخل الوارد.'
+                  : 'Add categories like Salary, Freelance, or Investments to track where your money comes from.'}
+              </p>
+              <button
+                type="button"
+                onClick={openAddCategoryModal}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{settings.language === 'ar' ? 'إنشاء فئة واردة جديدة' : 'Create Income Category'}</span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {incomeCategories.map((cat) => {
+                const received = categoryIncomeMap.get(cat.id) || 0;
+
+                return (
+                  <div
+                    key={cat.id}
+                    onClick={() => openEditCategoryModal(cat)}
+                    role="button"
+                    tabIndex={0}
+                    className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700 active:scale-[0.99] transition cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-11 h-11 rounded-xl bg-emerald-950/40 border border-emerald-800/60 flex items-center justify-center text-2xl shrink-0">
+                        {cat.icon}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-white truncate max-w-[160px] sm:max-w-xs group-hover:text-emerald-300 transition">
+                          {cat.name}
+                        </div>
+                        <div className="text-[10px] text-emerald-400 mt-0.5">
+                          {settings.language === 'ar' ? 'فئة دخل واردة' : 'Incoming Category'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <div className="text-sm font-black font-mono text-emerald-400">
+                        +{formatCurrency(received, currencySymbol)}
+                      </div>
+                      <div className="text-[10px] text-zinc-500">
+                        {settings.language === 'ar' ? 'انقر للتعديل أو الحذف' : 'Tap to edit/delete'}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 };
