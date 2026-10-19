@@ -9,6 +9,7 @@ const LAST_SEEN_KEY = 'last_seen_app_version';
 export const WhatsNewModal: React.FC = () => {
   const { settings } = useApp();
   const [isOpen, setIsOpen] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const isArabic = settings.language === 'ar';
 
   useEffect(() => {
@@ -33,7 +34,11 @@ export const WhatsNewModal: React.FC = () => {
     } catch (e) {
       console.warn('Could not save seen version:', e);
     }
-    setIsOpen(false);
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsClosing(false);
+      setIsOpen(false);
+    }, 180);
   };
 
   if (!isOpen) return null;
@@ -44,11 +49,15 @@ export const WhatsNewModal: React.FC = () => {
   return (
     <div
       onClick={handleDismiss}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in"
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 transition-all duration-200 ${
+        isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
+      }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-3xl bg-zinc-950 border border-blue-500/40 p-6 shadow-2xl text-white space-y-5 animate-in zoom-in-95 duration-250 relative overflow-hidden"
+        className={`w-full max-w-md rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-blue-500/40 p-6 shadow-2xl text-white space-y-5 relative overflow-hidden transition-all duration-200 ${
+          isClosing ? 'modal-container-closing' : 'modal-container-anim'
+        }`}
       >
         {/* Subtle decorative glow */}
         <div className="absolute -top-16 -right-16 w-36 h-36 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />

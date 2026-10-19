@@ -22,6 +22,7 @@ import {
 } from '../utils/dateCycle';
 import { GroupedTransactionList } from '../components/GroupedTransactionList';
 import { MiniDateTimePicker } from '../components/MiniDateTimePicker';
+import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
 
 export const HomeView: React.FC = () => {
   const {
@@ -241,7 +242,7 @@ export const HomeView: React.FC = () => {
     advancedFilter.type !== 'all';
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col pb-28 animate-in fade-in">
+    <div className="bg-black text-white flex flex-col pb-24 animate-in fade-in">
       {/* 1. Top Header Bar */}
       <header className="sticky top-0 z-30 bg-black/90 backdrop-blur-md px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between">
         {/* Left: Hamburger Menu Button (☰) */}
@@ -461,6 +462,9 @@ export const HomeView: React.FC = () => {
 
       {/* View Content */}
       <div className="flex-1 px-4 py-3 max-w-2xl mx-auto w-full space-y-4">
+        {/* Smart Budget Alert Banner */}
+        <SmartBudgetAlertBanner />
+
         {/* VIEW A: DAILY */}
         {homeSubView === 'daily' && (
           <div className="space-y-4">
@@ -551,28 +555,34 @@ export const HomeView: React.FC = () => {
               <div className="grid grid-cols-7 gap-1.5">
                 {calendarDays.map((cell, idx) => {
                   if (!cell.isCurrentMonth) {
-                    return <div key={`empty_${idx}`} className="h-14 sm:h-16" />;
+                    return <div key={`empty_${idx}`} className="min-h-[80px]" />;
                   }
 
                   const isSelected = cell.dateStr === selectedCalendarDate;
                   const dayTxs = calendarDayTxsMap.get(cell.dateStr) || [];
                   const isToday = cell.dateStr === formatDateToYYYYMMDD(new Date());
 
+                  const formatCompact = (val: number) => {
+                    if (val >= 1000000) return `${(val / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+                    if (val >= 1000) return `${(val / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+                    return `${Math.round(val)}`;
+                  };
+
                   return (
                     <button
                       key={cell.dateStr}
                       type="button"
                       onClick={() => setSelectedCalendarDate(cell.dateStr)}
-                      className={`h-14 sm:h-16 p-1 rounded-xl flex flex-col justify-between items-center transition relative border ${
+                      className={`min-h-[80px] p-1 rounded-xl flex flex-col justify-between items-center transition relative border overflow-hidden ${
                         isSelected
-                          ? 'bg-blue-600/30 border-blue-500 ring-1 ring-blue-500'
+                          ? 'bg-blue-600/30 border-blue-500 ring-1 ring-blue-500 shadow-md'
                           : isToday
                           ? 'bg-zinc-800/80 border-zinc-700'
                           : 'bg-zinc-950/60 border-zinc-800/60 hover:bg-zinc-800/40'
                       }`}
                     >
                       <span
-                        className={`text-xs font-bold ${
+                        className={`text-xs font-bold leading-none pt-0.5 ${
                           isSelected
                             ? 'text-white'
                             : isToday
@@ -583,25 +593,25 @@ export const HomeView: React.FC = () => {
                         {cell.dayNumber}
                       </span>
 
-                      {/* Mini Transaction Amounts */}
-                      <div className="w-full flex flex-col gap-0.5 overflow-hidden">
-                        {dayTxs.slice(0, 3).map((tx) => (
+                      {/* Mini Transaction Amounts in non-overlapping micro-rows */}
+                      <div className="w-full flex flex-col gap-1 overflow-hidden my-auto py-0.5">
+                        {dayTxs.slice(0, dayTxs.length >= 3 ? 2 : 3).map((tx) => (
                           <div
                             key={tx.id}
-                            className={`text-[9px] font-mono leading-none truncate px-0.5 rounded text-center ${
+                            className={`text-[9px] font-mono leading-tight truncate w-full px-0.5 py-0.5 rounded text-center font-bold ${
                               tx.type === 'income'
-                                ? 'text-emerald-400 bg-emerald-950/60'
+                                ? 'text-emerald-400 bg-emerald-950/70 border border-emerald-900/40'
                                 : tx.type === 'expense'
-                                ? 'text-red-400 bg-red-950/60'
-                                : 'text-blue-400 bg-blue-950/60'
+                                ? 'text-red-400 bg-red-950/70 border border-red-900/40'
+                                : 'text-blue-400 bg-blue-950/70 border border-blue-900/40'
                             }`}
                           >
-                            {Math.round(tx.amount)}
+                            {formatCompact(tx.amount)}
                           </div>
                         ))}
-                        {dayTxs.length > 3 && (
-                          <div className="text-[8px] text-zinc-500 text-center leading-none">
-                            +{dayTxs.length - 3}
+                        {dayTxs.length >= 3 && (
+                          <div className="text-[8px] font-bold text-amber-300 bg-amber-950/60 border border-amber-900/40 rounded px-0.5 py-0.5 text-center leading-tight truncate">
+                            +{dayTxs.length - 2} more
                           </div>
                         )}
                       </div>

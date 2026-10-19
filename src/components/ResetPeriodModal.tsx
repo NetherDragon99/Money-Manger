@@ -10,8 +10,17 @@ export const ResetPeriodModal: React.FC = () => {
   const now = new Date();
   const [customDate, setCustomDate] = useState(formatDateToYYYYMMDD(now));
   const [customTime, setCustomTime] = useState(formatTimeToHHMM(now));
+  const [isClosing, setIsClosing] = useState(false);
 
   if (!isResetPeriodModalOpen) return null;
+
+  const handleAnimatedClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsClosing(false);
+      setIsResetPeriodModalOpen(false);
+    }, 180);
+  };
 
   const handleApply = () => {
     if (mode === 'now') {
@@ -22,16 +31,21 @@ export const ResetPeriodModal: React.FC = () => {
       const fullIso = `${customDate}T${customTime || '00:00'}:00`;
       applyPeriodReset('custom', fullIso);
     }
+    handleAnimatedClose();
   };
 
   return (
     <div
-      onClick={() => setIsResetPeriodModalOpen(false)}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in"
+      onClick={handleAnimatedClose}
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 transition-all duration-200 ${
+        isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
+      }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-3xl bg-zinc-950 border border-zinc-800 p-6 shadow-2xl text-white space-y-5"
+        className={`w-full max-w-sm rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 p-6 shadow-2xl text-white space-y-5 transition-all duration-200 ${
+          isClosing ? 'modal-container-closing' : 'modal-container-anim'
+        }`}
       >
         <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
           <h3 className="text-lg font-bold flex items-center gap-2">
@@ -40,7 +54,7 @@ export const ResetPeriodModal: React.FC = () => {
           </h3>
           <button
             type="button"
-            onClick={() => setIsResetPeriodModalOpen(false)}
+            onClick={handleAnimatedClose}
             className="p-1 rounded-full text-zinc-400 hover:text-white"
           >
             <X className="w-5 h-5" />

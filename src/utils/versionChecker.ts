@@ -3,7 +3,7 @@
  * Checks for newest versions on every launch and triggers instant updates.
  */
 
-export const CURRENT_APP_VERSION = '1.0.9';
+export const CURRENT_APP_VERSION = '1.1.3';
 const GITHUB_REPO = 'NetherDragon99/Money-Manger';
 
 export interface UpdateCheckResult {
@@ -42,21 +42,30 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
 
   // 1. Check live version.json on deployed host (bypassing browser cache)
   try {
-    const base = window.location.pathname.startsWith('/Money-Manger/') ? '/Money-Manger/' : './';
+    const isGhPages = window.location.pathname.startsWith('/Money-Manger');
+    const base = isGhPages ? '/Money-Manger/' : '/';
     const versionUrl = `${base}version.json?_t=${Date.now()}`;
     const res = await fetch(versionUrl, {
       cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
+      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Accept: 'application/json' },
     });
     if (res.ok) {
-      const data = await res.json();
-      if (data && data.version && compareVersions(CURRENT_APP_VERSION, data.version)) {
-        return {
-          hasUpdate: true,
-          currentVersion: CURRENT_APP_VERSION,
-          latestVersion: data.version,
-          source: 'version-file',
-        };
+      const text = await res.text();
+      // Guard against HTML 404/SPA responses starting with '<'
+      if (text && !text.trim().startsWith('<')) {
+        try {
+          const data = JSON.parse(text);
+          if (data && data.version && compareVersions(CURRENT_APP_VERSION, data.version)) {
+            return {
+              hasUpdate: true,
+              currentVersion: CURRENT_APP_VERSION,
+              latestVersion: data.version,
+              source: 'version-file',
+            };
+          }
+        } catch {
+          // Ignore invalid JSON
+        }
       }
     }
   } catch (err) {
@@ -67,22 +76,29 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
   try {
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/commits/main?_t=${Date.now()}`, {
       cache: 'no-store',
-      headers: { 'Accept': 'application/vnd.github.v3+json' },
+      headers: { Accept: 'application/vnd.github.v3+json' },
     });
     if (res.ok) {
-      const commitData = await res.json();
-      const message = commitData?.commit?.message || '';
-      // Check if commit message mentions a newer version
-      const versionMatch = message.match(/1\.0\.([0-9]+)/);
-      if (versionMatch) {
-        const foundVersion = `1.0.${versionMatch[1]}`;
-        if (compareVersions(CURRENT_APP_VERSION, foundVersion)) {
-          return {
-            hasUpdate: true,
-            currentVersion: CURRENT_APP_VERSION,
-            latestVersion: foundVersion,
-            source: 'github-api',
-          };
+      const text = await res.text();
+      if (text && !text.trim().startsWith('<')) {
+        try {
+          const commitData = JSON.parse(text);
+          const message = commitData?.commit?.message || '';
+          // Check if commit message mentions a newer version (e.g. 2.0.0 or 1.0.x)
+          const versionMatch = message.match(/([0-9]+\.[0-9]+\.[0-9]+)/);
+          if (versionMatch) {
+            const foundVersion = versionMatch[1];
+            if (compareVersions(CURRENT_APP_VERSION, foundVersion)) {
+              return {
+                hasUpdate: true,
+                currentVersion: CURRENT_APP_VERSION,
+                latestVersion: foundVersion,
+                source: 'github-api',
+              };
+            }
+          }
+        } catch {
+          // Ignore invalid JSON
         }
       }
     }

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   ArrowLeft,
@@ -13,6 +13,7 @@ import {
   Plus,
   ArrowDown,
   ArrowUp,
+  Users,
 } from 'lucide-react';
 import { PeriodFilterType, DateRange } from '../types';
 import {
@@ -24,6 +25,7 @@ import { exportAccountAsJSON } from '../utils/storage';
 import { GroupedTransactionList } from './GroupedTransactionList';
 import { getAccountTransactions } from '../utils/balanceEngine';
 import { MiniDateTimePicker } from './MiniDateTimePicker';
+import { SharedAccountModal } from './SharedAccountModal';
 
 export const AccountDetailsView: React.FC = () => {
   const {
@@ -46,6 +48,23 @@ export const AccountDetailsView: React.FC = () => {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const periodDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen && !periodDropdownOpen) return;
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      if (menuOpen && menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+      if (periodDropdownOpen && periodDropdownRef.current && !periodDropdownRef.current.contains(e.target as Node)) {
+        setPeriodDropdownOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handleOutside);
+    return () => document.removeEventListener('pointerdown', handleOutside);
+  }, [menuOpen, periodDropdownOpen]);
   const [periodType, setPeriodType] = useState<PeriodFilterType>('this_month');
   const [periodOffset, setPeriodOffset] = useState(0);
   const [customRange, setCustomRange] = useState<DateRange>({
@@ -163,7 +182,7 @@ export const AccountDetailsView: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col pb-24 animate-in fade-in">
+    <div className="bg-black text-white flex flex-col pb-24 animate-in fade-in">
       {/* Hidden file input for account import */}
       <input
         type="file"
@@ -194,7 +213,7 @@ export const AccountDetailsView: React.FC = () => {
         </div>
 
         {/* Right: Three-dots Menu */}
-        <div className="relative">
+        <div ref={menuRef} className="relative">
           <button
             type="button"
             onClick={() => setMenuOpen(!menuOpen)}
@@ -235,6 +254,17 @@ export const AccountDetailsView: React.FC = () => {
                 <Upload className="w-4 h-4 text-purple-400" />
                 <span>{t('importAccountData')}</span>
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setIsShareModalOpen(true);
+                }}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-zinc-800 text-zinc-200 transition"
+              >
+                <Users className="w-4 h-4 text-cyan-400" />
+                <span>{settings.language === 'ar' ? 'المشاركة السحابية الحية' : 'Live Cloud Share'}</span>
+              </button>
               <div className="my-1 border-t border-zinc-800" />
               <button
                 type="button"
@@ -261,7 +291,7 @@ export const AccountDetailsView: React.FC = () => {
             <ChevronLeft className="w-5 h-5" />
           </button>
 
-          <div className="relative">
+          <div ref={periodDropdownRef} className="relative">
             <button
               type="button"
               onClick={() => setPeriodDropdownOpen(!periodDropdownOpen)}
@@ -448,15 +478,25 @@ export const AccountDetailsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Floating Action Button (+): Pre-selects this specific account! */}
-      <button
-        type="button"
-        onClick={() => openAddTxModal(account.id)}
-        aria-label="Add Transaction"
-        className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-500 active:scale-95 text-white flex items-center justify-center shadow-2xl shadow-blue-900/60 transition cursor-pointer border border-blue-400/40"
-      >
-        <Plus className="w-7 h-7 stroke-[2.5]" />
-      </button>
+      {/* Floating Action Button (+): Pre-selects this specific account, constrained to frame */}
+      <div className="fixed bottom-6 left-0 right-0 max-w-[480px] mx-auto pointer-events-none z-40 px-5 flex justify-end">
+        <button
+          type="button"
+          onClick={() => openAddTxModal(account.id)}
+          aria-label="Add Transaction"
+          className="pointer-events-auto w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-500 active:scale-95 text-white flex items-center justify-center shadow-2xl shadow-blue-900/60 transition cursor-pointer border border-blue-400/40"
+        >
+          <Plus className="w-7 h-7 stroke-[2.5]" />
+        </button>
+      </div>
+
+      {/* Live Shared Account Modal */}
+      <SharedAccountModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        account={account}
+        transactions={transactions}
+      />
     </div>
   );
 };

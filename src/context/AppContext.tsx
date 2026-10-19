@@ -8,7 +8,20 @@ import {
   DateRange,
   AdvancedFilter,
   AppData,
+  TabType,
+  RecurringTransaction,
 } from '../types';
+import {
+  loadRecurringTransactions,
+  saveRecurringTransactions,
+  checkAndProcessRecurring,
+} from '../utils/recurring';
+import {
+  loadSecuritySettings,
+  isSessionUnlocked,
+  setSessionUnlocked,
+} from '../utils/security';
+import { evaluateBudgetAlerts, BudgetAlert } from '../utils/budgetAlerts';
 import {
   loadInitialData,
   saveAccounts,
@@ -36,8 +49,8 @@ interface AppContextType {
   settings: AppSettings;
 
   // Active Navigation & View
-  currentTab: 'home' | 'budget' | 'insights' | 'accounts';
-  setCurrentTab: (tab: 'home' | 'budget' | 'insights' | 'accounts') => void;
+  currentTab: TabType;
+  setCurrentTab: (tab: TabType) => void;
   homeSubView: 'daily' | 'calendar';
   setHomeSubView: (view: 'daily' | 'calendar') => void;
   selectedAccountId: string | null;
@@ -58,7 +71,9 @@ interface AppContextType {
   isSidebarOpen: boolean;
   setIsSidebarOpen: (open: boolean) => void;
   isAddTxModalOpen: boolean;
-  openAddTxModal: (defaultAccountId?: string) => void;
+  defaultTxAccountId?: string;
+  defaultTxAmount?: number;
+  openAddTxModal: (defaultAccountId?: string, initialAmount?: number) => void;
   closeAddTxModal: () => void;
   editingTx: Transaction | null;
   openEditTxModal: (tx: Transaction) => void;
@@ -85,6 +100,28 @@ interface AppContextType {
   setIsFilterModalOpen: (open: boolean) => void;
   isFeaturesModalOpen: boolean;
   setIsFeaturesModalOpen: (open: boolean) => void;
+  isRecurringModalOpen: boolean;
+  setIsRecurringModalOpen: (open: boolean) => void;
+  isPinModalOpen: boolean;
+  setIsPinModalOpen: (open: boolean) => void;
+
+  // Security & Biometric Lock
+  isAppLocked: boolean;
+  setIsAppLocked: (locked: boolean) => void;
+  unlockApp: () => void;
+  lockApp: () => void;
+
+  // Recurring Transactions
+  recurringTransactions: RecurringTransaction[];
+  addRecurringTransaction: (rec: Omit<RecurringTransaction, 'id' | 'createdAt'>) => void;
+  updateRecurringTransaction: (rec: RecurringTransaction) => void;
+  deleteRecurringTransaction: (id: string) => void;
+  processDueRecurring: () => number;
+
+  // Smart Budget Alerts
+  budgetAlerts: BudgetAlert[];
+  dismissBudgetAlert: (categoryId: string) => void;
+  dismissedAlertIds: string[];
 
   // Emoji Picker
   isEmojiPickerOpen: boolean;
@@ -101,6 +138,11 @@ interface AppContextType {
   addAccount: (acc: Omit<Account, 'id' | 'balance'>, initialBalance?: number) => void;
   updateAccount: (acc: Account, newBalance?: number) => void;
   deleteAccount: (id: string) => boolean;
+  reorderAccounts: (ordered: string[] | Account[]) => void;
+
+  // Shared Accounts Hub Modal
+  isSharedHubModalOpen: boolean;
+  setIsSharedHubModalOpen: (open: boolean) => void;
 
   // Categories CRUD
   addCategory: (cat: Omit<Category, 'id'>) => void;
@@ -127,15 +169,15 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const initial = useMemo(() => loadInitialData(), []);
+  const [initialData] = useState(() => loadInitialData());
 
-  const [accounts, setAccounts] = useState<Account[]>(initial.accounts);
-  const [categories, setCategories] = useState<Category[]>(initial.categories);
-  const [transactions, setTransactions] = useState<Transaction[]>(initial.transactions);
-  const [settings, setSettings] = useState<AppSettings>(initial.settings);
+  const [accounts, setAccounts] = useState<Account[]>(initialData.accounts);
+  const [categories, setCategories] = useState<Category[]>(initialData.categories);
+  const [transactions, setTransactions] = useState<Transaction[]>(initialData.transactions);
+  const [settings, setSettings] = useState<AppSettings>(initialData.settings);
 
   // Nav
-  const [currentTab, setCurrentTab] = useState<'home' | 'budget' | 'insights' | 'accounts'>('home');
+  const [currentTab, setCurrentTab] = useState<TabType>('home');
   const [homeSubView, setHomeSubView] = useState<'daily' | 'calendar'>('daily');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
 
@@ -159,6 +201,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddTxModalOpen, setIsAddTxModalOpen] = useState(false);
   const [defaultTxAccountId, setDefaultTxAccountId] = useState<string | undefined>(undefined);
+  const [defaultTxAmount, setDefaultTxAmount] = useState<number | undefined>(undefined);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [viewingTx, setViewingTx] = useState<Transaction | null>(null);
 
@@ -173,6 +216,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isResetPeriodModalOpen, setIsResetPeriodModalOpen] = useState(false);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
+  const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [isSharedHubModalOpen, setIsSharedHubModalOpen] = useState(false);
+
+  // Recurring transactions state
+  const [recurringTransactions, setRecurringTransactions] = useState<RecurringTransaction[]>(() =>
+    loadRecurringTransactions()
+  );
+
+  // App Lock & Biometrics state
+  const [isAppLocked, setIsAppLocked] = useState<boolean>(() => {
+    const sec = loadSecuritySettings();
+    return sec.isLockEnabled && !isSessionUnlocked();
+  });
+
+  // Smart Budget Alerts dismissed state
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<string[]>([]);
 
   // Emoji picker
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
@@ -232,6 +292,90 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [transactions]);
 
   useEffect(() => {
+    saveRecurringTransactions(recurringTransactions);
+  }, [recurringTransactions]);
+
+  // App Lock on resume / visibility change
+  useEffect(() => {
+    const handleVisibility = () => {
+      const sec = loadSecuritySettings();
+      if (!sec.isLockEnabled) return;
+
+      if (document.visibilityState === 'visible' && sec.requireLockOnResume) {
+        setIsAppLocked(true);
+        setSessionUnlocked(false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+
+  const unlockApp = () => {
+    setSessionUnlocked(true);
+    setIsAppLocked(false);
+  };
+
+  const lockApp = () => {
+    setSessionUnlocked(false);
+    setIsAppLocked(true);
+  };
+
+  // Recurring transactions CRUD
+  const addRecurringTransaction = (recData: Omit<RecurringTransaction, 'id' | 'createdAt'>) => {
+    const newRec: RecurringTransaction = {
+      ...recData,
+      id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: Date.now(),
+    };
+    setRecurringTransactions((prev) => [...prev, newRec]);
+    showToast(t('savedSuccess'), 'success');
+  };
+
+  const updateRecurringTransaction = (updated: RecurringTransaction) => {
+    setRecurringTransactions((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+    showToast(t('updatedSuccess'), 'success');
+  };
+
+  const deleteRecurringTransaction = (id: string) => {
+    setRecurringTransactions((prev) => prev.filter((r) => r.id !== id));
+    showToast(t('deletedSuccess'), 'success');
+  };
+
+  const processDueRecurring = (): number => {
+    const today = formatDateToYYYYMMDD(new Date());
+    const res = checkAndProcessRecurring(recurringTransactions, today);
+    if (res.newTransactions.length > 0) {
+      setRecurringTransactions(res.updatedRecurring);
+      const createdTxs: Transaction[] = res.newTransactions.map((tx) => ({
+        ...tx,
+        id: `tx_rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        createdAt: Date.now(),
+      }));
+      const updatedTxs = [...transactions, ...createdTxs];
+      setTransactions(updatedTxs);
+      const syncedAccounts = syncAllAccountBalances(accounts, updatedTxs);
+      setAccounts(syncedAccounts);
+      return res.newTransactions.length;
+    }
+    return 0;
+  };
+
+  // Check and process due recurring transactions on initial load
+  useEffect(() => {
+    processDueRecurring();
+  }, []);
+
+  // Smart Budget Alerts calculation
+  const budgetAlerts = useMemo(() => {
+    return evaluateBudgetAlerts(categories, transactions, settings.budgetAlertThreshold || 80);
+  }, [categories, transactions, settings.budgetAlertThreshold]);
+
+  const dismissBudgetAlert = (categoryId: string) => {
+    setDismissedAlertIds((prev) => [...prev, categoryId]);
+  };
+
+  useEffect(() => {
     saveSettings(settings);
     // Apply theme & RTL direction
     if (settings.themeMode === 'light') {
@@ -252,8 +396,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [settings]);
 
   // Modals open/close handlers
-  const openAddTxModal = (preselectedAccountId?: string) => {
-    setDefaultTxAccountId(preselectedAccountId || (accounts[0] ? accounts[0].id : undefined));
+  const openAddTxModal = (preselectedAccountId?: string, initialAmount?: number) => {
+    const targetAccountId =
+      preselectedAccountId ||
+      selectedAccountId ||
+      (accounts[0] ? accounts[0].id : undefined);
+    setDefaultTxAccountId(targetAccountId);
+    setDefaultTxAmount(initialAmount);
     setEditingTx(null);
     setIsAddTxModalOpen(true);
   };
@@ -261,6 +410,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const closeAddTxModal = () => {
     setIsAddTxModalOpen(false);
     setDefaultTxAccountId(undefined);
+    setDefaultTxAmount(undefined);
   };
 
   const openEditTxModal = (tx: Transaction) => {
@@ -529,6 +679,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setSettings((prev) => ({ ...prev, categoryOrder: orderedIds }));
   };
 
+  const reorderAccounts = (ordered: string[] | Account[]) => {
+    let orderedIds: string[] = [];
+    if (ordered.length > 0 && typeof ordered[0] === 'object') {
+      orderedIds = (ordered as Account[]).map((a) => a.id);
+    } else {
+      orderedIds = ordered as string[];
+    }
+    const map = new Map(accounts.map((a) => [a.id, a]));
+    const reordered: Account[] = [];
+    orderedIds.forEach((id) => {
+      const acc = map.get(id);
+      if (acc) {
+        reordered.push(acc);
+        map.delete(id);
+      }
+    });
+    map.forEach((acc) => {
+      reordered.push(acc);
+    });
+    setAccounts(reordered);
+    saveAccounts(reordered);
+    setSettings((prev) => ({ ...prev, accountOrder: orderedIds }));
+  };
+
   // SETTINGS
   const updateSettings = (newSettings: Partial<AppSettings>) => {
     setSettings((prev) => ({ ...prev, ...newSettings }));
@@ -554,21 +728,45 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsResetPeriodModalOpen(false);
   };
 
-  // IMPORT / RESTORE
-  const importFullData = (data: AppData): boolean => {
+  // IMPORT / RESTORE (Supports both 100% full backups and granular customized exports)
+  const importFullData = (data: Partial<AppData>): boolean => {
     try {
-      if (!data || !Array.isArray(data.accounts) || !Array.isArray(data.categories)) {
+      if (!data || typeof data !== 'object') {
         showToast(t('invalidFileError'), 'error');
         return false;
       }
-      const safeTxs = Array.isArray(data.transactions) ? data.transactions : [];
-      const syncedAccounts = syncAllAccountBalances(data.accounts, safeTxs);
+
+      let targetAccounts = accounts;
+      let targetCategories = categories;
+      let targetTxs = transactions;
+
+      if (Array.isArray(data.accounts) && data.accounts.length > 0) {
+        targetAccounts = data.accounts;
+      }
+      if (Array.isArray(data.categories) && data.categories.length > 0) {
+        targetCategories = data.categories;
+      }
+      if (Array.isArray(data.transactions)) {
+        targetTxs = data.transactions;
+      }
+
+      const syncedAccounts = syncAllAccountBalances(targetAccounts, targetTxs);
 
       setAccounts(syncedAccounts);
-      setCategories(data.categories);
-      setTransactions(safeTxs);
-      if (data.settings) {
-        setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
+      setCategories(targetCategories);
+      setTransactions(targetTxs);
+      if (Array.isArray(data.recurringTransactions)) {
+        setRecurringTransactions(data.recurringTransactions);
+      }
+
+      if (data.settings && typeof data.settings === 'object') {
+        setSettings((prev) => ({
+          ...prev,
+          ...data.settings,
+          userProfile: data.settings?.userProfile
+            ? { ...prev.userProfile, ...data.settings.userProfile }
+            : prev.userProfile,
+        }));
       }
 
       showToast(t('importedSuccess'), 'success');
@@ -642,6 +840,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         isSidebarOpen,
         setIsSidebarOpen,
         isAddTxModalOpen,
+        defaultTxAccountId,
+        defaultTxAmount,
         openAddTxModal,
         closeAddTxModal,
         editingTx,
@@ -669,6 +869,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsFilterModalOpen,
         isFeaturesModalOpen,
         setIsFeaturesModalOpen,
+        isRecurringModalOpen,
+        setIsRecurringModalOpen,
+        isPinModalOpen,
+        setIsPinModalOpen,
+        isSharedHubModalOpen,
+        setIsSharedHubModalOpen,
+        isAppLocked,
+        setIsAppLocked,
+        unlockApp,
+        lockApp,
+        recurringTransactions,
+        addRecurringTransaction,
+        updateRecurringTransaction,
+        deleteRecurringTransaction,
+        processDueRecurring,
+        budgetAlerts,
+        dismissBudgetAlert,
+        dismissedAlertIds,
         isEmojiPickerOpen,
         openEmojiPicker,
         closeEmojiPicker,
@@ -679,6 +897,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addAccount,
         updateAccount,
         deleteAccount,
+        reorderAccounts,
         addCategory,
         updateCategory,
         deleteCategory,

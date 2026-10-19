@@ -16,6 +16,16 @@ export const TransactionDetailsModal: React.FC = () => {
     t,
   } = useApp();
 
+  const [isClosing, setIsClosing] = React.useState(false);
+
+  const handleAnimatedClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsClosing(false);
+      closeTxDetailsModal();
+    }, 180);
+  };
+
   const account = useMemo(() => {
     if (!viewingTx) return undefined;
     return accounts.find((a) => a.id === viewingTx.accountId);
@@ -36,14 +46,16 @@ export const TransactionDetailsModal: React.FC = () => {
   const handleDelete = () => {
     if (confirm(t('confirmDeleteTransaction'))) {
       deleteTransaction(viewingTx.id);
-      closeTxDetailsModal();
+      handleAnimatedClose();
     }
   };
 
   const handleEdit = () => {
     const txToEdit = viewingTx;
-    closeTxDetailsModal();
-    openEditTxModal(txToEdit);
+    handleAnimatedClose();
+    setTimeout(() => {
+      openEditTxModal(txToEdit);
+    }, 190);
   };
 
   const currencySymbol = settings.currencySymbol || '£';
@@ -51,19 +63,23 @@ export const TransactionDetailsModal: React.FC = () => {
 
   return (
     <div
-      onClick={closeTxDetailsModal}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in"
+      onClick={handleAnimatedClose}
+      className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 transition-all duration-200 ${
+        isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
+      }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-6 text-white space-y-6 overflow-hidden"
+        className={`w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl p-6 text-white space-y-6 overflow-hidden transition-all duration-200 ${
+          isClosing ? 'modal-container-closing' : 'modal-container-anim'
+        }`}
       >
         {/* Top Header */}
         <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
           <h3 className="text-base font-bold text-zinc-300">{t('transactionDetails')}</h3>
           <button
             type="button"
-            onClick={closeTxDetailsModal}
+            onClick={handleAnimatedClose}
             className="p-1 rounded-full text-zinc-400 hover:text-white"
           >
             <X className="w-5 h-5" />

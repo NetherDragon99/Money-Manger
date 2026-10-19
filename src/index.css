@@ -4,12 +4,14 @@
 html {
   -webkit-tap-highlight-color: transparent;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overscroll-behavior-y: none;
 }
 
 body {
   background-color: #000000;
   color: #ffffff;
   overflow-x: hidden;
+  overscroll-behavior-y: none;
 }
 
 /* Scrollbar styling */
@@ -172,7 +174,7 @@ button:active:not(:disabled),
 @keyframes modalSlideUp {
   0% {
     opacity: 0;
-    transform: translateY(20px) scale(0.97);
+    transform: translateY(18px) scale(0.97);
   }
   100% {
     opacity: 1;
@@ -180,7 +182,18 @@ button:active:not(:disabled),
   }
 }
 
-@keyframes backdropFade {
+@keyframes modalSlideDown {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+}
+
+@keyframes backdropFadeIn {
   0% {
     opacity: 0;
   }
@@ -189,11 +202,77 @@ button:active:not(:disabled),
   }
 }
 
-.fixed.inset-0.z-50 {
-  animation: backdropFade 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+@keyframes backdropFadeOut {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
-.fixed.inset-0.z-50 > div {
-  animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.modal-backdrop-anim {
+  animation: backdropFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.modal-container-anim {
+  animation: modalSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.modal-backdrop-closing {
+  animation: backdropFadeOut 0.18s cubic-bezier(0.4, 0, 1, 1) forwards !important;
+}
+
+.modal-container-closing {
+  animation: modalSlideDown 0.18s cubic-bezier(0.4, 0, 1, 1) forwards !important;
+}
+
+/* Page Scroll Animation Track */
+.page-scroll-track {
+  display: flex;
+  width: 500%;
+  transition: transform 0.32s cubic-bezier(0.25, 1, 0.5, 1);
+  will-change: transform;
+}
+
+.page-scroll-slide {
+  width: 20%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* Smooth Accordion / Collapsible Transitions */
+.accordion-wrapper {
+  display: grid;
+  transition: grid-template-rows 0.28s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.22s ease;
+}
+
+.accordion-wrapper.closed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.accordion-wrapper.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.accordion-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Pin Shake Animation */
+@keyframes shakeHorizontal {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+.animate-shake {
+  animation: shakeHorizontal 0.35s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
 

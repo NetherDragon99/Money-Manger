@@ -1,4 +1,5 @@
 export type TransactionType = 'expense' | 'income' | 'transfer';
+export type TabType = 'home' | 'budget' | 'insights' | 'accounts' | 'calculator';
 
 export interface Account {
   id: string;
@@ -67,6 +68,33 @@ export interface UserProfile {
   customAvatarUrl?: string;
 }
 
+export type RecurringFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';
+
+export interface RecurringTransaction {
+  id: string;
+  type: TransactionType;
+  amount: number;
+  description: string;
+  accountId: string;
+  toAccountId?: string;
+  categoryId?: string;
+  categoryName?: string;
+  categoryIcon?: string;
+  frequency: RecurringFrequency;
+  startDate: string; // YYYY-MM-DD
+  nextDueDate: string; // YYYY-MM-DD
+  autoProcess: boolean;
+  createdAt: number;
+  lastProcessedDate?: string;
+}
+
+export interface SecuritySettings {
+  isLockEnabled: boolean;
+  pinHash: string; // Stored 4-digit PIN hash
+  isBiometricEnabled: boolean;
+  requireLockOnResume: boolean;
+}
+
 export interface AppSettings {
   weekStartDay: WeekStartDay;
   defaultMonthStartDay: number; // 1 to 31 (default: 1)
@@ -75,7 +103,11 @@ export interface AppSettings {
   currencySymbol: string;
   userProfile: UserProfile;
   categoryOrder?: string[];
+  accountOrder?: string[];
   resetStartDate?: string; // ISO date/time if reset period counter was triggered
+  budgetAlertsEnabled?: boolean;
+  budgetAlertThreshold?: number; // default 80
+  security?: SecuritySettings;
 }
 
 export interface AppData {
@@ -83,6 +115,7 @@ export interface AppData {
   categories: Category[];
   transactions: Transaction[];
   settings: AppSettings;
+  recurringTransactions?: RecurringTransaction[];
 }
 
 export interface HistoricalBalanceResult {
@@ -90,3 +123,4 @@ export interface HistoricalBalanceResult {
   transactionAmount: number; // signed
   balanceAfter: number;
 }
+

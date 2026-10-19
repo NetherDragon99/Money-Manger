@@ -1,30 +1,70 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { X, Upload, Trash2, Camera, Sparkles, Check, ZoomIn } from 'lucide-react';
+import {
+  X,
+  Upload,
+  Trash2,
+  Camera,
+  Check,
+  ZoomIn,
+  Move,
+  Mail,
+  Lock,
+  Phone,
+  Cloud,
+  CheckCircle2,
+  LogOut,
+  AlertCircle,
+  KeyRound,
+  Shield,
+  ArrowRight,
+  RefreshCw,
+} from 'lucide-react';
+import {
+  auth,
+  loginWithGoogle,
+  loginWithEmail,
+  registerWithEmail,
+  resetPassword,
+  logoutUser,
+  setupRecaptcha,
+  sendPhoneOtp,
+} from '../utils/firebase';
+import { User, ConfirmationResult } from 'firebase/auth';
 
 const CURATED_DEFAULT_AVATARS = [
-  { emoji: '🦊', label: 'Fox', bg: 'from-amber-600 to-orange-700' },
-  { emoji: '🦁', label: 'Lion', bg: 'from-amber-500 to-yellow-600' },
-  { emoji: '🐯', label: 'Tiger', bg: 'from-orange-600 to-red-600' },
-  { emoji: '🐼', label: 'Panda', bg: 'from-zinc-700 to-zinc-900' },
-  { emoji: '🦄', label: 'Unicorn', bg: 'from-pink-500 to-purple-600' },
-  { emoji: '🐺', label: 'Wolf', bg: 'from-slate-600 to-zinc-800' },
-  { emoji: '🦉', label: 'Owl', bg: 'from-indigo-600 to-slate-800' },
-  { emoji: '🦅', label: 'Eagle', bg: 'from-amber-700 to-yellow-900' },
-  { emoji: '🐬', label: 'Dolphin', bg: 'from-cyan-500 to-blue-600' },
-  { emoji: '🐲', label: 'Dragon', bg: 'from-emerald-600 to-teal-800' },
-  { emoji: '🚀', label: 'Rocket', bg: 'from-blue-600 to-indigo-800' },
-  { emoji: '💎', label: 'Diamond', bg: 'from-cyan-400 to-blue-600' },
-  { emoji: '👑', label: 'Crown', bg: 'from-yellow-400 to-amber-600' },
-  { emoji: '⚡', label: 'Bolt', bg: 'from-yellow-500 to-orange-600' },
-  { emoji: '🌟', label: 'Star', bg: 'from-amber-400 to-yellow-600' },
-  { emoji: '💼', label: 'Briefcase', bg: 'from-blue-700 to-slate-900' },
-  { emoji: '🎯', label: 'Target', bg: 'from-red-600 to-rose-800' },
-  { emoji: '🔮', label: 'Crystal', bg: 'from-purple-600 to-pink-600' },
-  { emoji: '🛡️', label: 'Shield', bg: 'from-blue-500 to-cyan-700' },
-  { emoji: '🎧', label: 'DJ', bg: 'from-violet-600 to-purple-900' },
-  { emoji: '🏎️', label: 'Racer', bg: 'from-red-600 to-orange-600' },
-  { emoji: '🎨', label: 'Artist', bg: 'from-rose-500 to-indigo-600' },
+  // Animals
+  { emoji: '🦊', label: 'Fox' },
+  { emoji: '🦁', label: 'Lion' },
+  { emoji: '🐯', label: 'Tiger' },
+  { emoji: '🐆', label: 'Leopard' },
+  { emoji: '🐼', label: 'Panda' },
+  { emoji: '🦄', label: 'Unicorn' },
+  { emoji: '🐺', label: 'Wolf' },
+  { emoji: '🦉', label: 'Owl' },
+  { emoji: '🦅', label: 'Eagle' },
+  { emoji: '🐬', label: 'Dolphin' },
+  { emoji: '🐲', label: 'Dragon' },
+  { emoji: '🦈', label: 'Shark' },
+  { emoji: '🦍', label: 'Gorilla' },
+  { emoji: '🐘', label: 'Elephant' },
+  { emoji: '🦚', label: 'Peacock' },
+  { emoji: '🦋', label: 'Butterfly' },
+  // People & Characters
+  { emoji: '🧑‍🚀', label: 'Astronaut' },
+  { emoji: '🥷', label: 'Ninja' },
+  { emoji: '🕵️', label: 'Detective' },
+  { emoji: '👨‍💻', label: 'Coder/Hacker' },
+  { emoji: '🤖', label: 'Cyber Bot' },
+  { emoji: '👾', label: 'Alien' },
+  { emoji: '🧙', label: 'Wizard' },
+  { emoji: '🦸', label: 'Superhero' },
+  { emoji: '👑', label: 'Crown' },
+  { emoji: '🎧', label: 'DJ' },
+  { emoji: '🏎️', label: 'Racer' },
+  { emoji: '💎', label: 'Diamond' },
+  { emoji: '🚀', label: 'Rocket' },
+  { emoji: '⚡', label: 'Bolt' },
 ];
 
 export const UserProfileModal: React.FC = () => {
@@ -37,16 +77,59 @@ export const UserProfileModal: React.FC = () => {
     showToast,
   } = useApp();
 
+  const isArabic = settings.language === 'ar';
+
   const [name, setName] = useState(settings.userProfile?.name || 'My Profile');
   const [avatarEmoji, setAvatarEmoji] = useState(settings.userProfile?.avatarEmoji || '👤');
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string | undefined>(
     settings.userProfile?.customAvatarUrl
   );
 
-  // Photo editing state
+  // Authentication & Cloud Sync State
+  const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
+  const [authMode, setAuthMode] = useState<'none' | 'email' | 'phone'>('none');
+  const [emailAuthType, setEmailAuthType] = useState<'login' | 'register' | 'forgot'>('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authPhone, setAuthPhone] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+
+  // Sync Firebase Auth user
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged((user) => {
+      setCurrentUser(user);
+    });
+    return () => unsub();
+  }, []);
+
+  // Photo editing & Cropper state
   const [photoToEdit, setPhotoToEdit] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const isDraggingRef = useRef(false);
+  const startPosRef = useRef({ x: 0, y: 0 });
+  const initialPanRef = useRef({ x: 0, y: 0 });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const touchDistanceRef = useRef<number | null>(null);
+  const initialZoomRef = useRef<number>(1);
+  const [isClosing, setIsClosing] = useState(false);
+
+  // Sync profile state when modal opens
+  useEffect(() => {
+    if (isUserProfileModalOpen) {
+      setName(settings.userProfile?.name || 'My Profile');
+      setAvatarEmoji(settings.userProfile?.avatarEmoji || '👤');
+      setCustomAvatarUrl(settings.userProfile?.customAvatarUrl);
+      setPhotoToEdit(null);
+      setZoomLevel(1);
+      setPanOffset({ x: 0, y: 0 });
+      setAuthError('');
+      setIsClosing(false);
+    }
+  }, [isUserProfileModalOpen, settings.userProfile]);
 
   if (!isUserProfileModalOpen) return null;
 
@@ -67,15 +150,67 @@ export const UserProfileModal: React.FC = () => {
       const dataUrl = event.target?.result as string;
       setPhotoToEdit(dataUrl);
       setZoomLevel(1);
+      setPanOffset({ x: 0, y: 0 });
     };
     reader.readAsDataURL(file);
     e.target.value = '';
   };
 
+  const handlePointerDown = (e: React.PointerEvent) => {
+    isDraggingRef.current = true;
+    startPosRef.current = { x: e.clientX, y: e.clientY };
+    initialPanRef.current = { ...panOffset };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return;
+    const dx = e.clientX - startPosRef.current.x;
+    const dy = e.clientY - startPosRef.current.y;
+    setPanOffset({
+      x: initialPanRef.current.x + dx,
+      y: initialPanRef.current.y + dy,
+    });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    isDraggingRef.current = false;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  // Pinch-to-zoom support for mobile touch screens
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      touchDistanceRef.current = dist;
+      initialZoomRef.current = zoomLevel;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && touchDistanceRef.current !== null) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const ratio = dist / touchDistanceRef.current;
+      const nextZoom = Math.min(3, Math.max(1, initialZoomRef.current * ratio));
+      setZoomLevel(parseFloat(nextZoom.toFixed(2)));
+    }
+  };
+
+  const handleTouchEnd = () => {
+    touchDistanceRef.current = null;
+  };
+
   const handleApplyCroppedPhoto = () => {
     if (!photoToEdit) return;
 
-    // Use HTML5 canvas to compress and crop to 256x256 circular image
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
@@ -87,18 +222,28 @@ export const UserProfileModal: React.FC = () => {
         ctx.fillStyle = '#09090b';
         ctx.fillRect(0, 0, size, size);
 
-        // Calculate aspect fill with zoom
+        // Aspect fill with zoom and pan
         const minDim = Math.min(img.width, img.height);
         const sourceSize = minDim / zoomLevel;
-        const sourceX = (img.width - sourceSize) / 2;
-        const sourceY = (img.height - sourceSize) / 2;
+
+        // Container frame is 128px (w-32)
+        const frameSize = 128;
+        const scaleFactor = sourceSize / frameSize;
+        const offsetX = panOffset.x * scaleFactor;
+        const offsetY = panOffset.y * scaleFactor;
+
+        const centerX = (img.width - sourceSize) / 2 - offsetX;
+        const centerY = (img.height - sourceSize) / 2 - offsetY;
+
+        const sourceX = Math.max(0, Math.min(img.width - sourceSize, centerX));
+        const sourceY = Math.max(0, Math.min(img.height - sourceSize, centerY));
 
         ctx.drawImage(img, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
-        const compressedData = canvas.toDataURL('image/jpeg', 0.85);
+        const compressedData = canvas.toDataURL('image/jpeg', 0.88);
         setCustomAvatarUrl(compressedData);
         setPhotoToEdit(null);
         showToast(
-          settings.language === 'ar' ? 'تم تحديث الصورة الشخصية' : 'Profile photo updated',
+          settings.language === 'ar' ? 'تم حفظ الصورة الشخصية بنجاح' : 'Profile photo updated successfully',
           'success'
         );
       }
@@ -110,7 +255,7 @@ export const UserProfileModal: React.FC = () => {
     setCustomAvatarUrl(undefined);
     setPhotoToEdit(null);
     showToast(
-      settings.language === 'ar' ? 'تمت إزالة الصورة واستعادة الصورة الرمزية' : 'Photo removed, avatar restored',
+      settings.language === 'ar' ? 'تمت إزالة الصورة واستعادة الرمز' : 'Photo removed, avatar restored',
       'info'
     );
   };
@@ -118,6 +263,101 @@ export const UserProfileModal: React.FC = () => {
   const handleSelectCuratedAvatar = (emoji: string) => {
     setAvatarEmoji(emoji);
     setCustomAvatarUrl(undefined);
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsAuthLoading(true);
+    setAuthError('');
+    try {
+      await loginWithGoogle();
+      showToast(
+        isArabic ? 'تم تسجيل الدخول بنجاح!' : 'Signed in with Google successfully!',
+        'success'
+      );
+      setAuthMode('none');
+    } catch (err: any) {
+      setAuthError(err?.message || 'Google sign in failed');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleEmailAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail) return;
+    setIsAuthLoading(true);
+    setAuthError('');
+    try {
+      if (emailAuthType === 'login') {
+        await loginWithEmail(authEmail, authPassword);
+        showToast(isArabic ? 'تم تسجيل الدخول بنجاح!' : 'Signed in successfully!', 'success');
+        setAuthMode('none');
+      } else if (emailAuthType === 'register') {
+        await registerWithEmail(authEmail, authPassword);
+        showToast(isArabic ? 'تم إنشاء الحساب بنجاح!' : 'Account created successfully!', 'success');
+        setAuthMode('none');
+      } else if (emailAuthType === 'forgot') {
+        await resetPassword(authEmail);
+        showToast(
+          isArabic
+            ? 'تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني'
+            : 'Password reset link sent to your email',
+          'info'
+        );
+        setEmailAuthType('login');
+      }
+    } catch (err: any) {
+      setAuthError(err?.message || 'Authentication error');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleSendPhoneOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authPhone.trim()) return;
+    setIsAuthLoading(true);
+    setAuthError('');
+    try {
+      const verifier = setupRecaptcha('profile-recaptcha-container');
+      const confirmation = await sendPhoneOtp(authPhone, verifier);
+      setConfirmationResult(confirmation);
+      showToast(
+        isArabic ? 'تم إرسال رمز التحقق (OTP) بنجاح!' : 'Verification code sent via SMS!',
+        'info'
+      );
+    } catch (err: any) {
+      setAuthError(err?.message || 'Failed to send verification code');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleVerifyPhoneOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!confirmationResult || !otpCode.trim()) return;
+    setIsAuthLoading(true);
+    setAuthError('');
+    try {
+      await confirmationResult.confirm(otpCode.trim());
+      showToast(isArabic ? 'تم تأكيد رقم الهاتف والدخول بنجاح!' : 'Phone verified and signed in!', 'success');
+      setAuthMode('none');
+      setConfirmationResult(null);
+      setOtpCode('');
+    } catch (err: any) {
+      setAuthError(err?.message || 'Invalid verification code');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await logoutUser();
+      showToast(isArabic ? 'تم تسجيل الخروج بنجاح' : 'Signed out successfully', 'info');
+    } catch (err: any) {
+      showToast(err?.message || 'Error signing out', 'error');
+    }
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -136,57 +376,67 @@ export const UserProfileModal: React.FC = () => {
     setIsUserProfileModalOpen(false);
   };
 
+  const handleAnimatedClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsClosing(false);
+      setIsUserProfileModalOpen(false);
+    }, 180);
+  };
+
   return (
     <div
-      onClick={() => setIsUserProfileModalOpen(false)}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in"
+      onClick={handleAnimatedClose}
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 transition-all duration-200 ${
+        isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
+      }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md max-h-[90vh] flex flex-col rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl overflow-hidden text-white animate-in zoom-in-95 duration-200"
+        className={`w-full max-w-md max-h-[92vh] flex flex-col rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl overflow-hidden text-white transition-all duration-200 ${
+          isClosing ? 'modal-container-closing' : 'modal-container-anim'
+        }`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/80">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/80 bg-zinc-900/40 shrink-0">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-blue-400" />
-            <h3 className="text-base font-bold">{t('editProfile')}</h3>
+            <h3 className="text-base font-bold text-white">{t('editProfile')}</h3>
           </div>
           <button
             type="button"
-            onClick={() => setIsUserProfileModalOpen(false)}
-            className="p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-850 transition cursor-pointer"
+            onClick={handleAnimatedClose}
+            className="p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Hidden File Input */}
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileUpload}
-          accept="image/*"
-          className="hidden"
-        />
-
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-          {/* Active Profile Picture Display */}
-          <div className="flex flex-col items-center gap-2">
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {/* Hidden File Input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            accept="image/*"
+            className="hidden"
+          />
+
+          {/* Current Avatar / Photo Preview */}
+          <div className="flex flex-col items-center justify-center space-y-3 pt-1">
             <div className="relative group">
-              <div className="w-24 h-24 rounded-full bg-zinc-900 border-2 border-blue-500 shadow-xl overflow-hidden flex items-center justify-center text-5xl">
+              <div className="w-24 h-24 rounded-full bg-zinc-900 border-4 border-blue-500/80 overflow-hidden flex items-center justify-center text-4xl shadow-xl transition">
                 {customAvatarUrl ? (
                   <img
                     src={customAvatarUrl}
-                    alt="Profile"
+                    alt="Current Avatar"
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <span>{avatarEmoji}</span>
+                  <span>{avatarEmoji || '👤'}</span>
                 )}
               </div>
 
-              {/* Quick Change Overlay */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -199,14 +449,14 @@ export const UserProfileModal: React.FC = () => {
             </div>
 
             {/* Action Buttons for Avatar/Photo */}
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-semibold text-blue-400 hover:text-white hover:bg-zinc-850 transition cursor-pointer"
               >
                 <Upload className="w-3.5 h-3.5" />
-                <span>{settings.language === 'ar' ? 'رفع صورة من الجهاز' : 'Upload Photo'}</span>
+                <span>{settings.language === 'ar' ? 'رفع صورة وتعديلها' : 'Upload & Crop Photo'}</span>
               </button>
 
               {customAvatarUrl && (
@@ -222,27 +472,40 @@ export const UserProfileModal: React.FC = () => {
             </div>
           </div>
 
-          {/* Photo Crop/Zoom Editor (Active when photo is selected) */}
+          {/* Interactive Photo Crop & Drag/Zoom Modal */}
           {photoToEdit && (
-            <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3 animate-in fade-in">
+            <div className="p-4 rounded-2xl bg-zinc-900 border border-blue-500/40 space-y-3.5 shadow-xl animate-in fade-in">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white">
-                  {settings.language === 'ar' ? 'معاينة وضبط الصورة' : 'Preview & Adjust Photo'}
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Move className="w-3.5 h-3.5 text-blue-400" />
+                  <span>{settings.language === 'ar' ? 'اسحب وقص الصورة' : 'Drag & Zoom to Crop'}</span>
                 </span>
-                <span className="text-[10px] text-zinc-400">
-                  {Math.round(zoomLevel * 100)}% {settings.language === 'ar' ? 'تكبير' : 'Zoom'}
+                <span className="text-[10px] text-zinc-400 font-mono">
+                  {Math.round(zoomLevel * 100)}%
                 </span>
               </div>
 
-              {/* Circular Preview Container */}
-              <div className="flex justify-center">
-                <div className="w-28 h-28 rounded-full border-2 border-dashed border-blue-400 overflow-hidden bg-black flex items-center justify-center relative">
+              {/* Circular Crop Frame with Drag / Pan */}
+              <div className="flex justify-center py-2">
+                <div
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                  className="w-32 h-32 rounded-full border-2 border-dashed border-blue-400 overflow-hidden bg-black flex items-center justify-center relative cursor-grab active:cursor-grabbing touch-none select-none shadow-2xl"
+                >
                   <img
                     src={photoToEdit}
                     alt="Crop preview"
-                    style={{ transform: `scale(${zoomLevel})` }}
-                    className="w-full h-full object-cover transition-transform duration-100"
+                    draggable={false}
+                    style={{
+                      transform: `scale(${zoomLevel}) translate(${panOffset.x}px, ${panOffset.y}px)`,
+                    }}
+                    className="w-full h-full object-cover transition-transform duration-75 pointer-events-none"
                   />
+                  <div className="absolute inset-0 rounded-full border border-white/20 pointer-events-none" />
                 </div>
               </div>
 
@@ -252,7 +515,7 @@ export const UserProfileModal: React.FC = () => {
                 <input
                   type="range"
                   min="1"
-                  max="2.5"
+                  max="3"
                   step="0.05"
                   value={zoomLevel}
                   onChange={(e) => setZoomLevel(parseFloat(e.target.value))}
@@ -274,7 +537,7 @@ export const UserProfileModal: React.FC = () => {
                   onClick={handleApplyCroppedPhoto}
                   className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition shadow cursor-pointer"
                 >
-                  {settings.language === 'ar' ? 'تطبيق الصورة' : 'Apply Photo'}
+                  {settings.language === 'ar' ? 'حفظ وقص الصورة' : 'Crop & Save'}
                 </button>
               </div>
             </div>
@@ -284,7 +547,7 @@ export const UserProfileModal: React.FC = () => {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
-                {settings.language === 'ar' ? 'صور رمزية جاهزة مميزة' : 'Curated In-App Avatars'}
+                {settings.language === 'ar' ? 'صور رمزية جاهزة (حيوانات وشخصيات)' : 'Cool Animals & People Presets'}
               </label>
               <span className="text-[10px] text-zinc-500">
                 {CURATED_DEFAULT_AVATARS.length} {settings.language === 'ar' ? 'صورة' : 'options'}
@@ -331,10 +594,259 @@ export const UserProfileModal: React.FC = () => {
               required
             />
           </div>
+
+          {/* Cloud Sync & User Account Section */}
+          <div className="pt-2 border-t border-zinc-800/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Cloud className="w-3.5 h-3.5 text-blue-400" />
+                <span>{isArabic ? 'حساب المزامنة السحابية' : 'Cloud Sync & Account'}</span>
+              </span>
+              {currentUser && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[10px] font-bold text-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>{isArabic ? 'متزامن لحظياً' : 'Live Synced'}</span>
+                </span>
+              )}
+            </div>
+
+            {currentUser ? (
+              /* Signed In Premium Card */
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-blue-500/30 shadow-lg space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-bold text-sm shrink-0">
+                      {currentUser.photoURL ? (
+                        <img src={currentUser.photoURL} alt="User" className="w-full h-full rounded-full object-cover" />
+                      ) : (
+                        (currentUser.email?.[0] || currentUser.phoneNumber?.[0] || 'U').toUpperCase()
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-white truncate">
+                        {currentUser.displayName || currentUser.email || currentUser.phoneNumber}
+                      </div>
+                      <div className="text-[10px] text-zinc-400 truncate mt-0.5 font-mono">
+                        {currentUser.email || currentUser.phoneNumber || currentUser.uid.slice(0, 16)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 hover:border-red-900/60 text-zinc-300 hover:text-red-400 text-xs font-semibold transition cursor-pointer shrink-0"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>{isArabic ? 'خروج' : 'Sign Out'}</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80 text-[10px] text-zinc-400">
+                  <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>{isArabic ? 'النسخ السحابي المشفر نشط' : 'Encrypted Cloud Backup Active'}</span>
+                  </span>
+                  <span className="font-mono text-zinc-500">ID: {currentUser.uid.slice(0, 6)}...</span>
+                </div>
+              </div>
+            ) : (
+              /* Signed Out State: Premium Action Card */
+              <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3 shadow-md">
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  {isArabic
+                    ? 'سجل دخولك لحفظ بياناتك ومزامنتها لحظياً وبأمان عبر جميع أجهزتك.'
+                    : 'Sign in to back up your financial records and sync seamlessly across all your devices.'}
+                </p>
+
+                {authError && (
+                  <div className="p-2.5 rounded-xl bg-red-950/40 border border-red-900/60 flex items-center gap-2 text-red-400 text-xs">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{authError}</span>
+                  </div>
+                )}
+
+                {authMode === 'none' && (
+                  <div className="space-y-2">
+                    {/* Continue with Google */}
+                    <button
+                      type="button"
+                      onClick={handleGoogleSignIn}
+                      disabled={isAuthLoading}
+                      className="w-full flex items-center justify-center gap-2.5 py-2.5 px-4 rounded-xl bg-white hover:bg-zinc-100 text-black text-xs font-bold transition shadow cursor-pointer active:scale-98 disabled:opacity-50"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                      </svg>
+                      <span>{isArabic ? 'المتابعة باستخدام Google' : 'Continue with Google'}</span>
+                    </button>
+
+                    {/* Secondary Email & Phone Buttons */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setAuthMode('email'); setAuthError(''); }}
+                        className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 hover:text-white transition cursor-pointer"
+                      >
+                        <Mail className="w-3.5 h-3.5 text-blue-400" />
+                        <span>{isArabic ? 'بالبريد الإلكتروني' : 'Sign in with Email'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setAuthMode('phone'); setAuthError(''); }}
+                        className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 hover:text-white transition cursor-pointer"
+                      >
+                        <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{isArabic ? 'برقم الهاتف' : 'Sign in with Phone'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Email Form */}
+                {authMode === 'email' && (
+                  <form onSubmit={handleEmailAuthSubmit} className="space-y-3 pt-1">
+                    <div className="flex p-0.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setEmailAuthType('login')}
+                        className={`flex-1 py-1.5 rounded-lg transition ${
+                          emailAuthType === 'login' ? 'bg-zinc-800 text-white' : 'text-zinc-400'
+                        }`}
+                      >
+                        {isArabic ? 'دخول' : 'Sign In'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEmailAuthType('register')}
+                        className={`flex-1 py-1.5 rounded-lg transition ${
+                          emailAuthType === 'register' ? 'bg-zinc-800 text-white' : 'text-zinc-400'
+                        }`}
+                      >
+                        {isArabic ? 'تسجيل جديد' : 'Register'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEmailAuthType('forgot')}
+                        className={`flex-1 py-1.5 rounded-lg transition ${
+                          emailAuthType === 'forgot' ? 'bg-zinc-800 text-white' : 'text-zinc-400'
+                        }`}
+                      >
+                        {isArabic ? 'استعادة' : 'Reset'}
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <input
+                        type="email"
+                        value={authEmail}
+                        onChange={(e) => setAuthEmail(e.target.value)}
+                        placeholder={isArabic ? 'البريد الإلكتروني' : 'Email address'}
+                        className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                        required
+                      />
+                      {emailAuthType !== 'forgot' && (
+                        <input
+                          type="password"
+                          value={authPassword}
+                          onChange={(e) => setAuthPassword(e.target.value)}
+                          placeholder={isArabic ? 'كلمة المرور' : 'Password'}
+                          className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                          required
+                        />
+                      )}
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setAuthMode('none')}
+                        className="flex-1 py-2 rounded-xl bg-zinc-950 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer"
+                      >
+                        {isArabic ? 'إلغاء' : 'Cancel'}
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isAuthLoading}
+                        className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition shadow cursor-pointer disabled:opacity-50"
+                      >
+                        {isAuthLoading ? '...' : emailAuthType === 'login' ? (isArabic ? 'تسجيل الدخول' : 'Sign In') : emailAuthType === 'register' ? (isArabic ? 'إنشاء حساب' : 'Create Account') : (isArabic ? 'إرسال الرابط' : 'Send Reset Link')}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Phone Form */}
+                {authMode === 'phone' && (
+                  <div className="space-y-3 pt-1">
+                    <div id="profile-recaptcha-container"></div>
+                    {!confirmationResult ? (
+                      <form onSubmit={handleSendPhoneOtp} className="space-y-2.5">
+                        <input
+                          type="tel"
+                          value={authPhone}
+                          onChange={(e) => setAuthPhone(e.target.value)}
+                          placeholder={isArabic ? 'رقم الهاتف مع رمز الدولة (+20...)' : 'Phone number (+1...)'}
+                          className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                          required
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setAuthMode('none')}
+                            className="flex-1 py-2 rounded-xl bg-zinc-950 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer"
+                          >
+                            {isArabic ? 'إلغاء' : 'Cancel'}
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isAuthLoading}
+                            className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white transition shadow cursor-pointer disabled:opacity-50"
+                          >
+                            {isAuthLoading ? '...' : (isArabic ? 'إرسال رمز OTP' : 'Send OTP')}
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <form onSubmit={handleVerifyPhoneOtp} className="space-y-2.5">
+                        <input
+                          type="text"
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value)}
+                          placeholder={isArabic ? 'رمز التحقق (6 أرقام)' : '6-digit SMS code'}
+                          className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 text-center font-mono tracking-widest focus:outline-none focus:border-emerald-500"
+                          required
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmationResult(null)}
+                            className="flex-1 py-2 rounded-xl bg-zinc-950 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer"
+                          >
+                            {isArabic ? 'تغيير الرقم' : 'Change Phone'}
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isAuthLoading}
+                            className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white transition shadow cursor-pointer disabled:opacity-50"
+                          >
+                            {isAuthLoading ? '...' : (isArabic ? 'تأكيد ودخول' : 'Verify & Sign In')}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex gap-2">
+        <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setIsUserProfileModalOpen(false)}

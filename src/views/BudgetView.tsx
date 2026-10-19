@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   Plus,
@@ -8,6 +8,8 @@ import {
   CheckCircle2,
   TrendingUp,
   ArrowDownRight,
+  Search,
+  X,
 } from 'lucide-react';
 import { Category } from '../types';
 import {
@@ -15,6 +17,7 @@ import {
   isTransactionInRange,
   formatCurrency,
 } from '../utils/dateCycle';
+import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
 
 export const BudgetView: React.FC = () => {
   const {
@@ -28,6 +31,32 @@ export const BudgetView: React.FC = () => {
   } = useApp();
 
   const [categoryTab, setCategoryTab] = useState<'expense' | 'income'>('expense');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleSubTouchStart = (e: React.TouchEvent) => {
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+  };
+
+  const handleSubTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartRef.current.x;
+    const deltaY = e.changedTouches[0].clientY - touchStartRef.current.y;
+    touchStartRef.current = null;
+
+    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4) {
+      const isRtl = settings.language === 'ar';
+      if ((!isRtl && deltaX < 0) || (isRtl && deltaX > 0)) {
+        setCategoryTab('income');
+      } else {
+        setCategoryTab('expense');
+      }
+    }
+  };
 
   // Current monthly cycle date range based on Global Default Month Start Day
   const cycleRange = useMemo(() => {
@@ -112,15 +141,35 @@ export const BudgetView: React.FC = () => {
 
   // Income categories sorted
   const incomeCategories = useMemo(() => {
-    return categories
-      .filter((c) => c.type === 'income')
-      .sort((a, b) => {
-        const incA = categoryIncomeMap.get(a.id) || 0;
-        const incB = categoryIncomeMap.get(b.id) || 0;
-        if (incA !== incB) return incB - incA;
-        return a.name.localeCompare(b.name);
+    const incOnly = categories.filter((c) => c.type === 'income');
+    if (settings.categoryOrder && settings.categoryOrder.length > 0) {
+      const orderMap = new Map(settings.categoryOrder.map((id, index) => [id, index]));
+      return [...incOnly].sort((a, b) => {
+        const orderA = orderMap.has(a.id) ? (orderMap.get(a.id) as number) : 9999;
+        const orderB = orderMap.has(b.id) ? (orderMap.get(b.id) as number) : 9999;
+        return orderA - orderB;
       });
-  }, [categories, categoryIncomeMap]);
+    }
+    return [...incOnly].sort((a, b) => {
+      const incA = categoryIncomeMap.get(a.id) || 0;
+      const incB = categoryIncomeMap.get(b.id) || 0;
+      if (incA !== incB) return incB - incA;
+      return a.name.localeCompare(b.name);
+    });
+  }, [categories, settings.categoryOrder, categoryIncomeMap]);
+
+  // Real-time search filtered lists
+  const displayExpenseCategories = useMemo(() => {
+    if (!searchQuery.trim()) return expenseCategories;
+    const q = searchQuery.toLowerCase().trim();
+    return expenseCategories.filter((c) => c.name.toLowerCase().includes(q));
+  }, [expenseCategories, searchQuery]);
+
+  const displayIncomeCategories = useMemo(() => {
+    if (!searchQuery.trim()) return incomeCategories;
+    const q = searchQuery.toLowerCase().trim();
+    return incomeCategories.filter((c) => c.name.toLowerCase().includes(q));
+  }, [incomeCategories, searchQuery]);
 
   // Top Summary Block: Total of all active category budgets for current cycle
   const { totalBudget, totalSpent } = useMemo(() => {
@@ -146,24 +195,26 @@ export const BudgetView: React.FC = () => {
   const overallPercentage =
     totalBudget > 0 ? Math.min(100, (totalSpent / totalBudget) * 100) : 0;
 
-  // Move up/down handlers
-  const handleMove = (index: number, direction: 'up' | 'down') => {
+  // Move up/down handlers (distinct for expense and income, preserving both orders)
+  const handleMove = (index: number, direction: 'up' | 'down', listType: 'expense' | 'income' = 'expense') => {
+    const activeList = listType === 'expense' ? expenseCategories : incomeCategories;
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= expenseCategories.length) return;
+    if (targetIndex < 0 || targetIndex >= activeList.length) return;
 
-    const list = [...expenseCategories];
+    const list = [...activeList];
     const temp = list[index];
     list[index] = list[targetIndex];
     list[targetIndex] = temp;
 
-    const orderedIds = list.map((c) => c.id);
-    reorderCategories(orderedIds);
+    const otherList = listType === 'expense' ? incomeCategories : expenseCategories;
+    const combinedIds = [...list.map((c) => c.id), ...otherList.map((c) => c.id)];
+    reorderCategories(combinedIds);
   };
 
   const currencySymbol = settings.currencySymbol || '£';
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col pb-28 px-4 py-4 max-w-2xl mx-auto w-full space-y-5 animate-in fade-in">
+    <div className="bg-black text-white flex flex-col pb-24 px-4 py-4 max-w-2xl mx-auto w-full space-y-5 animate-in fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -173,6 +224,9 @@ export const BudgetView: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Smart Budget Alert Banner */}
+      <SmartBudgetAlertBanner />
 
       {/* Top Summary Block */}
       <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden space-y-4">
@@ -231,14 +285,56 @@ export const BudgetView: React.FC = () => {
         </div>
       </div>
 
-      {/* Segmented Control: Expense Categories vs Income Categories */}
-      <div className="flex p-1 rounded-2xl bg-zinc-900 border border-zinc-800">
+      {/* Advanced Search Bar */}
+      <div className="relative">
+        <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder={
+            settings.language === 'ar'
+              ? 'البحث في فئات الميزانية بالاسم...'
+              : 'Search budget categories by name...'
+          }
+          className="w-full pl-10 pr-9 py-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white p-0.5 rounded-full hover:bg-zinc-800 transition"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Segmented Control: Expense Categories vs Income Categories with Animated Sliding Pill */}
+      <div
+        onTouchStart={handleSubTouchStart}
+        onTouchEnd={handleSubTouchEnd}
+        className="relative flex p-1 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden select-none"
+      >
+        {/* Sliding Indicator Pill */}
+        <div
+          className={`absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-xl transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] shadow-md ${
+            categoryTab === 'expense'
+              ? 'bg-zinc-800'
+              : 'bg-emerald-950/80 border border-emerald-500/30'
+          }`}
+          style={{
+            transform: settings.language === 'ar'
+              ? (categoryTab === 'expense' ? 'translateX(0)' : 'translateX(-100%)')
+              : (categoryTab === 'expense' ? 'translateX(0)' : 'translateX(100%)'),
+          }}
+        />
         <button
           type="button"
           onClick={() => setCategoryTab('expense')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer ${
+          className={`relative z-10 flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer text-center ${
             categoryTab === 'expense'
-              ? 'bg-zinc-800 text-white shadow-md'
+              ? 'text-white'
               : 'text-zinc-400 hover:text-white'
           }`}
         >
@@ -247,9 +343,9 @@ export const BudgetView: React.FC = () => {
         <button
           type="button"
           onClick={() => setCategoryTab('income')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer ${
+          className={`relative z-10 flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer text-center ${
             categoryTab === 'income'
-              ? 'bg-zinc-800 text-emerald-400 shadow-md'
+              ? 'text-emerald-400'
               : 'text-zinc-400 hover:text-white'
           }`}
         >
@@ -292,103 +388,122 @@ export const BudgetView: React.FC = () => {
           </div>
 
           <div className="space-y-2.5">
-            {expenseCategories.map((cat, idx) => {
+            {displayExpenseCategories.map((cat) => {
               const spent = categorySpentMap.get(cat.id) || 0;
               const hasBudget = cat.budgetLimit > 0;
               const isCatOver = hasBudget && spent > cat.budgetLimit;
               const catProgress = hasBudget ? Math.min(100, (spent / cat.budgetLimit) * 100) : 0;
+              const originalIdx = expenseCategories.findIndex((c) => c.id === cat.id);
 
               return (
                 <div
                   key={cat.id}
-                  onClick={() => openEditCategoryModal(cat)}
-                  role="button"
-                  tabIndex={0}
-                  className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700 active:scale-[0.99] transition cursor-pointer group"
+                  className="flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700 transition group"
                 >
-                  {/* Left: Move buttons + Category Emoji + Name */}
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex flex-col gap-0.5 text-zinc-500"
+                  {/* Distinct Reorder Controls (Clicking here ONLY reorders and NEVER opens edit modal) */}
+                  <div
+                    className="flex flex-col gap-1 shrink-0 z-10"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      disabled={originalIdx <= 0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        if (originalIdx > 0) handleMove(originalIdx, 'up', 'expense');
+                      }}
+                      aria-label="Move Up"
+                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-blue-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
                     >
-                      <button
-                        type="button"
-                        disabled={idx === 0}
-                        onClick={() => handleMove(idx, 'up')}
-                        aria-label="Move Up"
-                        className="p-1 hover:text-white disabled:opacity-20 transition"
-                      >
-                        <ArrowUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={idx === expenseCategories.length - 1}
-                        onClick={() => handleMove(idx, 'down')}
-                        aria-label="Move Down"
-                        className="p-1 hover:text-white disabled:opacity-20 transition"
-                      >
-                        <ArrowDown className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={originalIdx >= expenseCategories.length - 1}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        if (originalIdx < expenseCategories.length - 1) handleMove(originalIdx, 'down', 'expense');
+                      }}
+                      aria-label="Move Down"
+                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-blue-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
 
-                    <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
-                      {cat.icon}
-                    </div>
-
-                    <div className="min-w-0">
-                      <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs group-hover:text-blue-300 transition">
-                        {cat.name}
+                  {/* Main Category Body (Clicking ANY other part opens the category edit panel) */}
+                  <div
+                    onClick={() => openEditCategoryModal(cat)}
+                    role="button"
+                    tabIndex={0}
+                    className="flex-1 flex items-center justify-between min-w-0 cursor-pointer pl-1 active:scale-[0.99] transition"
+                  >
+                    {/* Category Emoji + Name + Limit */}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
+                        {cat.icon}
                       </div>
-                      {hasBudget && (
-                        <div className="text-[10px] text-zinc-400 mt-0.5">
-                          {isCatOver ? (
-                            <span className="text-red-400 flex items-center gap-1">
-                              <AlertCircle className="w-3 h-3" /> Over by{' '}
-                              {formatCurrency(spent - cat.budgetLimit, currencySymbol)}
+
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs group-hover:text-blue-300 transition">
+                          {cat.name}
+                        </div>
+                        {hasBudget && (
+                          <div className="text-[10px] text-zinc-400 mt-0.5">
+                            {isCatOver ? (
+                              <span className="text-red-400 flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" /> Over by{' '}
+                                {formatCurrency(spent - cat.budgetLimit, currencySymbol)}
+                              </span>
+                            ) : (
+                              <span>
+                                {formatCurrency(cat.budgetLimit - spent, currencySymbol)} remaining
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right Side: £ Spent / £ Budget */}
+                    <div className="text-right shrink-0 pl-3">
+                      {hasBudget ? (
+                        <div>
+                          <div className="text-sm font-black font-mono text-white">
+                            {formatCurrency(spent, currencySymbol)}
+                            <span className="text-xs font-normal text-zinc-500">
+                              {' '}
+                              / {formatCurrency(cat.budgetLimit, currencySymbol)}
                             </span>
-                          ) : (
-                            <span>
-                              {formatCurrency(cat.budgetLimit - spent, currencySymbol)} remaining
-                            </span>
-                          )}
+                          </div>
+                          <div className="w-24 sm:w-32 h-1.5 rounded-full bg-zinc-950 overflow-hidden mt-1.5 ml-auto">
+                            <div
+                              style={{ width: `${catProgress}%` }}
+                              className={`h-full rounded-full ${
+                                isCatOver
+                                  ? 'bg-red-500'
+                                  : catProgress > 85
+                                  ? 'bg-amber-400'
+                                  : 'bg-emerald-500'
+                              }`}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-right">
+                          <span className="text-xs font-mono font-medium text-zinc-400">
+                            {spent > 0 ? formatCurrency(spent, currencySymbol) : 'No budget'}
+                          </span>
+                          <div className="text-[10px] text-zinc-500">Tap to set limit</div>
                         </div>
                       )}
                     </div>
-                  </div>
-
-                  {/* Right Side: £ Spent / £ Budget */}
-                  <div className="text-right shrink-0 pl-3">
-                    {hasBudget ? (
-                      <div>
-                        <div className="text-sm font-black font-mono text-white">
-                          {formatCurrency(spent, currencySymbol)}
-                          <span className="text-xs font-normal text-zinc-500">
-                            {' '}
-                            / {formatCurrency(cat.budgetLimit, currencySymbol)}
-                          </span>
-                        </div>
-                        <div className="w-24 sm:w-32 h-1.5 rounded-full bg-zinc-950 overflow-hidden mt-1.5 ml-auto">
-                          <div
-                            style={{ width: `${catProgress}%` }}
-                            className={`h-full rounded-full ${
-                              isCatOver
-                                ? 'bg-red-500'
-                                : catProgress > 85
-                                ? 'bg-amber-400'
-                                : 'bg-emerald-500'
-                            }`}
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-right">
-                        <span className="text-xs font-mono font-medium text-zinc-400">
-                          {spent > 0 ? formatCurrency(spent, currencySymbol) : 'No budget'}
-                        </span>
-                        <div className="text-[10px] text-zinc-500">Tap to set limit</div>
-                      </div>
-                    )}
                   </div>
                 </div>
               );
@@ -453,37 +568,80 @@ export const BudgetView: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-2.5">
-              {incomeCategories.map((cat) => {
+              {displayIncomeCategories.map((cat) => {
                 const received = categoryIncomeMap.get(cat.id) || 0;
+                const originalIdx = incomeCategories.findIndex((c) => c.id === cat.id);
 
                 return (
                   <div
                     key={cat.id}
-                    onClick={() => openEditCategoryModal(cat)}
-                    role="button"
-                    tabIndex={0}
-                    className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700 active:scale-[0.99] transition cursor-pointer group"
+                    className="flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700 transition group"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-11 h-11 rounded-xl bg-emerald-950/40 border border-emerald-800/60 flex items-center justify-center text-2xl shrink-0">
-                        {cat.icon}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold text-white truncate max-w-[160px] sm:max-w-xs group-hover:text-emerald-300 transition">
-                          {cat.name}
-                        </div>
-                        <div className="text-[10px] text-emerald-400 mt-0.5">
-                          {settings.language === 'ar' ? 'فئة دخل واردة' : 'Incoming Category'}
-                        </div>
-                      </div>
+                    {/* Distinct Reorder Controls (Clicking here ONLY reorders and NEVER opens edit modal) */}
+                    <div
+                      className="flex flex-col gap-1 shrink-0 z-10"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        disabled={originalIdx <= 0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          if (originalIdx > 0) handleMove(originalIdx, 'up', 'income');
+                        }}
+                        aria-label="Move Up"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-emerald-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={originalIdx >= incomeCategories.length - 1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          if (originalIdx < incomeCategories.length - 1) handleMove(originalIdx, 'down', 'income');
+                        }}
+                        aria-label="Move Down"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-emerald-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
                     </div>
 
-                    <div className="text-right shrink-0">
-                      <div className="text-sm font-black font-mono text-emerald-400">
-                        +{formatCurrency(received, currencySymbol)}
+                    {/* Main Category Body (Clicking ANY other part opens the edit modal) */}
+                    <div
+                      onClick={() => openEditCategoryModal(cat)}
+                      role="button"
+                      tabIndex={0}
+                      className="flex-1 flex items-center justify-between min-w-0 cursor-pointer pl-1 active:scale-[0.99] transition"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-11 h-11 rounded-xl bg-emerald-950/40 border border-emerald-800/60 flex items-center justify-center text-2xl shrink-0">
+                          {cat.icon}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-white truncate max-w-[160px] sm:max-w-xs group-hover:text-emerald-300 transition">
+                            {cat.name}
+                          </div>
+                          <div className="text-[10px] text-emerald-400 mt-0.5">
+                            {settings.language === 'ar' ? 'فئة دخل واردة' : 'Incoming Category'}
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-[10px] text-zinc-500">
-                        {settings.language === 'ar' ? 'انقر للتعديل أو الحذف' : 'Tap to edit/delete'}
+
+                      <div className="text-right shrink-0">
+                        <div className="text-sm font-black font-mono text-emerald-400">
+                          +{formatCurrency(received, currencySymbol)}
+                        </div>
+                        <div className="text-[10px] text-zinc-500">
+                          {settings.language === 'ar' ? 'انقر للتعديل أو الحذف' : 'Tap to edit/delete'}
+                        </div>
                       </div>
                     </div>
                   </div>

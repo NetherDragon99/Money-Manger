@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Plus, ChevronDown } from 'lucide-react';
-import { TransactionType } from '../types';
+import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw } from 'lucide-react';
+import { TransactionType, RecurringFrequency } from '../types';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatFullDateTime } from '../utils/dateCycle';
+import { calculateNextDueDate } from '../utils/recurring';
 import { Numpad } from './Numpad';
 import { MiniDateTimePicker } from './MiniDateTimePicker';
+import { CategoryDirectoryModal } from './CategoryDirectoryModal';
 
 export const TransactionModal: React.FC = () => {
   const {
@@ -15,10 +17,14 @@ export const TransactionModal: React.FC = () => {
     categories,
     addTransaction,
     updateTransaction,
+    addRecurringTransaction,
     openAddAccountModal,
     openAddCategoryModal,
     t,
     settings,
+    defaultTxAccountId,
+    defaultTxAmount,
+    selectedAccountId,
   } = useApp();
 
   const [type, setType] = useState<TransactionType>('expense');
@@ -31,7 +37,28 @@ export const TransactionModal: React.FC = () => {
   const [categoryId, setCategoryId] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [showDateTimePicker, setShowDateTimePicker] = useState<boolean>(false);
+  const [pickerTab, setPickerTab] = useState<'date' | 'time'>('date');
   const [accountDropdownOpen, setAccountDropdownOpen] = useState<'single' | 'from' | 'to' | null>(null);
+  const [showCategoryDirectory, setShowCategoryDirectory] = useState<boolean>(false);
+  const [isClosing, setIsClosing] = useState<boolean>(false);
+  const [isRecurring, setIsRecurring] = useState<boolean>(false);
+  const [recurringFrequency, setRecurringFrequency] = useState<RecurringFrequency>('monthly');
+
+  const handleAnimatedClose = () => {
+    setIsClosing(true);
+    setAccountDropdownOpen(null);
+    setTimeout(() => {
+      setIsClosing(false);
+      closeAddTxModal();
+    }, 180);
+  };
+
+  useEffect(() => {
+    if (!accountDropdownOpen) return;
+    const handleOutside = () => setAccountDropdownOpen(null);
+    document.addEventListener('pointerdown', handleOutside);
+    return () => document.removeEventListener('pointerdown', handleOutside);
+  }, [accountDropdownOpen]);
 
   // Clean Reset Rule & Initialize on Open / Edit
   useEffect(() => {
@@ -52,34 +79,44 @@ export const TransactionModal: React.FC = () => {
       setCategoryId(editingTx.categoryId || '');
       setDescription(editingTx.description || '');
     } else {
-      // Clean Reset Rule: reset amount to 0, note to "", type to Expense
+      // Clean Reset Rule: reset amount to 0 or defaultTxAmount, note to "", type to Expense
       setType('expense');
-      setAmountStr('0');
+      setAmountStr(defaultTxAmount && defaultTxAmount > 0 ? defaultTxAmount.toString() : '0');
       const now = new Date();
       setDate(formatDateToYYYYMMDD(now));
       setHasTime(true);
       setTime(formatTimeToHHMM(now));
       setDescription('');
-      const defaultAcc = accounts[0] ? accounts[0].id : '';
+      const defaultAcc = defaultTxAccountId || selectedAccountId || (accounts[0] ? accounts[0].id : '');
       setAccountId(defaultAcc);
-      // Destination account for transfers
+      // Destination account for transfers: always auto-select a valid different account
       const otherAcc = accounts.find((a) => a.id !== defaultAcc);
       setToAccountId(otherAcc ? otherAcc.id : '');
       // Select first matching category
       const defaultCat = categories.find((c) => c.type === 'expense');
       setCategoryId(defaultCat ? defaultCat.id : '');
+      setIsRecurring(false);
+      setRecurringFrequency('monthly');
     }
-  }, [isAddTxModalOpen, editingTx, accounts, categories]);
+  }, [isAddTxModalOpen, editingTx, accounts, categories, defaultTxAccountId, defaultTxAmount, selectedAccountId]);
 
-  // When type changes, ensure valid category selection
+  // When type changes, ensure valid category selection & Transfer Auto-Select destination
   useEffect(() => {
-    if (type !== 'transfer') {
+    if (type === 'transfer') {
+      // Auto-select second available account if empty or same as source
+      if (!toAccountId || toAccountId === accountId) {
+        const destination = accounts.find((a) => a.id !== accountId);
+        if (destination) {
+          setToAccountId(destination.id);
+        }
+      }
+    } else {
       const matchCat = categories.find((c) => c.type === type);
       if (matchCat && (!categoryId || !categories.find((c) => c.id === categoryId && c.type === type))) {
         setCategoryId(matchCat.id);
       }
     }
-  }, [type, categories, categoryId]);
+  }, [type, accounts, accountId, toAccountId, categories, categoryId]);
 
   // Filtered categories for the active type
   const availableCategories = useMemo(() => {
@@ -142,6 +179,22 @@ export const TransactionModal: React.FC = () => {
       });
     } else {
       addTransaction(payload);
+      if (isRecurring) {
+        addRecurringTransaction({
+          type,
+          amount: numericAmount,
+          description: description.trim(),
+          accountId,
+          toAccountId: type === 'transfer' ? toAccountId : undefined,
+          categoryId: type === 'transfer' ? undefined : selectedCategory?.id,
+          categoryName: type === 'transfer' ? undefined : selectedCategory?.name,
+          categoryIcon: type === 'transfer' ? undefined : selectedCategory?.icon,
+          frequency: recurringFrequency,
+          startDate: date,
+          nextDueDate: calculateNextDueDate(date, recurringFrequency),
+          autoProcess: true,
+        });
+      }
     }
     closeAddTxModal();
   };
@@ -150,24 +203,25 @@ export const TransactionModal: React.FC = () => {
 
   return (
     <div
-      onClick={() => {
-        closeAddTxModal();
-        setAccountDropdownOpen(null);
-      }}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in"
+      onClick={handleAnimatedClose}
+      className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 transition-all duration-200 ${
+        isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
+      }`}
     >
       <div
         onClick={(e) => {
           e.stopPropagation();
           setAccountDropdownOpen(null);
         }}
-        className="w-full max-w-lg max-h-[96vh] flex flex-col rounded-t-3xl sm:rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl overflow-hidden text-white"
+        className={`w-full max-w-lg max-h-[96vh] flex flex-col rounded-t-3xl sm:rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl overflow-hidden text-white transition-all duration-200 ${
+          isClosing ? 'modal-container-closing' : 'modal-container-anim'
+        }`}
       >
         {/* Top Bar: Close X & 3-Way Type Pill Toggle */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800/80">
           <button
             type="button"
-            onClick={closeAddTxModal}
+            onClick={handleAnimatedClose}
             className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition"
           >
             <X className="w-5 h-5" />
@@ -201,7 +255,13 @@ export const TransactionModal: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setType('transfer')}
+              onClick={() => {
+                setType('transfer');
+                const destination = accounts.find((a) => a.id !== accountId);
+                if (destination) {
+                  setToAccountId(destination.id);
+                }
+              }}
               className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition ${
                 type === 'transfer'
                   ? 'bg-blue-600 text-white shadow-md'
@@ -238,31 +298,47 @@ export const TransactionModal: React.FC = () => {
               />
             </div>
 
-            {/* Date & Time Pill Button */}
-            <div className="flex justify-center mt-2">
+            {/* Date & Time Separate Pill Buttons for Instant Access */}
+            <div className="flex items-center justify-center gap-2 mt-2">
               <button
                 type="button"
-                onClick={() => setShowDateTimePicker(!showDateTimePicker)}
-                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:border-zinc-700 transition"
+                onClick={() => {
+                  setPickerTab('date');
+                  setShowDateTimePicker(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:border-zinc-700 transition cursor-pointer"
               >
                 <Calendar className="w-3.5 h-3.5 text-blue-400" />
-                <span>{formatFullDateTime(date, hasTime ? time : undefined, settings.language)}</span>
+                <span>{date}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPickerTab('time');
+                  setShowDateTimePicker(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:border-zinc-700 transition cursor-pointer"
+              >
+                <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{hasTime ? time : (settings.language === 'ar' ? 'بدون وقت' : 'No time')}</span>
               </button>
             </div>
 
-            {/* Interactive Visual Mini Calendar & Clock Picker */}
+            {/* Interactive Visual Full-Screen Floating Calendar & Analogue Clock Picker */}
             {showDateTimePicker && (
-              <div className="mt-3 text-left">
-                <MiniDateTimePicker
-                  date={date}
-                  time={time}
-                  hasTime={hasTime}
-                  onDateChange={setDate}
-                  onTimeChange={setTime}
-                  onToggleHasTime={setHasTime}
-                  lang={settings.language}
-                />
-              </div>
+              <MiniDateTimePicker
+                isOpen={showDateTimePicker}
+                onClose={() => setShowDateTimePicker(false)}
+                date={date}
+                time={time}
+                hasTime={hasTime}
+                onDateChange={setDate}
+                onTimeChange={setTime}
+                onToggleHasTime={setHasTime}
+                initialTab={pickerTab}
+                lang={settings.language}
+              />
             )}
           </div>
 
@@ -468,6 +544,51 @@ export const TransactionModal: React.FC = () => {
             />
           </div>
 
+          {/* Recurring Schedule Switch & Frequency Selection */}
+          {!editingTx && (
+            <div className="p-3 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-2">
+              <label className="flex items-center justify-between cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className={`w-4 h-4 ${isRecurring ? 'text-blue-400' : 'text-zinc-500'}`} />
+                  <span className="text-xs font-semibold text-zinc-300">
+                    {settings.language === 'ar' ? 'معاملة دورية متكررة' : 'Make this a Recurring Transaction'}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={isRecurring}
+                  onChange={(e) => setIsRecurring(e.target.checked)}
+                  className="w-4 h-4 rounded text-blue-600 bg-zinc-800 border-zinc-700 cursor-pointer"
+                />
+              </label>
+
+              {/* Accordion smooth expansion */}
+              <div className={`accordion-wrapper ${isRecurring ? 'open' : 'closed'}`}>
+                <div className="accordion-inner pt-2 border-t border-zinc-800/60">
+                  <span className="block text-[11px] text-zinc-400 mb-1.5 font-medium">
+                    {settings.language === 'ar' ? 'دورة التكرار' : 'Repeat Frequency'}
+                  </span>
+                  <div className="grid grid-cols-5 gap-1">
+                    {(['daily', 'weekly', 'biweekly', 'monthly', 'yearly'] as RecurringFrequency[]).map((freq) => (
+                      <button
+                        key={freq}
+                        type="button"
+                        onClick={() => setRecurringFrequency(freq)}
+                        className={`py-1.5 text-[10px] font-bold rounded-lg capitalize transition cursor-pointer ${
+                          recurringFrequency === freq
+                            ? 'bg-blue-600 text-white shadow-md'
+                            : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800'
+                        }`}
+                      >
+                        {freq === 'biweekly' ? '2-Wk' : freq}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Category Selector: Completely HIDE for Transfer */}
           {type !== 'transfer' && (
             <div>
@@ -475,14 +596,14 @@ export const TransactionModal: React.FC = () => {
                 <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
                   Category
                 </span>
-                {/* Fixed, uncompressed "+ Add Category" button right next to header */}
+                {/* "Show All" button opens full Categories Directory modal */}
                 <button
                   type="button"
-                  onClick={() => openAddCategoryModal(type === 'income' ? 'income' : 'expense')}
-                  className="flex items-center gap-1 text-xs font-semibold text-blue-400 hover:text-blue-300 transition shrink-0"
+                  onClick={() => setShowCategoryDirectory(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-600/20 border border-blue-500/40 text-xs font-bold text-blue-400 hover:text-blue-300 hover:bg-blue-600/30 transition shrink-0 active:scale-95"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>{t('addCategory')}</span>
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>{settings.language === 'ar' ? 'عرض الكل' : 'Show All'}</span>
                 </button>
               </div>
 
@@ -536,6 +657,18 @@ export const TransactionModal: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Full-Screen Category Directory Modal with Search & Create */}
+      <CategoryDirectoryModal
+        isOpen={showCategoryDirectory}
+        onClose={() => setShowCategoryDirectory(false)}
+        selectedCategoryId={categoryId}
+        initialType={type === 'income' ? 'income' : 'expense'}
+        onSelectCategory={(cat) => {
+          setCategoryId(cat.id);
+          setShowCategoryDirectory(false);
+        }}
+      />
     </div>
   );
 };

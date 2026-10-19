@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   ArrowDown,
@@ -18,6 +18,31 @@ export const InsightsView: React.FC = () => {
 
   const [activeAnalysisType, setActiveAnalysisType] = useState<'expense' | 'income'>('expense');
   const [showAllCategories, setShowAllCategories] = useState<boolean>(false);
+
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleSubTouchStart = (e: React.TouchEvent) => {
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+  };
+
+  const handleSubTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartRef.current.x;
+    const deltaY = e.changedTouches[0].clientY - touchStartRef.current.y;
+    touchStartRef.current = null;
+
+    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4) {
+      const isRtl = settings.language === 'ar';
+      if ((!isRtl && deltaX < 0) || (isRtl && deltaX > 0)) {
+        setActiveAnalysisType('income');
+      } else {
+        setActiveAnalysisType('expense');
+      }
+    }
+  };
 
   // Month cycle for Public accounts
   const cycleRange = useMemo(() => {
@@ -184,7 +209,7 @@ export const InsightsView: React.FC = () => {
     : categoryAnalytics.list.slice(0, 3);
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col pb-28 px-4 py-4 max-w-2xl mx-auto w-full space-y-5 animate-in fade-in">
+    <div className="bg-black text-white flex flex-col pb-24 px-4 py-4 max-w-2xl mx-auto w-full space-y-5 animate-in fade-in">
       {/* Header */}
       <div>
         <h2 className="text-xl font-black tracking-tight">{t('insights')}</h2>
@@ -227,14 +252,31 @@ export const InsightsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Expense / Income Toggle Segmented Control */}
-      <div className="flex p-1 rounded-2xl bg-zinc-900 border border-zinc-800">
+      {/* Expense / Income Toggle Segmented Control with Animated Sliding Pill */}
+      <div
+        onTouchStart={handleSubTouchStart}
+        onTouchEnd={handleSubTouchEnd}
+        className="relative flex p-1 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden select-none"
+      >
+        {/* Animated Sliding Pill */}
+        <div
+          className={`absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-xl transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] shadow-md ${
+            activeAnalysisType === 'expense'
+              ? 'bg-rose-950/80 border border-rose-500/40'
+              : 'bg-emerald-950/80 border border-emerald-500/40'
+          }`}
+          style={{
+            transform: settings.language === 'ar'
+              ? (activeAnalysisType === 'expense' ? 'translateX(0)' : 'translateX(-100%)')
+              : (activeAnalysisType === 'expense' ? 'translateX(0)' : 'translateX(100%)'),
+          }}
+        />
         <button
           type="button"
           onClick={() => setActiveAnalysisType('expense')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${
+          className={`relative z-10 flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer text-center ${
             activeAnalysisType === 'expense'
-              ? 'bg-red-600 text-white shadow-md'
+              ? 'text-rose-400'
               : 'text-zinc-400 hover:text-white'
           }`}
         >
@@ -243,9 +285,9 @@ export const InsightsView: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveAnalysisType('income')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${
+          className={`relative z-10 flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer text-center ${
             activeAnalysisType === 'income'
-              ? 'bg-emerald-600 text-white shadow-md'
+              ? 'text-emerald-400'
               : 'text-zinc-400 hover:text-white'
           }`}
         >

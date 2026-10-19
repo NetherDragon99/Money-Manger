@@ -13,6 +13,7 @@ export const CategoryModal: React.FC = () => {
     addCategory,
     updateCategory,
     deleteCategory,
+    openEmojiPicker,
     t,
     settings,
     showToast,
@@ -23,6 +24,7 @@ export const CategoryModal: React.FC = () => {
   const [type, setType] = useState<TransactionType>('expense');
   const [budgetLimit, setBudgetLimit] = useState('0');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
 
   useEffect(() => {
     setShowDeleteConfirm(false);
@@ -89,14 +91,26 @@ export const CategoryModal: React.FC = () => {
     }
   };
 
+  const handleAnimatedClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsClosing(false);
+      closeCategoryModal();
+    }, 180);
+  };
+
   return (
     <div
-      onClick={closeCategoryModal}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in"
+      onClick={handleAnimatedClose}
+      className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 transition-all duration-200 ${
+        isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
+      }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg max-h-[92vh] flex flex-col rounded-t-3xl sm:rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl overflow-hidden text-white"
+        className={`w-full max-w-lg max-h-[92vh] flex flex-col rounded-t-3xl sm:rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl overflow-hidden text-white transition-all duration-200 ${
+          isClosing ? 'modal-container-closing' : 'modal-container-anim'
+        }`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/80">
@@ -116,7 +130,7 @@ export const CategoryModal: React.FC = () => {
             )}
             <button
               type="button"
-              onClick={closeCategoryModal}
+              onClick={handleAnimatedClose}
               className="p-2 rounded-full text-zinc-400 hover:text-white"
             >
               <X className="w-5 h-5" />
@@ -161,11 +175,19 @@ export const CategoryModal: React.FC = () => {
 
         {/* Scrollable Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-          {/* Top: Large circular preview of currently selected Emoji */}
+          {/* Top: Large circular preview of currently selected Emoji (Clickable to open 180+ Icon Picker) */}
           <div className="flex flex-col items-center">
-            <div className="w-20 h-20 rounded-full bg-zinc-900 border-2 border-blue-500/80 flex items-center justify-center text-4xl shadow-xl">
-              {icon}
-            </div>
+            <button
+              type="button"
+              onClick={() => openEmojiPicker((em) => setIcon(em))}
+              title="Change Emoji"
+              className="w-20 h-20 rounded-full bg-zinc-900 border-2 border-blue-500/80 hover:border-blue-400 hover:scale-105 active:scale-95 flex items-center justify-center text-4xl shadow-xl transition cursor-pointer group"
+            >
+              <span>{icon}</span>
+            </button>
+            <span className="text-[10px] text-zinc-400 mt-1.5 font-medium">
+              {settings.language === 'ar' ? 'انقر لتغيير الأيقونة' : 'Tap to change icon'}
+            </span>
           </div>
 
           {/* Type Toggle: Expense or Income (strictly synced with current app language) */}
@@ -253,9 +275,18 @@ export const CategoryModal: React.FC = () => {
 
           {/* Categorized Emoji Picker Grid */}
           <div>
-            <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">
-              {t('chooseEmoji')}
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                {t('chooseEmoji')}
+              </label>
+              <button
+                type="button"
+                onClick={() => openEmojiPicker((em) => setIcon(em))}
+                className="text-[11px] font-bold text-blue-400 hover:text-blue-300 transition cursor-pointer"
+              >
+                {settings.language === 'ar' ? '🔍 180+ أيقونة والبحث' : '🔍 180+ Icons & Search'}
+              </button>
+            </div>
             <div className="max-h-52 overflow-y-auto pr-2 space-y-4 rounded-2xl bg-zinc-900/60 p-3 border border-zinc-800/80">
               {Object.entries(EMOJI_PICKER_GROUPS).map(([groupTitle, emojis]) => (
                 <div key={groupTitle}>

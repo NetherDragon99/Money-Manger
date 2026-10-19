@@ -16,9 +16,132 @@ export interface FeatureItem {
   title: { en: string; ar: string };
   description: { en: string; ar: string };
   category: 'core' | 'finance' | 'pwa' | 'customization';
+  howToUse?: { en: string[]; ar: string[] };
 }
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
+  {
+    version: '1.1.3',
+    releaseDate: 'October 19, 2026',
+    title: {
+      en: 'Native In-Profile Auth, Standalone Shared Live Viewer, & Priority Reordering',
+      ar: 'المصادقة المدمجة بالملف الشخصي، عارض الحسابات المباشر، وإعادة ترتيب الأولوية',
+    },
+    highlights: {
+      en: [
+        'Redesigned Native Authentication: Clean mobile account card inside User Profile with Google One-Tap, Email, and Phone OTP without backend jargon.',
+        'Standalone Shared Account Live Dashboard: Dedicated shared-view.html and direct ?sharedAccountId=... URL parameter live view without login required.',
+        'Dedicated Shared Accounts Manager: Hub in Sidebar and Accounts View to manage shared links and follow family accounts in real time.',
+        'Contextual Account Pre-Selection & Auto-Pairing: Automatic account pre-selection when opening transactions from account pages and smart destination pairing.',
+        'Account Priority Reordering: Up/Down arrow controls on account cards with immediate primary default account synchronization.',
+      ],
+      ar: [
+        'تصميم أصيل للمصادقة بالملف الشخصي: بطاقة حساب عصرية مدمجة تدعم جوجل والبريد والهاتف دون مصطلحات تقنية معقدة.',
+        'لوحة مباشرة للحسابات المشتركة: ملف shared-view.html مستقل وتوافق مع الرابط المباشر ?sharedAccountId=... دون الحاجة لتسجيل.',
+        'إدارة الحسابات المشتركة: مركز متكامل في القائمة الجانبية وصفحة الحسابات لمتابعة الحسابات ومشاركتها لحظياً.',
+        'تحديد مسبق وإقران تلقائي: اختيار الحساب تلقائياً عند إضافة معاملة من صفحة الحساب وإقران ذكي لحساب التحويل.',
+        'أزرار إعادة ترتيب أولوية الحسابات: أسهم ترتيب فورية في بطاقات الحسابات مع تعيين الحساب الأول كافتراضي.',
+      ],
+    },
+  },
+  {
+    version: '1.1.2',
+    releaseDate: 'October 18, 2026',
+    title: {
+      en: 'Firebase Sync & Auth, Interactive Photo Cropper, Shared Accounts & Master Polish',
+      ar: 'المزامنة ومصادقة Firebase، محرر وقاص الصور التفاعلي، الحسابات المشتركة وتحسينات متقدمة',
+    },
+    highlights: {
+      en: [
+        'Real Firebase Integration: One-tap Google Auth, Email/Password, Phone OTP login, and Realtime Database live sync.',
+        'Interactive Circular Photo Cropper: Zoom (slider + pinch) and Drag/Pan with compressed WebP/JPEG canvas export.',
+        'Cool Avatar Presets: Curated collection of modern Animal and People avatars matching OLED dark aesthetics.',
+        'Shared Accounts Hub: Share read-only live account pages via standalone shared-view.html and followed shared accounts.',
+        'Massive 150+ Icon Library: Organized into 6 categories with live keyword search and custom emoji keyboard input.',
+        'Calendar Cell Overflow Fix: Smart compact number notation (e.g., 1.2k) and +N more indicator preventing day cell clipping.',
+        'Global Click-Outside Auto-Close: Automatic outside click dismissal across all dropdowns, three-dots menus, and popovers.',
+        'Account Context Pre-selection & Priority Reordering: Contextual account pre-selection, transfer auto-pairing, and account reordering.',
+      ],
+      ar: [
+        'تكامل Firebase حقيقي: تسجيل الدخول بنقرة عبر جوجل، البريد، الهاتف OTP ومزامنة فورية لقاعدة البيانات.',
+        'محرر وقاص الصور التفاعلي: تكبير وتصغير وسحب داخل إطار دائري وتصدير مضغوط بدقة فائقة.',
+        'مكتبة صور رمزية مميزة: مجموعة مختارة من شخصيات الحيوانات والبشر بتصميم داكن فاخر.',
+        'مركز الحسابات المشتركة: مشاركة صفحات الحسابات للقراءة فقط عبر ملف مستقل ومتابعة الحسابات المشتركة.',
+        'مكتبة أيقونات ضخمة 150+: تصنيف في 6 تبويبات وبحث فوري وإدخال إيموجي مخصص.',
+        'إصلاح تداخل خلايا التقويم: أرقام مدمجة ومؤشر لعدد المعاملات الإضافية لمنع قص الأرقام.',
+        'إغلاق تلقائي عند النقر خارج القوائم: إغلاق فوري لكافة القوائم المنسدلة والنوافذ الفرعية.',
+        'تحديد مسبق وإعادة ترتيب الحسابات: اختيار الحساب التلقائي، إقران التحويلات، وترتيب أولوية الحسابات.',
+      ],
+    },
+  },
+  {
+    version: '1.1.1',
+    releaseDate: 'October 18, 2026',
+    title: {
+      en: 'Biometric & PIN App Lock, Smart Budget Alerts, Recurring Transactions & Polish',
+      ar: 'قفل التطبيق بالبصمة ورمز PIN، تنبيهات الميزانية الذكية، المعاملات المتكررة وتحسينات شاملة',
+    },
+    highlights: {
+      en: [
+        'Biometric & PIN App Lock: Secure app access with WebAuthn fingerprint/Face ID and custom 4-digit PIN authentication on startup and resume from background.',
+        'Smart Budget Alerts: Proactive velocity & spending threshold alerts warning at 80% and 100% budget limit with dynamic badges.',
+        'Recurring Transactions Engine: Schedule automatic daily, weekly, bi-weekly, monthly, or yearly recurring expenses & incomes with auto-post.',
+        'GitHub Pages 100% Compatibility: Relative base path assets preventing blank screens on custom domains & GitHub Pages.',
+        'Unified Feature Directory: Master-Detail directory with step-by-step guides, search, and release notes with fixed badge wrapping.',
+        'Smooth Accordion Animations: Fluid height and opacity transitions for all collapsible panels and menus.',
+        'Android Hardware Back Button Full Sync: Popstate navigation stack closing modals, drawers, and providing exit confirmation.',
+      ],
+      ar: [
+        'قفل التطبيق بالبصمة ورمز PIN: حماية متكاملة عبر البصمة والتعرف على الوجه ورمز PIN مخصص عند فتح التطبيق والعودة من الخلفية.',
+        'تنبيهات الميزانية الذكية: تحذيرات استباقية ومعدل إنفاق عند بلوغ 80% وتجاوز 100% من الميزانية مع شارات تنبيه ذكية.',
+        'محرك المعاملات المتكررة: جدولة المعاملات الدورية (يومية، أسبوعية، شهرية، سنوية) مع ترحيل تلقائي وتنبيهات استحقاق.',
+        'توافق كامل مع صفحات GitHub: مسارات نسبية للأصول لمنع الشاشات البيضاء عند النشر على الاستضافات المختلفة.',
+        'دليل مميزات موحد: تصميم رئيسي-تفصيلي متكامل مع إرشادات خطوة بخطوة وتنسيق محكم للشارات.',
+        'انسيابية الأكورديون والقوائم القابلة للطي: حركات انسيابية ناعمة لفتح وإغلاق جميع الأقسام.',
+        'مزامنة زر الرجوع لهواتف أندرويد: تكامل مكدس التاريخ لإغلاق النوافذ المنبثقة وتأكيد الخروج.',
+      ],
+    },
+  },
+  {
+    version: '1.1.0',
+    releaseDate: 'October 17, 2026',
+    title: {
+      en: 'Major Release: 5th Tab Calculator, Gesture Navigation, Hardware Back & Offline Upgrades',
+      ar: 'إصدار رئيسي: الحاسبة المتقدمة، التنقل بالإيماءات، زر الرجوع للهاتف وترقيات شاملة',
+    },
+    highlights: {
+      en: [
+        'Interactive Analogue Clock: Sleek clock face with hour/minute hands, AM/PM toggle, and dial tap/drag replacing button lists.',
+        'Scroll & Slide Page Animations: Fluid transitions and horizontal scrolling effects between tabs and views.',
+        'Semi-Transparent Popups: Elegant translucent glassmorphic backdrops and smooth close animations across all modals.',
+        'Android Hardware Back Button Sync: Native back navigation across all modals and subviews with confirmation dialog before exit.',
+        'Advanced Financial Calculator: 5th bottom navigation tab with expression tape, memory keys, percentages, and instant transaction creation.',
+        'Interactive Master-Detail Guide: Full-screen feature directory with dynamic step-by-step guides and release notes.',
+        'Horizontal Swipe Gestures: Smooth fluid sliding indicator across 5 tabs and swipe navigation between sub-views.',
+        'Categories Directory & Advanced Search: Real-time search across categories in both Transactions and Budget views.',
+        'Translucent Floating Date & Time Pickers: Semi-transparent blurred backdrop overlay for all date selections.',
+        'Interactive Photo Cropper & Cool Avatars: Zoom, pan, and circular frame crop for custom avatars alongside cool animal/people presets.',
+        'World Currency Selector: Over 22 global currencies with instant symbol updates across all views.',
+        'Automated Scheduled Backups: Local folder persistence via File System Access API with background sync.',
+        'Granular JSON Export: Persistent checklist modal to selectively backup accounts, budgets, profile, or complete state.',
+      ],
+      ar: [
+        'ساعة عقارب تناظرية تفاعلية: تصميم كلاسيكي أنيق مع عقارب الساعات والدقائق وزر AM/PM واختيار مباشر بالنقر والسحب.',
+        'حركات وتأثيرات التمرير بين الصفحات: انتقال سلس ومتحرك بين الأقسام والتبويبات كشريط أفقي متصل.',
+        'نوافذ منبثقة بخلفيات شبه شفافة وحركات إغلاق: مظهر زجاجي شفاف فاخر مع انسيابية تامة عند الإغلاق.',
+        'دعم زر الرجوع لهواتف أندرويد: تكامل تام للتنقل وإغلاق النوافذ المنبثقة مع نافذة تأكيد الخروج.',
+        'حاسبة مالية متقدمة: تبويب خامس مستقل مع سجل حسابات، مفاتيح ذاكرة، نسب مئوية وتصدير فوري للمعاملات.',
+        'دليل تفاعلي متقدم للمميزات: نافذة رئيسية وتفصيلية متطورة تشرح كيفية استخدام كل ميزة خطوة بخطوة.',
+        'تنقل بالإيماءات والسحب الأفقي: مؤشر متحرك سلس بين التبويبات الخمسة ودعم السحب بين الأقسام.',
+        'دليل الفئات والبحث السريع: بحث فوري متقدم في شاشة المعاملات وشاشة الميزانية.',
+        'تقويم وساعة عائمة بخلفية شبه شفافة: مظهر عصري أنيق لجميع محددات الوقت والتاريخ.',
+        'محرر وقاص الصور الشخصية: تكبير وسحب وقص دائري للصور ومكتبة صور رمزية أنيقة.',
+        'محدد العملات العالمي: دعم أكثر من 22 عملة عالمية مع تحديث الرموز فورياً.',
+        'نسخ احتياطي تلقائي مجدول: حفظ دوري في مجلد محلي بالخلفية عبر File System Access API.',
+        'تخصيص تصدير البيانات: قائمة مرئية دائمة لاختيار ما تريد تصديره واستعادته بدقة 100%.',
+      ],
+    },
+  },
   {
     version: '1.0.9',
     releaseDate: 'October 16, 2026',
