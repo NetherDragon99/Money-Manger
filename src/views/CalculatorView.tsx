@@ -5,13 +5,13 @@ import {
   RotateCcw,
   History,
   ArrowRight,
+  ArrowLeft,
   PlusCircle,
   Delete,
   Sparkles,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { formatCurrency } from '../utils/dateCycle';
 
 interface HistoryItem {
   id: string;
@@ -20,10 +20,11 @@ interface HistoryItem {
   timestamp: string;
 }
 
-export const CalculatorView: React.FC = () => {
+export const CalculatorView: React.FC = React.memo(() => {
   const { settings, openAddTxModal, setIsSidebarOpen, showToast, t } = useApp();
   const [expression, setExpression] = useState('');
   const [result, setResult] = useState<number>(0);
+  const [cursorPos, setCursorPos] = useState<number | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>(() => {
     try {
       const saved = localStorage.getItem('calc_history');
@@ -34,7 +35,8 @@ export const CalculatorView: React.FC = () => {
   });
   const [showHistory, setShowHistory] = useState(false);
   const isArabic = settings.language === 'ar';
-  const currencySymbol = settings.currencySymbol || '£';
+
+  const activeCursor = cursorPos !== null ? Math.min(cursorPos, expression.length) : expression.length;
 
   // Precision Evaluation Engine for √, ^, %, parentheses, and standard operators
   const evaluateMath = (raw: string): number | null => {
@@ -48,26 +50,41 @@ export const CalculatorView: React.FC = () => {
       expr = expr.replace(/−/g, '-');
       expr = expr.replace(/\^/g, '**');
 
-      // 2. Handle square roots: √(x) or √x
-      // Handle nested or grouped roots first
-      let maxLoops = 10;
+      // 2. Implicit multiplication: e.g. 5(3) -> 5*(3), (2)(3) -> (2)*(3), 5√9 -> 5*√9
+      expr = expr.replace(/(\d)\(/g, '$1*(');
+      expr = expr.replace(/\)(\d)/g, ')*$1');
+      expr = expr.replace(/(\d)√/g, '$1*√');
+      expr = expr.replace(/\)√/g, ')*√');
+
+      // 3. Auto-balance unclosed parentheses: e.g. √(25 or (5+3
+      const openParens = (expr.match(/\(/g) || []).length;
+      const closeParens = (expr.match(/\)/g) || []).length;
+      if (openParens > closeParens) {
+        expr = expr + ')'.repeat(openParens - closeParens);
+      }
+
+      // 4. Handle square roots:
+      // Handle nested or grouped roots first: √(x)
+      let maxLoops = 15;
       while (expr.includes('√(') && maxLoops-- > 0) {
         expr = expr.replace(/√\(([^()]+)\)/g, 'Math.sqrt($1)');
       }
       // Handle standalone number roots like √25
       expr = expr.replace(/√(\d+(\.\d+)?)/g, 'Math.sqrt($1)');
 
-      // 3. Handle percentage:
-      // Case A: Number% (e.g. 50% -> (50/100))
+      // If trailing √ without operand, remove it
+      expr = expr.replace(/√+$/g, '');
+
+      // 5. Handle percentage:
       expr = expr.replace(/(\d+(\.\d+)?)%/g, '($1/100)');
 
-      // 4. Sanitize: allow only numbers, math operations, and Math.sqrt
+      // 6. Sanitize: allow only numbers, math operations, and Math.sqrt
       const testSanitized = expr.replace(/Math\.sqrt/g, '');
       if (!/^[\d\s+\-*/.()**]+$/.test(testSanitized)) {
         return null;
       }
 
-      // 5. Safely execute math function
+      // 7. Safely execute math function
       // eslint-disable-next-line no-new-func
       const fn = new Function(`return (${expr})`);
       const val = fn();
@@ -83,13 +100,21 @@ export const CalculatorView: React.FC = () => {
   };
 
   const handleInput = (token: string) => {
-    let next = expression;
+    const pos = activeCursor;
+    let tokenToInsert = token;
+
     if (token === '√') {
-      next = expression + '√(';
-    } else {
-      next = expression + token;
+      // If preceded by a digit or closing parenthesis, insert implicit multiplication
+      if (pos > 0 && /[\d)]/.test(expression[pos - 1])) {
+        tokenToInsert = '×√(';
+      } else {
+        tokenToInsert = '√(';
+      }
     }
+
+    const next = expression.slice(0, pos) + tokenToInsert + expression.slice(pos);
     setExpression(next);
+    setCursorPos(pos + tokenToInsert.length);
 
     const calculated = evaluateMath(next);
     if (calculated !== null) {
@@ -100,26 +125,40 @@ export const CalculatorView: React.FC = () => {
   const handleClear = () => {
     setExpression('');
     setResult(0);
+    setCursorPos(null);
   };
 
   const handleBackspace = () => {
-    if (expression.length <= 1) {
-      setExpression('');
+    const pos = activeCursor;
+    if (pos <= 0) return;
+
+    let deleteCount = 1;
+    if (expression.slice(0, pos).endsWith('×√(')) {
+      deleteCount = 3;
+    } else if (expression.slice(0, pos).endsWith('√(')) {
+      deleteCount = 2;
+    }
+
+    const next = expression.slice(0, pos - deleteCount) + expression.slice(pos);
+    setExpression(next);
+    setCursorPos(Math.max(0, pos - deleteCount));
+
+    if (!next.trim()) {
       setResult(0);
     } else {
-      // If deleting the end of '√(', delete both characters
-      let next = expression;
-      if (next.endsWith('√(')) {
-        next = next.slice(0, -2);
-      } else {
-        next = next.slice(0, -1);
-      }
-      setExpression(next);
       const calculated = evaluateMath(next);
       if (calculated !== null) {
         setResult(calculated);
       }
     }
+  };
+
+  const handleCursorLeft = () => {
+    setCursorPos(Math.max(0, activeCursor - 1));
+  };
+
+  const handleCursorRight = () => {
+    setCursorPos(Math.min(expression.length, activeCursor + 1));
   };
 
   const handleEquals = () => {
@@ -144,6 +183,7 @@ export const CalculatorView: React.FC = () => {
       } catch {}
 
       setExpression(String(finalVal));
+      setCursorPos(String(finalVal).length);
     }
   };
 
@@ -245,10 +285,33 @@ export const CalculatorView: React.FC = () => {
     return elements;
   };
 
+  // Render Expression with Visual Cursor Position Indicator
+  const renderExpressionWithCursor = () => {
+    if (!expression) {
+      return (
+        <span className="inline-flex items-center">
+          <span className="text-zinc-600">0</span>
+          <span className="inline-block w-[2px] h-4.5 bg-blue-500 animate-pulse align-middle ml-1 rounded-full" />
+        </span>
+      );
+    }
+
+    const before = expression.slice(0, activeCursor);
+    const after = expression.slice(activeCursor);
+
+    return (
+      <span className="inline-flex items-center flex-wrap justify-end">
+        <span>{renderMathTypography(before)}</span>
+        <span className="inline-block w-[2px] h-5 bg-blue-500 animate-pulse align-middle mx-0.5 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
+        <span>{renderMathTypography(after)}</span>
+      </span>
+    );
+  };
+
   return (
     <div className="h-[calc(100dvh-4.25rem)] sm:h-[calc(100dvh-4.75rem)] w-full max-w-lg md:max-w-2xl mx-auto flex flex-col justify-between overflow-hidden bg-black text-white px-3.5 pt-1 pb-2 select-none animate-in fade-in">
-      {/* 1. Unified Header Bar Across All 5 Tabs */}
-      <header className="h-14 sm:h-16 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2">
+      {/* 1. Unified Header Bar Across All 5 Tabs (Standardized h-16) */}
+      <header className="h-16 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -285,7 +348,7 @@ export const CalculatorView: React.FC = () => {
 
       {/* 2. Display Screen with Smooth Animated History Drawer */}
       <div className="flex-1 flex flex-col justify-end p-4 rounded-3xl bg-zinc-950/90 border border-zinc-800/90 shadow-2xl relative overflow-hidden my-2">
-        {/* Animated In-Display History Tape: strictly constrained inside display without shifting keypad */}
+        {/* Animated In-Display History Tape */}
         <div
           className={`absolute inset-0 bg-zinc-950/98 backdrop-blur-md p-3.5 flex flex-col justify-between z-20 transition-all duration-300 ease-in-out overscroll-contain ${
             showHistory
@@ -324,6 +387,7 @@ export const CalculatorView: React.FC = () => {
                   onClick={() => {
                     setExpression(String(item.result));
                     setResult(item.result);
+                    setCursorPos(String(item.result).length);
                     setShowHistory(false);
                   }}
                   className="flex items-center justify-between p-2 rounded-xl bg-zinc-900/70 hover:bg-zinc-850 cursor-pointer transition text-xs font-mono"
@@ -356,16 +420,45 @@ export const CalculatorView: React.FC = () => {
           </div>
         )}
 
-        {/* Live Calculation Display with True Mathematical Typography */}
-        <div className="text-right space-y-1">
-          {/* Active Expression with clean mathematical font */}
-          <div className="text-sm sm:text-base font-mono text-zinc-400 tracking-wider truncate min-h-[1.5rem]">
-            {renderMathTypography(expression)}
+        {/* Live Calculation Display with True Mathematical Typography and Cursor */}
+        <div className="text-right space-y-1.5">
+          {/* Active Expression with cursor */}
+          <div className="text-sm sm:text-base font-mono text-zinc-300 tracking-wider min-h-[1.75rem] flex items-center justify-end overflow-x-auto overflow-y-hidden py-0.5">
+            {renderExpressionWithCursor()}
           </div>
 
           {/* Large Bold Live Result */}
           <div className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-white truncate">
             {result !== 0 ? result.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0'}
+          </div>
+        </div>
+
+        {/* Arrow Navigation Bar between Numbers (Item 4) */}
+        <div className="flex items-center justify-between pt-2 border-t border-zinc-850/80 mt-2 text-zinc-400">
+          <span className="text-[10px] font-mono text-zinc-500">
+            {isArabic ? 'المؤشر' : 'Pos'}: {activeCursor}/{expression.length}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleCursorLeft}
+              disabled={activeCursor === 0}
+              className="p-1.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition flex items-center gap-1 text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
+              title="Move Cursor Left"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>←</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleCursorRight}
+              disabled={activeCursor === expression.length}
+              className="p-1.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition flex items-center gap-1 text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
+              title="Move Cursor Right"
+            >
+              <span>→</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </div>
@@ -522,11 +615,11 @@ export const CalculatorView: React.FC = () => {
         <button
           type="button"
           onClick={handleEquals}
-          className="h-12 sm:h-13 rounded-2xl bg-blue-600 hover:bg-blue-500 text-2xl font-black font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-lg shadow-blue-600/60 border border-blue-400/50"
+          className="calc-equals-btn h-12 sm:h-13 rounded-2xl bg-blue-600 hover:bg-blue-500 !text-white text-2xl font-black font-mono active:scale-95 transition cursor-pointer flex items-center justify-center shadow-lg shadow-blue-600/60 border border-blue-400/50"
         >
           =
         </button>
       </div>
     </div>
   );
-};
+});

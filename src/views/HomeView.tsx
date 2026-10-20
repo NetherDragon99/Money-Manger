@@ -25,7 +25,7 @@ import { MiniDateTimePicker } from '../components/MiniDateTimePicker';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
 
-export const HomeView: React.FC = () => {
+export const HomeView: React.FC = React.memo(() => {
   const {
     accounts,
     transactions,
@@ -247,8 +247,8 @@ export const HomeView: React.FC = () => {
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 animate-in fade-in">
-      {/* 1. Top Header Bar with Smart Auto-Hide on Scroll */}
-      <header className={`sticky top-0 z-30 h-14 sm:h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
+      {/* 1. Top Header Bar with Smart Auto-Hide on Scroll (Standardized h-16) */}
+      <header className={`sticky top-0 z-30 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
         isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
       }`}>
         {/* Left: Hamburger Menu Button (☰) */}
@@ -649,4 +649,4 @@ export const HomeView: React.FC = () => {
       </div>
     </div>
   );
-};
+});

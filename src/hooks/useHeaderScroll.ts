@@ -1,37 +1,64 @@
 import { useState, useEffect, useRef } from 'react';
 
 /**
- * Smart Auto-Hiding Header on Scroll (Item 4)
- * Detects directional scroll across window and any scrollable container:
- * - Scrolling DOWN hides the header (-translate-y-full)
- * - Scrolling UP by even a tiny threshold (deltaY < -4px) immediately slides header back into view (translate-y-0)
+ * Smart Auto-Hiding Header on Scroll (Ultra-Sensitive Mobile & Touch-Aware)
+ * - Dragging fingers down / Scrolling UP by even 1px -> Immediately slides header back into view
+ * - Near top (currentY <= 50) -> Always visible
+ * - Dragging fingers up / Scrolling DOWN by > 5px -> Slides out
+ * - Tab / route switch -> Instantly visible
  */
-export function useHeaderScroll(threshold = 40) {
+export function useHeaderScroll(threshold = 50) {
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const lastScrollY = useRef(0);
+  const lastTouchY = useRef<number | null>(null);
 
   useEffect(() => {
     let ticking = false;
 
+    // 1. Touch Move Listener for Instant Finger Drag Awareness
+    const handleTouchStart = (e: TouchEvent) => {
+      lastTouchY.current = e.touches[0].clientY;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (lastTouchY.current === null) {
+        lastTouchY.current = e.touches[0].clientY;
+        return;
+      }
+
+      const currentTouchY = e.touches[0].clientY;
+      const touchDelta = currentTouchY - lastTouchY.current; // positive = dragging finger DOWN (scrolling UP)
+      lastTouchY.current = currentTouchY;
+
+      const currentScrollY =
+        window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+
+      if (currentScrollY <= threshold || touchDelta > 2) {
+        // Dragging finger DOWN to reveal top content -> Instant Header Reveal!
+        setIsHeaderVisible(true);
+      } else if (touchDelta < -6 && currentScrollY > threshold) {
+        // Dragging finger UP to read down -> Slide header out
+        setIsHeaderVisible(false);
+      }
+    };
+
+    const handleTouchEnd = () => {
+      lastTouchY.current = null;
+    };
+
+    // 2. Wheel & Scroll Event Listener
     const handleScroll = (e: Event) => {
       if (!ticking) {
         window.requestAnimationFrame(() => {
-          const target = e.target as HTMLElement | Document | null;
-          let currentY = window.scrollY || document.documentElement.scrollTop || 0;
-
-          if (target && target instanceof HTMLElement && target.scrollTop !== undefined && target.scrollTop > 0) {
-            currentY = Math.max(currentY, target.scrollTop);
-          }
+          const currentY =
+            window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
 
           const delta = currentY - lastScrollY.current;
 
-          if (currentY <= threshold) {
-            // Near top -> always visible
+          if (currentY <= threshold || delta < -1) {
+            // Near top or scrolling UP by even 1px -> Instant show!
             setIsHeaderVisible(true);
-          } else if (delta < -3) {
-            // Scrolling UP -> Instant reappearance!
-            setIsHeaderVisible(true);
-          } else if (delta > 6 && currentY > threshold) {
+          } else if (delta > 5 && currentY > threshold) {
             // Scrolling DOWN -> Slide out
             setIsHeaderVisible(false);
           }
@@ -43,13 +70,16 @@ export function useHeaderScroll(threshold = 40) {
       }
     };
 
-    // Attach to document with capture: true to intercept internal scroll containers
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
     window.addEventListener('scroll', handleScroll, { passive: true });
-    document.addEventListener('scroll', handleScroll, { passive: true, capture: true });
 
     return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
       window.removeEventListener('scroll', handleScroll);
-      document.removeEventListener('scroll', handleScroll, { capture: true });
     };
   }, [threshold]);
 

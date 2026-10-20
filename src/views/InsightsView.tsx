@@ -15,7 +15,7 @@ import {
 } from '../utils/dateCycle';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
 
-export const InsightsView: React.FC = () => {
+export const InsightsView: React.FC = React.memo(() => {
   const { accounts, transactions, settings, setIsSidebarOpen, t } = useApp();
 
   const isHeaderVisible = useHeaderScroll();
@@ -214,8 +214,8 @@ export const InsightsView: React.FC = () => {
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto w-full space-y-5 animate-in fade-in">
-      {/* Header with Universal Sidebar Access & Auto-Hide on Scroll */}
-      <header className={`sticky top-0 z-30 h-14 sm:h-16 bg-black/90 backdrop-blur-md -mx-4 px-4 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
+      {/* Header with Universal Sidebar Access & Auto-Hide on Scroll (Standardized h-16) */}
+      <header className={`sticky top-0 z-30 h-16 bg-black/90 backdrop-blur-md -mx-4 px-4 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
         isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
       }`}>
         <div className="flex items-center gap-2">
@@ -490,4 +490,4 @@ export const InsightsView: React.FC = () => {
       </div>
     </div>
   );
-};
+});

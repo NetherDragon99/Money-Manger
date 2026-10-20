@@ -413,15 +413,15 @@ export const Sidebar: React.FC = () => {
           className="hidden"
         />
 
-        {/* User Profile Header */}
-        <div className="p-5 border-b border-zinc-800/80 bg-zinc-900/50 flex items-center justify-between shrink-0">
+        {/* User Profile Header: 100% Clickable Card (Item 10) */}
+        <div className="border-b border-zinc-800/80 bg-zinc-900/50 flex items-center justify-between shrink-0 hover:bg-zinc-900 transition">
           <div
             onClick={() => {
               handleAnimatedClose(() => setIsUserProfileModalOpen(true));
             }}
             role="button"
             tabIndex={0}
-            className="flex items-center gap-3.5 cursor-pointer group"
+            className="flex-1 p-4 flex items-center gap-3.5 cursor-pointer group active:scale-[0.98] transition"
           >
             <div className="w-13 h-13 rounded-full bg-zinc-900 border-2 border-blue-500/80 overflow-hidden flex items-center justify-center text-3xl shadow-lg group-hover:scale-105 transition shrink-0">
               {settings.userProfile?.customAvatarUrl ? (
@@ -434,7 +434,7 @@ export const Sidebar: React.FC = () => {
                 <span>{settings.userProfile?.avatarEmoji || '👤'}</span>
               )}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h3 className="font-bold text-white text-base group-hover:text-blue-400 transition truncate">
                 {settings.userProfile?.name || 'My Profile'}
               </h3>
@@ -444,8 +444,12 @@ export const Sidebar: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => handleAnimatedClose()}
-            className="p-2 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleAnimatedClose();
+            }}
+            className="p-3 mr-3 rtl:mr-0 rtl:ml-3 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
+            aria-label="Close Sidebar"
           >
             <X className="w-5 h-5" />
           </button>
@@ -691,23 +695,7 @@ export const Sidebar: React.FC = () => {
               </span>
             </button>
 
-            {/* Cloud Sync & Account */}
-            <button
-              type="button"
-              onClick={() => {
-                setIsSidebarOpen(false);
-                setIsUserProfileModalOpen(true);
-              }}
-              className="w-full flex items-center justify-between p-3 rounded-2xl bg-gradient-to-r from-blue-950/70 to-purple-950/70 hover:from-blue-900/70 hover:to-purple-900/70 border border-blue-500/40 text-xs font-bold text-white transition cursor-pointer shadow-lg active:scale-98"
-            >
-              <div className="flex items-center gap-2.5">
-                <Cloud className="w-4 h-4 text-blue-400" />
-                <span>{isArabic ? 'حساب المزامنة السحابية' : 'Cloud Sync & Account'}</span>
-              </div>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                {isArabic ? 'حسابك' : 'Profile'}
-              </span>
-            </button>
+
           </div>
 
           {/* App Security & Biometric Lock Section */}

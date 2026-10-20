@@ -37,6 +37,7 @@ import { checkForAppUpdates, applyLatestAppUpdate } from './utils/versionChecker
 import { TabType } from './types';
 import { loadAutoBackupConfig, isBackupDue, executeAutoBackup } from './utils/autoBackup';
 import { decodeShareSnapshot } from './utils/sharing';
+import { listenToMyNumericIdInbox } from './utils/shareFolders';
 
 const OfflineBanner: React.FC = () => {
   const [isOnline, setIsOnline] = useState(
@@ -160,6 +161,23 @@ const MainAppContent: React.FC = () => {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [accounts, categories, transactions, settings]);
+
+  // Real-time listener for incoming bundles on my 16-digit Numeric ID (Item 7)
+  useEffect(() => {
+    const myNumericId = settings.userProfile?.numericId;
+    if (!myNumericId) return;
+
+    const unsub = listenToMyNumericIdInbox(myNumericId, (folder) => {
+      showToast(
+        settings.language === 'ar'
+          ? `وصلك مجلد مشاركة جديد من ${folder.ownerName}: "${folder.name}"!`
+          : `New share folder received from ${folder.ownerName}: "${folder.name}"!`,
+        'success'
+      );
+    });
+
+    return () => unsub();
+  }, [settings.userProfile?.numericId, settings.language]);
 
   const isExitingAppRef = useRef(false);
   const navStateRef = useRef({
@@ -527,22 +545,17 @@ const MainAppContent: React.FC = () => {
             </div>
           )}
 
+          {/* Active Tab View Display: Only mount active tab to eliminate re-render cascades & GPU frame drops (Item 1) */}
           <div className="flex-1 flex flex-col relative">
-            <div className={currentTab === 'home' ? 'block animate-in fade-in duration-150' : 'hidden'}>
-              <HomeView />
-            </div>
-            <div className={currentTab === 'budget' ? 'block animate-in fade-in duration-150' : 'hidden'}>
-              <BudgetView />
-            </div>
-            <div className={currentTab === 'insights' ? 'block animate-in fade-in duration-150' : 'hidden'}>
-              <InsightsView />
-            </div>
-            <div className={currentTab === 'accounts' ? 'block animate-in fade-in duration-150' : 'hidden'}>
-              <AccountsView />
-            </div>
-            <div className={currentTab === 'calculator' ? 'h-full flex-1 flex flex-col overflow-hidden animate-in fade-in duration-150' : 'hidden'}>
-              <CalculatorView />
-            </div>
+            {currentTab === 'home' && <HomeView />}
+            {currentTab === 'budget' && <BudgetView />}
+            {currentTab === 'insights' && <InsightsView />}
+            {currentTab === 'accounts' && <AccountsView />}
+            {currentTab === 'calculator' && (
+              <div className="h-full flex-1 flex flex-col overflow-hidden animate-in fade-in duration-150">
+                <CalculatorView />
+              </div>
+            )}
           </div>
           <MultiSelectActionBar />
           <Navigation />

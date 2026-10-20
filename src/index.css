@@ -194,6 +194,42 @@ html.light-mode .grid-cols-3 button:active {
   background-color: #e2e8f0;
 }
 
+/* Calculator Equals Button in Light Mode (Item 8) */
+html.light-mode button.calc-equals-btn,
+html.light-mode .grid-cols-4 button.calc-equals-btn {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.45) !important;
+}
+html.light-mode button.calc-equals-btn:active,
+html.light-mode .grid-cols-4 button.calc-equals-btn:active {
+  background-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+/* Calculator Special Action Buttons in Light Mode */
+html.light-mode .grid-cols-4 button.text-amber-400 {
+  color: #d97706 !important;
+  background-color: #fef3c7 !important;
+  border-color: #fde68a !important;
+}
+html.light-mode .grid-cols-4 button.text-cyan-400 {
+  color: #0284c7 !important;
+  background-color: #f0fdf4 !important;
+  border-color: #e2e8f0 !important;
+}
+html.light-mode .grid-cols-4 button.text-blue-400 {
+  color: #2563eb !important;
+  background-color: #eff6ff !important;
+  border-color: #bfdbfe !important;
+}
+html.light-mode .grid-cols-4 button.text-emerald-400 {
+  color: #059669 !important;
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+}
+
 /* Disabled State */
 html.light-mode button:disabled {
   background-color: #e2e8f0 !important;
@@ -317,4 +353,3 @@ button:active:not(:disabled),
 .animate-shake {
   animation: shakeHorizontal 0.35s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
-

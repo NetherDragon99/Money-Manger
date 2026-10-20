@@ -12,6 +12,10 @@ import {
   Edit,
   ShieldCheck,
   Radio,
+  Send,
+  Folder,
+  Eye,
+  ArrowDownLeft,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Transaction } from '../types';
@@ -20,9 +24,18 @@ import {
   publishSharedAccount,
   stopSharingAccount,
   listenToSharedAccount,
-  SharedAccountData,
 } from '../utils/firebase';
-import { buildShareUrl, encodeShareSnapshot } from '../utils/sharing';
+import { buildShareUrl } from '../utils/sharing';
+import { format16DigitId, cleanNumericId } from '../utils/userId';
+import {
+  loadMyShareFolders,
+  loadReceivedShareFolders,
+  saveReceivedShareFolders,
+  saveMyShareFolders,
+  sendShareFolderToRecipient,
+  createNewShareFolder,
+  ShareFolder,
+} from '../utils/shareFolders';
 
 interface SharedAccountsHubModalProps {
   isOpen: boolean;
@@ -49,7 +62,6 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     accounts,
     transactions,
     settings,
-    openEditAccountModal,
     showToast,
     showConfirm,
     openSharedLiveView,
@@ -82,6 +94,18 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     }
   });
 
+  // Share Folders (Item 6 & 7)
+  const [myShareFolders, setMyShareFolders] = useState<ShareFolder[]>(() => loadMyShareFolders());
+  const [receivedShareFolders, setReceivedShareFolders] = useState<ShareFolder[]>(() =>
+    loadReceivedShareFolders()
+  );
+
+  // Direct Share via 16-Digit ID input state
+  const [target16DigitId, setTarget16DigitId] = useState('');
+  const [selectedFolderToSend, setSelectedFolderToSend] = useState<string>('');
+  const [isSendingDirect, setIsSendingDirect] = useState(false);
+  const [copiedMyId, setCopiedMyId] = useState(false);
+
   // Follow input
   const [joinInput, setJoinInput] = useState('');
   const [isJoining, setIsJoining] = useState(false);
@@ -89,6 +113,14 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   // Share new picker state
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Reload folders when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setMyShareFolders(loadMyShareFolders());
+      setReceivedShareFolders(loadReceivedShareFolders());
+    }
+  }, [isOpen]);
 
   // Save to localStorage
   useEffect(() => {
@@ -143,6 +175,20 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     }, 180);
   };
 
+  const my16DigitId = settings.userProfile?.numericId || '0000000000000000';
+
+  const handleCopyMyNumericId = () => {
+    navigator.clipboard.writeText(my16DigitId);
+    setCopiedMyId(true);
+    showToast(
+      isArabic
+        ? `تم نسخ معرّفك الرقمي (${format16DigitId(my16DigitId)}) للحافظة!`
+        : `Your 16-Digit ID (${format16DigitId(my16DigitId)}) copied!`,
+      'success'
+    );
+    setTimeout(() => setCopiedMyId(false), 2000);
+  };
+
   const handleShareAccount = async (account: Account) => {
     setIsPublishing(true);
     try {
@@ -195,6 +241,74 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     }
   };
 
+  const handleDeleteShareFolder = (folderId: string) => {
+    const updated = myShareFolders.filter((f) => f.id !== folderId);
+    setMyShareFolders(updated);
+    saveMyShareFolders(updated);
+    showToast(isArabic ? 'تم حذف مجلد المشاركة' : 'Share folder deleted', 'info');
+  };
+
+  const handleDeleteReceivedFolder = (folderId: string) => {
+    const updated = receivedShareFolders.filter((f) => f.id !== folderId);
+    setReceivedShareFolders(updated);
+    saveReceivedShareFolders(updated);
+    showToast(isArabic ? 'تمت إزالة المجلد المشترك' : 'Removed received folder', 'info');
+  };
+
+  const handleSendFolderToId = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanTarget = cleanNumericId(target16DigitId);
+    if (cleanTarget.length !== 16) {
+      showToast(
+        isArabic
+          ? 'يرجى إدخال معرّف صديق صحيح مكون من 16 رقماً'
+          : 'Please enter a valid 16-digit recipient ID',
+        'error'
+      );
+      return;
+    }
+
+    if (!selectedFolderToSend && myShareFolders.length > 0) {
+      showToast(
+        isArabic ? 'يرجى اختيار المجلد المراد مشاركته' : 'Please select a folder to share',
+        'info'
+      );
+      return;
+    }
+
+    const folder = myShareFolders.find((f) => f.id === selectedFolderToSend) || myShareFolders[0];
+    if (!folder) {
+      showToast(
+        isArabic ? 'لا توجد مجلدات مشاركة بعد. أنشئ مجلداً أولاً!' : 'No share folders available yet!',
+        'info'
+      );
+      return;
+    }
+
+    setIsSendingDirect(true);
+    try {
+      const res = await sendShareFolderToRecipient(folder, cleanTarget);
+      if (res.success) {
+        showToast(
+          isArabic
+            ? `تم إرسال مجلد "${folder.name}" بنجاح إلى المعرّف (${format16DigitId(cleanTarget)})!`
+            : `Folder "${folder.name}" successfully sent to (${format16DigitId(cleanTarget)})!`,
+          'success'
+        );
+        setTarget16DigitId('');
+      } else {
+        showToast(
+          isArabic ? `فشل الإرسال: ${res.error}` : `Failed to send: ${res.error}`,
+          'error'
+        );
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error sending folder', 'error');
+    } finally {
+      setIsSendingDirect(false);
+    }
+  };
+
   const getSharedAccountUrl = (sharedId: string): string => {
     return buildShareUrl({ sharedAccountId: sharedId });
   };
@@ -221,7 +335,6 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     let cleanCode = joinInput.trim();
     if (!cleanCode) return;
 
-    // Handle full URL pasted
     if (cleanCode.includes('sharedAccountId=')) {
       try {
         const u = new URL(cleanCode);
@@ -236,7 +349,6 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     listenToSharedAccount(cleanCode, (data) => {
       setIsJoining(false);
       if (data && data.account) {
-        // Add to followed accounts
         setFollowedAccounts((prev) => {
           if (prev.some((a) => a.id === cleanCode)) return prev;
           return [
@@ -252,7 +364,6 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
           ];
         });
 
-        // Optionally import into local accounts
         importSingleAccountData(data.account, data.transactions || []);
         setJoinInput('');
         showToast(
@@ -277,7 +388,6 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     showToast(isArabic ? 'تمت إزالة الحساب من قائمة المتابعة' : 'Unfollowed shared account', 'info');
   };
 
-  // Match accounts sharing
   const sharedAccountsList = accounts.filter((acc) =>
     mySharedIds.includes(`share_${acc.id}`)
   );
@@ -303,10 +413,10 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-white">
-                {isArabic ? 'مركز الحسابات المشتركة' : 'Shared Accounts Hub'}
+                {isArabic ? 'مركز المشاركة والحسابات' : 'Shared Accounts & Hub'}
               </h3>
               <p className="text-[11px] text-zinc-400">
-                {isArabic ? 'مشاركة ومتابعة الحسابات لحظياً' : 'Live collaboration & read-only pages'}
+                {isArabic ? 'مشاركة المجلدات والحسابات لحظياً' : 'Live sharing & instant numeric delivery'}
               </p>
             </div>
           </div>
@@ -319,8 +429,32 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
           </button>
         </div>
 
-        {/* Tab Switcher: My Shared Pages vs Followed Shared Accounts */}
-        <div className="px-5 pt-3.5 pb-2 border-b border-zinc-800/60 bg-zinc-900/20">
+        {/* User's Own 16-Digit ID Banner with 1-Tap Copy */}
+        <div className="px-5 py-2.5 bg-blue-950/30 border-b border-blue-900/30 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <span className="block text-[10px] font-bold text-blue-300 uppercase tracking-wider">
+              {isArabic ? 'معرّفك الرقمي للمشاركة (16 رقماً):' : 'Your 16-Digit Numeric ID:'}
+            </span>
+            <span className="block text-xs font-mono font-bold text-white tracking-wider mt-0.5 select-all truncate">
+              {format16DigitId(my16DigitId)}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyMyNumericId}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer shrink-0 active:scale-95 ${
+              copiedMyId
+                ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300'
+                : 'bg-blue-600 hover:bg-blue-500 border-blue-500 text-white shadow-sm'
+            }`}
+          >
+            {copiedMyId ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copiedMyId ? (isArabic ? 'تم النسخ' : 'Copied') : isArabic ? 'نسخ معرّفي' : 'Copy My ID'}</span>
+          </button>
+        </div>
+
+        {/* Tab Switcher */}
+        <div className="px-5 pt-3 pb-2 border-b border-zinc-800/60 bg-zinc-900/20">
           <div className="flex p-1 rounded-2xl bg-zinc-900 border border-zinc-800 text-xs font-bold">
             <button
               type="button"
@@ -331,7 +465,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              {isArabic ? 'صفحاتي المشتركة' : 'My Shared Pages'} ({sharedAccountsList.length})
+              {isArabic ? 'مشاركاتي' : 'My Shared'} ({sharedAccountsList.length + myShareFolders.length})
             </button>
             <button
               type="button"
@@ -342,289 +476,323 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              {isArabic ? 'مشتركة معي' : 'Shared with Me'} ({followedAccounts.length})
+              {isArabic ? 'مشتركة معي' : 'Shared with Me'} ({followedAccounts.length + receivedShareFolders.length})
             </button>
           </div>
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {activeTab === 'my_shared' ? (
-            /* TAB 1: My Shared Pages */
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-                    {isArabic ? 'الحسابات التي أشاركها' : 'Accounts I am Sharing'}
+            /* TAB 1: My Shared Items & Add Someone by 16-Digit ID (Item 5) */
+            <div className="space-y-5">
+              {/* Add / Direct Send via 16-Digit ID Input Box (Item 5 user request) */}
+              <div className="p-4 rounded-2xl bg-zinc-900/90 border border-blue-500/30 space-y-3 shadow-lg">
+                <div className="flex items-center gap-2">
+                  <Send className="w-4 h-4 text-blue-400" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-white">
+                    {isArabic ? 'إرسال مجلد مشاركة لصديق بمعرّفه (16 رقماً)' : 'Send Share Folder to Friend by 16-Digit ID'}
                   </h4>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">
-                    {isArabic
-                      ? 'يمكن لأي شخص لديه الرابط مشاهدة الرصيد والمعاملات بدون تسجيل الدخول.'
-                      : 'Anyone with the link can view live balance and transactions without logging in.'}
-                  </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsPickerOpen(!isPickerOpen)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow cursor-pointer shrink-0"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>{isArabic ? 'مشاركة حساب' : 'Share Account'}</span>
-                </button>
-              </div>
 
-              {/* Picker Drawer if opened */}
-              {isPickerOpen && (
-                <div className="p-3.5 rounded-2xl bg-zinc-900 border border-blue-500/40 space-y-2.5 animate-in fade-in">
-                  <span className="block text-xs font-bold text-white">
-                    {isArabic ? 'اختر حساباً لمشاركته:' : 'Choose an account to share:'}
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto">
-                    {accounts.map((acc) => {
-                      const isAlreadyShared = mySharedIds.includes(`share_${acc.id}`);
-                      return (
-                        <button
-                          key={acc.id}
-                          type="button"
-                          disabled={isAlreadyShared}
-                          onClick={() => handleShareAccount(acc)}
-                          className={`flex items-center justify-between p-2.5 rounded-xl text-left text-xs transition cursor-pointer ${
-                            isAlreadyShared
-                              ? 'bg-zinc-950/40 border border-zinc-800 text-zinc-500 opacity-60'
-                              : 'bg-zinc-950 border border-zinc-800 hover:border-blue-500 hover:bg-zinc-850 text-white'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 truncate">
-                            <span className="text-xl">{acc.icon}</span>
-                            <span className="font-semibold truncate">{acc.name}</span>
-                          </div>
-                          {isAlreadyShared ? (
-                            <span className="text-[10px] text-emerald-400 font-bold shrink-0">Shared</span>
-                          ) : (
-                            <Share2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* List of Shared Accounts */}
-              {sharedAccountsList.length === 0 ? (
-                <div className="text-center py-12 px-4 rounded-3xl bg-zinc-900/40 border border-zinc-800/80 text-zinc-400 space-y-3">
-                  <div className="text-3xl">🔗</div>
-                  <p className="text-sm font-semibold text-white">
-                    {isArabic ? 'لم تقم بمشاركة أي حساب بعد' : 'No shared accounts published yet'}
-                  </p>
-                  <p className="text-xs text-zinc-500 max-w-sm mx-auto">
-                    {isArabic
-                      ? 'شارك أي حساب مالي لإنشاء صفحة ويب مباشرة ومحدثة فورياً للمشاهدة بدون كلمة مرور.'
-                      : 'Share any account to generate a live, real-time read-only web page for partners or family.'}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setIsPickerOpen(true)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>{isArabic ? 'مشاركة حساب الآن' : 'Share an Account Now'}</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {sharedAccountsList.map((acc) => {
-                    const sharedId = `share_${acc.id}`;
-                    const isCopied = copiedId === sharedId;
-
-                    return (
-                      <div
-                        key={acc.id}
-                        className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800/80 space-y-3 shadow-md hover:border-zinc-700 transition"
+                <form onSubmit={handleSendFolderToId} className="space-y-2.5">
+                  {myShareFolders.length > 0 && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1">
+                        {isArabic ? 'اختر المجلد المراد إرساله:' : 'Select folder to send:'}
+                      </label>
+                      <select
+                        value={selectedFolderToSend || myShareFolders[0]?.id}
+                        onChange={(e) => setSelectedFolderToSend(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:outline-none focus:border-blue-500"
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xl">
-                              {acc.icon}
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-bold text-white">{acc.name}</span>
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-bold text-emerald-400">
-                                  <Radio className="w-2.5 h-2.5 animate-pulse" />
-                                  <span>Live</span>
-                                </span>
-                              </div>
-                              <div className="text-xs font-mono font-bold text-zinc-300 mt-0.5">
-                                {settings.currencySymbol || '£'}{acc.balance.toFixed(2)}
-                              </div>
-                            </div>
-                          </div>
+                        {myShareFolders.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.icon} {f.name} ({f.itemCount} items)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
-                          <div className="flex items-center gap-1.5">
-                            {/* Open Live View */}
-                            <button
-                              type="button"
-                              onClick={() => handleOpenViewer(sharedId)}
-                              title="Open Live Shared Page"
-                              className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-blue-400 hover:text-white transition cursor-pointer"
-                            >
-                              <ExternalLink className="w-4 h-4" />
-                            </button>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={19}
+                      value={format16DigitId(target16DigitId)}
+                      onChange={(e) => setTarget16DigitId(cleanNumericId(e.target.value))}
+                      placeholder={isArabic ? 'أدخل معرّف الصديق (16 رقماً)' : 'Enter 16-Digit Friend ID'}
+                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono tracking-wider text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSendingDirect || cleanNumericId(target16DigitId).length !== 16}
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold transition shadow cursor-pointer shrink-0 flex items-center gap-1.5 active:scale-95"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{isSendingDirect ? '...' : isArabic ? 'إرسال' : 'Send'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
 
-                            {/* Copy Link */}
-                            <button
-                              type="button"
-                              onClick={() => handleCopyLink(sharedId)}
-                              title="Copy Share Link"
-                              className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-emerald-400 hover:text-white transition cursor-pointer"
-                            >
-                              {isCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                            </button>
-
-                            {/* Edit Account */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleAnimatedClose();
-                                openEditAccountModal(acc);
-                              }}
-                              title="Edit Account"
-                              className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition cursor-pointer"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-
-                            {/* Revoke / Stop Sharing */}
-                            <button
-                              type="button"
-                              onClick={() => handleStopSharing(sharedId)}
-                              disabled={revokingId === sharedId}
-                              title="Stop Sharing"
-                              className="p-2 rounded-xl bg-red-950/30 hover:bg-red-950/60 border border-red-900/50 text-red-400 hover:text-red-300 transition cursor-pointer disabled:opacity-50"
-                            >
-                              {revokingId === sharedId ? (
-                                <RefreshCw className="w-4 h-4 animate-spin text-red-400" />
-                              ) : (
-                                <Trash2 className="w-4 h-4" />
-                              )}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Link Display Snippet */}
-                        <div className="flex items-center justify-between p-2 rounded-xl bg-zinc-950 border border-zinc-850 text-[11px] font-mono text-zinc-400">
-                          <span className="truncate pr-2">
-                            ?sharedAccountId={sharedId}
-                          </span>
-                          <span className="text-[10px] text-blue-400 shrink-0 font-bold">
-                            {isArabic ? 'نشط' : 'Active'}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
+              {/* My Share Folders List (Item 6) */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                    <Folder className="w-3.5 h-3.5 text-purple-400" />
+                    <span>{isArabic ? 'مجلدات المشاركة المستقلة' : 'My Share Folders'}</span>
+                    <span className="text-[10px] text-zinc-500 font-mono">({myShareFolders.length})</span>
+                  </h4>
                 </div>
-              )}
-            </div>
-          ) : (
-            /* TAB 2: Followed Shared Accounts */
-            <div className="space-y-4">
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-                  {isArabic ? 'متابعة حساب مشارك جديد' : 'Follow a Shared Account'}
-                </h4>
-                <p className="text-[11px] text-zinc-500 mt-0.5">
-                  {isArabic
-                    ? 'أدخل رمز المشاركة أو الرابط الممنوح لك لمتابعة رصيد الحساب مباشرة.'
-                    : 'Paste the shared account ID or link to follow its live balance and transactions.'}
-                </p>
-              </div>
 
-              {/* Join Input Bar */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={joinInput}
-                  onChange={(e) => setJoinInput(e.target.value)}
-                  placeholder={
-                    isArabic
-                      ? 'ألصق الرمز أو الرابط هنا (share_...)'
-                      : 'Paste ID or link (e.g. share_acc_...)'
-                  }
-                  className="flex-1 px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500 transition"
-                />
-                <button
-                  type="button"
-                  disabled={isJoining || !joinInput.trim()}
-                  onClick={handleJoinAccount}
-                  className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold transition shadow cursor-pointer shrink-0"
-                >
-                  {isJoining ? '...' : isArabic ? 'متابعة ومزامنة' : 'Follow & Sync'}
-                </button>
-              </div>
-
-              {/* Followed Accounts List */}
-              <div className="space-y-3 pt-2">
-                <h5 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                  {isArabic ? 'الحسابات التي أتابعها' : 'Accounts Shared with Me'} ({followedAccounts.length})
-                </h5>
-
-                {followedAccounts.length === 0 ? (
-                  <div className="text-center py-10 px-4 rounded-3xl bg-zinc-900/40 border border-zinc-800/80 text-zinc-400 space-y-2">
-                    <div className="text-2xl">👥</div>
-                    <p className="text-xs font-semibold text-white">
-                      {isArabic ? 'لا توجد حسابات متابعة حتى الآن' : 'No followed accounts yet'}
-                    </p>
-                    <p className="text-[11px] text-zinc-500">
-                      {isArabic
-                        ? 'عندما يشارك معك شخص حسابه المالي، أدخل رمزه بالأعلى لمتابعته مباشرة.'
-                        : 'When someone shares an account with you, enter their ID above to track it.'}
-                    </p>
+                {myShareFolders.length === 0 ? (
+                  <div className="text-center py-6 px-4 rounded-2xl bg-zinc-900/30 border border-zinc-800/60 text-zinc-500 text-xs">
+                    {isArabic
+                      ? 'لا توجد مجلدات مشاركة بعد. حدد معاملات من الصفحة الرئيسية واضغط "مجلد مشاركة" لإنشاء مجلد فوري.'
+                      : 'No share folders yet. Multi-select items from Home view and tap "Share Folder".'}
                   </div>
                 ) : (
-                  <div className="space-y-2.5">
-                    {followedAccounts.map((item) => (
+                  <div className="space-y-2">
+                    {myShareFolders.map((folder) => (
                       <div
-                        key={item.id}
-                        className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-3 shadow-md"
+                        key={folder.id}
+                        className="p-3 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-3"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
-                            {item.icon || '🏦'}
-                          </div>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="text-2xl shrink-0">{folder.icon}</span>
                           <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-white truncate">{item.name}</span>
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 text-[9px] font-bold">
-                                Live
-                              </span>
-                            </div>
-                            <div className="text-xs font-mono font-bold text-emerald-400 mt-0.5">
-                              {settings.currencySymbol || '£'}{Number(item.balance || 0).toFixed(2)}
-                            </div>
-                            {item.ownerEmail && (
-                              <div className="text-[10px] text-zinc-500 truncate mt-0.5">
-                                by {item.ownerEmail}
-                              </div>
-                            )}
+                            <span className="text-xs font-bold text-white block truncate">{folder.name}</span>
+                            <span className="text-[10px] text-zinc-400">
+                              {folder.itemCount} {isArabic ? 'عناصر' : 'items'} •{' '}
+                              {new Date(folder.createdAt).toLocaleDateString()}
+                            </span>
                           </div>
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             type="button"
-                            onClick={() => handleOpenViewer(item.id)}
-                            title="Open Live View"
-                            className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-cyan-400 transition cursor-pointer"
+                            onClick={() => {
+                              setSelectedFolderToSend(folder.id);
+                              showToast(
+                                isArabic ? 'تم اختيار المجلد للإرسال بالأعلى' : 'Folder selected for sending above',
+                                'info'
+                              );
+                            }}
+                            className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-blue-400 text-xs transition cursor-pointer"
+                            title="Select to send"
                           >
-                            <ExternalLink className="w-4 h-4" />
+                            <Send className="w-3.5 h-3.5" />
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleUnfollow(item.id)}
-                            title="Unfollow"
-                            className="p-2 rounded-xl bg-red-950/30 hover:bg-red-950/60 border border-red-900/50 text-red-400 transition cursor-pointer"
+                            onClick={() => handleDeleteShareFolder(folder.id)}
+                            className="p-2 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 text-red-400 text-xs transition cursor-pointer"
+                            title="Delete Folder"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Shared Live Accounts List */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                    {isArabic ? 'الحسابات التي أشاركها عبر الرابط' : 'Accounts Shared via Link'} ({sharedAccountsList.length})
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => setIsPickerOpen(!isPickerOpen)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 text-[11px] font-bold transition cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>{isArabic ? 'مشاركة حساب' : 'Share Account'}</span>
+                  </button>
+                </div>
+
+                {isPickerOpen && (
+                  <div className="p-3 rounded-2xl bg-zinc-900 border border-blue-500/40 space-y-2 animate-in fade-in">
+                    <span className="block text-xs font-bold text-white">
+                      {isArabic ? 'اختر حساباً لمشاركته مباشرة:' : 'Choose an account to share:'}
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                      {accounts.map((acc) => {
+                        const isAlreadyShared = mySharedIds.includes(`share_${acc.id}`);
+                        return (
+                          <button
+                            key={acc.id}
+                            type="button"
+                            disabled={isAlreadyShared}
+                            onClick={() => handleShareAccount(acc)}
+                            className={`flex items-center justify-between p-2 rounded-xl text-left text-xs transition cursor-pointer ${
+                              isAlreadyShared
+                                ? 'bg-zinc-950/40 border border-zinc-800 text-zinc-500 opacity-60'
+                                : 'bg-zinc-950 border border-zinc-800 hover:border-blue-500 hover:bg-zinc-850 text-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 truncate">
+                              <span>{acc.icon}</span>
+                              <span className="truncate">{acc.name}</span>
+                            </div>
+                            {isAlreadyShared ? (
+                              <span className="text-[10px] text-emerald-400 font-bold shrink-0">Shared</span>
+                            ) : (
+                              <Share2 className="w-3 h-3 text-blue-400 shrink-0" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {sharedAccountsList.map((acc) => {
+                  const sharedId = `share_${acc.id}`;
+                  const isCopied = copiedId === sharedId;
+
+                  return (
+                    <div
+                      key={acc.id}
+                      className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-3 shadow-md"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="text-2xl shrink-0">{acc.icon}</span>
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-white block truncate">{acc.name}</span>
+                          <span className="text-[10px] text-zinc-400 font-mono">ID: {sharedId}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyLink(sharedId)}
+                          className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-blue-400 text-xs transition cursor-pointer"
+                          title="Copy Link"
+                        >
+                          {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenViewer(sharedId)}
+                          className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-cyan-400 text-xs transition cursor-pointer"
+                          title="Open Live View"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={revokingId === sharedId}
+                          onClick={() => handleStopSharing(sharedId)}
+                          className="p-2 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 text-red-400 text-xs transition cursor-pointer"
+                          title="Stop Sharing"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            /* TAB 2: Shared With Me (Received Folders & Followed Accounts) */
+            <div className="space-y-5">
+              {/* Follow via link / code */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                  {isArabic ? 'متابعة رابط أو رمز مشاركة' : 'Follow Shared Account / Code'}
+                </h4>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={joinInput}
+                    onChange={(e) => setJoinInput(e.target.value)}
+                    placeholder={
+                      isArabic ? 'ألصق الرمز أو الرابط هنا' : 'Paste ID or link'
+                    }
+                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500 transition"
+                  />
+                  <button
+                    type="button"
+                    disabled={isJoining || !joinInput.trim()}
+                    onClick={handleJoinAccount}
+                    className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold transition shadow cursor-pointer shrink-0"
+                  >
+                    {isJoining ? '...' : isArabic ? 'متابعة' : 'Follow'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Received Share Folders from Friends (Delivered via 16-Digit ID) */}
+              <div className="space-y-3">
+                <h5 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{isArabic ? 'المجلدات المرسلة لي' : 'Folders Received via My ID'}</span>
+                  <span className="text-[10px] text-zinc-500 font-mono">({receivedShareFolders.length})</span>
+                </h5>
+
+                {receivedShareFolders.length === 0 ? (
+                  <div className="text-center py-6 px-4 rounded-2xl bg-zinc-900/30 border border-zinc-800/60 text-zinc-500 text-xs">
+                    {isArabic
+                      ? 'لم تتلق أي مجلدات بعد. شارك معرّفك المكون من 16 رقماً مع أصدقائك ليرسلوا لك مجلداتهم مباشرة!'
+                      : 'No received folders yet. Give your 16-digit ID to friends to receive folders directly!'}
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {receivedShareFolders.map((folder) => (
+                      <div
+                        key={folder.id}
+                        className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-3 shadow-md"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="text-2xl shrink-0">{folder.icon}</span>
+                          <div className="min-w-0">
+                            <span className="text-xs font-bold text-white block truncate">{folder.name}</span>
+                            <span className="text-[10px] text-emerald-400 font-semibold block">
+                              {isArabic ? 'من' : 'From'}: {folder.ownerName} ({format16DigitId(folder.ownerNumericId)})
+                            </span>
+                            <span className="text-[9px] text-zinc-500">
+                              {folder.itemCount} {isArabic ? 'عناصر' : 'items'} •{' '}
+                              {folder.payload.transactions.length} txs
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Open Live View with folder snapshot
+                              handleAnimatedClose();
+                              setTimeout(() => {
+                                openSharedLiveView(undefined, {
+                                  title: folder.name,
+                                  ownerName: folder.ownerName,
+                                  createdAt: folder.createdAt,
+                                  accounts: folder.payload.accounts,
+                                  categories: folder.payload.categories,
+                                  transactions: folder.payload.transactions,
+                                });
+                              }, 190);
+                            }}
+                            className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-cyan-400 transition cursor-pointer"
+                            title="View Folder Content"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteReceivedFolder(folder.id)}
+                            className="p-2 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 text-red-400 transition cursor-pointer"
+                            title="Delete"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -633,6 +801,61 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                     ))}
                   </div>
                 )}
+              </div>
+
+              {/* Followed Accounts */}
+              <div className="space-y-3">
+                <h5 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                  {isArabic ? 'الحسابات المتابعة عبر الرابط' : 'Followed Accounts via Link'} ({followedAccounts.length})
+                </h5>
+
+                {followedAccounts.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-3 shadow-md"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
+                        {item.icon || '🏦'}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-white truncate">{item.name}</span>
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 text-[9px] font-bold">
+                            Live
+                          </span>
+                        </div>
+                        <div className="text-xs font-mono font-bold text-emerald-400 mt-0.5">
+                          {settings.currencySymbol || '£'}{Number(item.balance || 0).toFixed(2)}
+                        </div>
+                        {item.ownerEmail && (
+                          <div className="text-[10px] text-zinc-500 truncate mt-0.5">
+                            by {item.ownerEmail}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenViewer(item.id)}
+                        className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-cyan-400 transition cursor-pointer"
+                        title="Open Live View"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUnfollow(item.id)}
+                        className="p-2 rounded-xl bg-red-950/30 hover:bg-red-950/60 border border-red-900/50 text-red-400 transition cursor-pointer"
+                        title="Unfollow"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
