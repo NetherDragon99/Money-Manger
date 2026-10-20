@@ -561,7 +561,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         categoryName: 'Initial Balance',
         categoryIcon: '💵',
         description: 'Initial Account Balance',
-        isUneditable: true,
         createdAt: Date.now(),
       };
       updatedTxs.push(initialTx);
@@ -576,13 +575,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const updateAccount = (updatedAcc: Account, newBalanceTarget?: number) => {
     let currentTxs = [...transactions];
 
-    // CRITICAL REQUIREMENT:
-    // If the user changes Current Balance from OldValue to NewValue,
-    // automatically create a permanent, uneditable transaction:
-    // "Manual Adjustment: Changed from £[OldValue] to £[NewValue]"
-    // Category/Icon: ⚙️ Manual Adjustment
-    // Amount: NewValue - OldValue (Income if positive, Expense if negative)
-    // isUneditable: true
     if (typeof newBalanceTarget === 'number') {
       const existingAccount = accounts.find((a) => a.id === updatedAcc.id);
       const oldBalance = existingAccount ? existingAccount.balance : 0;
@@ -601,7 +593,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           categoryName: 'Manual Adjustment',
           categoryIcon: '⚙️',
           description: `Manual Adjustment: Changed from ${symbol}${oldBalance.toFixed(2)} to ${symbol}${newBalanceTarget.toFixed(2)}`,
-          isUneditable: true,
           createdAt: Date.now(),
         };
         currentTxs = [...currentTxs, adjustmentTx];

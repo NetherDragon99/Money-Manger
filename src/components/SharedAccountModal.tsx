@@ -144,10 +144,10 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
                 <span className="text-[10px] text-emerald-400/80 font-mono">Encrypted</span>
               </div>
 
-              {/* Share Code Box */}
+              {/* Share Code & Link Box */}
               <div>
                 <label className="block text-[10px] text-zinc-400 mb-1 font-semibold uppercase">
-                  {isArabic ? 'رمز دعوة المشاركة' : 'Account Share Code'}
+                  {isArabic ? 'رمز ورابط المشاركة الحية' : 'Account Share Code & Link'}
                 </label>
                 <div className="flex items-center gap-2">
                   <div className="flex-1 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 font-mono text-xs text-amber-300 truncate select-all">
@@ -160,6 +160,23 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
                     title="Copy Code"
                   >
                     {isCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-zinc-300" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        const url = new URL(`shared-view.html?sharedAccountId=${encodeURIComponent(sharedId)}`, window.location.href).href;
+                        navigator.clipboard.writeText(url);
+                        showToast(isArabic ? 'تم نسخ الرابط المباشر بنجاح!' : 'Direct link copied to clipboard!', 'success');
+                      } catch {
+                        navigator.clipboard.writeText(sharedId);
+                        showToast(isArabic ? 'تم نسخ الرمز بنجاح!' : 'Code copied to clipboard!', 'info');
+                      }
+                    }}
+                    className="px-2.5 py-2 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-700/60 text-cyan-300 text-xs font-semibold transition active:scale-95 cursor-pointer flex items-center gap-1"
+                    title="Copy Direct Link"
+                  >
+                    <span>{isArabic ? 'رابط' : 'Link'}</span>
                   </button>
                 </div>
               </div>

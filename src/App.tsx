@@ -383,6 +383,42 @@ const MainAppContent: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, [currentTab]);
 
+  const isAnyModalOpen =
+    isSidebarOpen ||
+    isCategoryModalOpen ||
+    isAccountModalOpen ||
+    !!viewingTx ||
+    isAddTxModalOpen ||
+    !!editingTx ||
+    isPinModalOpen ||
+    isRecurringModalOpen ||
+    isEmojiPickerOpen ||
+    isFeaturesModalOpen ||
+    isFilterModalOpen ||
+    isResetPeriodModalOpen ||
+    isUserProfileModalOpen ||
+    isSharedHubModalOpen ||
+    isExitModalOpen;
+
+  // Background Scroll Lock (Bug Fix): Locks scrolling on underlying page container when ANY modal/drawer is open
+  useEffect(() => {
+    if (isAnyModalOpen) {
+      const scrollY = window.scrollY;
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
+
+      return () => {
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.width = '';
+        document.body.style.overflow = '';
+        window.scrollTo(0, scrollY);
+      };
+    }
+  }, [isAnyModalOpen]);
+
   if (activeSharedId) {
     return (
       <SharedAccountLiveView
@@ -431,7 +467,7 @@ const MainAppContent: React.FC = () => {
             <div className={currentTab === 'accounts' ? 'block animate-in fade-in duration-150' : 'hidden'}>
               <AccountsView />
             </div>
-            <div className={currentTab === 'calculator' ? 'block animate-in fade-in duration-150' : 'hidden'}>
+            <div className={currentTab === 'calculator' ? 'h-full flex-1 flex flex-col overflow-hidden animate-in fade-in duration-150' : 'hidden'}>
               <CalculatorView />
             </div>
           </div>

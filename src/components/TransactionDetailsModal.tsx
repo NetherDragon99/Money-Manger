@@ -162,35 +162,27 @@ export const TransactionDetailsModal: React.FC = () => {
           </div>
         )}
 
-        {viewingTx.isUneditable && (
-          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-center text-xs text-amber-300">
-            {t('uneditableNotice')}
-          </div>
-        )}
-
         {/* Action Buttons at Bottom */}
         <div className="flex gap-3 pt-2">
           {/* Delete Button (Red) */}
           <button
             type="button"
             onClick={handleDelete}
-            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 text-sm font-semibold active:scale-95 transition"
+            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 text-sm font-semibold active:scale-95 transition cursor-pointer"
           >
             <Trash2 className="w-4 h-4" />
             <span>{t('deleteTransaction')}</span>
           </button>
 
-          {/* Edit Button (Blue) - Hidden/Disabled if isUneditable */}
-          {!viewingTx.isUneditable && (
-            <button
-              type="button"
-              onClick={handleEdit}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold active:scale-95 shadow-lg shadow-blue-900/30 transition"
-            >
-              <Edit3 className="w-4 h-4" />
-              <span>{t('editTransaction')}</span>
-            </button>
-          )}
+          {/* Edit Button (Blue) - Available for all transactions including initial/adjustment */}
+          <button
+            type="button"
+            onClick={handleEdit}
+            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold active:scale-95 shadow-lg shadow-blue-900/30 transition cursor-pointer"
+          >
+            <Edit3 className="w-4 h-4" />
+            <span>{t('editTransaction')}</span>
+          </button>
         </div>
       </div>
     </div>

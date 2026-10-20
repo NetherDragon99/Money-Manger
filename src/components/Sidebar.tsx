@@ -26,11 +26,13 @@ import {
   Cloud,
   Mail,
   Users,
+  Trash2,
 } from 'lucide-react';
 import { loadSecuritySettings, saveSecuritySettings } from '../utils/security';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ExportCustomizeModal } from './ExportCustomizeModal';
 import { auth, rtdb } from '../utils/firebase';
+import { signOut } from 'firebase/auth';
 import { ref, set } from 'firebase/database';
 import { WeekStartDay } from '../types';
 import { WORLD_CURRENCIES, CurrencyOption } from '../utils/currencies';
@@ -70,6 +72,22 @@ export const Sidebar: React.FC = () => {
   const [currencySearch, setCurrencySearch] = useState('');
   const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false);
   const [securitySettings, setSecuritySettings] = useState(() => loadSecuritySettings());
+
+  // Keep securitySettings live and synchronized
+  useEffect(() => {
+    const handleSecUpdate = (e: any) => {
+      if (e?.detail) setSecuritySettings(e.detail);
+      else setSecuritySettings(loadSecuritySettings());
+    };
+    window.addEventListener('app_security_updated', handleSecUpdate);
+    return () => window.removeEventListener('app_security_updated', handleSecUpdate);
+  }, []);
+
+  useEffect(() => {
+    if (isSidebarOpen) {
+      setSecuritySettings(loadSecuritySettings());
+    }
+  }, [isSidebarOpen]);
 
   // Click outside auto-closes currency dropdown
   useEffect(() => {
@@ -199,7 +217,7 @@ export const Sidebar: React.FC = () => {
 
   const handleEmailBackup = () => {
     const data = {
-      version: '1.1.3',
+      version: '1.1.4',
       exportDate: new Date().toISOString(),
       accounts,
       categories,
@@ -224,7 +242,7 @@ export const Sidebar: React.FC = () => {
     try {
       const backupRef = ref(rtdb, `users/${user.uid}/backup`);
       await set(backupRef, {
-        version: '1.1.3',
+        version: '1.1.4',
         backupDate: new Date().toISOString(),
         accounts,
         categories,
@@ -800,6 +818,56 @@ export const Sidebar: React.FC = () => {
                 <Upload className="w-4 h-4 text-purple-400" />
                 <span>{t('importData')}</span>
               </button>
+
+              {/* Complete Factory Reset & Clear All Data */}
+              <button
+                type="button"
+                onClick={async () => {
+                  const confirmed = window.confirm(
+                    isArabic
+                      ? 'تحذير شديد الأهمية: هل أنت متأكد من حذف جميع البيانات بالكامل وإعادة ضبط المصنع؟ سيتم تسجيل خروجك ومسح كافة الحسابات والمعاملات والنسخ المحلية نهائياً!'
+                      : 'CRITICAL WARNING: Are you sure you want to completely erase all data and reset to factory defaults? You will be signed out and all accounts, transactions, and local databases will be wiped permanently!'
+                  );
+                  if (!confirmed) return;
+
+                  try {
+                    // 1. Explicitly sign out of Firebase Auth
+                    try {
+                      await signOut(auth);
+                    } catch {}
+
+                    // 2. Wipe all localStorage and sessionStorage
+                    try {
+                      localStorage.clear();
+                      sessionStorage.clear();
+                    } catch {}
+
+                    // 3. Delete IndexedDB database
+                    try {
+                      if (typeof window !== 'undefined' && window.indexedDB) {
+                        window.indexedDB.deleteDatabase('PersonalFinanceDB');
+                      }
+                    } catch {}
+
+                    showToast(
+                      isArabic
+                        ? 'تم مسح جميع البيانات وتسجيل الخروج بنجاح. جارٍ إعادة التشغيل...'
+                        : 'All data cleared and signed out successfully. Reloading...',
+                      'info'
+                    );
+
+                    setTimeout(() => {
+                      window.location.href = window.location.pathname;
+                    }, 400);
+                  } catch (err: any) {
+                    showToast(err?.message || 'Error clearing data', 'error');
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-red-950/30 hover:bg-red-950/60 border border-red-900/60 text-xs font-bold text-red-400 hover:text-red-300 transition cursor-pointer active:scale-98"
+              >
+                <Trash2 className="w-4 h-4 text-red-400" />
+                <span>{isArabic ? 'مسح جميع البيانات وإعادة ضبط المصنع' : 'Clear All Data & Factory Reset'}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -807,7 +875,7 @@ export const Sidebar: React.FC = () => {
         {/* Sidebar Footer: Version & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-zinc-300">Version: Beta v1.1.3</span>
+            <span className="font-bold text-zinc-300">Version: Beta v1.1.4</span>
           </div>
 
           {/* Refresh App Button */}

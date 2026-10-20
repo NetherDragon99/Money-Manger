@@ -23,6 +23,7 @@ import {
 import { GroupedTransactionList } from '../components/GroupedTransactionList';
 import { MiniDateTimePicker } from '../components/MiniDateTimePicker';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
+import { useHeaderScroll } from '../hooks/useHeaderScroll';
 
 export const HomeView: React.FC = () => {
   const {
@@ -47,6 +48,7 @@ export const HomeView: React.FC = () => {
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
   const [showCustomRangePicker, setShowCustomRangePicker] = useState(false);
   const [customTarget, setCustomTarget] = useState<'start' | 'end'>('start');
+  const isHeaderVisible = useHeaderScroll();
 
   // Calendar view specific state
   const [calendarMonthOffset, setCalendarMonthOffset] = useState(0);
@@ -243,8 +245,10 @@ export const HomeView: React.FC = () => {
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 animate-in fade-in">
-      {/* 1. Top Header Bar */}
-      <header className="sticky top-0 z-30 bg-black/90 backdrop-blur-md px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between">
+      {/* 1. Top Header Bar with Smart Auto-Hide on Scroll */}
+      <header className={`sticky top-0 z-30 bg-black/90 backdrop-blur-md px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
+        isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
+      }`}>
         {/* Left: Hamburger Menu Button (☰) */}
         <button
           type="button"

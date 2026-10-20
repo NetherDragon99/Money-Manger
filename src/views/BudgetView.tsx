@@ -10,6 +10,7 @@ import {
   ArrowDownRight,
   Search,
   X,
+  Menu,
 } from 'lucide-react';
 import { Category } from '../types';
 import {
@@ -18,6 +19,7 @@ import {
   formatCurrency,
 } from '../utils/dateCycle';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
+import { useHeaderScroll } from '../hooks/useHeaderScroll';
 
 export const BudgetView: React.FC = () => {
   const {
@@ -27,8 +29,11 @@ export const BudgetView: React.FC = () => {
     openEditCategoryModal,
     openAddCategoryModal,
     reorderCategories,
+    setIsSidebarOpen,
     t,
   } = useApp();
+
+  const isHeaderVisible = useHeaderScroll();
 
   const [categoryTab, setCategoryTab] = useState<'expense' | 'income'>('expense');
   const [searchQuery, setSearchQuery] = useState('');
@@ -215,15 +220,28 @@ export const BudgetView: React.FC = () => {
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 px-4 py-4 max-w-2xl mx-auto w-full space-y-5 animate-in fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-black tracking-tight">{t('budget')} & Categories</h2>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            {settings.language === 'ar' ? 'شهر التطبيق' : 'App Month'}: {cycleRange.startDate} → {cycleRange.endDate}
-          </p>
+      {/* Header with Universal Sidebar Access & Auto-Hide on Scroll */}
+      <header className={`sticky top-0 z-30 bg-black/90 backdrop-blur-md -mx-4 px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
+        isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
+      }`}>
+        <div className="flex items-center gap-2">
+          {/* Universal Sidebar Menu Button (☰) */}
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(true)}
+            aria-label="Open Menu"
+            className="p-2 -ml-2 rounded-full hover:bg-zinc-800 text-zinc-300 hover:text-white transition cursor-pointer"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div>
+            <h2 className="text-xl font-black tracking-tight">{t('budget')} & Categories</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              {settings.language === 'ar' ? 'شهر التطبيق' : 'App Month'}: {cycleRange.startDate} → {cycleRange.endDate}
+            </p>
+          </div>
         </div>
-      </div>
+      </header>
 
       {/* Smart Budget Alert Banner */}
       <SmartBudgetAlertBanner />

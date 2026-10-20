@@ -174,21 +174,28 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     }
   };
 
+  const getSharedAccountUrl = (sharedId: string): string => {
+    try {
+      return new URL(`shared-view.html?sharedAccountId=${encodeURIComponent(sharedId)}`, window.location.href).href;
+    } catch {
+      return `${window.location.origin}/shared-view.html?sharedAccountId=${encodeURIComponent(sharedId)}`;
+    }
+  };
+
   const handleCopyLink = (sharedId: string) => {
-    const origin = window.location.origin;
-    const url = `${origin}/shared-view.html?sharedAccountId=${sharedId}`;
+    const url = getSharedAccountUrl(sharedId);
     navigator.clipboard.writeText(url);
     setCopiedId(sharedId);
     showToast(
       isArabic ? 'تم نسخ رابط الحساب المشترك للحافظة!' : 'Live shared link copied to clipboard!',
-      'info'
+      'success'
     );
     setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleOpenViewer = (sharedId: string) => {
-    const url = `/shared-view.html?sharedAccountId=${sharedId}`;
-    window.open(url, '_blank');
+    const url = getSharedAccountUrl(sharedId);
+    window.location.href = url;
   };
 
   const handleJoinAccount = () => {

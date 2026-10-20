@@ -21,6 +21,36 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.4',
+    releaseDate: 'October 20, 2026',
+    title: {
+      en: 'Full-Screen Pro Calculator, Smart Auto-Hiding Headers, Background Scroll Lock & Security Overhaul',
+      ar: 'حاسبة احترافية ملء الشاشة، شريط علوي ذكي، قفل التمرير الخلفي وتحديث شامل للأمان',
+    },
+    highlights: {
+      en: [
+        'Full-Screen Non-Scrollable Calculator: Mathematical typography (√, ^, %, ÷, ×, −, +) with precision engine and in-display history.',
+        'Smart Auto-Hiding Headers: Headers slide away smoothly on scroll down and immediately return on scroll up across views.',
+        'Universal Sidebar Menu (☰): Accessible directly from top header across all 5 main navigation tabs.',
+        'Background Scroll Lock: Freezes underlying viewport scroll whenever any modal, popup, or drawer is active.',
+        'Accounts Card Polish & Free Initial Balance Editing: Reorder controls moved away from balance, shared box cleaned up, and initial/adjustment transactions are freely editable.',
+        'User Profile ID & Email Photo Banner: Dedicated full-width User ID row with instant copy and one-tap email avatar suggestion banner.',
+        'Symmetrical PIN Keypad & WebAuthn Passkeys: Redesigned modern numeric keypad, immediate lock persistence, and platform biometric credentials.',
+        'Complete Factory Reset: Explicit Firebase sign-out, storage wipe, and IndexedDB purge for clean app reset.',
+      ],
+      ar: [
+        'حاسبة مالية متقدمة ملء الشاشة: رموز رياضية حقيقية (√, ^, %, ÷, ×, −, +) ومحرك حسابات فائق الدقة مع سجل داخل الشاشة.',
+        'شريط علوي ذكي للإخفاء التلقائي: انزلاق سلس للشريط عند التمرير لأسفل وظهوره فوراً عند التمرير لأعلى.',
+        'زر القائمة الجانبية الموحد (☰): وصول مباشر للقائمة من الشريط العلوي عبر جميع التبويبات الخمسة.',
+        'قفل التمرير الخلفي عند فتح النوافذ: منع تمرير الصفحة السفلية عند فتح أي نافذة منبثقة أو قائمة.',
+        'تحسين بطاقات الحسابات وتحرير الرصيد الأولي: فصل أسهم الترتيب عن الرصيد وحرية تعديل المعاملات الافتتاحية.',
+        'معرف الحساب واقتراح صورة البريد: صف كامل لنسخ المعرف بنقرة واحدة واقتراح اعتماد صورة الحساب كأفاتار.',
+        'لوحة أرقام PIN متناسقة ومفاتيح مرور WebAuthn: لوحة مفاتيح عصرية ومصادقة بيومترية حقيقية.',
+        'إعادة ضبط المصنع الكاملة: تسجيل خروج صريح ومسح التخزين وقواعد IndexedDB بالكامل.',
+      ],
+    },
+  },
+  {
     version: '1.1.3',
     releaseDate: 'October 19, 2026',
     title: {

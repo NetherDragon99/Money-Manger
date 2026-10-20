@@ -5,6 +5,7 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronUp,
+  Menu,
 } from 'lucide-react';
 import { TransactionType } from '../types';
 import {
@@ -12,9 +13,12 @@ import {
   isTransactionInRange,
   formatCurrency,
 } from '../utils/dateCycle';
+import { useHeaderScroll } from '../hooks/useHeaderScroll';
 
 export const InsightsView: React.FC = () => {
-  const { accounts, transactions, settings, t } = useApp();
+  const { accounts, transactions, settings, setIsSidebarOpen, t } = useApp();
+
+  const isHeaderVisible = useHeaderScroll();
 
   const [activeAnalysisType, setActiveAnalysisType] = useState<'expense' | 'income'>('expense');
   const [showAllCategories, setShowAllCategories] = useState<boolean>(false);
@@ -210,13 +214,28 @@ export const InsightsView: React.FC = () => {
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 px-4 py-4 max-w-2xl mx-auto w-full space-y-5 animate-in fade-in">
-      {/* Header */}
-      <div>
-        <h2 className="text-xl font-black tracking-tight">{t('insights')}</h2>
-        <p className="text-xs text-zinc-400 mt-0.5">
-          {cycleRange.startDate} → {cycleRange.endDate}
-        </p>
-      </div>
+      {/* Header with Universal Sidebar Access & Auto-Hide on Scroll */}
+      <header className={`sticky top-0 z-30 bg-black/90 backdrop-blur-md -mx-4 px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
+        isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
+      }`}>
+        <div className="flex items-center gap-2">
+          {/* Universal Sidebar Menu Button (☰) */}
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(true)}
+            aria-label="Open Menu"
+            className="p-2 -ml-2 rounded-full hover:bg-zinc-800 text-zinc-300 hover:text-white transition cursor-pointer"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div>
+            <h2 className="text-xl font-black tracking-tight">{t('insights')}</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              {cycleRange.startDate} → {cycleRange.endDate}
+            </p>
+          </div>
+        </div>
+      </header>
 
       {/* Top Summary Block: Current Month Total Balance, Income, Expense */}
       <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden">

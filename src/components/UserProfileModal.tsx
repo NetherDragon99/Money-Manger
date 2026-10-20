@@ -19,6 +19,8 @@ import {
   Shield,
   ArrowRight,
   RefreshCw,
+  Copy,
+  Sparkles,
 } from 'lucide-react';
 import {
   auth,
@@ -612,22 +614,22 @@ export const UserProfileModal: React.FC = () => {
 
             {currentUser ? (
               /* Signed In Premium Card */
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-blue-500/30 shadow-lg space-y-3">
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-blue-500/30 shadow-lg space-y-3.5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-full bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-bold text-sm shrink-0">
+                    <div className="w-11 h-11 rounded-full bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-bold text-sm shrink-0 overflow-hidden shadow-inner">
                       {currentUser.photoURL ? (
-                        <img src={currentUser.photoURL} alt="User" className="w-full h-full rounded-full object-cover" />
+                        <img src={currentUser.photoURL} alt="User" className="w-full h-full object-cover" />
                       ) : (
                         (currentUser.email?.[0] || currentUser.phoneNumber?.[0] || 'U').toUpperCase()
                       )}
                     </div>
                     <div className="min-w-0">
-                      <div className="text-xs font-bold text-white truncate">
+                      <div className="text-sm font-bold text-white truncate">
                         {currentUser.displayName || currentUser.email || currentUser.phoneNumber}
                       </div>
-                      <div className="text-[10px] text-zinc-400 truncate mt-0.5 font-mono">
-                        {currentUser.email || currentUser.phoneNumber || currentUser.uid.slice(0, 16)}
+                      <div className="text-xs text-zinc-400 truncate mt-0.5 font-mono">
+                        {currentUser.email || currentUser.phoneNumber || 'Authenticated User'}
                       </div>
                     </div>
                   </div>
@@ -635,19 +637,77 @@ export const UserProfileModal: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleSignOut}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 hover:border-red-900/60 text-zinc-300 hover:text-red-400 text-xs font-semibold transition cursor-pointer shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 hover:border-red-900/60 text-zinc-300 hover:text-red-400 text-xs font-semibold transition cursor-pointer shrink-0 active:scale-95"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     <span>{isArabic ? 'خروج' : 'Sign Out'}</span>
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80 text-[10px] text-zinc-400">
+                {/* Email Profile Photo Suggestion Banner */}
+                {currentUser.photoURL && customAvatarUrl !== currentUser.photoURL && (
+                  <div className="p-2.5 rounded-xl bg-blue-950/40 border border-blue-500/30 flex items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Sparkles className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span className="text-zinc-200 text-[11px] truncate">
+                        {isArabic
+                          ? 'هل تود استخدام صورة حسابك كأفاتار للملف الشخصي؟'
+                          : 'Use your account photo as profile avatar?'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomAvatarUrl(currentUser.photoURL!);
+                        showToast(
+                          isArabic
+                            ? 'تم اعتماد صورة الحساب كأفاتار بنجاح!'
+                            : 'Email photo applied as profile avatar!',
+                          'success'
+                        );
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold text-[11px] transition shrink-0 cursor-pointer shadow"
+                    >
+                      {isArabic ? 'استخدام' : 'Use Photo'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Full-Width Dedicated User/Account ID Row */}
+                <div className="w-full p-2.5 rounded-xl bg-zinc-950/90 border border-zinc-800/90 flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className="block text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                      {isArabic ? 'معرّف الحساب الموحد (Account ID)' : 'Account User ID'}
+                    </span>
+                    <span className="block text-xs font-mono text-zinc-200 truncate select-all mt-0.5">
+                      {currentUser.uid}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(currentUser.uid);
+                      showToast(
+                        isArabic
+                          ? 'تم نسخ معرّف الحساب إلى الحافظة بنجاح!'
+                          : 'Account ID copied to clipboard!',
+                        'success'
+                      );
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 active:scale-95 border border-zinc-700 text-zinc-200 hover:text-white text-xs font-medium transition cursor-pointer shrink-0"
+                    title="Copy User ID"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-blue-400" />
+                    <span>{isArabic ? 'نسخ' : 'Copy'}</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 text-[10px] text-zinc-400">
                   <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
                     <CheckCircle2 className="w-3 h-3" />
                     <span>{isArabic ? 'النسخ السحابي المشفر نشط' : 'Encrypted Cloud Backup Active'}</span>
                   </span>
-                  <span className="font-mono text-zinc-500">ID: {currentUser.uid.slice(0, 6)}...</span>
+                  <span className="font-mono text-zinc-500">Live Sync</span>
                 </div>
               </div>
             ) : (

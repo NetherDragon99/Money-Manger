@@ -9,6 +9,7 @@ import {
   Users,
   X,
   Check,
+  Menu,
 } from 'lucide-react';
 import {
   getMonthCycleRange,
@@ -16,6 +17,7 @@ import {
   formatCurrency,
 } from '../utils/dateCycle';
 import { listenToSharedAccount } from '../utils/firebase';
+import { useHeaderScroll } from '../hooks/useHeaderScroll';
 
 export const AccountsView: React.FC = () => {
   const {
@@ -26,10 +28,13 @@ export const AccountsView: React.FC = () => {
     openAddAccountModal,
     reorderAccounts,
     setIsSharedHubModalOpen,
+    setIsSidebarOpen,
     importSingleAccountData,
     showToast,
     t,
   } = useApp();
+
+  const isHeaderVisible = useHeaderScroll();
 
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [joinCode, setJoinCode] = useState('');
@@ -145,24 +150,28 @@ export const AccountsView: React.FC = () => {
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 px-4 py-4 max-w-2xl mx-auto w-full space-y-5 animate-in fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-black tracking-tight">{t('accounts')}</h2>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'} managed
-          </p>
-        </div>
+      {/* Header with Universal Sidebar Access & Smart Auto-Hide on Scroll */}
+      <header className={`sticky top-0 z-30 bg-black/90 backdrop-blur-md -mx-4 px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
+        isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
+      }`}>
         <div className="flex items-center gap-2">
+          {/* Universal Sidebar Menu Button (☰) */}
           <button
             type="button"
-            onClick={() => setIsSharedHubModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cyan-950/60 border border-cyan-800 text-xs font-semibold text-cyan-300 hover:text-white hover:border-cyan-600 transition cursor-pointer shadow-sm active:scale-95"
-            title="Shared Accounts Hub"
+            onClick={() => setIsSidebarOpen(true)}
+            aria-label="Open Menu"
+            className="p-2 -ml-2 rounded-full hover:bg-zinc-800 text-zinc-300 hover:text-white transition cursor-pointer"
           >
-            <Users className="w-3.5 h-3.5 text-cyan-400" />
-            <span>{settings.language === 'ar' ? 'الحسابات المشتركة' : 'Shared Hub'}</span>
+            <Menu className="w-5 h-5" />
           </button>
+          <div>
+            <h2 className="text-xl font-black tracking-tight">{t('accounts')}</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'} managed
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={openAddAccountModal}
@@ -172,7 +181,7 @@ export const AccountsView: React.FC = () => {
             <span>{t('addAccount')}</span>
           </button>
         </div>
-      </div>
+      </header>
 
       {/* Global Net Worth Summary Block:
           Top Center: TOTAL BALANCE in large White text.
@@ -214,35 +223,6 @@ export const AccountsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Dedicated Shared Accounts Hub Section */}
-      <div className="p-4 rounded-3xl bg-gradient-to-r from-cyan-950/40 via-zinc-900 to-zinc-900 border border-cyan-500/30 flex items-center justify-between gap-3 shadow-lg">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
-            <Users className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-xs font-bold text-white flex items-center gap-2">
-              <span>{settings.language === 'ar' ? 'مركز الحسابات المشتركة' : 'Shared Accounts Hub'}</span>
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                {settings.language === 'ar' ? 'مباشر' : 'Live'}
-              </span>
-            </div>
-            <p className="text-[11px] text-zinc-400 truncate mt-0.5">
-              {settings.language === 'ar'
-                ? 'مشاركة الصفحات للقراءة ومتابعة حسابات الشركاء والعائلة'
-                : 'Share read-only pages & follow family accounts live'}
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => setIsSharedHubModalOpen(true)}
-          className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 active:scale-95 text-white text-xs font-bold transition shadow-md shrink-0 cursor-pointer"
-        >
-          {settings.language === 'ar' ? 'فتح المركز' : 'Open Hub'}
-        </button>
-      </div>
-
       {/* Accounts List */}
       <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
@@ -266,30 +246,63 @@ export const AccountsView: React.FC = () => {
                 tabIndex={0}
                 className="p-4 rounded-3xl bg-zinc-900 border border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700 active:scale-[0.99] transition cursor-pointer group shadow-lg"
               >
-                {/* Top Row: Account Emoji Icon + Account Name (with subtle 🔒 Private badge if private) + Current Balance on right */}
+                {/* Dedicated Top Card Header Bar: Separates Reorder Controls from Balance */}
+                <div className="flex items-center justify-between pb-2 border-b border-zinc-800/50 mb-3">
+                  {/* Reorder Arrows with priority index */}
+                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <span className="text-[10px] font-mono text-zinc-500 mr-0.5">#{index + 1}</span>
+                    <button
+                      type="button"
+                      disabled={index === 0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveAccount(index, 'up');
+                      }}
+                      className="p-1 rounded-md bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white disabled:opacity-20 disabled:hover:bg-zinc-950 transition cursor-pointer"
+                      title="Move Up (Higher Priority)"
+                    >
+                      <ArrowUp className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === accounts.length - 1}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveAccount(index, 'down');
+                      }}
+                      className="p-1 rounded-md bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white disabled:opacity-20 disabled:hover:bg-zinc-950 transition cursor-pointer"
+                      title="Move Down (Lower Priority)"
+                    >
+                      <ArrowDown className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    {isPrimary && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                        <Check className="w-2.5 h-2.5 text-blue-400" />
+                        <span>{settings.language === 'ar' ? 'الأساسي' : 'Primary'}</span>
+                      </span>
+                    )}
+                    {acc.isPrivate && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        <Lock className="w-3 h-3" />
+                        {t('privateAccount')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Main Row: Account Emoji Icon + Account Name + Balance on right */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-12 h-12 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition">
                       {acc.icon}
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-base font-bold text-white truncate max-w-[130px] sm:max-w-xs group-hover:text-blue-300 transition">
-                          {acc.name}
-                        </span>
-                        {isPrimary && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30">
-                            <Check className="w-2.5 h-2.5 text-blue-400" />
-                            <span>{settings.language === 'ar' ? 'الأساسي' : 'Primary'}</span>
-                          </span>
-                        )}
-                        {acc.isPrivate && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                            <Lock className="w-3 h-3" />
-                            {t('privateAccount')}
-                          </span>
-                        )}
-                      </div>
+                      <span className="text-base font-bold text-white truncate max-w-[150px] sm:max-w-xs group-hover:text-blue-300 transition block">
+                        {acc.name}
+                      </span>
                       <div className="text-xs text-zinc-400 mt-0.5">
                         {acc.customMonthStartDay === 'default'
                           ? `Start: Day ${settings.defaultMonthStartDay}`
@@ -299,34 +312,6 @@ export const AccountsView: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0 pl-2">
-                    {/* Reorder Arrows with stopPropagation */}
-                    <div className="flex flex-col items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        disabled={index === 0}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleMoveAccount(index, 'up');
-                        }}
-                        className="p-1 rounded-md bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white disabled:opacity-20 disabled:hover:bg-zinc-950 transition cursor-pointer"
-                        title="Move Up (Higher Priority)"
-                      >
-                        <ArrowUp className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={index === accounts.length - 1}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleMoveAccount(index, 'down');
-                        }}
-                        className="p-1 rounded-md bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white disabled:opacity-20 disabled:hover:bg-zinc-950 transition cursor-pointer"
-                        title="Move Down (Lower Priority)"
-                      >
-                        <ArrowDown className="w-3 h-3" />
-                      </button>
-                    </div>
-
                     <div className="text-right">
                       <span className="text-base sm:text-lg font-black font-mono text-white">
                         {formatCurrency(acc.balance, currencySymbol)}

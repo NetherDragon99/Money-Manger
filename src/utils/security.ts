@@ -36,9 +36,34 @@ export function loadSecuritySettings(): SecuritySettings {
 export function saveSecuritySettings(settings: SecuritySettings): void {
   try {
     localStorage.setItem(SECURITY_STORAGE_KEY, JSON.stringify(settings));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('app_security_updated', { detail: settings }));
+    }
   } catch (err) {
     console.error('Failed to save security settings:', err);
   }
+}
+
+const WEBAUTHN_CREDENTIAL_KEY = 'money_manager_webauthn_credential_id';
+
+// Base64 URL helpers for credential IDs
+function bufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function base64ToBuffer(base64: string): ArrayBuffer {
+  const padded = base64.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((base64.length + 3) % 4);
+  const binary = window.atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
 }
 
 export async function isBiometricAvailable(): Promise<boolean> {
@@ -62,7 +87,7 @@ export async function registerBiometrics(): Promise<boolean> {
     const challenge = new Uint8Array(32);
     crypto.getRandomValues(challenge);
 
-    const credential = await navigator.credentials.create({
+    const credential = (await navigator.credentials.create({
       publicKey: {
         challenge,
         rp: {
@@ -70,7 +95,7 @@ export async function registerBiometrics(): Promise<boolean> {
           id: window.location.hostname || 'localhost',
         },
         user: {
-          id: new Uint8Array([1, 2, 3, 4, 5]),
+          id: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
           name: 'user@finance.app',
           displayName: 'App Owner',
         },
@@ -84,8 +109,13 @@ export async function registerBiometrics(): Promise<boolean> {
         },
         timeout: 60000,
       },
-    });
+    })) as PublicKeyCredential | null;
 
+    if (credential && credential.rawId) {
+      const b64Id = bufferToBase64(credential.rawId);
+      localStorage.setItem(WEBAUTHN_CREDENTIAL_KEY, b64Id);
+      return true;
+    }
     return !!credential;
   } catch (err) {
     console.warn('Biometric registration was cancelled or failed:', err);
@@ -99,13 +129,25 @@ export async function authenticateWithBiometrics(): Promise<boolean> {
     const challenge = new Uint8Array(32);
     crypto.getRandomValues(challenge);
 
+    const storedId = localStorage.getItem(WEBAUTHN_CREDENTIAL_KEY);
+    const publicKeyOptions: PublicKeyCredentialRequestOptions = {
+      challenge,
+      rpId: window.location.hostname || 'localhost',
+      userVerification: 'required',
+      timeout: 60000,
+    };
+
+    if (storedId) {
+      publicKeyOptions.allowCredentials = [
+        {
+          type: 'public-key',
+          id: base64ToBuffer(storedId),
+        },
+      ];
+    }
+
     const assertion = await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        rpId: window.location.hostname || 'localhost',
-        userVerification: 'required',
-        timeout: 60000,
-      },
+      publicKey: publicKeyOptions,
     });
 
     return !!assertion;
