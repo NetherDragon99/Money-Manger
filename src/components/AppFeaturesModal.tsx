@@ -214,10 +214,31 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
             </div>
           </div>
         ) : (
-          /* STATE 2: SELECTED SIDE-BY-SIDE STATE (NARROW SIDE-STRIP + SLIDING DETAILS WINDOW) */
+          /* STATE 2: SELECTED SIDE-BY-SIDE STATE (RESPONSIVE SIDE-STRIP + DETAILS WINDOW - Item 18) */
           <div className="flex-1 flex min-h-0 overflow-hidden relative">
-            {/* Narrow Side Strip showing Icon + 1-2 word short title */}
-            <div className="w-20 sm:w-24 border-r rtl:border-l rtl:border-r-0 border-zinc-800/80 bg-zinc-950/90 flex flex-col items-center py-2.5 shrink-0 overflow-y-auto space-y-2 select-none">
+            {/* Side Strip: expands on Peek so titles and descriptions are readable with zero blank gap */}
+            <div
+              className={`border-r rtl:border-l rtl:border-r-0 border-zinc-800/80 bg-zinc-950/90 flex flex-col items-center py-2.5 shrink-0 overflow-y-auto select-none transition-all duration-300 ease-in-out ${
+                isPeeked ? 'w-full sm:w-80 px-3 space-y-2' : 'w-20 sm:w-24 px-1 space-y-2'
+              }`}
+            >
+              {/* Peek Toggle Header when expanded */}
+              {isPeeked && (
+                <div className="w-full flex items-center justify-between pb-2 border-b border-zinc-800/60 mb-1">
+                  <span className="text-xs font-bold text-zinc-300">
+                    {isArabic ? 'قائمة الميزات السريعة' : 'Feature Quick Directory'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsPeeked(false)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-[11px] font-semibold transition active:scale-95 cursor-pointer"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>{isArabic ? 'إظهار الشرح' : 'Show Details'}</span>
+                  </button>
+                </div>
+              )}
+
               {/* Back to Full Grid Button */}
               <button
                 type="button"
@@ -225,12 +246,14 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                   setSelectedId(null);
                   setIsPeeked(false);
                 }}
-                className="w-16 py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 hover:bg-zinc-850 text-zinc-400 hover:text-white transition cursor-pointer"
+                className={`rounded-xl flex items-center justify-center gap-1 hover:bg-zinc-850 text-zinc-400 hover:text-white transition cursor-pointer ${
+                  isPeeked ? 'w-full py-2 px-3 flex-row justify-start gap-2.5' : 'w-16 py-2 px-1 flex-col'
+                }`}
                 title="Back to All Cards"
               >
-                <LayoutGrid className="w-4 h-4 text-zinc-400" />
-                <span className="text-[9px] font-bold text-center leading-tight truncate w-full">
-                  {isArabic ? 'الكل' : 'All'}
+                <LayoutGrid className="w-4 h-4 text-zinc-400 shrink-0" />
+                <span className={`font-bold leading-tight ${isPeeked ? 'text-xs' : 'text-[9px] text-center truncate w-full'}`}>
+                  {isArabic ? 'عرض كافة البطاقات' : 'Back to Grid'}
                 </span>
               </button>
 
@@ -241,29 +264,28 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                   setSelectedId('changelog');
                   setIsPeeked(false);
                 }}
-                className={`w-16 py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                className={`rounded-xl flex items-center justify-center gap-1 transition cursor-pointer ${
+                  isPeeked ? 'w-full py-2 px-3 flex-row justify-start gap-2.5' : 'w-16 py-2 px-1 flex-col'
+                } ${
                   selectedId === 'changelog'
                     ? 'bg-blue-600/25 border border-blue-500/50 text-white shadow-md'
                     : 'text-zinc-400 hover:bg-zinc-850 hover:text-zinc-200 border border-transparent'
                 }`}
                 title="Release Notes"
               >
-                <History className={`w-4 h-4 ${selectedId === 'changelog' ? 'text-blue-400' : 'text-zinc-400'}`} />
-                <span className="text-[9px] font-bold text-center leading-tight truncate w-full">
-                  {isArabic ? 'التحديثات' : 'Changelog'}
+                <History className={`w-4 h-4 shrink-0 ${selectedId === 'changelog' ? 'text-blue-400' : 'text-zinc-400'}`} />
+                <span className={`font-bold leading-tight ${isPeeked ? 'text-xs' : 'text-[9px] text-center truncate w-full'}`}>
+                  {isArabic ? 'سجل التحديثات' : 'Changelog'}
                 </span>
               </button>
 
-              <div className="w-8 h-px bg-zinc-800 my-1" />
+              <div className="w-full h-px bg-zinc-800 my-1" />
 
               {/* Feature Items Strip */}
               {APP_CORE_FEATURES.map((feat) => {
                 const isSelected = selectedId === feat.id;
-                // 1-2 words short title
-                const shortTitle = (isArabic ? feat.title.ar : feat.title.en)
-                  .split(' ')
-                  .slice(0, 2)
-                  .join(' ');
+                const titleText = isArabic ? feat.title.ar : feat.title.en;
+                const shortTitle = titleText.split(' ').slice(0, 2).join(' ');
 
                 return (
                   <button
@@ -273,17 +295,28 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                       setSelectedId(feat.id);
                       setIsPeeked(false);
                     }}
-                    className={`w-16 py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                    className={`rounded-xl flex items-center transition cursor-pointer ${
+                      isPeeked
+                        ? 'w-full p-2.5 flex-row gap-3 text-left rtl:text-right'
+                        : 'w-16 py-2 px-1 flex-col justify-center gap-1'
+                    } ${
                       isSelected
                         ? 'bg-blue-600/25 border border-blue-500/50 text-white shadow-md scale-105'
                         : 'text-zinc-400 hover:bg-zinc-850 hover:text-zinc-200 border border-transparent'
                     }`}
-                    title={isArabic ? feat.title.ar : feat.title.en}
+                    title={titleText}
                   >
                     <span className="text-xl shrink-0">{feat.icon}</span>
-                    <span className="text-[9px] font-semibold text-center leading-tight truncate w-full px-0.5">
-                      {shortTitle}
-                    </span>
+                    <div className="min-w-0 flex-1">
+                      <span className={`font-semibold leading-tight block truncate ${isPeeked ? 'text-xs text-white' : 'text-[9px] text-center w-full px-0.5'}`}>
+                        {isPeeked ? titleText : shortTitle}
+                      </span>
+                      {isPeeked && (
+                        <p className="text-[10px] text-zinc-400 line-clamp-1 mt-0.5">
+                          {isArabic ? feat.description.ar : feat.description.en}
+                        </p>
+                      )}
+                    </div>
                   </button>
                 );
               })}
@@ -291,8 +324,8 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
 
             {/* Sliding Detailed Explanation Window */}
             <div
-              className={`flex-1 flex flex-col bg-zinc-950 overflow-hidden transition-transform duration-300 ease-in-out ${
-                isPeeked ? (isArabic ? '-translate-x-full' : 'translate-x-full') : 'translate-x-0'
+              className={`flex-1 flex flex-col bg-zinc-950 overflow-hidden transition-all duration-300 ease-in-out ${
+                isPeeked ? 'hidden sm:hidden' : 'flex'
               }`}
             >
               {/* Detail Pane Header with Peek Toggle and Close to Grid */}

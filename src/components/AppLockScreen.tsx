@@ -97,6 +97,8 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
     setPin((prev) => prev.slice(0, -1));
   };
 
+  if (!isLocked) return null;
+
   return (
     <div
       className="fixed inset-0 z-[9999] flex flex-col items-center justify-between p-6 bg-black text-white selection:bg-blue-600"

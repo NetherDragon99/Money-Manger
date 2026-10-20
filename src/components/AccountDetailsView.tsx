@@ -39,6 +39,7 @@ export const AccountDetailsView: React.FC = () => {
     openAddTxModal,
     importSingleAccountData,
     showToast,
+    showConfirm,
     t,
   } = useApp();
 
@@ -160,9 +161,15 @@ export const AccountDetailsView: React.FC = () => {
     e.target.value = '';
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     setMenuOpen(false);
-    if (confirm(t('confirmDeleteAccount'))) {
+    const confirmed = await showConfirm({
+      title: settings.language === 'ar' ? 'حذف الحساب' : 'Delete Account',
+      message: t('confirmDeleteAccount'),
+      confirmText: settings.language === 'ar' ? 'حذف' : 'Delete',
+      isDanger: true,
+    });
+    if (confirmed) {
       deleteAccount(account.id);
     }
   };
@@ -479,8 +486,8 @@ export const AccountDetailsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Floating Action Button (+): Pre-selects this specific account, constrained to frame */}
-      <div className="fixed bottom-6 left-0 right-0 max-w-[480px] mx-auto pointer-events-none z-40 px-5 flex justify-end">
+      {/* Floating Action Button (+): Pre-selects this specific account, responsive container */}
+      <div className="fixed bottom-6 left-0 right-0 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto pointer-events-none z-40 px-5 flex justify-end">
         <button
           type="button"
           onClick={() => openAddTxModal(account.id)}

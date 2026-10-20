@@ -31,6 +31,7 @@ import { SharedAccountsHubModal } from './components/SharedAccountsHubModal';
 import { SharedAccountLiveView } from './components/SharedAccountLiveView';
 import { MultiSelectActionBar } from './components/MultiSelectActionBar';
 import { ToastContainer } from './components/Toast';
+import { CustomDialogModal } from './components/CustomDialogModal';
 import { WifiOff } from 'lucide-react';
 import { checkForAppUpdates, applyLatestAppUpdate } from './utils/versionChecker';
 import { TabType } from './types';
@@ -114,32 +115,23 @@ const MainAppContent: React.FC = () => {
     clearTxSelection,
     isCategoryMultiSelect,
     clearCategorySelection,
+    activeSharedId,
+    activeSharedSnapshot,
+    closeSharedLiveView,
+    customDialogState,
+    closeCustomDialog,
   } = useApp();
-
-  const [activeSharedId, setActiveSharedId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      const p = new URLSearchParams(window.location.search).get('sharedAccountId');
-      return p && p.trim() ? p.trim() : null;
-    }
-    return null;
-  });
-
-  const [activeSharedSnapshot, setActiveSharedSnapshot] = useState<any | null>(() => {
-    if (typeof window !== 'undefined') {
-      const s = new URLSearchParams(window.location.search).get('sharedData');
-      if (s && s.trim()) {
-        try {
-          return decodeShareSnapshot(s.trim());
-        } catch (e) {
-          console.warn('Failed to parse shared snapshot from query:', e);
-        }
-      }
-    }
-    return null;
-  });
 
   const [updating, setUpdating] = useState(false);
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+  const tabHistoryRef = useRef<TabType[]>(['home']);
+
+  useEffect(() => {
+    const current = tabHistoryRef.current;
+    if (current[current.length - 1] !== currentTab) {
+      current.push(currentTab);
+    }
+  }, [currentTab]);
 
   // Background Auto Backup Loop
   useEffect(() => {
@@ -186,6 +178,8 @@ const MainAppContent: React.FC = () => {
     isAddTxModalOpen,
     editingTx,
     isSidebarOpen,
+    isSharedHubModalOpen,
+    customDialogState,
     selectedAccountId,
     currentTab,
     isTxMultiSelect,
@@ -208,6 +202,8 @@ const MainAppContent: React.FC = () => {
     isAddTxModalOpen,
     editingTx,
     isSidebarOpen,
+    isSharedHubModalOpen,
+    customDialogState,
     selectedAccountId,
     currentTab,
     isTxMultiSelect,
@@ -227,6 +223,13 @@ const MainAppContent: React.FC = () => {
 
       // 0. If App is locked, prevent any back navigation
       if (s.isAppLocked) {
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+
+      // 0.1. Custom Dialog modal open -> close it
+      if (s.customDialogState) {
+        closeCustomDialog();
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
@@ -322,19 +325,32 @@ const MainAppContent: React.FC = () => {
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
+      // 14.1. Shared Hub Modal open -> close it
+      if (s.isSharedHubModalOpen) {
+        setIsSharedHubModalOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
       // 15. Account Details page active -> back to accounts list
       if (s.selectedAccountId) {
         setSelectedAccountId(null);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 16. On non-home tab -> navigate back to Home
+      // 16. Navigate through tab history stack back to 'home' (Item 19)
+      if (tabHistoryRef.current.length > 1) {
+        tabHistoryRef.current.pop();
+        const prevTab = tabHistoryRef.current[tabHistoryRef.current.length - 1] || 'home';
+        setCurrentTab(prevTab);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
       if (s.currentTab !== 'home') {
         setCurrentTab('home');
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 17. On root Home tab with no modal open -> Show Sleek Exit Confirmation!
+      // 17. On root Home tab with zero modals/sub-views open -> Show Sleek Exit Confirmation!
       setIsExitModalOpen(true);
       window.history.pushState({ exitGuard: true }, '');
     };
@@ -448,7 +464,8 @@ const MainAppContent: React.FC = () => {
     isResetPeriodModalOpen ||
     isUserProfileModalOpen ||
     isSharedHubModalOpen ||
-    isExitModalOpen;
+    isExitModalOpen ||
+    !!customDialogState;
 
   // Background Scroll Lock (Bug Fix): Locks scrolling on underlying page container when ANY modal/drawer is open
   useEffect(() => {
@@ -466,6 +483,11 @@ const MainAppContent: React.FC = () => {
         document.body.style.overflow = '';
         window.scrollTo(0, scrollY);
       };
+    } else {
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
     }
   }, [isAnyModalOpen]);
 
@@ -474,34 +496,32 @@ const MainAppContent: React.FC = () => {
       <SharedAccountLiveView
         sharedAccountId={activeSharedId || undefined}
         sharedDataSnapshot={activeSharedSnapshot || undefined}
-        onExit={() => {
-          setActiveSharedId(null);
-          setActiveSharedSnapshot(null);
-          const u = new URL(window.location.href);
-          u.searchParams.delete('sharedAccountId');
-          u.searchParams.delete('sharedData');
-          window.history.replaceState({}, '', u.pathname + (u.search ? u.search : ''));
-        }}
+        onExit={closeSharedLiveView}
       />
     );
   }
 
   return (
     <div className="min-h-screen bg-zinc-950 flex justify-center text-white selection:bg-blue-600 selection:text-white">
-      {/* Mobile-First Responsive Container Frame (max-w-[480px] on desktop, 100% on mobile) */}
+      {/* Responsive Container Frame across Mobile, Tablet & Desktop (Item 2) */}
       <div
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
-        className="w-full max-w-[480px] min-h-screen bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
+        className="w-full max-w-full md:max-w-5xl lg:max-w-6xl min-h-screen bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
       >
         <OfflineBanner />
         <ToastContainer />
+        <CustomDialogModal
+          dialogState={customDialogState}
+          onClose={closeCustomDialog}
+          isArabic={settings.language === 'ar'}
+        />
 
         {/* Main View Display with Isolated Per-Tab Heights */}
         <div className="flex-1 flex flex-col relative overflow-hidden">
           {selectedAccountId && (
             <div className="fixed inset-0 z-40 bg-black animate-in slide-in-from-right rtl:slide-in-from-left duration-250 flex flex-col overflow-y-auto">
-              <div className="w-full max-w-[480px] mx-auto min-h-screen flex flex-col">
+              <div className="w-full max-w-full md:max-w-5xl lg:max-w-6xl mx-auto min-h-screen flex flex-col">
                 <AccountDetailsView />
               </div>
             </div>

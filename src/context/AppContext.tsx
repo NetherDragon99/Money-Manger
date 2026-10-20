@@ -34,6 +34,10 @@ import { syncAllAccountBalances } from '../utils/balanceEngine';
 import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
 import { translations } from '../utils/translations';
 import { DEFAULT_SETTINGS } from '../utils/constants';
+import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomDialogModal';
+import { getOrCreateNumericId, syncNumericIdToFirebase } from '../utils/userId';
+import { auth } from '../utils/firebase';
+import { decodeShareSnapshot } from '../utils/sharing';
 
 export interface ToastItem {
   id: string;
@@ -158,6 +162,7 @@ interface AppContextType {
   selectAllTxs: (ids: string[]) => void;
   clearTxSelection: () => void;
   deleteSelectedTxs: () => void;
+  batchAssignCategory: (txIds: string[], category: Category) => void;
 
   // Multi-Select for Categories
   selectedCategoryIds: string[];
@@ -180,6 +185,24 @@ interface AppContextType {
   toasts: ToastItem[];
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 
+  // Custom Dialogs (Replaces browser confirm/prompt/alert)
+  showConfirm: (options: ConfirmDialogOptions) => Promise<boolean>;
+  showPrompt: (options: PromptDialogOptions) => Promise<string | null>;
+  customDialogState: {
+    type: 'confirm' | 'prompt';
+    options: ConfirmDialogOptions | PromptDialogOptions;
+    resolve: (value: any) => void;
+  } | null;
+  closeCustomDialog: () => void;
+
+  // Seamless Shared Account Live View Switcher
+  activeSharedId: string | null;
+  setActiveSharedId: (id: string | null) => void;
+  activeSharedSnapshot: any | null;
+  setActiveSharedSnapshot: (snapshot: any | null) => void;
+  openSharedLiveView: (id: string) => void;
+  closeSharedLiveView: () => void;
+
   // Localization
   t: (key: keyof typeof translations.en) => string;
 }
@@ -192,7 +215,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [accounts, setAccounts] = useState<Account[]>(initialData.accounts);
   const [categories, setCategories] = useState<Category[]>(initialData.categories);
   const [transactions, setTransactions] = useState<Transaction[]>(initialData.transactions);
-  const [settings, setSettings] = useState<AppSettings>(initialData.settings);
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const s = initialData.settings;
+    const numId = getOrCreateNumericId(s.userProfile?.numericId);
+    return {
+      ...s,
+      userProfile: {
+        ...s.userProfile,
+        numericId: numId,
+      },
+    };
+  });
 
   // Nav
   const [currentTab, setCurrentTab] = useState<TabType>('home');
@@ -275,9 +308,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setSelectedTxIds(ids);
   };
 
+  const releaseScrollLocks = () => {
+    if (typeof document !== 'undefined') {
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+      try {
+        window.getSelection()?.removeAllRanges();
+      } catch {}
+    }
+  };
+
   const clearTxSelection = () => {
     setSelectedTxIds([]);
     setIsTxMultiSelect(false);
+    releaseScrollLocks();
   };
 
   const deleteSelectedTxs = () => {
@@ -290,6 +336,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     clearTxSelection();
     showToast(
       settings.language === 'ar' ? `تم حذف ${count} معاملة بنجاح` : `Deleted ${count} transactions successfully!`,
+      'success'
+    );
+  };
+
+  const batchAssignCategory = (txIds: string[], category: Category) => {
+    if (txIds.length === 0) return;
+    const count = txIds.length;
+    const updatedList = transactions.map((tx) => {
+      if (txIds.includes(tx.id)) {
+        return {
+          ...tx,
+          categoryId: category.id,
+          categoryName: category.name,
+          categoryIcon: category.icon,
+        };
+      }
+      return tx;
+    });
+    setTransactions(updatedList);
+    clearTxSelection();
+    showToast(
+      settings.language === 'ar'
+        ? `تم تعيين التصنيف "${category.name}" لـ ${count} معاملة بنجاح!`
+        : `Assigned category "${category.name}" to ${count} transactions!`,
       'success'
     );
   };
@@ -315,6 +385,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const clearCategorySelection = () => {
     setSelectedCategoryIds([]);
     setIsCategoryMultiSelect(false);
+    releaseScrollLocks();
   };
 
   const deleteSelectedCategories = () => {
@@ -908,6 +979,105 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // Custom In-App Confirm and Prompt System (Item 6)
+  const [customDialogState, setCustomDialogState] = useState<{
+    type: 'confirm' | 'prompt';
+    options: ConfirmDialogOptions | PromptDialogOptions;
+    resolve: (value: any) => void;
+  } | null>(null);
+
+  const showConfirm = (options: ConfirmDialogOptions): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setCustomDialogState({
+        type: 'confirm',
+        options,
+        resolve,
+      });
+    });
+  };
+
+  const showPrompt = (options: PromptDialogOptions): Promise<string | null> => {
+    return new Promise((resolve) => {
+      setCustomDialogState({
+        type: 'prompt',
+        options,
+        resolve,
+      });
+    });
+  };
+
+  const closeCustomDialog = () => {
+    setCustomDialogState(null);
+  };
+
+  // Seamless Shared Account Live View Switcher (Item 13)
+  const [activeSharedId, setActiveSharedId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('sharedAccountId');
+      return p && p.trim() ? p.trim() : null;
+    }
+    return null;
+  });
+
+  const [activeSharedSnapshot, setActiveSharedSnapshot] = useState<any | null>(() => {
+    if (typeof window !== 'undefined') {
+      const s = new URLSearchParams(window.location.search).get('sharedData');
+      if (s && s.trim()) {
+        try {
+          return decodeShareSnapshot(s.trim());
+        } catch (e) {
+          console.warn('Failed to parse shared snapshot from query:', e);
+        }
+      }
+    }
+    return null;
+  });
+
+  const openSharedLiveView = (id: string) => {
+    setActiveSharedId(id);
+    const u = new URL(window.location.href);
+    u.searchParams.set('sharedAccountId', id);
+    window.history.pushState({}, '', u.toString());
+  };
+
+  const closeSharedLiveView = () => {
+    setActiveSharedId(null);
+    setActiveSharedSnapshot(null);
+    const u = new URL(window.location.href);
+    u.searchParams.delete('sharedAccountId');
+    u.searchParams.delete('sharedData');
+    window.history.replaceState({}, '', u.pathname + (u.search ? u.search : ''));
+  };
+
+  // Auto-populate profile name from Google Account / Email & Sync Numeric ID (Item 7 & 12)
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged((user) => {
+      if (user) {
+        const currentName = settings.userProfile?.name;
+        const isDefaultOrBlank =
+          !currentName ||
+          currentName === 'My Profile' ||
+          currentName === 'User' ||
+          currentName.trim() === '';
+        const suggestedName = user.displayName || (user.email ? user.email.split('@')[0] : 'User');
+        const numId = getOrCreateNumericId(settings.userProfile?.numericId);
+
+        const updatedProfile = {
+          ...settings.userProfile,
+          numericId: numId,
+          name: isDefaultOrBlank && suggestedName ? suggestedName : currentName || 'User',
+        };
+
+        if (isDefaultOrBlank || !settings.userProfile?.numericId) {
+          updateSettings({ userProfile: updatedProfile });
+        }
+
+        syncNumericIdToFirebase(numId, user.uid, updatedProfile.name, user.email || undefined);
+      }
+    });
+    return () => unsub();
+  }, [settings.userProfile]);
+
   return (
     <AppContext.Provider
       value={{
@@ -1002,6 +1172,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         selectAllTxs,
         clearTxSelection,
         deleteSelectedTxs,
+        batchAssignCategory,
         selectedCategoryIds,
         isCategoryMultiSelect,
         startCategoryMultiSelect,
@@ -1015,6 +1186,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         importSingleAccountData,
         toasts,
         showToast,
+        showConfirm,
+        showPrompt,
+        customDialogState,
+        closeCustomDialog,
+        activeSharedId,
+        setActiveSharedId,
+        activeSharedSnapshot,
+        setActiveSharedSnapshot,
+        openSharedLiveView,
+        closeSharedLiveView,
         t,
       }}
     >

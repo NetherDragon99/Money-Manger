@@ -219,31 +219,57 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
 
           {error && <p className="text-xs text-center text-red-400 font-semibold">{error}</p>}
 
-          {/* Biometric Passkey Toggle */}
-          {bioAvailable && step === 'enter' && (
-            <label className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 cursor-pointer hover:border-zinc-700 transition">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center">
-                  <Fingerprint className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-white">
-                    {isArabic ? 'تفعيل البصمة / Face ID' : 'Enable Biometrics / Face ID'}
+          {/* Biometric Passkey Toggle & Hardware Detection (Item 17) */}
+          {step === 'enter' && (
+            bioAvailable ? (
+              <label className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 cursor-pointer hover:border-zinc-700 transition">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center">
+                    <Fingerprint className="w-4 h-4" />
                   </div>
-                  <div className="text-[10px] text-zinc-400">
-                    {isArabic
-                      ? 'فتح التطبيق بلمسة واحدة عبر WebAuthn'
-                      : 'Unlock instantly via device passkey'}
+                  <div>
+                    <div className="text-xs font-bold text-white">
+                      {isArabic ? 'تفعيل البصمة / Face ID' : 'Enable Biometrics / Face ID'}
+                    </div>
+                    <div className="text-[10px] text-zinc-400">
+                      {isArabic
+                        ? 'فتح التطبيق بلمسة واحدة عبر WebAuthn'
+                        : 'Unlock instantly via device passkey'}
+                    </div>
                   </div>
                 </div>
+                <input
+                  type="checkbox"
+                  checked={enableBio}
+                  onChange={(e) => setEnableBio(e.target.checked)}
+                  className="w-4 h-4 rounded text-blue-600 bg-zinc-800 border-zinc-700 cursor-pointer"
+                />
+              </label>
+            ) : (
+              <div className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-zinc-900/30 border border-zinc-800/50 opacity-60">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-zinc-800 text-zinc-500 flex items-center justify-center">
+                    <Fingerprint className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-zinc-400">
+                      {isArabic ? 'البصمة / Face ID' : 'Biometrics / Face ID'}
+                    </div>
+                    <div className="text-[10px] text-amber-400/90 font-medium">
+                      {isArabic
+                        ? 'العتاد غير مدعوم على هذا الجهاز'
+                        : 'Hardware not supported on this device'}
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  disabled
+                  checked={false}
+                  className="w-4 h-4 rounded text-zinc-600 bg-zinc-800 border-zinc-700 cursor-not-allowed"
+                />
               </div>
-              <input
-                type="checkbox"
-                checked={enableBio}
-                onChange={(e) => setEnableBio(e.target.checked)}
-                className="w-4 h-4 rounded text-blue-600 bg-zinc-800 border-zinc-700 cursor-pointer"
-              />
-            </label>
+            )
           )}
         </div>
 

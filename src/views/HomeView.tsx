@@ -248,7 +248,7 @@ export const HomeView: React.FC = () => {
   return (
     <div className="bg-black text-white flex flex-col pb-24 animate-in fade-in">
       {/* 1. Top Header Bar with Smart Auto-Hide on Scroll */}
-      <header className={`sticky top-0 z-30 bg-black/90 backdrop-blur-md px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
+      <header className={`sticky top-0 z-30 h-14 sm:h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
         isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
       }`}>
         {/* Left: Hamburger Menu Button (☰) */}
@@ -256,7 +256,7 @@ export const HomeView: React.FC = () => {
           type="button"
           onClick={() => setIsSidebarOpen(true)}
           aria-label="Open Menu"
-          className="p-2 -ml-2 rounded-full hover:bg-zinc-800 text-zinc-300 hover:text-white transition"
+          className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -466,8 +466,8 @@ export const HomeView: React.FC = () => {
         </div>
       </div>
 
-      {/* View Content */}
-      <div className="flex-1 px-4 py-3 max-w-2xl mx-auto w-full space-y-4">
+      {/* View Content: Responsive Tablet & Desktop Container (Item 2) */}
+      <div className="flex-1 px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto w-full space-y-4">
         {/* Smart Budget Alert Banner */}
         <SmartBudgetAlertBanner />
 

@@ -21,6 +21,42 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.6',
+    releaseDate: 'October 20, 2026',
+    title: {
+      en: 'Tablet/Desktop Responsive Overhaul, Performance Boost, Short Numeric ID, Math Typography & In-App Share Hub',
+      ar: 'تصميم متجاوب للأجهزة اللوحية والكمبيوتر، تحسين الأداء، المعرف الرقمي القصير، رموز رياضية دقيقة ومركز المشاركة المدمج',
+    },
+    highlights: {
+      en: [
+        'Responsive Tablet & Desktop Architecture: fluid container expanding up to max-w-6xl with multi-column grid layouts for cards, accounts, and insights.',
+        'High Performance Rendering: fine-grained React.memo wrapping, passive throttled scroll listeners, and memory-conscious modal lifecycle management.',
+        'Unified Header System: identical dimensions, height, and menu icon (☰) across all 5 navigation tabs with immediate slide-back on upward scroll.',
+        'Short Numeric User ID (8-10 Digits): effortlessly memorable numeric ID for simple dictate-and-add sharing, inviting, and profile identification.',
+        'In-App Shared With Me Hub: full-featured in-app viewer for shared accounts and custom bundles with real-time balance and transaction synchronization.',
+        'True Visual Math Typography: elevated superscripts for exponents, authentic radical bar for square roots, and fluid history expand/collapse animation.',
+        'Native Alerts Overhaul: all browser alerts and confirms replaced with glassmorphic modal dialogs matching app styling.',
+        'Multi-Select Share Overhaul: Instant Share generates direct snapshots with recipient invite, and Add to Group seamlessly binds to existing or new bundles.',
+        'Biometric Hardware Auto-Detection: verifies platform authenticator presence and provides informative feedback when hardware is missing.',
+        'Peek Slide Window Fix: seamless adjacent layout with expandable side strip for crystal-clear readability with zero gap.',
+        'Deep Hardware Back Stack: robust stack-based popstate navigation returning step-by-step through visited tabs and sub-views before exit.',
+      ],
+      ar: [
+        'تصميم متجاوب للأجهزة اللوحية والحواسيب: إطار مرن يتسع حتى max-w-6xl مع شبكات متعددة الأعمدة للحسابات والبطاقات والتحليلات.',
+        'تحسين فائق للأداء وسرعة الاستجابة: تغليف React.memo، مستمعات تمرير خفيفة وغير متزامنة، وتحرير الذاكرة من النوافذ غير النشطة.',
+        'توحيد مقاسات وأبعاد الشريط العلوي: تطابق تام لزر القائمة (☰) عبر كافة التبويبات الخمسة مع استجابة فورية للظهور عند التمرير لأعلى.',
+        'معرّف مستخدم رقمي قصير (8-10 أرقام): معرّف سهل القراءة والإملاء لتسهيل المشاركة والدعوات وربط الحسابات فورياً.',
+        'مركز "المشاركة معي" المدمج: استعراض الحسابات والمجموعات المشتركة المستلمة مباشرة من داخل التطبيق مع مزامنة حية.',
+        'رموز رياضية بصرية حقيقية: قوى مرتفعة للأسس، جذر تربيعي بشريط علوي ممتد، وحركة انسيابية ناعمة لسجل العمليات الحسابية.',
+        'استبدال تنبيهات المتصفح بنوافذ راقية: استبدال كافة رسائل alert/confirm التقليدية بنوافذ تأكيد مدمجة بتصميم التطبيق الأنيق.',
+        'ترقية المشاركة المتعددة: مشاركة فورية للحزم مع دعوة مباشرة، وإمكانية إضافة العناصر المحددة لمجموعة قائمة أو جديدة بسهولة.',
+        'كشف تلقائي لدعم البصمة بالجهاز: فحص توفر البصمة/التعرف على الوجه وإظهار إشعار توضيحي إذا كان الجهاز لا يدعمها.',
+        'إصلاح وضع المعاينة (Peek): توسيع الشريط الجانبي لعرض العناوين بالكامل بدون أي فجوة بيضاء أو فراغ خلفي.',
+        'سجل ملاحة متكامل لزر الرجوع: عودة متدرجة عبر التبويبات والصفحات الفرعية السابقة قبل طلب تأكيد الخروج.',
+      ],
+    },
+  },
+  {
     version: '1.1.5',
     releaseDate: 'October 20, 2026',
     title: {

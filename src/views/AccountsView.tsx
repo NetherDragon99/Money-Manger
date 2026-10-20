@@ -116,9 +116,9 @@ export const AccountsView: React.FC = () => {
   const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
 
   return (
-    <div className="bg-black text-white flex flex-col pb-24 px-4 py-4 max-w-2xl mx-auto w-full space-y-5 animate-in fade-in">
+    <div className="bg-black text-white flex flex-col pb-24 px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto w-full space-y-5 animate-in fade-in">
       {/* Header with Universal Sidebar Access & Smart Auto-Hide on Scroll */}
-      <header className={`sticky top-0 z-30 bg-black/90 backdrop-blur-md -mx-4 px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
+      <header className={`sticky top-0 z-30 h-14 sm:h-16 bg-black/90 backdrop-blur-md -mx-4 px-4 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
         isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
       }`}>
         <div className="flex items-center gap-2">
@@ -127,13 +127,13 @@ export const AccountsView: React.FC = () => {
             type="button"
             onClick={() => setIsSidebarOpen(true)}
             aria-label="Open Menu"
-            className="p-2 -ml-2 rounded-full hover:bg-zinc-800 text-zinc-300 hover:text-white transition cursor-pointer"
+            className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
           >
             <Menu className="w-5 h-5" />
           </button>
           <div>
-            <h2 className="text-xl font-black tracking-tight">{t('accounts')}</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">
+            <h2 className="text-base sm:text-lg font-black tracking-tight leading-tight">{t('accounts')}</h2>
+            <p className="text-[10px] sm:text-xs text-zinc-400">
               {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'} managed
             </p>
           </div>
@@ -201,7 +201,31 @@ export const AccountsView: React.FC = () => {
           </span>
         </div>
 
-        <div className="space-y-3">
+        {/* Quick Link to Shared Accounts Hub ("Shared With Me" - Item 13) */}
+        <div className="flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-blue-950/40 via-zinc-900 to-purple-950/40 border border-blue-500/30 shadow-md">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-blue-600/25 text-blue-400 flex items-center justify-center text-sm shadow-inner">
+              👥
+            </div>
+            <div>
+              <div className="text-xs font-bold text-white">
+                {settings.language === 'ar' ? 'الحسابات المشتركة معي' : 'Shared With Me'}
+              </div>
+              <div className="text-[10px] text-zinc-400">
+                {settings.language === 'ar' ? 'متابعة وتصفح الحسابات السحابية المشتركة لحظياً' : 'Browse live shared & followed accounts'}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsSharedHubModalOpen(true)}
+            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition active:scale-95 cursor-pointer shadow-md"
+          >
+            {settings.language === 'ar' ? 'عرض الحسابات' : 'View Hub'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {accounts.map((acc, index) => {
             const metrics = accountMonthMetricsMap.get(acc.id) || { income: 0, expense: 0 };
             const isPrimary = index === 0;

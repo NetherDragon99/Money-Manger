@@ -239,9 +239,9 @@ export const BudgetView: React.FC = () => {
   const currencySymbol = settings.currencySymbol || '£';
 
   return (
-    <div className="bg-black text-white flex flex-col pb-24 px-4 py-4 max-w-2xl mx-auto w-full space-y-5 animate-in fade-in">
+    <div className="bg-black text-white flex flex-col pb-24 px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto w-full space-y-5 animate-in fade-in">
       {/* Header with Universal Sidebar Access & Auto-Hide on Scroll */}
-      <header className={`sticky top-0 z-30 bg-black/90 backdrop-blur-md -mx-4 px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
+      <header className={`sticky top-0 z-30 h-14 sm:h-16 bg-black/90 backdrop-blur-md -mx-4 px-4 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
         isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
       }`}>
         <div className="flex items-center gap-2">
@@ -250,13 +250,13 @@ export const BudgetView: React.FC = () => {
             type="button"
             onClick={() => setIsSidebarOpen(true)}
             aria-label="Open Menu"
-            className="p-2 -ml-2 rounded-full hover:bg-zinc-800 text-zinc-300 hover:text-white transition cursor-pointer"
+            className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
           >
             <Menu className="w-5 h-5" />
           </button>
           <div>
-            <h2 className="text-xl font-black tracking-tight">{t('budget')} & Categories</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">
+            <h2 className="text-base sm:text-lg font-black tracking-tight leading-tight">{t('budget')} & Categories</h2>
+            <p className="text-[10px] sm:text-xs text-zinc-400">
               {settings.language === 'ar' ? 'شهر التطبيق' : 'App Month'}: {cycleRange.startDate} → {cycleRange.endDate}
             </p>
           </div>
@@ -425,7 +425,7 @@ export const BudgetView: React.FC = () => {
             </button>
           </div>
 
-          <div className="space-y-2.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {displayExpenseCategories.map((cat) => {
               const spent = categorySpentMap.get(cat.id) || 0;
               const hasBudget = cat.budgetLimit > 0;
@@ -633,7 +633,7 @@ export const BudgetView: React.FC = () => {
               </button>
             </div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {displayIncomeCategories.map((cat) => {
                 const received = categoryIncomeMap.get(cat.id) || 0;
                 const originalIdx = incomeCategories.findIndex((c) => c.id === cat.id);

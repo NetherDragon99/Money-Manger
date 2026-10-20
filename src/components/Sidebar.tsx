@@ -28,7 +28,7 @@ import {
   Users,
   Trash2,
 } from 'lucide-react';
-import { loadSecuritySettings, saveSecuritySettings } from '../utils/security';
+import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from '../utils/security';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ExportCustomizeModal } from './ExportCustomizeModal';
 import { auth, rtdb } from '../utils/firebase';
@@ -63,8 +63,15 @@ export const Sidebar: React.FC = () => {
     transactions,
     importFullData,
     showToast,
+    showConfirm,
     t,
   } = useApp();
+
+  const [isBioSupported, setIsBioSupported] = useState<boolean>(true);
+
+  useEffect(() => {
+    isBiometricAvailable().then(setIsBioSupported).catch(() => setIsBioSupported(false));
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const currencyMenuRef = useRef<HTMLDivElement | null>(null);
@@ -195,7 +202,7 @@ export const Sidebar: React.FC = () => {
     setBackupStatusLabel(isArabic ? 'جارٍ جمع البيانات...' : 'Gathering financial data...');
     try {
       const data = {
-        version: '1.1.5',
+        version: '1.1.6',
         exportDate: new Date().toISOString(),
         accounts,
         categories,
@@ -280,7 +287,7 @@ export const Sidebar: React.FC = () => {
       setBackupStatusLabel(isArabic ? 'جارٍ تشفير ومزامنة البيانات مع السحابة...' : 'Encrypting and syncing backup...');
       const backupRef = ref(rtdb, `users/${user.uid}/backup`);
       await set(backupRef, {
-        version: '1.1.5',
+        version: '1.1.6',
         backupDate: new Date().toISOString(),
         accounts,
         categories,
@@ -744,6 +751,26 @@ export const Sidebar: React.FC = () => {
                   <span className="text-[10px] text-blue-400 font-bold">{isArabic ? 'تعديل' : 'Edit'}</span>
                 </button>
 
+                {/* Biometric Hardware Status (Item 17) */}
+                <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px]">
+                  <span className="text-zinc-400 flex items-center gap-1.5">
+                    <span>{isArabic ? 'البصمة / Face ID:' : 'Biometrics:'}</span>
+                  </span>
+                  {!isBioSupported ? (
+                    <span className="px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 text-[10px] font-medium border border-zinc-700">
+                      {isArabic ? 'العتاد غير مدعوم على هذا الجهاز' : 'Hardware not supported on this device'}
+                    </span>
+                  ) : securitySettings.isBiometricEnabled ? (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
+                      {isArabic ? 'مفعل بنجاح' : 'Enabled & Active'}
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 text-[10px] font-medium border border-zinc-700">
+                      {isArabic ? 'معطل' : 'Disabled'}
+                    </span>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -766,7 +793,7 @@ export const Sidebar: React.FC = () => {
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
                 <span>{isArabic ? 'النسخ الاحتياطي والاستعادة' : 'Backup & Restore'}</span>
               </h4>
-              <span className="text-[10px] font-mono text-zinc-500">v1.1.5</span>
+              <span className="text-[10px] font-mono text-zinc-500">v1.1.6</span>
             </div>
 
             {/* Mandatory Visual Progress Bar (0% to 100%) */}
@@ -977,11 +1004,14 @@ export const Sidebar: React.FC = () => {
             <button
               type="button"
               onClick={async () => {
-                const confirmed = window.confirm(
-                  isArabic
+                const confirmed = await showConfirm({
+                  title: isArabic ? 'تحذير شديد الأهمية - ضبط المصنع' : 'Factory Reset & Wipe All Data',
+                  message: isArabic
                     ? 'تحذير شديد الأهمية: هل أنت متأكد من حذف جميع البيانات بالكامل وإعادة ضبط المصنع؟ سيتم تسجيل خروجك ومسح كافة الحسابات والمعاملات والنسخ المحلية وقاعدة البيانات نهائياً!'
-                    : 'CRITICAL WARNING: Are you sure you want to completely erase all data and reset to factory defaults? You will be signed out and all accounts, transactions, and local databases will be wiped permanently!'
-                );
+                    : 'CRITICAL WARNING: Are you sure you want to completely erase all data and reset to factory defaults? You will be signed out and all accounts, transactions, and local databases will be wiped permanently!',
+                  confirmText: isArabic ? 'مسح كافة البيانات' : 'Wipe All Data',
+                  isDanger: true,
+                });
                 if (!confirmed) return;
 
                 try {
@@ -1040,7 +1070,7 @@ export const Sidebar: React.FC = () => {
         {/* Sidebar Footer: Version & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-zinc-300">Version: Beta v1.1.5</span>
+            <span className="font-bold text-zinc-300">Version: Beta v1.1.6</span>
           </div>
 
           {/* Refresh App Button */}

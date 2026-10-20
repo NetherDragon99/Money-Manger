@@ -9,7 +9,7 @@ interface TransactionItemProps {
   onClick: () => void;
 }
 
-export const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, onClick }) => {
+const TransactionItemBase: React.FC<TransactionItemProps> = ({ transaction, onClick }) => {
   const {
     accounts,
     settings,
@@ -153,3 +153,5 @@ export const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, o
     </div>
   );
 };
+
+export const TransactionItem = React.memo(TransactionItemBase);

@@ -95,7 +95,7 @@ export const ExportCustomizeModal: React.FC<ExportCustomizeModalProps> = ({ isOp
       exportDate: string;
       appName: string;
     } = {
-      version: '1.1.5',
+      version: '1.1.6',
       exportDate: new Date().toISOString(),
       appName: 'Personal Finance PWA',
     };

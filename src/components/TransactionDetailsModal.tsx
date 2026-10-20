@@ -13,6 +13,7 @@ export const TransactionDetailsModal: React.FC = () => {
     accounts,
     transactions,
     settings,
+    showConfirm,
     t,
   } = useApp();
 
@@ -43,8 +44,14 @@ export const TransactionDetailsModal: React.FC = () => {
 
   if (!viewingTx) return null;
 
-  const handleDelete = () => {
-    if (confirm(t('confirmDeleteTransaction'))) {
+  const handleDelete = async () => {
+    const confirmed = await showConfirm({
+      title: settings.language === 'ar' ? 'حذف المعاملة' : 'Delete Transaction',
+      message: t('confirmDeleteTransaction'),
+      confirmText: settings.language === 'ar' ? 'حذف' : 'Delete',
+      isDanger: true,
+    });
+    if (confirmed) {
       deleteTransaction(viewingTx.id);
       handleAnimatedClose();
     }

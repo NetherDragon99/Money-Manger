@@ -98,6 +98,28 @@ export const UserProfileModal: React.FC = () => {
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [copiedNumericId, setCopiedNumericId] = useState(false);
+  const [copiedUid, setCopiedUid] = useState(false);
+
+  const handleCopyNumericId = (id: string) => {
+    navigator.clipboard.writeText(id);
+    setCopiedNumericId(true);
+    showToast(
+      isArabic ? `تم نسخ المعرّف الرقمي (${id}) للحافظة!` : `Numeric ID (${id}) copied to clipboard!`,
+      'success'
+    );
+    setTimeout(() => setCopiedNumericId(false), 2000);
+  };
+
+  const handleCopyUid = (uid: string) => {
+    navigator.clipboard.writeText(uid);
+    setCopiedUid(true);
+    showToast(
+      isArabic ? 'تم نسخ معرّف الحساب السحابي إلى الحافظة بنجاح!' : 'Account UID copied to clipboard!',
+      'success'
+    );
+    setTimeout(() => setCopiedUid(false), 2000);
+  };
 
   // Sync Firebase Auth user
   useEffect(() => {
@@ -271,7 +293,25 @@ export const UserProfileModal: React.FC = () => {
     setIsAuthLoading(true);
     setAuthError('');
     try {
-      await loginWithGoogle();
+      const u = await loginWithGoogle();
+      if (u) {
+        const currentName = settings.userProfile?.name;
+        const isDefaultOrBlank =
+          !currentName ||
+          currentName === 'My Profile' ||
+          currentName === 'User' ||
+          currentName.trim() === '';
+        const suggestedName = u.displayName || (u.email ? u.email.split('@')[0] : 'User');
+        if (isDefaultOrBlank && suggestedName) {
+          setName(suggestedName);
+          updateSettings({
+            userProfile: {
+              ...settings.userProfile,
+              name: suggestedName,
+            },
+          });
+        }
+      }
       showToast(
         isArabic ? 'تم تسجيل الدخول بنجاح!' : 'Signed in with Google successfully!',
         'success'
@@ -673,32 +713,76 @@ export const UserProfileModal: React.FC = () => {
                   </div>
                 )}
 
-                {/* Full-Width Dedicated User/Account ID Row */}
-                <div className="w-full p-2.5 rounded-xl bg-zinc-950/90 border border-zinc-800/90 flex items-center justify-between gap-2">
+                {/* Short Numeric ID for Instant Sharing & Invites (Item 12 & 11) */}
+                <div className="w-full p-3 rounded-2xl bg-zinc-950/90 border border-zinc-800/90 flex items-center justify-between gap-2 shadow-sm">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                        {isArabic ? 'المعرف الرقمي للمشاركة' : 'Short Numeric ID'}
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-blue-500/20 text-blue-400 font-semibold border border-blue-500/30">
+                        8 Digits
+                      </span>
+                    </div>
+                    <span className="block text-base font-black font-mono text-white tracking-widest mt-0.5 select-all">
+                      {settings.userProfile?.numericId || '83491025'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyNumericId(settings.userProfile?.numericId || '83491025')}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-xl border text-xs font-bold transition active:scale-95 cursor-pointer shrink-0 ${
+                      copiedNumericId
+                        ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                        : 'bg-blue-600 hover:bg-blue-500 border-blue-500/40 text-white shadow-md'
+                    }`}
+                    title="Copy Numeric ID"
+                  >
+                    {copiedNumericId ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
+                        <span>{isArabic ? 'تم النسخ' : 'Copied!'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>{isArabic ? 'نسخ' : 'Copy'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Cloud Account UID Row */}
+                <div className="w-full p-2.5 rounded-xl bg-zinc-950/70 border border-zinc-800/70 flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <span className="block text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
-                      {isArabic ? 'معرّف الحساب الموحد (Account ID)' : 'Account User ID'}
+                      {isArabic ? 'معرّف الحساب السحابي (UID)' : 'Cloud Account UID'}
                     </span>
-                    <span className="block text-xs font-mono text-zinc-200 truncate select-all mt-0.5">
+                    <span className="block text-xs font-mono text-zinc-400 truncate select-all mt-0.5">
                       {currentUser.uid}
                     </span>
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(currentUser.uid);
-                      showToast(
-                        isArabic
-                          ? 'تم نسخ معرّف الحساب إلى الحافظة بنجاح!'
-                          : 'Account ID copied to clipboard!',
-                        'success'
-                      );
-                    }}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 active:scale-95 border border-zinc-700 text-zinc-200 hover:text-white text-xs font-medium transition cursor-pointer shrink-0"
-                    title="Copy User ID"
+                    onClick={() => handleCopyUid(currentUser.uid)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition cursor-pointer shrink-0 ${
+                      copiedUid
+                        ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300'
+                        : 'bg-zinc-900 hover:bg-zinc-850 border-zinc-700 text-zinc-300 hover:text-white'
+                    }`}
+                    title="Copy User UID"
                   >
-                    <Copy className="w-3.5 h-3.5 text-blue-400" />
-                    <span>{isArabic ? 'نسخ' : 'Copy'}</span>
+                    {copiedUid ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
+                        <span>{isArabic ? 'تم النسخ' : 'Copied!'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-blue-400" />
+                        <span>{isArabic ? 'نسخ' : 'Copy'}</span>
+                      </>
+                    )}
                   </button>
                 </div>
 
@@ -712,7 +796,41 @@ export const UserProfileModal: React.FC = () => {
               </div>
             ) : (
               /* Signed Out State: Premium Action Card */
-              <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3 shadow-md">
+              <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3.5 shadow-md">
+                {/* Short Numeric ID for Local / Offline User */}
+                <div className="w-full p-2.5 rounded-xl bg-zinc-950/90 border border-zinc-800/80 flex items-center justify-between gap-2 shadow-inner">
+                  <div className="min-w-0 flex-1">
+                    <span className="block text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                      {isArabic ? 'معرفك الرقمي (للمشاركة والمزامنة)' : 'Your Numeric ID'}
+                    </span>
+                    <span className="block text-sm font-black font-mono text-white tracking-widest mt-0.5 select-all">
+                      {settings.userProfile?.numericId || '83491025'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyNumericId(settings.userProfile?.numericId || '83491025')}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-bold transition active:scale-95 cursor-pointer shrink-0 ${
+                      copiedNumericId
+                        ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                        : 'bg-zinc-850 hover:bg-zinc-800 border-zinc-700 text-zinc-200'
+                    }`}
+                    title="Copy Numeric ID"
+                  >
+                    {copiedNumericId ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{isArabic ? 'تم النسخ' : 'Copied!'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-blue-400" />
+                        <span>{isArabic ? 'نسخ' : 'Copy'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
                 <p className="text-xs text-zinc-400 leading-relaxed">
                   {isArabic
                     ? 'سجل دخولك لحفظ بياناتك ومزامنتها لحظياً وبأمان عبر جميع أجهزتك.'

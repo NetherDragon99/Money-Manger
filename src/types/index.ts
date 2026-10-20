@@ -67,6 +67,7 @@ export interface UserProfile {
   name: string;
   avatarEmoji: string;
   customAvatarUrl?: string;
+  numericId?: string;
 }
 
 export type RecurringFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';

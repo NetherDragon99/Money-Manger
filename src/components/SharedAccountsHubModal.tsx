@@ -51,12 +51,16 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     settings,
     openEditAccountModal,
     showToast,
+    showConfirm,
+    openSharedLiveView,
     importSingleAccountData,
   } = useApp();
   const isArabic = settings.language === 'ar';
 
-  const [activeTab, setActiveTab] = useState<'my_shared' | 'followed'>('my_shared');
+  const [activeTab, setActiveTab] = useState<'my_shared' | 'shared_with_me'>('my_shared');
   const [isClosing, setIsClosing] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   // My shared account IDs
   const [mySharedIds, setMySharedIds] = useState<string[]>(() => {
@@ -140,6 +144,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   };
 
   const handleShareAccount = async (account: Account) => {
+    setIsPublishing(true);
     try {
       const user = auth.currentUser;
       const ownerUid = user ? user.uid : 'local_device_user';
@@ -159,10 +164,23 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
       );
     } catch (err: any) {
       showToast(err?.message || 'Failed to share account', 'error');
+    } finally {
+      setIsPublishing(false);
     }
   };
 
   const handleStopSharing = async (sharedId: string) => {
+    const confirmed = await showConfirm({
+      title: isArabic ? 'إيقاف المشاركة السحابية' : 'Stop Cloud Sharing',
+      message: isArabic
+        ? 'هل أنت متأكد من إلغاء مشاركة هذا الحساب؟ سيتوقف المتابعون عن تلقي التحديثات.'
+        : 'Are you sure you want to stop sharing this account? Followers will no longer receive live updates.',
+      confirmText: isArabic ? 'إيقاف المشاركة' : 'Stop Sharing',
+      isDanger: true,
+    });
+    if (!confirmed) return;
+
+    setRevokingId(sharedId);
     try {
       await stopSharingAccount(sharedId);
       setMySharedIds((prev) => prev.filter((id) => id !== sharedId));
@@ -172,13 +190,14 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
       );
     } catch (err: any) {
       showToast(err?.message || 'Error revoking share', 'error');
+    } finally {
+      setRevokingId(null);
     }
   };
 
   const getSharedAccountUrl = (sharedId: string): string => {
     return buildShareUrl({ sharedAccountId: sharedId });
   };
-
 
   const handleCopyLink = (sharedId: string) => {
     const url = getSharedAccountUrl(sharedId);
@@ -192,8 +211,10 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   };
 
   const handleOpenViewer = (sharedId: string) => {
-    const url = getSharedAccountUrl(sharedId);
-    window.location.href = url;
+    handleAnimatedClose();
+    setTimeout(() => {
+      openSharedLiveView(sharedId);
+    }, 190);
   };
 
   const handleJoinAccount = () => {
@@ -314,14 +335,14 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('followed')}
+              onClick={() => setActiveTab('shared_with_me')}
               className={`flex-1 py-2 rounded-xl transition text-center cursor-pointer ${
-                activeTab === 'followed'
+                activeTab === 'shared_with_me'
                   ? 'bg-cyan-600 text-white shadow-md'
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              {isArabic ? 'حسابات مشتركة معي' : 'Shared with Me'} ({followedAccounts.length})
+              {isArabic ? 'مشتركة معي' : 'Shared with Me'} ({followedAccounts.length})
             </button>
           </div>
         </div>
@@ -478,10 +499,15 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                             <button
                               type="button"
                               onClick={() => handleStopSharing(sharedId)}
+                              disabled={revokingId === sharedId}
                               title="Stop Sharing"
-                              className="p-2 rounded-xl bg-red-950/30 hover:bg-red-950/60 border border-red-900/50 text-red-400 hover:text-red-300 transition cursor-pointer"
+                              className="p-2 rounded-xl bg-red-950/30 hover:bg-red-950/60 border border-red-900/50 text-red-400 hover:text-red-300 transition cursor-pointer disabled:opacity-50"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              {revokingId === sharedId ? (
+                                <RefreshCw className="w-4 h-4 animate-spin text-red-400" />
+                              ) : (
+                                <Trash2 className="w-4 h-4" />
+                              )}
                             </button>
                           </div>
                         </div>
