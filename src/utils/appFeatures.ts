@@ -21,6 +21,40 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.5',
+    releaseDate: 'October 20, 2026',
+    title: {
+      en: 'Unified Backup & Restore, Interactive Side-Strip, Multi-Select Mode & RTL Overhaul',
+      ar: 'مركز النسخ الاحتياطي الموحد، الشريط الجانبي التفاعلي، وضع التحديد المتعدد وإصلاحات RTL',
+    },
+    highlights: {
+      en: [
+        'Unified Backup & Restore Hub: WhatsApp-style Google/Email cloud backup, reliable manual export, and real-time step-by-step progress bars (0-100%).',
+        'Universal Interactive Feedback: Zero silent failures! Every create, edit, delete, copy, backup, and auth action triggers instant visual toast feedback.',
+        'Interactive Side-Strip & Sliding Window: Initial full card view, collapsible side strip with 1-2 word titles, and slide-out peek behavior.',
+        'Long-Press Multi-Select Mode: 500ms press-and-hold on transactions and categories with batch delete, instant sharing, and custom template bundles.',
+        'Sharing Overhaul & GitHub Pages Fix: Offline guest snapshot sharing (?sharedData=...), subpath 404 resolution, and custom multi-account bundles.',
+        'Smart Dynamic Filter Chips: Only renders filter chips that have applicable data in your records.',
+        'Period Filters Standardized: Custom cycle renamed to "App Month" (1st option & default everywhere), standard calendar months to "This Month" & "Last Month".',
+        'Android Hardware Back & Exit Modal: Instant responsive exit dialog with working Cancel/Exit buttons and sentinel history guard.',
+        'Arabic (RTL) Navigation Fixed: Bottom navigation active indicator pill accurately follows tabs in RTL mode without inversion.',
+        'Complete Light Mode Polish: Clean, high-contrast palette for cards, typography, headers, and modals.',
+      ],
+      ar: [
+        'مركز النسخ الاحتياطي والاستعادة الموحد: نسخ سحابي على غرار واتساب مع شريط تقدم بصري خطوة بخطوة من 0% إلى 100%.',
+        'تغذية راجعة شاملة وفورية: لا وجود لأي عمليات صامتة! كل إضافة وتعديل وحذف ونسخ ومزامنة تُظهر إشعاراً مرئياً فورياً.',
+        'شريط جانبي تفاعلي ونافذة منزلقة للمميزات: عرض بطاقات كامل في البداية، تقليص لشريط جانبي مختصر، وسحب المعاينة للخارج بسلاسة.',
+        'وضع التحديد المتعدد بالضغط المطول: ضغط 500ms على المعاملات والتصنيفات لإجراء الحذف والمشاركة الجماعية وإنشاء قوالب مشتركة.',
+        'ترقية المشاركة وحل خطأ 404 على GitHub Pages: مشاركة فورية في وضع الضيف (?sharedData=...) مع حزم مخصصة متعددة الحسابات.',
+        'شرائح تصفية ديناميكية ذكية: إخفاء تلقائي للخيارات الفارغة التي لا تحتوي على بيانات.',
+        'إعادة تسمية وترتيب فترات العرض: "شهر التطبيق" كخيار أول وافتراضي دائماً، و"هذا الشهر" و"الشهر الماضي" للأشهر التقويمية.',
+        'إصلاح زر الرجوع في أندرويد ونافذة تأكيد الخروج: استجابة دقيقة وأزرار تعمل بسلاسة دون تعليق.',
+        'إصلاح الشريط السفلي في الواجهة العربية (RTL): المؤشر النشط يتبع التبويب الصحيح تماماً دون انعكاس.',
+        'تجديد شامل للوضع الفاتح: تباين عالي وتناسق لوني مريح للعين في جميع الشاشات والنوافذ.',
+      ],
+    },
+  },
+  {
     version: '1.1.4',
     releaseDate: 'October 20, 2026',
     title: {

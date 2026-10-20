@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, ShieldCheck, Fingerprint, Lock, Check, Delete, ArrowLeft } from 'lucide-react';
+import { X, Fingerprint, Lock, Check, Delete, ArrowLeft, Shield } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import {
   hashPin,
@@ -24,7 +24,6 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
   const [step, setStep] = useState<'enter' | 'confirm'>('enter');
   const [enableBio, setEnableBio] = useState(false);
   const [bioAvailable, setBioAvailable] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -43,19 +42,6 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
     }
   }, [isOpen]);
 
-  const handleAnimatedClose = () => {
-    setIsClosing(true);
-    setTimeout(() => {
-      setIsClosing(false);
-      setPin('');
-      setConfirmPin('');
-      setStep('enter');
-      setError('');
-      setIsSaving(false);
-      onClose();
-    }, 180);
-  };
-
   const handleKeyPress = (num: string) => {
     setError('');
     if (step === 'enter') {
@@ -63,16 +49,14 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
         const next = pin + num;
         setPin(next);
         if (next.length === 4) {
-          // Auto advance to confirm step smoothly
           setTimeout(() => {
             setStep('confirm');
-          }, 200);
+          }, 180);
         }
       }
     } else {
       if (confirmPin.length < 4) {
-        const next = confirmPin + num;
-        setConfirmPin(next);
+        setConfirmPin((prev) => prev + num);
       }
     }
   };
@@ -115,35 +99,46 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
 
     setIsSaving(true);
     try {
-      // Hash PIN
+      // 1. Hash PIN
       const hashed = await hashPin(pin);
 
-      // If user selected biometric, try registering
-      let biometricOk = false;
+      // 2. Try registering WebAuthn platform passkey if selected
+      let biometricRegistered = false;
       if (enableBio && bioAvailable) {
-        biometricOk = await registerBiometrics();
+        try {
+          biometricRegistered = await registerBiometrics();
+        } catch {
+          biometricRegistered = false;
+        }
       }
 
+      // 3. Save security settings immediately
       const currentSec = loadSecuritySettings();
       const updated = {
         ...currentSec,
         isLockEnabled: true,
         pinHash: hashed,
-        isBiometricEnabled: biometricOk || enableBio,
+        isBiometricEnabled: biometricRegistered || enableBio,
         requireLockOnResume: true,
       };
 
       saveSecuritySettings(updated);
       setSessionUnlocked(true);
 
+      // 4. Instant UI Feedback
       showToast(
         isArabic
-          ? 'تم تفعيل قفل التطبيق ورمز PIN بنجاح!'
+          ? biometricRegistered
+            ? 'تم تفعيل قفل التطبيق والبصمة بنجاح!'
+            : 'تم تفعيل رمز PIN وقفل التطبيق بنجاح!'
+          : biometricRegistered
+          ? 'App Lock, PIN & Biometric Passkey activated!'
           : 'App Lock & PIN activated successfully!',
         'success'
       );
 
-      handleAnimatedClose();
+      // 5. Close modal immediately without freezing
+      onClose();
     } catch (err: any) {
       setError(err?.message || 'Failed to save PIN');
       setIsSaving(false);
@@ -156,19 +151,16 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
 
   return (
     <div
-      onClick={handleAnimatedClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md transition-all duration-200 ${
-        isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
-      }`}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200"
+      style={{ overscrollBehavior: 'contain' }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-sm rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800 shadow-2xl p-5 text-white overflow-hidden transition-all duration-200 select-none ${
-          isClosing ? 'modal-container-closing' : 'modal-container-anim'
-        }`}
+        className="w-full max-w-sm rounded-3xl bg-zinc-950/95 dark:bg-zinc-950/95 border border-zinc-800 shadow-2xl p-5 text-white overflow-hidden animate-in zoom-in-95 duration-200 select-none"
       >
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+        <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
               <Lock className="w-4 h-4" />
@@ -190,7 +182,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
           </div>
           <button
             type="button"
-            onClick={handleAnimatedClose}
+            onClick={onClose}
             className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer transition"
           >
             <X className="w-5 h-5" />
@@ -227,7 +219,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
 
           {error && <p className="text-xs text-center text-red-400 font-semibold">{error}</p>}
 
-          {/* Biometric Toggle (only on enter step if hardware available) */}
+          {/* Biometric Passkey Toggle */}
           {bioAvailable && step === 'enter' && (
             <label className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 cursor-pointer hover:border-zinc-700 transition">
               <div className="flex items-center gap-2.5">
@@ -240,8 +232,8 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
                   </div>
                   <div className="text-[10px] text-zinc-400">
                     {isArabic
-                      ? 'فتح التطبيق بلمسة واحدة'
-                      : 'Unlock instantly via biometric passkey'}
+                      ? 'فتح التطبيق بلمسة واحدة عبر WebAuthn'
+                      : 'Unlock instantly via device passkey'}
                   </div>
                 </div>
               </div>
@@ -256,13 +248,13 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
         </div>
 
         {/* Clean Symmetrical Modern Numeric Keypad Grid */}
-        <div className="grid grid-cols-3 gap-2 px-2 pb-2">
+        <div className="grid grid-cols-3 gap-2 px-1 pb-3">
           {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
             <button
               key={digit}
               type="button"
               onClick={() => handleKeyPress(digit)}
-              className="h-12 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800/90 active:scale-95 text-lg font-bold font-mono text-white flex items-center justify-center transition cursor-pointer shadow-sm"
+              className="h-12 rounded-2xl bg-zinc-900 hover:bg-zinc-800 active:scale-95 border border-zinc-800 text-lg font-bold font-mono text-white flex items-center justify-center transition cursor-pointer shadow-sm"
             >
               {digit}
             </button>
@@ -270,14 +262,14 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
           <button
             type="button"
             onClick={handleClear}
-            className="h-12 rounded-2xl bg-zinc-900/50 hover:bg-zinc-850 border border-zinc-800/60 active:scale-95 text-xs font-semibold text-zinc-400 hover:text-white flex items-center justify-center transition cursor-pointer"
+            className="h-12 rounded-2xl bg-zinc-900/60 hover:bg-zinc-800 active:scale-95 border border-zinc-800/70 text-xs font-semibold text-zinc-400 hover:text-white flex items-center justify-center transition cursor-pointer"
           >
             {isArabic ? 'مسح' : 'Clear'}
           </button>
           <button
             type="button"
             onClick={() => handleKeyPress('0')}
-            className="h-12 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800/90 active:scale-95 text-lg font-bold font-mono text-white flex items-center justify-center transition cursor-pointer shadow-sm"
+            className="h-12 rounded-2xl bg-zinc-900 hover:bg-zinc-800 active:scale-95 border border-zinc-800 text-lg font-bold font-mono text-white flex items-center justify-center transition cursor-pointer shadow-sm"
           >
             0
           </button>
@@ -285,7 +277,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
             type="button"
             onClick={handleBackspace}
             aria-label="Backspace"
-            className="h-12 rounded-2xl bg-zinc-900/50 hover:bg-zinc-850 border border-zinc-800/60 active:scale-95 text-zinc-300 hover:text-red-400 flex items-center justify-center transition cursor-pointer"
+            className="h-12 rounded-2xl bg-zinc-900/60 hover:bg-zinc-800 active:scale-95 border border-zinc-800/70 text-zinc-300 hover:text-red-400 flex items-center justify-center transition cursor-pointer"
           >
             <Delete className="w-5 h-5" />
           </button>
@@ -301,16 +293,16 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
                 setConfirmPin('');
                 setError('');
               }}
-              className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 transition cursor-pointer"
+              className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 transition cursor-pointer active:scale-95"
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
+              <ArrowLeft className="w-3.5 h-3.5 rtl:rotate-180" />
               <span>{isArabic ? 'رجوع' : 'Back'}</span>
             </button>
           ) : (
             <button
               type="button"
-              onClick={handleAnimatedClose}
-              className="py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer"
+              onClick={onClose}
+              className="py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer active:scale-95"
             >
               {isArabic ? 'إلغاء' : 'Cancel'}
             </button>
@@ -320,7 +312,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
             type="button"
             onClick={handleSavePin}
             disabled={isSaving || (step === 'enter' ? pin.length !== 4 : confirmPin.length !== 4)}
-            className="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-xs font-bold text-white transition cursor-pointer shadow-lg shadow-blue-600/30 flex items-center justify-center gap-1.5"
+            className="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-xs font-bold text-white transition cursor-pointer shadow-lg shadow-blue-600/30 flex items-center justify-center gap-1.5 active:scale-95"
           >
             {isSaving ? (
               <span>{isArabic ? 'جارٍ الحفظ...' : 'Saving...'}</span>

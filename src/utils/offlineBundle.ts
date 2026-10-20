@@ -85,7 +85,7 @@ export function downloadOfflineAppBundle(currentData: AppData, lang: 'en' | 'ar'
   </head>
   <body>
     <div class="card">
-      <div class="badge">OFFLINE STANDALONE PWA v1.1.4</div>
+      <div class="badge">OFFLINE STANDALONE PWA v1.1.5</div>
       <h1>${title}</h1>
       <p>${isArabic ? 'حزمة التطبيق الكاملة بدون إنترنت محفوظة محلياً على جهازك مع دعم التخزين الدائم IndexedDB.' : 'Your complete standalone application package saved directly on your device storage with permanent IndexedDB sync.'}</p>
       
@@ -154,7 +154,7 @@ export function downloadOfflineAppBundle(currentData: AppData, lang: 'en' | 'ar'
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'Personal_Finance_Tracker_v1.1.4.html';
+  a.download = 'Personal_Finance_Tracker_v1.1.5.html';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

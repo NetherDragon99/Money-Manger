@@ -1,4 +1,5 @@
 import { WeekStartDay, PeriodFilterType, DateRange, Transaction } from '../types';
+import { getLocalizedCurrencySymbol } from './currencies';
 
 export function padZero(num: number): string {
   return num < 10 ? `0${num}` : `${num}`;
@@ -136,7 +137,7 @@ export function resolveDateRange(
 ): DateRange {
   const now = new Date();
 
-  if (resetStartDate && filterType === 'this_month') {
+  if (resetStartDate && (filterType === 'app_month' || filterType === 'this_month')) {
     // If user clicked reset period, count from that date/time
     return {
       startDate: resetStartDate.slice(0, 10),
@@ -159,14 +160,15 @@ export function resolveDateRange(
       const { startDate, endDate } = getWeekRange(now, weekStartDay, -1 + offset);
       return { startDate, endDate };
     }
-    case 'this_month': {
+    case 'app_month': {
       const { startDate, endDate } = getMonthCycleRange(now, monthStartDay, offset);
       return { startDate, endDate };
     }
     case 'last_month': {
-      const { startDate, endDate } = getMonthCycleRange(now, monthStartDay, -1 + offset);
+      const { startDate, endDate } = getMonthCycleRange(now, 1, -1 + offset);
       return { startDate, endDate };
     }
+    case 'this_month':
     case 'calendar_month': {
       const { startDate, endDate } = getMonthCycleRange(now, 1, offset);
       return { startDate, endDate };
@@ -207,14 +209,15 @@ export function isTransactionInRange(tx: Transaction, range: DateRange): boolean
 /**
  * Formats a currency amount ensuring strict minus sign for negative numbers
  */
-export function formatCurrency(amount: number, symbol = '£'): string {
+export function formatCurrency(amount: number, symbol = '£', lang?: 'en' | 'ar'): string {
   const isNeg = amount < 0;
   const absVal = Math.abs(amount).toFixed(2);
+  const localizedSymbol = getLocalizedCurrencySymbol(symbol, lang || 'en');
   // Strictly display -£ X if negative
   if (isNeg) {
-    return `-${symbol} ${absVal}`;
+    return `-${localizedSymbol} ${absVal}`;
   }
-  return `${symbol} ${absVal}`;
+  return `${localizedSymbol} ${absVal}`;
 }
 
 /**

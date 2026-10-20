@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Share2, Copy, Check, Users, ShieldCheck, RefreshCw, Trash2, Key } from 'lucide-react';
+import { X, Share2, Copy, Check, Users, ShieldCheck, RefreshCw, Trash2, Globe, Sparkles } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Transaction } from '../types';
 import {
@@ -7,8 +7,8 @@ import {
   publishSharedAccount,
   stopSharingAccount,
   listenToSharedAccount,
-  SharedAccountData,
 } from '../utils/firebase';
+import { buildShareUrl, encodeShareSnapshot } from '../utils/sharing';
 
 interface SharedAccountModalProps {
   isOpen: boolean;
@@ -30,7 +30,6 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
   const [isPublishing, setIsPublishing] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [isShared, setIsShared] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -40,21 +39,32 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
     return () => unsub();
   }, [isOpen, account.id]);
 
-  const handleAnimatedClose = () => {
-    setIsClosing(true);
-    setTimeout(() => {
-      setIsClosing(false);
-      onClose();
-    }, 180);
-  };
-
   const handlePublish = async () => {
     setIsPublishing(true);
     try {
       const user = auth.currentUser;
-      const ownerUid = user ? user.uid : 'device_local_owner';
-      const ownerEmail = user?.email || user?.displayName || 'Family Account Owner';
+      if (!user) {
+        // Guest Mode: Generate universal external web snapshot link
+        const snapshotUrl = buildShareUrl({
+          sharedData: encodeShareSnapshot({
+            account,
+            transactions,
+            createdAt: Date.now(),
+          }),
+        });
+        await navigator.clipboard.writeText(snapshotUrl);
+        showToast(
+          isArabic
+            ? 'تم نسخ رابط المشاركة الخارجي بنجاح! (سجل الدخول لتفعيل المزامنة اللحظية)'
+            : 'External snapshot share link copied! (Sign in for live 2-way sync)',
+          'info'
+        );
+        setIsPublishing(false);
+        return;
+      }
 
+      const ownerUid = user.uid;
+      const ownerEmail = user.email || user.displayName || 'Account Owner';
       const id = await publishSharedAccount(ownerUid, ownerEmail, account, transactions);
       setSharedId(id);
       setIsShared(true);
@@ -87,20 +97,40 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
     setTimeout(() => setIsCopied(false), 2000);
   };
 
+  const handleCopyDirectLink = () => {
+    const directUrl = buildShareUrl({ sharedAccountId: sharedId });
+    navigator.clipboard.writeText(directUrl);
+    showToast(isArabic ? 'تم نسخ الرابط المباشر بنجاح!' : 'Direct link copied to clipboard!', 'success');
+  };
+
+  const handleCopyGuestSnapshotLink = () => {
+    const snapshotUrl = buildShareUrl({
+      sharedData: encodeShareSnapshot({
+        account,
+        transactions,
+        createdAt: Date.now(),
+      }),
+    });
+    navigator.clipboard.writeText(snapshotUrl);
+    showToast(
+      isArabic
+        ? 'تم نسخ رابط المعاينة الخارجية للحافظة بنجاح!'
+        : 'External snapshot share link copied to clipboard!',
+      'success'
+    );
+  };
+
   if (!isOpen) return null;
 
   return (
     <div
-      onClick={handleAnimatedClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md transition-all duration-200 ${
-        isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
-      }`}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+      style={{ overscrollBehavior: 'contain' }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-md rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl p-6 text-white overflow-hidden transition-all duration-200 ${
-          isClosing ? 'modal-container-closing' : 'modal-container-anim'
-        }`}
+        className="w-full max-w-md rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800 shadow-2xl p-6 text-white overflow-hidden animate-in zoom-in-95 duration-200"
       >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-zinc-800/80">
@@ -110,7 +140,7 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-white tracking-tight">
-                {isArabic ? 'المشاركة الحية للحساب' : 'Live Shared Account'}
+                {isArabic ? 'مشاركة الحساب المالي' : 'Share Financial Account'}
               </h3>
               <p className="text-[11px] text-zinc-400">
                 {account.icon} {account.name}
@@ -119,7 +149,7 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={handleAnimatedClose}
+            onClick={onClose}
             className="p-2 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -130,8 +160,8 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
         <div className="py-4 space-y-4">
           <p className="text-xs text-zinc-300 leading-relaxed">
             {isArabic
-              ? 'شارك هذا الحساب المالي مع عائلتك أو شريكك لمزامنة الرصيد والمعاملات لحظياً عبر السحابة المشفرة.'
-              : 'Collaborate on this account with partners or family. Balances and transactions sync in real time securely.'}
+              ? 'شارك هذا الحساب المالي مع عائلتك أو شريكك. يعمل الرابط مباشرة عبر المتصفح دون الحاجة لتطبيق أو خوادم وسيطة.'
+              : 'Collaborate on this account with partners or family. Works instantly in any browser without 404 errors.'}
           </p>
 
           {isShared ? (
@@ -139,7 +169,7 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>{isArabic ? 'المزامنة الحية نشطة' : 'Live Sync Active'}</span>
+                  <span>{isArabic ? 'المزامنة السحابية الحية نشطة' : 'Live Sync Active'}</span>
                 </span>
                 <span className="text-[10px] text-emerald-400/80 font-mono">Encrypted</span>
               </div>
@@ -147,7 +177,7 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
               {/* Share Code & Link Box */}
               <div>
                 <label className="block text-[10px] text-zinc-400 mb-1 font-semibold uppercase">
-                  {isArabic ? 'رمز ورابط المشاركة الحية' : 'Account Share Code & Link'}
+                  {isArabic ? 'رمز ورابط المشاركة' : 'Account Share Code & Direct Link'}
                 </label>
                 <div className="flex items-center gap-2">
                   <div className="flex-1 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 font-mono text-xs text-amber-300 truncate select-all">
@@ -163,16 +193,7 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      try {
-                        const url = new URL(`shared-view.html?sharedAccountId=${encodeURIComponent(sharedId)}`, window.location.href).href;
-                        navigator.clipboard.writeText(url);
-                        showToast(isArabic ? 'تم نسخ الرابط المباشر بنجاح!' : 'Direct link copied to clipboard!', 'success');
-                      } catch {
-                        navigator.clipboard.writeText(sharedId);
-                        showToast(isArabic ? 'تم نسخ الرمز بنجاح!' : 'Code copied to clipboard!', 'info');
-                      }
-                    }}
+                    onClick={handleCopyDirectLink}
                     className="px-2.5 py-2 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-700/60 text-cyan-300 text-xs font-semibold transition active:scale-95 cursor-pointer flex items-center gap-1"
                     title="Copy Direct Link"
                   >
@@ -202,25 +223,51 @@ export const SharedAccountModal: React.FC<SharedAccountModalProps> = ({
               </div>
             </div>
           ) : (
-            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
-                <ShieldCheck className="w-4 h-4 text-blue-400" />
-                <span>{isArabic ? 'جاهز للمشاركة الحية' : 'Ready to collaborate'}</span>
-              </div>
-              <p className="text-[11px] text-zinc-400">
-                {isArabic
-                  ? 'عند الضغط على تفعيل، سيتم إنشاء مفتاح مشفر يمكن لأي شخص مصرح له استخدامه لمزامنة الحساب.'
-                  : 'Click below to publish this account and get an invite code for other devices.'}
-              </p>
+            <div className="space-y-3">
+              {/* Option 1: Live Cloud Sync */}
               <button
                 type="button"
                 onClick={handlePublish}
                 disabled={isPublishing}
-                className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                className="w-full py-3 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-900/40 transition active:scale-98 cursor-pointer"
               >
                 <Share2 className="w-4 h-4" />
-                <span>{isPublishing ? (isArabic ? 'جارٍ النشر...' : 'Publishing...') : (isArabic ? 'تفعيل المشاركة الحية' : 'Enable Live Cloud Sharing')}</span>
+                <span>
+                  {isPublishing
+                    ? isArabic
+                      ? 'جارٍ الاتصال...'
+                      : 'Connecting...'
+                    : auth.currentUser
+                    ? isArabic
+                      ? 'تفعيل المشاركة السحابية الحية'
+                      : 'Enable Live Realtime Cloud Sharing'
+                    : isArabic
+                    ? 'إنشاء رابط مشاركة ويب (وضع الضيف)'
+                    : 'Generate Web Share Link (Guest Snapshot)'}
+                </span>
               </button>
+
+              {/* Option 2: Snapshot External Web Share */}
+              <button
+                type="button"
+                onClick={handleCopyGuestSnapshotLink}
+                className="w-full py-2.5 px-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white font-semibold text-xs flex items-center justify-center gap-2 transition active:scale-98 cursor-pointer"
+              >
+                <Globe className="w-4 h-4 text-cyan-400" />
+                <span>
+                  {isArabic
+                    ? 'نسخ رابط معاينة الويب المستقل (بدون خادم)'
+                    : 'Copy Standalone Web Link (No Server Needed)'}
+                </span>
+              </button>
+
+              {!auth.currentUser && (
+                <p className="text-[11px] text-amber-400/90 bg-amber-950/20 border border-amber-500/20 p-2.5 rounded-xl">
+                  {isArabic
+                    ? '💡 نصيحة: وضع الضيف يشارك لقطة من الحساب كرابط فوري. للمزامنة الحية المستمرة، يرجى تسجيل الدخول من الملف الشخصي.'
+                    : '💡 Note: Guest Mode creates an immediate read-only web link. For ongoing 2-way live sync, sign in from User Profile.'}
+                </p>
+              )}
             </div>
           )}
         </div>

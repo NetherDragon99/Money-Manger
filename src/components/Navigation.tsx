@@ -10,8 +10,11 @@ export const Navigation: React.FC = () => {
     openAddAccountModal,
     selectedAccountId,
     budgetAlerts,
+    settings,
     t,
   } = useApp();
+
+  const isRtl = settings.language === 'ar';
 
   // If viewing single Account Details page, hide bottom nav to give full view and use its own context FAB
   if (selectedAccountId) {
@@ -62,13 +65,15 @@ export const Navigation: React.FC = () => {
       {/* Bottom Nav Bar with 5 tabs and fluid sliding indicator */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 bg-black/95 backdrop-blur-lg border-t border-zinc-800/80 px-2 py-2 safe-area-bottom">
         <div className="max-w-[480px] mx-auto grid grid-cols-5 items-center relative">
-          {/* Fluid Sliding Active Indicator */}
+          {/* Fluid Sliding Active Indicator (Inversion fixed for RTL Arabic) */}
           {activeIndex !== -1 && (
             <div
               className="absolute top-0.5 bottom-0.5 rounded-2xl bg-blue-500/15 border border-blue-500/30 transition-all duration-300 ease-out pointer-events-none"
               style={{
                 width: `${100 / tabs.length}%`,
-                left: `${activeIndex * (100 / tabs.length)}%`,
+                left: isRtl
+                  ? `${(tabs.length - 1 - activeIndex) * (100 / tabs.length)}%`
+                  : `${activeIndex * (100 / tabs.length)}%`,
               }}
             />
           )}

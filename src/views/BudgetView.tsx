@@ -11,6 +11,7 @@ import {
   Search,
   X,
   Menu,
+  Check,
 } from 'lucide-react';
 import { Category } from '../types';
 import {
@@ -30,8 +31,27 @@ export const BudgetView: React.FC = () => {
     openAddCategoryModal,
     reorderCategories,
     setIsSidebarOpen,
+    isCategoryMultiSelect,
+    selectedCategoryIds,
+    startCategoryMultiSelect,
+    toggleCategorySelection,
     t,
   } = useApp();
+
+  const pressTimerRef = useRef<any>(null);
+
+  const startCategoryLongPress = (id: string) => {
+    pressTimerRef.current = setTimeout(() => {
+      startCategoryMultiSelect(id);
+    }, 500);
+  };
+
+  const cancelCategoryLongPress = () => {
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+  };
 
   const isHeaderVisible = useHeaderScroll();
 
@@ -412,11 +432,16 @@ export const BudgetView: React.FC = () => {
               const isCatOver = hasBudget && spent > cat.budgetLimit;
               const catProgress = hasBudget ? Math.min(100, (spent / cat.budgetLimit) * 100) : 0;
               const originalIdx = expenseCategories.findIndex((c) => c.id === cat.id);
+              const isSelected = selectedCategoryIds.includes(cat.id);
 
               return (
                 <div
                   key={cat.id}
-                  className="flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700 transition group"
+                  className={`flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-zinc-900 border transition group ${
+                    isSelected
+                      ? 'border-blue-500/80 bg-blue-950/20 shadow-md shadow-blue-900/20'
+                      : 'border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700'
+                  }`}
                 >
                   {/* Distinct Reorder Controls (Clicking here ONLY reorders and NEVER opens edit modal) */}
                   <div
@@ -457,13 +482,36 @@ export const BudgetView: React.FC = () => {
 
                   {/* Main Category Body (Clicking ANY other part opens the category edit panel) */}
                   <div
-                    onClick={() => openEditCategoryModal(cat)}
+                    onTouchStart={() => startCategoryLongPress(cat.id)}
+                    onTouchEnd={cancelCategoryLongPress}
+                    onTouchMove={cancelCategoryLongPress}
+                    onMouseDown={() => startCategoryLongPress(cat.id)}
+                    onMouseUp={cancelCategoryLongPress}
+                    onMouseLeave={cancelCategoryLongPress}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      startCategoryMultiSelect(cat.id);
+                    }}
+                    onClick={() => {
+                      if (isCategoryMultiSelect) {
+                        toggleCategorySelection(cat.id);
+                      } else {
+                        openEditCategoryModal(cat);
+                      }
+                    }}
                     role="button"
                     tabIndex={0}
-                    className="flex-1 flex items-center justify-between min-w-0 cursor-pointer pl-1 active:scale-[0.99] transition"
+                    className="flex-1 flex items-center justify-between min-w-0 cursor-pointer pl-1 active:scale-[0.99] transition select-none"
                   >
                     {/* Category Emoji + Name + Limit */}
                     <div className="flex items-center gap-2.5 min-w-0">
+                      {isCategoryMultiSelect && (
+                        <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition shrink-0 ${
+                          isSelected ? 'bg-blue-600 border-blue-500 text-white' : 'border-zinc-700 bg-zinc-950 text-transparent'
+                        }`}>
+                          <Check className="w-3.5 h-3.5" />
+                        </div>
+                      )}
                       <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
                         {cat.icon}
                       </div>
@@ -589,11 +637,16 @@ export const BudgetView: React.FC = () => {
               {displayIncomeCategories.map((cat) => {
                 const received = categoryIncomeMap.get(cat.id) || 0;
                 const originalIdx = incomeCategories.findIndex((c) => c.id === cat.id);
+                const isSelected = selectedCategoryIds.includes(cat.id);
 
                 return (
                   <div
                     key={cat.id}
-                    className="flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700 transition group"
+                    className={`flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-zinc-900 border transition group ${
+                      isSelected
+                        ? 'border-emerald-500/80 bg-emerald-950/20 shadow-md shadow-emerald-900/20'
+                        : 'border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700'
+                    }`}
                   >
                     {/* Distinct Reorder Controls (Clicking here ONLY reorders and NEVER opens edit modal) */}
                     <div
@@ -634,12 +687,35 @@ export const BudgetView: React.FC = () => {
 
                     {/* Main Category Body (Clicking ANY other part opens the edit modal) */}
                     <div
-                      onClick={() => openEditCategoryModal(cat)}
+                      onTouchStart={() => startCategoryLongPress(cat.id)}
+                      onTouchEnd={cancelCategoryLongPress}
+                      onTouchMove={cancelCategoryLongPress}
+                      onMouseDown={() => startCategoryLongPress(cat.id)}
+                      onMouseUp={cancelCategoryLongPress}
+                      onMouseLeave={cancelCategoryLongPress}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        startCategoryMultiSelect(cat.id);
+                      }}
+                      onClick={() => {
+                        if (isCategoryMultiSelect) {
+                          toggleCategorySelection(cat.id);
+                        } else {
+                          openEditCategoryModal(cat);
+                        }
+                      }}
                       role="button"
                       tabIndex={0}
-                      className="flex-1 flex items-center justify-between min-w-0 cursor-pointer pl-1 active:scale-[0.99] transition"
+                      className="flex-1 flex items-center justify-between min-w-0 cursor-pointer pl-1 active:scale-[0.99] transition select-none"
                     >
                       <div className="flex items-center gap-3 min-w-0">
+                        {isCategoryMultiSelect && (
+                          <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition shrink-0 ${
+                            isSelected ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-zinc-700 bg-zinc-950 text-transparent'
+                          }`}>
+                            <Check className="w-3.5 h-3.5" />
+                          </div>
+                        )}
                         <div className="w-11 h-11 rounded-xl bg-emerald-950/40 border border-emerald-800/60 flex items-center justify-center text-2xl shrink-0">
                           {cat.icon}
                         </div>

@@ -7,6 +7,7 @@ import { calculateNextDueDate } from '../utils/recurring';
 import { Numpad } from './Numpad';
 import { MiniDateTimePicker } from './MiniDateTimePicker';
 import { CategoryDirectoryModal } from './CategoryDirectoryModal';
+import { getLocalizedCurrencySymbol } from '../utils/currencies';
 
 export const TransactionModal: React.FC = () => {
   const {
@@ -199,7 +200,7 @@ export const TransactionModal: React.FC = () => {
     closeAddTxModal();
   };
 
-  const currencySymbol = settings.currencySymbol || '£';
+  const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
 
   return (
     <div
@@ -281,21 +282,22 @@ export const TransactionModal: React.FC = () => {
           {/* Amount Display & Read-Only Context in Edit Mode */}
           <div className="text-center py-1">
             {editingTx && selectedAccount && (
-              <div className="text-xs text-zinc-400 mb-1 font-mono">
-                {t('previousAmount')}: {currencySymbol}{editingTx.amount.toFixed(2)} | {t('currentAccountBalance')}: {currencySymbol}{selectedAccount.balance.toFixed(2)}
+              <div className="text-xs text-zinc-400 mb-2 font-mono">
+                {t('previousAmount')}: {formatCurrency(editingTx.amount, currencySymbol)} | {t('currentAccountBalance')}: {formatCurrency(selectedAccount.balance, currencySymbol)}
               </div>
             )}
-            <div className="flex items-center justify-center gap-1 text-4xl sm:text-5xl font-black tracking-tight">
-              <span className={type === 'income' ? 'text-emerald-500' : type === 'expense' ? 'text-red-500' : 'text-blue-400'}>
-                {currencySymbol}
-              </span>
-              <input
-                type="text"
-                readOnly
-                inputMode="none"
-                value={amountStr}
-                className="w-auto max-w-[280px] bg-transparent text-center font-black focus:outline-none cursor-default select-none tracking-tight"
-              />
+            {/* Inline Tightly Coupled Amount & Currency Wrapper */}
+            <div className="flex items-center justify-center py-1">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-2xl bg-zinc-900/60 border border-zinc-800 shadow-inner select-none">
+                <span className={`text-3xl sm:text-4xl font-black ${
+                  type === 'income' ? 'text-emerald-400' : type === 'expense' ? 'text-red-400' : 'text-blue-400'
+                }`}>
+                  {currencySymbol}
+                </span>
+                <span className="text-4xl sm:text-5xl font-mono font-black text-white tracking-tight">
+                  {amountStr}
+                </span>
+              </div>
             </div>
 
             {/* Date & Time Separate Pill Buttons for Instant Access */}
@@ -362,7 +364,7 @@ export const TransactionModal: React.FC = () => {
                   <div className="text-left">
                     <div className="text-sm font-semibold text-white">{selectedAccount?.name}</div>
                     <div className="text-xs text-zinc-400">
-                      Balance: {currencySymbol}{selectedAccount?.balance.toFixed(2)}
+                      Balance: {selectedAccount ? formatCurrency(selectedAccount.balance, currencySymbol) : ''}
                     </div>
                   </div>
                 </div>
@@ -391,7 +393,7 @@ export const TransactionModal: React.FC = () => {
                         <span className="text-xs font-semibold">{acc.name}</span>
                       </div>
                       <span className="text-xs text-zinc-400">
-                        {currencySymbol}{acc.balance.toFixed(2)}
+                        {formatCurrency(acc.balance, currencySymbol)}
                       </span>
                     </button>
                   ))}
@@ -430,7 +432,7 @@ export const TransactionModal: React.FC = () => {
                       <span className="text-xs font-semibold truncate">{selectedAccount?.name}</span>
                     </div>
                     <span className="text-[10px] text-zinc-400 mt-0.5">
-                      {currencySymbol}{selectedAccount?.balance.toFixed(2)}
+                      {selectedAccount ? formatCurrency(selectedAccount.balance, currencySymbol) : ''}
                     </span>
                   </button>
 
@@ -487,7 +489,7 @@ export const TransactionModal: React.FC = () => {
                       <span className="text-xs font-semibold truncate">{selectedToAccount?.name || 'Select'}</span>
                     </div>
                     <span className="text-[10px] text-zinc-400 mt-0.5">
-                      {currencySymbol}{selectedToAccount?.balance.toFixed(2)}
+                      {selectedToAccount ? formatCurrency(selectedToAccount.balance, currencySymbol) : ''}
                     </span>
                   </button>
 

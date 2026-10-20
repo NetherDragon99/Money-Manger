@@ -6,8 +6,6 @@ import {
   ChevronRight,
   Lock,
   Plus,
-  Users,
-  X,
   Check,
   Menu,
 } from 'lucide-react';
@@ -16,7 +14,7 @@ import {
   isTransactionInRange,
   formatCurrency,
 } from '../utils/dateCycle';
-import { listenToSharedAccount } from '../utils/firebase';
+import { getLocalizedCurrencySymbol } from '../utils/currencies';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
 
 export const AccountsView: React.FC = () => {
@@ -35,10 +33,6 @@ export const AccountsView: React.FC = () => {
   } = useApp();
 
   const isHeaderVisible = useHeaderScroll();
-
-  const [showJoinModal, setShowJoinModal] = useState(false);
-  const [joinCode, setJoinCode] = useState('');
-  const [isJoining, setIsJoining] = useState(false);
 
   const handleMoveAccount = (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
@@ -119,34 +113,7 @@ export const AccountsView: React.FC = () => {
     return map;
   }, [accounts, transactions, currentMonthRange]);
 
-  const handleJoinShared = () => {
-    const cleanCode = joinCode.trim();
-    if (!cleanCode) return;
-    setIsJoining(true);
-    listenToSharedAccount(cleanCode, (data) => {
-      setIsJoining(false);
-      if (data && data.account) {
-        importSingleAccountData(data.account, data.transactions || []);
-        setShowJoinModal(false);
-        setJoinCode('');
-        showToast(
-          settings.language === 'ar'
-            ? `تم الانضمام ومزامنة حساب ${data.account.name} بنجاح!`
-            : `Joined and synced shared account "${data.account.name}"!`,
-          'success'
-        );
-      } else {
-        showToast(
-          settings.language === 'ar'
-            ? 'رمز الحساب المشترك غير صالح أو تم إيقافه'
-            : 'Invalid or inactive shared account code',
-          'error'
-        );
-      }
-    });
-  };
-
-  const currencySymbol = settings.currencySymbol || '£';
+  const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 px-4 py-4 max-w-2xl mx-auto w-full space-y-5 animate-in fade-in">
@@ -345,67 +312,6 @@ export const AccountsView: React.FC = () => {
           })}
         </div>
       </div>
-
-      {/* Join Shared Account Modal */}
-      {showJoinModal && (
-        <div
-          onClick={() => setShowJoinModal(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl p-5 text-white space-y-4"
-          >
-            <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
-              <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-cyan-400" />
-                <h3 className="text-sm font-bold">
-                  {settings.language === 'ar' ? 'الانضمام لحساب مشترك' : 'Join Shared Account'}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowJoinModal(false)}
-                className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-zinc-300">
-              {settings.language === 'ar'
-                ? 'أدخل رمز المشاركة الذي استلمته من شريكك (يبدأ بـ share_):'
-                : 'Enter the invite code shared with you by your partner (starts with share_):'}
-            </p>
-
-            <input
-              type="text"
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value)}
-              placeholder="share_..."
-              className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-mono text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-            />
-
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setShowJoinModal(false)}
-                className="flex-1 py-2 rounded-xl bg-zinc-900 text-zinc-400 text-xs font-semibold hover:text-white"
-              >
-                {settings.language === 'ar' ? 'إلغاء' : 'Cancel'}
-              </button>
-              <button
-                type="button"
-                disabled={!joinCode.trim() || isJoining}
-                onClick={handleJoinShared}
-                className="flex-1 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-xs font-bold shadow transition"
-              >
-                {isJoining ? 'Connecting...' : (settings.language === 'ar' ? 'انضمام ومزامنة' : 'Join & Sync')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

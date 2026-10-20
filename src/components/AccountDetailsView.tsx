@@ -65,7 +65,7 @@ export const AccountDetailsView: React.FC = () => {
     document.addEventListener('pointerdown', handleOutside);
     return () => document.removeEventListener('pointerdown', handleOutside);
   }, [menuOpen, periodDropdownOpen]);
-  const [periodType, setPeriodType] = useState<PeriodFilterType>('this_month');
+  const [periodType, setPeriodType] = useState<PeriodFilterType>('app_month');
   const [periodOffset, setPeriodOffset] = useState(0);
   const [customRange, setCustomRange] = useState<DateRange>({
     startDate: new Date().toISOString().slice(0, 10),
@@ -171,6 +171,7 @@ export const AccountDetailsView: React.FC = () => {
 
   // Period title text
   const getPeriodLabel = () => {
+    if (periodType === 'app_month') return t('appMonth');
     if (periodType === 'this_month') return t('thisMonth');
     if (periodType === 'calendar_month') return t('calendarMonth');
     if (periodType === 'last_month') return t('lastMonth');
@@ -178,7 +179,7 @@ export const AccountDetailsView: React.FC = () => {
     if (periodType === 'last_week') return t('lastWeek');
     if (periodType === 'all_time') return t('allTime');
     if (periodType === 'custom') return `${activeDateRange.startDate} - ${activeDateRange.endDate}`;
-    return t('thisMonth');
+    return t('appMonth');
   };
 
   return (
@@ -313,8 +314,8 @@ export const AccountDetailsView: React.FC = () => {
               >
                 {(
                   [
+                    'app_month',
                     'this_month',
-                    'calendar_month',
                     'last_month',
                     'this_week',
                     'last_week',
@@ -338,8 +339,8 @@ export const AccountDetailsView: React.FC = () => {
                       periodType === pType ? 'text-blue-400 font-bold bg-zinc-800/40' : 'text-zinc-300'
                     }`}
                   >
+                    {pType === 'app_month' && t('appMonth')}
                     {pType === 'this_month' && t('thisMonth')}
-                    {pType === 'calendar_month' && t('calendarMonth')}
                     {pType === 'last_month' && t('lastMonth')}
                     {pType === 'this_week' && t('thisWeek')}
                     {pType === 'last_week' && t('lastWeek')}

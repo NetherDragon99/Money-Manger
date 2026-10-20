@@ -39,6 +39,7 @@ export interface Transaction {
 export type WeekStartDay = 'saturday' | 'sunday' | 'monday';
 
 export type PeriodFilterType =
+  | 'app_month'
   | 'all_time'
   | 'this_week'
   | 'last_week'

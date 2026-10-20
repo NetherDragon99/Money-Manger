@@ -7,6 +7,7 @@ import { SecuritySettings } from '../types';
 
 const SECURITY_STORAGE_KEY = 'money_manager_security_v1';
 const SESSION_UNLOCKED_KEY = 'money_manager_unlocked_session';
+const WEBAUTHN_CREDENTIAL_KEY = 'money_manager_webauthn_credential_id';
 
 export const DEFAULT_SECURITY_SETTINGS: SecuritySettings = {
   isLockEnabled: false,
@@ -44,8 +45,6 @@ export function saveSecuritySettings(settings: SecuritySettings): void {
   }
 }
 
-const WEBAUTHN_CREDENTIAL_KEY = 'money_manager_webauthn_credential_id';
-
 // Base64 URL helpers for credential IDs
 function bufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -66,6 +65,20 @@ function base64ToBuffer(base64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
+/**
+ * Returns safe relying party ID for WebAuthn.
+ * Under WebAuthn spec, setting rp.id to an invalid hostname or IP throws SecurityError.
+ * Leaving rp.id undefined allows browser to automatically infer origin.
+ */
+function getSafeRelyingPartyId(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const host = window.location.hostname;
+  if (!host || host === 'localhost' || /^[0-9.]+$/.test(host)) {
+    return undefined;
+  }
+  return host;
+}
+
 export async function isBiometricAvailable(): Promise<boolean> {
   if (
     typeof window !== 'undefined' &&
@@ -81,34 +94,45 @@ export async function isBiometricAvailable(): Promise<boolean> {
   return false;
 }
 
+/**
+ * Creates and registers a platform biometric passkey (Fingerprint / Face ID / Touch ID)
+ */
 export async function registerBiometrics(): Promise<boolean> {
   try {
-    if (!window.PublicKeyCredential) return false;
+    if (typeof window === 'undefined' || !window.PublicKeyCredential || !navigator.credentials) {
+      return false;
+    }
+
     const challenge = new Uint8Array(32);
     crypto.getRandomValues(challenge);
 
-    const credential = (await navigator.credentials.create({
-      publicKey: {
-        challenge,
-        rp: {
-          name: 'Personal Finance PWA',
-          id: window.location.hostname || 'localhost',
-        },
-        user: {
-          id: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
-          name: 'user@finance.app',
-          displayName: 'App Owner',
-        },
-        pubKeyCredParams: [
-          { type: 'public-key', alg: -7 }, // ES256
-          { type: 'public-key', alg: -257 }, // RS256
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: 'platform',
-          userVerification: 'required',
-        },
-        timeout: 60000,
+    const rpId = getSafeRelyingPartyId();
+
+    const publicKeyConfig: PublicKeyCredentialCreationOptions = {
+      challenge,
+      rp: {
+        name: 'Personal Finance PWA',
+        ...(rpId ? { id: rpId } : {}),
       },
+      user: {
+        id: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
+        name: 'owner@finance.app',
+        displayName: 'App Owner',
+      },
+      pubKeyCredParams: [
+        { type: 'public-key', alg: -7 },   // ES256
+        { type: 'public-key', alg: -257 }, // RS256
+      ],
+      authenticatorSelection: {
+        authenticatorAttachment: 'platform',
+        userVerification: 'required',
+        residentKey: 'preferred',
+      },
+      timeout: 30000,
+    };
+
+    const credential = (await navigator.credentials.create({
+      publicKey: publicKeyConfig,
     })) as PublicKeyCredential | null;
 
     if (credential && credential.rawId) {
@@ -116,43 +140,56 @@ export async function registerBiometrics(): Promise<boolean> {
       localStorage.setItem(WEBAUTHN_CREDENTIAL_KEY, b64Id);
       return true;
     }
-    return !!credential;
-  } catch (err) {
-    console.warn('Biometric registration was cancelled or failed:', err);
+    return false;
+  } catch (err: any) {
+    console.warn('[WebAuthn] Biometric registration cancelled or unsupported:', err);
     return false;
   }
 }
 
+/**
+ * Verifies stored biometric credential
+ */
 export async function authenticateWithBiometrics(): Promise<boolean> {
   try {
-    if (!window.PublicKeyCredential) return false;
+    if (typeof window === 'undefined' || !window.PublicKeyCredential || !navigator.credentials) {
+      return false;
+    }
+
+    const storedId = localStorage.getItem(WEBAUTHN_CREDENTIAL_KEY);
+    if (!storedId) {
+      // No passkey registered yet, attempt on-demand registration
+      console.log('[WebAuthn] No passkey ID stored, attempting registration...');
+      const registered = await registerBiometrics();
+      return registered;
+    }
+
     const challenge = new Uint8Array(32);
     crypto.getRandomValues(challenge);
 
-    const storedId = localStorage.getItem(WEBAUTHN_CREDENTIAL_KEY);
+    const rpId = getSafeRelyingPartyId();
+
     const publicKeyOptions: PublicKeyCredentialRequestOptions = {
       challenge,
-      rpId: window.location.hostname || 'localhost',
+      ...(rpId ? { rpId } : {}),
       userVerification: 'required',
-      timeout: 60000,
-    };
-
-    if (storedId) {
-      publicKeyOptions.allowCredentials = [
+      timeout: 30000,
+      allowCredentials: [
         {
           type: 'public-key',
           id: base64ToBuffer(storedId),
+          transports: ['internal'],
         },
-      ];
-    }
+      ],
+    };
 
     const assertion = await navigator.credentials.get({
       publicKey: publicKeyOptions,
     });
 
     return !!assertion;
-  } catch (err) {
-    console.warn('Biometric authentication failed:', err);
+  } catch (err: any) {
+    console.warn('[WebAuthn] Biometric authentication failed:', err);
     return false;
   }
 }

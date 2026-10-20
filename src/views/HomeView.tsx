@@ -213,10 +213,12 @@ export const HomeView: React.FC = () => {
   }, [settings.weekStartDay, settings.language]);
 
   const getPeriodFilterName = () => {
-    if (settings.resetStartDate && periodFilter === 'this_month') {
-      return 'Since Reset';
+    if (settings.resetStartDate && (periodFilter === 'app_month' || periodFilter === 'this_month')) {
+      return settings.language === 'ar' ? 'منذ إعادة الضبط' : 'Since Reset';
     }
     switch (periodFilter) {
+      case 'app_month':
+        return t('appMonth');
       case 'all_time':
         return t('allTime');
       case 'this_week':
@@ -232,7 +234,7 @@ export const HomeView: React.FC = () => {
       case 'custom':
         return t('customRange');
       default:
-        return t('thisMonth');
+        return t('appMonth');
     }
   };
 
@@ -292,8 +294,8 @@ export const HomeView: React.FC = () => {
               >
                 {(
                   [
+                    'app_month',
                     'this_month',
-                    'calendar_month',
                     'last_month',
                     'this_week',
                     'last_week',
@@ -317,8 +319,8 @@ export const HomeView: React.FC = () => {
                       periodFilter === pKey ? 'text-blue-400 font-bold bg-zinc-800/50' : 'text-zinc-300'
                     }`}
                   >
+                    {pKey === 'app_month' && t('appMonth')}
                     {pKey === 'this_month' && t('thisMonth')}
-                    {pKey === 'calendar_month' && t('calendarMonth')}
                     {pKey === 'last_month' && t('lastMonth')}
                     {pKey === 'this_week' && t('thisWeek')}
                     {pKey === 'last_week' && t('lastWeek')}

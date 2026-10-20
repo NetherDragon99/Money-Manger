@@ -98,7 +98,10 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-between p-6 bg-black text-white selection:bg-blue-600">
+    <div
+      className="fixed inset-0 z-[9999] flex flex-col items-center justify-between p-6 bg-black text-white selection:bg-blue-600"
+      style={{ overscrollBehavior: 'contain' }}
+    >
       {/* Top Header */}
       <div className="pt-10 flex flex-col items-center text-center">
         <div className="w-16 h-16 rounded-3xl bg-zinc-900 border border-zinc-800 shadow-2xl flex items-center justify-center text-blue-400 mb-4 animate-in fade-in zoom-in duration-300">

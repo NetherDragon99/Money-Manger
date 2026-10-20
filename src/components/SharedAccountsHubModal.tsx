@@ -22,6 +22,7 @@ import {
   listenToSharedAccount,
   SharedAccountData,
 } from '../utils/firebase';
+import { buildShareUrl, encodeShareSnapshot } from '../utils/sharing';
 
 interface SharedAccountsHubModalProps {
   isOpen: boolean;
@@ -175,12 +176,9 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   };
 
   const getSharedAccountUrl = (sharedId: string): string => {
-    try {
-      return new URL(`shared-view.html?sharedAccountId=${encodeURIComponent(sharedId)}`, window.location.href).href;
-    } catch {
-      return `${window.location.origin}/shared-view.html?sharedAccountId=${encodeURIComponent(sharedId)}`;
-    }
+    return buildShareUrl({ sharedAccountId: sharedId });
   };
+
 
   const handleCopyLink = (sharedId: string) => {
     const url = getSharedAccountUrl(sharedId);
@@ -491,7 +489,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                         {/* Link Display Snippet */}
                         <div className="flex items-center justify-between p-2 rounded-xl bg-zinc-950 border border-zinc-850 text-[11px] font-mono text-zinc-400">
                           <span className="truncate pr-2">
-                            /shared-view.html?sharedAccountId={sharedId}
+                            ?sharedAccountId={sharedId}
                           </span>
                           <span className="text-[10px] text-blue-400 shrink-0 font-bold">
                             {isArabic ? 'نشط' : 'Active'}

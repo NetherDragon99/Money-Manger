@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { LogOut, X } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 
 interface ExitConfirmModalProps {
   isOpen: boolean;
@@ -15,30 +15,21 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
 }) => {
   const { settings } = useApp();
   const isArabic = settings.language === 'ar';
-  const [isClosing, setIsClosing] = React.useState(false);
-
-  const handleAnimatedClose = () => {
-    setIsClosing(true);
-    setTimeout(() => {
-      setIsClosing(false);
-      onClose();
-    }, 180);
-  };
 
   if (!isOpen) return null;
 
   return (
     <div
-      onClick={handleAnimatedClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md transition-all duration-200 ${
-        isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
-      }`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md pointer-events-auto select-none animate-in fade-in duration-150"
+      style={{ overscrollBehavior: 'contain' }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-sm rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl p-6 text-white space-y-4 relative transition-all duration-200 ${
-          isClosing ? 'modal-container-closing' : 'modal-container-anim'
-        }`}
+        className="w-full max-w-sm rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-6 text-white space-y-4 relative pointer-events-auto animate-in zoom-in-95 duration-150"
       >
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-rose-600/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
@@ -63,15 +54,21 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
         <div className="grid grid-cols-2 gap-2 pt-2">
           <button
             type="button"
-            onClick={handleAnimatedClose}
-            className="py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xs font-semibold text-zinc-300 transition cursor-pointer active:scale-95"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            className="py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 transition cursor-pointer active:scale-95 pointer-events-auto"
           >
-            {isArabic ? 'إلغاء والمتابعة' : 'Cancel'}
+            {isArabic ? 'إلغاء والمتابعة' : 'Cancel / Stay'}
           </button>
           <button
             type="button"
-            onClick={onConfirmExit}
-            className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow-lg shadow-rose-900/40 transition cursor-pointer active:scale-95"
+            onClick={(e) => {
+              e.stopPropagation();
+              onConfirmExit();
+            }}
+            className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow-lg shadow-rose-900/40 transition cursor-pointer active:scale-95 pointer-events-auto"
           >
             {isArabic ? 'خروج' : 'Exit App'}
           </button>

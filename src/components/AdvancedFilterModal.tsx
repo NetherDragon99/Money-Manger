@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { X, Filter, Check } from 'lucide-react';
 import { AdvancedFilter } from '../types';
@@ -12,11 +12,35 @@ export const AdvancedFilterModal: React.FC = () => {
     clearAdvancedFilter,
     accounts,
     categories,
+    transactions,
+    settings,
     t,
   } = useApp();
 
+  const isArabic = settings.language === 'ar';
   const [localFilter, setLocalFilter] = useState<AdvancedFilter>({ ...advancedFilter });
   const [isClosing, setIsClosing] = useState(false);
+
+  // Smart Dynamic Filter Chips: Filter to only categories, accounts, and types that actually exist in dataset
+  const availableTypes = useMemo(() => {
+    const types: ('all' | 'expense' | 'income' | 'transfer')[] = ['all'];
+    if (transactions.some((t) => t.type === 'expense')) types.push('expense');
+    if (transactions.some((t) => t.type === 'income')) types.push('income');
+    if (transactions.some((t) => t.type === 'transfer')) types.push('transfer');
+    return types;
+  }, [transactions]);
+
+  const availableAccounts = useMemo(() => {
+    return accounts.filter((acc) =>
+      transactions.some((t) => t.accountId === acc.id || t.toAccountId === acc.id)
+    );
+  }, [accounts, transactions]);
+
+  const availableCategories = useMemo(() => {
+    return categories.filter((cat) =>
+      transactions.some((t) => t.categoryId === cat.id)
+    );
+  }, [categories, transactions]);
 
   if (!isFilterModalOpen) return null;
 
@@ -93,16 +117,16 @@ export const AdvancedFilterModal: React.FC = () => {
             <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">
               {t('transactionType')}
             </label>
-            <div className="grid grid-cols-4 gap-2">
-              {(['all', 'expense', 'income', 'transfer'] as const).map((type) => (
+            <div className="flex flex-wrap gap-2">
+              {availableTypes.map((type) => (
                 <button
                   key={type}
                   type="button"
                   onClick={() => setLocalFilter((prev) => ({ ...prev, type }))}
-                  className={`py-2 px-1 text-xs font-semibold rounded-xl border capitalize transition ${
+                  className={`py-2 px-3 text-xs font-semibold rounded-xl border capitalize transition cursor-pointer ${
                     localFilter.type === type
-                      ? 'bg-blue-600 border-blue-500 text-white'
-                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800/80'
+                      ? 'bg-blue-600 border-blue-500 text-white shadow-sm'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800/80 hover:text-white'
                   }`}
                 >
                   {type === 'all' ? t('allTypes') : t(type)}
@@ -114,7 +138,7 @@ export const AdvancedFilterModal: React.FC = () => {
           {/* Amount range */}
           <div>
             <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">
-              Amount Range
+              {isArabic ? 'نطاق المبلغ' : 'Amount Range'}
             </label>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -129,7 +153,7 @@ export const AdvancedFilterModal: React.FC = () => {
                       minAmount: e.target.value === '' ? undefined : Number(e.target.value),
                     }))
                   }
-                  placeholder="£ 0"
+                  placeholder="0"
                   className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-sm text-white"
                 />
               </div>
@@ -145,7 +169,7 @@ export const AdvancedFilterModal: React.FC = () => {
                       maxAmount: e.target.value === '' ? undefined : Number(e.target.value),
                     }))
                   }
-                  placeholder="£ 1000"
+                  placeholder="1000"
                   className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-sm text-white"
                 />
               </div>
@@ -157,27 +181,33 @@ export const AdvancedFilterModal: React.FC = () => {
             <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">
               {t('filterByAccount')}
             </label>
-            <div className="flex flex-wrap gap-2">
-              {accounts.map((acc) => {
-                const isSelected = localFilter.accountIds.includes(acc.id);
-                return (
-                  <button
-                    key={acc.id}
-                    type="button"
-                    onClick={() => toggleAccount(acc.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition ${
-                      isSelected
-                        ? 'bg-blue-600/30 border-blue-500 text-white'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-                    }`}
-                  >
-                    <span>{acc.icon}</span>
-                    <span>{acc.name}</span>
-                    {isSelected && <Check className="w-3.5 h-3.5 text-blue-400" />}
-                  </button>
-                );
-              })}
-            </div>
+            {availableAccounts.length === 0 ? (
+              <div className="text-xs text-zinc-500 italic p-2 rounded-xl bg-zinc-900/40 border border-zinc-850">
+                {isArabic ? 'لا توجد حسابات مسجلة بها معاملات حتى الآن' : 'No accounts with transactions yet'}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {availableAccounts.map((acc) => {
+                  const isSelected = localFilter.accountIds.includes(acc.id);
+                  return (
+                    <button
+                      key={acc.id}
+                      type="button"
+                      onClick={() => toggleAccount(acc.id)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-blue-600/30 border-blue-500 text-white shadow-sm'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-white'
+                      }`}
+                    >
+                      <span>{acc.icon}</span>
+                      <span>{acc.name}</span>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Categories filter */}
@@ -185,27 +215,33 @@ export const AdvancedFilterModal: React.FC = () => {
             <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">
               {t('filterByCategory')}
             </label>
-            <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
-              {categories.map((cat) => {
-                const isSelected = localFilter.categoryIds.includes(cat.id);
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => toggleCategory(cat.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition ${
-                      isSelected
-                        ? 'bg-blue-600/30 border-blue-500 text-white'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-                    }`}
-                  >
-                    <span>{cat.icon}</span>
-                    <span className="truncate max-w-[120px]">{cat.name}</span>
-                    {isSelected && <Check className="w-3.5 h-3.5 text-blue-400" />}
-                  </button>
-                );
-              })}
-            </div>
+            {availableCategories.length === 0 ? (
+              <div className="text-xs text-zinc-500 italic p-2 rounded-xl bg-zinc-900/40 border border-zinc-850">
+                {isArabic ? 'لا توجد فئات مسجلة بها معاملات حتى الآن' : 'No categories with transactions yet'}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
+                {availableCategories.map((cat) => {
+                  const isSelected = localFilter.categoryIds.includes(cat.id);
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => toggleCategory(cat.id)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-blue-600/30 border-blue-500 text-white shadow-sm'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-white'
+                      }`}
+                    >
+                      <span>{cat.icon}</span>
+                      <span className="truncate max-w-[120px]">{cat.name}</span>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 

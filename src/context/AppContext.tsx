@@ -150,6 +150,24 @@ interface AppContextType {
   deleteCategory: (id: string) => void;
   reorderCategories: (orderedIds: string[]) => void;
 
+  // Multi-Select for Transactions
+  selectedTxIds: string[];
+  isTxMultiSelect: boolean;
+  startTxMultiSelect: (initialId?: string) => void;
+  toggleTxSelection: (id: string) => void;
+  selectAllTxs: (ids: string[]) => void;
+  clearTxSelection: () => void;
+  deleteSelectedTxs: () => void;
+
+  // Multi-Select for Categories
+  selectedCategoryIds: string[];
+  isCategoryMultiSelect: boolean;
+  startCategoryMultiSelect: (initialId?: string) => void;
+  toggleCategorySelection: (id: string) => void;
+  selectAllCategories: (ids: string[]) => void;
+  clearCategorySelection: () => void;
+  deleteSelectedCategories: () => void;
+
   // Settings & Reset
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   applyPeriodReset: (type: 'now' | 'custom' | 'revert', customDate?: string) => void;
@@ -182,7 +200,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
 
   // Period filters
-  const [periodFilter, setPeriodFilter] = useState<PeriodFilterType>('this_month');
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilterType>('app_month');
   const [periodOffset, setPeriodOffset] = useState<number>(0);
   const [customDateRange, setCustomDateRange] = useState<DateRange>({
     startDate: formatDateToYYYYMMDD(new Date()),
@@ -237,6 +255,78 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Emoji picker
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [emojiCallback, setEmojiCallback] = useState<((emoji: string) => void) | null>(null);
+
+  // Multi-Select States
+  const [selectedTxIds, setSelectedTxIds] = useState<string[]>([]);
+  const [isTxMultiSelect, setIsTxMultiSelect] = useState<boolean>(false);
+
+  const startTxMultiSelect = (initialId?: string) => {
+    setIsTxMultiSelect(true);
+    if (initialId) setSelectedTxIds([initialId]);
+  };
+
+  const toggleTxSelection = (id: string) => {
+    setSelectedTxIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllTxs = (ids: string[]) => {
+    setSelectedTxIds(ids);
+  };
+
+  const clearTxSelection = () => {
+    setSelectedTxIds([]);
+    setIsTxMultiSelect(false);
+  };
+
+  const deleteSelectedTxs = () => {
+    if (selectedTxIds.length === 0) return;
+    const count = selectedTxIds.length;
+    const updatedList = transactions.filter((t) => !selectedTxIds.includes(t.id));
+    setTransactions(updatedList);
+    const synced = syncAllAccountBalances(accounts, updatedList);
+    setAccounts(synced);
+    clearTxSelection();
+    showToast(
+      settings.language === 'ar' ? `تم حذف ${count} معاملة بنجاح` : `Deleted ${count} transactions successfully!`,
+      'success'
+    );
+  };
+
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [isCategoryMultiSelect, setIsCategoryMultiSelect] = useState<boolean>(false);
+
+  const startCategoryMultiSelect = (initialId?: string) => {
+    setIsCategoryMultiSelect(true);
+    if (initialId) setSelectedCategoryIds([initialId]);
+  };
+
+  const toggleCategorySelection = (id: string) => {
+    setSelectedCategoryIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllCategories = (ids: string[]) => {
+    setSelectedCategoryIds(ids);
+  };
+
+  const clearCategorySelection = () => {
+    setSelectedCategoryIds([]);
+    setIsCategoryMultiSelect(false);
+  };
+
+  const deleteSelectedCategories = () => {
+    if (selectedCategoryIds.length === 0) return;
+    const count = selectedCategoryIds.length;
+    setCategories((prev) => prev.filter((c) => !selectedCategoryIds.includes(c.id)));
+    clearCategorySelection();
+    showToast(
+      settings.language === 'ar' ? `تم حذف ${count} تصنيف بنجاح` : `Deleted ${count} categories successfully!`,
+      'success'
+    );
+  };
 
   // Toasts
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -309,6 +399,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+
+  // Listen for security settings updates live
+  useEffect(() => {
+    const handleSecUpdate = (e: any) => {
+      const sec = e?.detail || loadSecuritySettings();
+      if (!sec.isLockEnabled) {
+        setIsAppLocked(false);
+      }
+    };
+    window.addEventListener('app_security_updated', handleSecUpdate);
+    return () => window.removeEventListener('app_security_updated', handleSecUpdate);
   }, []);
 
   const unlockApp = () => {
@@ -893,6 +995,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         updateCategory,
         deleteCategory,
         reorderCategories,
+        selectedTxIds,
+        isTxMultiSelect,
+        startTxMultiSelect,
+        toggleTxSelection,
+        selectAllTxs,
+        clearTxSelection,
+        deleteSelectedTxs,
+        selectedCategoryIds,
+        isCategoryMultiSelect,
+        startCategoryMultiSelect,
+        toggleCategorySelection,
+        selectAllCategories,
+        clearCategorySelection,
+        deleteSelectedCategories,
         updateSettings,
         applyPeriodReset,
         importFullData,

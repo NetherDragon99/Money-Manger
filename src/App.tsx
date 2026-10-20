@@ -29,11 +29,13 @@ import { PinSetupModal } from './components/PinSetupModal';
 import { RecurringTransactionsModal } from './components/RecurringTransactionsModal';
 import { SharedAccountsHubModal } from './components/SharedAccountsHubModal';
 import { SharedAccountLiveView } from './components/SharedAccountLiveView';
+import { MultiSelectActionBar } from './components/MultiSelectActionBar';
 import { ToastContainer } from './components/Toast';
 import { WifiOff } from 'lucide-react';
 import { checkForAppUpdates, applyLatestAppUpdate } from './utils/versionChecker';
 import { TabType } from './types';
 import { loadAutoBackupConfig, isBackupDue, executeAutoBackup } from './utils/autoBackup';
+import { decodeShareSnapshot } from './utils/sharing';
 
 const OfflineBanner: React.FC = () => {
   const [isOnline, setIsOnline] = useState(
@@ -108,12 +110,30 @@ const MainAppContent: React.FC = () => {
     isSharedHubModalOpen,
     setIsSharedHubModalOpen,
     openAddTxModal,
+    isTxMultiSelect,
+    clearTxSelection,
+    isCategoryMultiSelect,
+    clearCategorySelection,
   } = useApp();
 
   const [activeSharedId, setActiveSharedId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       const p = new URLSearchParams(window.location.search).get('sharedAccountId');
       return p && p.trim() ? p.trim() : null;
+    }
+    return null;
+  });
+
+  const [activeSharedSnapshot, setActiveSharedSnapshot] = useState<any | null>(() => {
+    if (typeof window !== 'undefined') {
+      const s = new URLSearchParams(window.location.search).get('sharedData');
+      if (s && s.trim()) {
+        try {
+          return decodeShareSnapshot(s.trim());
+        } catch (e) {
+          console.warn('Failed to parse shared snapshot from query:', e);
+        }
+      }
     }
     return null;
   });
@@ -149,122 +169,12 @@ const MainAppContent: React.FC = () => {
     };
   }, [accounts, categories, transactions, settings]);
 
-  // Android Hardware Back Button navigation & exit interceptor
-  useEffect(() => {
-    window.history.replaceState({ page: 'root' }, '');
-    window.history.pushState({ page: 'app' }, '');
-
-    const handlePopState = () => {
-      // 0. If App is locked, prevent any back navigation
-      if (isAppLocked) {
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 1. Exit modal open -> close it
-      if (isExitModalOpen) {
-        setIsExitModalOpen(false);
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 2. PIN setup modal open -> close it
-      if (isPinModalOpen) {
-        setIsPinModalOpen(false);
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 3. Recurring transactions modal open -> close it
-      if (isRecurringModalOpen) {
-        setIsRecurringModalOpen(false);
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 4. Emoji Picker open -> close it
-      if (isEmojiPickerOpen) {
-        closeEmojiPicker();
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 5. Features modal open -> close it
-      if (isFeaturesModalOpen) {
-        setIsFeaturesModalOpen(false);
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 4. Advanced Filter modal open -> close it
-      if (isFilterModalOpen) {
-        setIsFilterModalOpen(false);
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 5. Reset Period modal open -> close it
-      if (isResetPeriodModalOpen) {
-        setIsResetPeriodModalOpen(false);
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 6. User Profile modal open -> close it
-      if (isUserProfileModalOpen) {
-        setIsUserProfileModalOpen(false);
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 7. Category modal open -> close it
-      if (isCategoryModalOpen) {
-        closeCategoryModal();
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 8. Account modal open -> close it
-      if (isAccountModalOpen) {
-        closeAccountModal();
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 9. Viewing Tx details -> close it
-      if (viewingTx) {
-        closeTxDetailsModal();
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 10. Add/Edit Tx modal open -> close it
-      if (isAddTxModalOpen || editingTx) {
-        closeAddTxModal();
-        closeEditTxModal();
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 11. Sidebar open -> close it
-      if (isSidebarOpen) {
-        setIsSidebarOpen(false);
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 12. Account Details page active -> back to accounts list
-      if (selectedAccountId) {
-        setSelectedAccountId(null);
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 13. On non-home tab -> navigate back to Home
-      if (currentTab !== 'home') {
-        setCurrentTab('home');
-        window.history.pushState({ page: 'app' }, '');
-        return;
-      }
-      // 14. On root Home tab with no modal open -> Show Sleek Exit Confirmation!
-      setIsExitModalOpen(true);
-      window.history.pushState({ page: 'app' }, '');
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [
+  const isExitingAppRef = useRef(false);
+  const navStateRef = useRef({
     isAppLocked,
     isExitModalOpen,
     isPinModalOpen,
-    setIsPinModalOpen,
     isRecurringModalOpen,
-    setIsRecurringModalOpen,
     isEmojiPickerOpen,
     isFeaturesModalOpen,
     isFilterModalOpen,
@@ -278,20 +188,160 @@ const MainAppContent: React.FC = () => {
     isSidebarOpen,
     selectedAccountId,
     currentTab,
-    closeEmojiPicker,
-    setIsFeaturesModalOpen,
-    setIsFilterModalOpen,
-    setIsResetPeriodModalOpen,
-    setIsUserProfileModalOpen,
-    closeCategoryModal,
-    closeAccountModal,
-    closeTxDetailsModal,
-    closeAddTxModal,
-    closeEditTxModal,
-    setIsSidebarOpen,
-    setSelectedAccountId,
-    setCurrentTab,
-  ]);
+    isTxMultiSelect,
+    isCategoryMultiSelect,
+  });
+
+  navStateRef.current = {
+    isAppLocked,
+    isExitModalOpen,
+    isPinModalOpen,
+    isRecurringModalOpen,
+    isEmojiPickerOpen,
+    isFeaturesModalOpen,
+    isFilterModalOpen,
+    isResetPeriodModalOpen,
+    isUserProfileModalOpen,
+    isCategoryModalOpen,
+    isAccountModalOpen,
+    viewingTx,
+    isAddTxModalOpen,
+    editingTx,
+    isSidebarOpen,
+    selectedAccountId,
+    currentTab,
+    isTxMultiSelect,
+    isCategoryMultiSelect,
+  };
+
+  // Android Hardware Back Button navigation & exit interceptor
+  useEffect(() => {
+    if (!window.history.state || !window.history.state.exitGuard) {
+      window.history.pushState({ exitGuard: true }, '');
+    }
+
+    const handlePopState = () => {
+      if (isExitingAppRef.current) return;
+
+      const s = navStateRef.current;
+
+      // 0. If App is locked, prevent any back navigation
+      if (s.isAppLocked) {
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+
+      // 1. Multi-select mode active -> exit multi-select first
+      if (s.isTxMultiSelect) {
+        clearTxSelection();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      if (s.isCategoryMultiSelect) {
+        clearCategorySelection();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+
+      // 2. Exit modal open -> close it
+      if (s.isExitModalOpen) {
+        setIsExitModalOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 3. PIN setup modal open -> close it
+      if (s.isPinModalOpen) {
+        setIsPinModalOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 4. Recurring transactions modal open -> close it
+      if (s.isRecurringModalOpen) {
+        setIsRecurringModalOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 5. Emoji Picker open -> close it
+      if (s.isEmojiPickerOpen) {
+        closeEmojiPicker();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 6. Features modal open -> close it
+      if (s.isFeaturesModalOpen) {
+        setIsFeaturesModalOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 7. Advanced Filter modal open -> close it
+      if (s.isFilterModalOpen) {
+        setIsFilterModalOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 8. Reset Period modal open -> close it
+      if (s.isResetPeriodModalOpen) {
+        setIsResetPeriodModalOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 9. User Profile modal open -> close it
+      if (s.isUserProfileModalOpen) {
+        setIsUserProfileModalOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 10. Category modal open -> close it
+      if (s.isCategoryModalOpen) {
+        closeCategoryModal();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 11. Account modal open -> close it
+      if (s.isAccountModalOpen) {
+        closeAccountModal();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 12. Viewing Tx details -> close it
+      if (s.viewingTx) {
+        closeTxDetailsModal();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 13. Add/Edit Tx modal open -> close it
+      if (s.isAddTxModalOpen || s.editingTx) {
+        closeAddTxModal();
+        closeEditTxModal();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 14. Sidebar open -> close it
+      if (s.isSidebarOpen) {
+        setIsSidebarOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 15. Account Details page active -> back to accounts list
+      if (s.selectedAccountId) {
+        setSelectedAccountId(null);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 16. On non-home tab -> navigate back to Home
+      if (s.currentTab !== 'home') {
+        setCurrentTab('home');
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      // 17. On root Home tab with no modal open -> Show Sleek Exit Confirmation!
+      setIsExitModalOpen(true);
+      window.history.pushState({ exitGuard: true }, '');
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Touch gesture swipe handling across tabs & sidebar
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -419,14 +469,17 @@ const MainAppContent: React.FC = () => {
     }
   }, [isAnyModalOpen]);
 
-  if (activeSharedId) {
+  if (activeSharedId || activeSharedSnapshot) {
     return (
       <SharedAccountLiveView
-        sharedAccountId={activeSharedId}
+        sharedAccountId={activeSharedId || undefined}
+        sharedDataSnapshot={activeSharedSnapshot || undefined}
         onExit={() => {
           setActiveSharedId(null);
+          setActiveSharedSnapshot(null);
           const u = new URL(window.location.href);
           u.searchParams.delete('sharedAccountId');
+          u.searchParams.delete('sharedData');
           window.history.replaceState({}, '', u.pathname + (u.search ? u.search : ''));
         }}
       />
@@ -471,6 +524,7 @@ const MainAppContent: React.FC = () => {
               <CalculatorView />
             </div>
           </div>
+          <MultiSelectActionBar />
           <Navigation />
         </div>
 
@@ -515,10 +569,21 @@ const MainAppContent: React.FC = () => {
         {/* Android Exit Confirmation Modal */}
         <ExitConfirmModal
           isOpen={isExitModalOpen}
-          onClose={() => setIsExitModalOpen(false)}
-          onConfirmExit={() => {
+          onClose={() => {
             setIsExitModalOpen(false);
-            window.history.go(-2);
+            if (!window.history.state || !window.history.state.exitGuard) {
+              window.history.pushState({ exitGuard: true }, '');
+            }
+          }}
+          onConfirmExit={() => {
+            isExitingAppRef.current = true;
+            setIsExitModalOpen(false);
+            try {
+              window.close();
+            } catch (e) {}
+            if (window.history.length > 1) {
+              window.history.go(-window.history.length);
+            }
           }}
         />
 
