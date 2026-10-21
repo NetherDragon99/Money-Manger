@@ -23,6 +23,10 @@ import {
   LogOut,
   Loader2,
   Settings,
+  AlertTriangle,
+  Calendar,
+  Filter,
+  Folder,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
@@ -36,6 +40,7 @@ import {
   fetchShareFolderFromCloud,
   addTransactionToShareFolder,
   removeItemFromShareFolder,
+  removeItemsFromShareFolderSmart,
   addMemberToShareFolder,
   removeMemberFromShareFolder,
   removeAllMembersFromShareFolder,
@@ -48,7 +53,14 @@ import {
   getAvatarColorGradient,
   getMemberInitials,
 } from '../utils/shareFolders';
-import { formatCurrency, formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
+import {
+  formatCurrency,
+  formatDateToYYYYMMDD,
+  formatTimeToHHMM,
+  getDayHeaderTitle,
+  getMonthHeaderTitle,
+  formatTime12h,
+} from '../utils/dateCycle';
 
 interface ShareDetailViewProps {
   folder: ShareFolder;
@@ -72,9 +84,17 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   const [folder, setFolder] = useState<ShareFolder>(initialFolder);
   const [isCopied, setIsCopied] = useState(false);
 
-  // Accordion collapsed state for accounts and categories
-  const [expandedAccountIds, setExpandedAccountIds] = useState<Record<string, boolean>>({});
-  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Record<string, boolean>>({});
+  // Collapsed state sets for grouped timeline (months and days)
+  const [collapsedMonths, setCollapsedMonths] = useState<Record<string, boolean>>({});
+  const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
+
+  // Active filter by included account or category
+  const [activeEntityFilter, setActiveEntityFilter] = useState<{
+    type: 'account' | 'category';
+    id: string;
+    name: string;
+    icon: string;
+  } | null>(null);
 
   // Quick Add Transaction Modal inside Share View
   const [isAddTxOpen, setIsAddTxOpen] = useState(false);
@@ -94,12 +114,22 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editingMemberName, setEditingMemberName] = useState('');
 
-  // Dedicated Transaction Deletion Options Modal State with Explicit Exit & Cancel
-  const [deleteTxTarget, setDeleteTxTarget] = useState<{
-    id: string;
-    description: string;
-    amount: number;
-    type: string;
+  // Pre-Delete Review Modal State (with overlap warning & smart cleanup)
+  const [preDeleteState, setPreDeleteState] = useState<{
+    targetType: 'account' | 'category' | 'transaction';
+    targetId: string;
+    targetName: string;
+    targetIcon?: string;
+    candidates: Array<{
+      tx: Transaction;
+      overlappingWith: Array<{
+        type: 'account' | 'category';
+        name: string;
+        icon: string;
+      }>;
+    }>;
+    selectedTxIds: Set<string>;
+    deleteFromPersonal: boolean;
   } | null>(null);
 
   // Dual Sync 1: Subscribe to real-time updates for this folder from Firebase RTDB
@@ -168,6 +198,70 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     return inc - exp;
   }, [accounts, transactions]);
 
+  // Displayed transactions (filtered by active entity or full list)
+  const displayedTransactions = useMemo(() => {
+    if (!activeEntityFilter) return transactions;
+    if (activeEntityFilter.type === 'account') {
+      return transactions.filter(
+        (t) => t.accountId === activeEntityFilter.id || t.toAccountId === activeEntityFilter.id
+      );
+    }
+    return transactions.filter(
+      (t) => t.categoryId === activeEntityFilter.id || t.categoryName === activeEntityFilter.name
+    );
+  }, [transactions, activeEntityFilter]);
+
+  // Group by Month -> Day identical to HomeView
+  const groupedData = useMemo(() => {
+    const sorted = [...displayedTransactions].sort((a, b) => {
+      if (a.date !== b.date) return b.date.localeCompare(a.date);
+      const timeA = a.time || '00:00';
+      const timeB = b.time || '00:00';
+      if (timeA !== timeB) return timeB.localeCompare(timeA);
+      return b.createdAt - a.createdAt;
+    });
+
+    const monthsMap = new Map<
+      string,
+      {
+        monthKey: string;
+        monthNet: number;
+        daysMap: Map<string, { dayKey: string; dayNet: number; txs: Transaction[] }>;
+      }
+    >();
+
+    for (const tx of sorted) {
+      const monthKey = tx.date.slice(0, 7); // "YYYY-MM"
+      const dayKey = tx.date; // "YYYY-MM-DD"
+
+      let monthEntry = monthsMap.get(monthKey);
+      if (!monthEntry) {
+        monthEntry = { monthKey, monthNet: 0, daysMap: new Map() };
+        monthsMap.set(monthKey, monthEntry);
+      }
+
+      let dayEntry = monthEntry.daysMap.get(dayKey);
+      if (!dayEntry) {
+        dayEntry = { dayKey, dayNet: 0, txs: [] };
+        monthEntry.daysMap.set(dayKey, dayEntry);
+      }
+
+      dayEntry.txs.push(tx);
+
+      let delta = 0;
+      if (tx.type === 'income') delta = tx.amount;
+      else if (tx.type === 'expense') delta = -tx.amount;
+
+      monthEntry.monthNet += delta;
+      dayEntry.dayNet += delta;
+    }
+
+    return Array.from(monthsMap.values()).map((m) => ({
+      ...m,
+      days: Array.from(m.daysMap.values()),
+    }));
+  }, [displayedTransactions]);
+
   const handleCopyLink = async () => {
     try {
       await syncFolderToCloud(folder);
@@ -181,12 +275,125 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     }
   };
 
-  const toggleAccountAccordion = (id: string) => {
-    setExpandedAccountIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  const toggleMonth = (monthKey: string) => {
+    setCollapsedMonths((prev) => ({ ...prev, [monthKey]: !prev[monthKey] }));
   };
 
-  const toggleCategoryAccordion = (id: string) => {
-    setExpandedCategoryIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  const toggleDay = (dayKey: string) => {
+    setCollapsedDays((prev) => ({ ...prev, [dayKey]: !prev[dayKey] }));
+  };
+
+  // Pre-Delete Review: calculates candidates, detects overlap with accounts/categories, and opens modal
+  const initiatePreDeleteReview = (
+    type: 'account' | 'category' | 'transaction',
+    id: string,
+    name: string,
+    icon?: string
+  ) => {
+    if (!canEdit) {
+      showToast(isArabic ? 'لا تملك صلاحية التعديل' : 'You do not have edit permission', 'error');
+      return;
+    }
+
+    const allTxs = folder.payload?.transactions || [];
+    const allAccounts = folder.payload?.accounts || [];
+    const allCategories = folder.payload?.categories || [];
+
+    let candidateTxs: Transaction[] = [];
+
+    if (type === 'account') {
+      candidateTxs = allTxs.filter((t) => t.accountId === id || t.toAccountId === id);
+    } else if (type === 'category') {
+      candidateTxs = allTxs.filter((t) => t.categoryId === id || t.categoryName === name);
+    } else {
+      const found = allTxs.find((t) => t.id === id);
+      if (found) candidateTxs = [found];
+    }
+
+    // Overlap detection
+    const candidates = candidateTxs.map((tx) => {
+      const overlappingWith: Array<{ type: 'account' | 'category'; name: string; icon: string }> = [];
+
+      // Check overlap with other included accounts
+      for (const acc of allAccounts) {
+        if (type === 'account' && acc.id === id) continue;
+        if (tx.accountId === acc.id || tx.toAccountId === acc.id) {
+          overlappingWith.push({
+            type: 'account',
+            name: acc.name,
+            icon: acc.icon || '🏦',
+          });
+        }
+      }
+
+      // Check overlap with other included categories
+      for (const cat of allCategories) {
+        if (type === 'category' && (cat.id === id || cat.name === name)) continue;
+        if (tx.categoryId === cat.id || tx.categoryName === cat.name) {
+          overlappingWith.push({
+            type: 'category',
+            name: cat.name,
+            icon: cat.icon || '🏷️',
+          });
+        }
+      }
+
+      return {
+        tx,
+        overlappingWith,
+      };
+    });
+
+    setPreDeleteState({
+      targetType: type,
+      targetId: id,
+      targetName: name,
+      targetIcon: icon,
+      candidates,
+      selectedTxIds: new Set(candidateTxs.map((t) => t.id)),
+      deleteFromPersonal: false,
+    });
+  };
+
+  // Confirm Pre-Delete: removes items smartly, auto-cleans empty accounts/categories, and updates cloud
+  const handleConfirmPreDelete = async () => {
+    if (!preDeleteState) return;
+
+    const { targetType, targetId, selectedTxIds, deleteFromPersonal } = preDeleteState;
+    const deletedTxIds = Array.from(selectedTxIds);
+
+    // Optional sync deletion from personal feed
+    if (deleteFromPersonal) {
+      for (const txId of deletedTxIds) {
+        deleteTransaction(txId);
+      }
+    }
+
+    const deletedAccountIds = targetType === 'account' ? [targetId] : [];
+    const deletedCategoryIds = targetType === 'category' ? [targetId] : [];
+
+    const updated = removeItemsFromShareFolderSmart(folder.id, {
+      deletedAccountIds,
+      deletedCategoryIds,
+      deletedTxIds,
+    });
+
+    if (updated) {
+      setFolder(updated);
+    }
+
+    if (activeEntityFilter?.id === targetId) {
+      setActiveEntityFilter(null);
+    }
+
+    setPreDeleteState(null);
+
+    showToast(
+      isArabic
+        ? 'تم حذف العناصر وتحديث المساحة المشتركة تلقائياً'
+        : 'Items deleted and share space auto-updated',
+      'success'
+    );
   };
 
   const handleAddTransaction = (e: React.FormEvent) => {
@@ -229,43 +436,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     );
   };
 
-  const handleDeleteItem = async (
-    itemType: 'account' | 'category' | 'transaction',
-    itemId: string,
-    itemName: string
-  ) => {
-    if (!canEdit) {
-      showToast(isArabic ? 'لا تملك صلاحية التعديل' : 'You do not have edit permission', 'error');
-      return;
-    }
 
-    // Phase 1 choice: when deleting from share, open dedicated options modal with explicit Cancel & Exit
-    if (itemType === 'transaction') {
-      const tx = folder.payload?.transactions?.find((t: Transaction) => t.id === itemId);
-      setDeleteTxTarget({
-        id: itemId,
-        description: itemName || tx?.description || (isArabic ? 'معاملة بدون وصف' : 'Transaction'),
-        amount: tx?.amount || 0,
-        type: tx?.type || 'expense',
-      });
-      return;
-    }
-
-    // Accounts or Categories
-    const ok = await showConfirm({
-      title: isArabic ? 'إزالة العنصر من المشاركة' : 'Remove from Share',
-      message: isArabic
-        ? `هل تريد إزالة "${itemName}" من صفحة المشاركة؟`
-        : `Remove "${itemName}" from this share folder?`,
-      confirmText: isArabic ? 'إزالة' : 'Remove',
-      isDanger: true,
-    });
-    if (!ok) return;
-
-    const updated = removeItemFromShareFolder(folder.id, itemType, itemId);
-    if (updated) setFolder(updated);
-    showToast(isArabic ? 'تمت الإزالة من المشاركة' : 'Removed from share', 'info');
-  };
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -538,275 +709,361 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             </div>
           )}
 
-          {/* SECTION 1: Collapsible Full Accounts (Accordion Cards) */}
-          {accounts.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 px-1 flex items-center gap-1.5">
-                <Landmark className="w-3.5 h-3.5 text-blue-400" />
-                <span>{isArabic ? 'الحسابات المضمنة' : 'Included Accounts'}</span>
-              </h3>
+          {/* CONTROL SECTION: Included Accounts & Categories */}
+          {(accounts.length > 0 || categories.length > 0) && (
+            <div className="p-4 rounded-3xl bg-zinc-900/80 border border-zinc-800 space-y-3 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Folder className="w-4 h-4 text-purple-400" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300">
+                    {isArabic ? 'الحسابات والتصنيفات المضمنة' : 'Included Accounts & Categories'}
+                  </h3>
+                </div>
+                {activeEntityFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveEntityFilter(null)}
+                    className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1 transition cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>{isArabic ? 'عرض كافة المعاملات' : 'Show All'}</span>
+                  </button>
+                )}
+              </div>
 
-              <div className="space-y-2">
-                {accounts.map((acc) => {
-                  const isExpanded = !!expandedAccountIds[acc.id];
-                  const accTxs = transactions.filter((t) => t.accountId === acc.id || t.toAccountId === acc.id);
+              {/* Accounts Bar */}
+              {accounts.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5">
+                    <Landmark className="w-3.5 h-3.5 text-blue-400" />
+                    <span>{isArabic ? 'الحسابات المضمنة' : 'Included Accounts'} ({accounts.length})</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {accounts.map((acc) => {
+                      const accTxs = transactions.filter((t) => t.accountId === acc.id || t.toAccountId === acc.id);
+                      const isSelected = activeEntityFilter?.type === 'account' && activeEntityFilter?.id === acc.id;
 
-                  return (
-                    <div
-                      key={acc.id}
-                      className="rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden shadow-sm transition"
-                    >
-                      {/* Accordion Header Block */}
-                      <div
-                        onClick={() => toggleAccountAccordion(acc.id)}
-                        className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-zinc-850 transition"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="text-2xl shrink-0">{acc.icon}</span>
+                      return (
+                        <div
+                          key={acc.id}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-2xl border text-xs transition cursor-pointer ${
+                            isSelected
+                              ? 'bg-blue-600/20 border-blue-500 text-blue-200 ring-1 ring-blue-500/50 shadow-sm'
+                              : 'bg-zinc-950/80 hover:bg-zinc-850 border-zinc-800 text-zinc-200'
+                          }`}
+                          onClick={() => {
+                            if (isSelected) {
+                              setActiveEntityFilter(null);
+                            } else {
+                              setActiveEntityFilter({
+                                type: 'account',
+                                id: acc.id,
+                                name: acc.name,
+                                icon: acc.icon || '🏦',
+                              });
+                            }
+                          }}
+                        >
+                          <span className="text-xl">{acc.icon || '🏦'}</span>
                           <div className="min-w-0">
-                            <span className="text-sm font-bold text-white block truncate">
-                              {acc.name}
-                            </span>
-                            <span className="text-xs font-mono text-zinc-400">
+                            <span className="font-bold block leading-tight truncate max-w-[130px] sm:max-w-xs">{acc.name}</span>
+                            <span className="text-[10px] font-mono text-zinc-400">
                               {formatCurrency(acc.balance, currencySymbol, isArabic ? 'ar' : 'en')} · {accTxs.length} {isArabic ? 'معاملة' : 'txs'}
                             </span>
                           </div>
-                        </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
                           {canEdit && (
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleDeleteItem('account', acc.id, acc.name);
+                                initiatePreDeleteReview('account', acc.id, acc.name, acc.icon);
                               }}
-                              className="p-1.5 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer"
-                              title="Remove Account"
+                              className="p-1 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer rtl:mr-1 ltr:ml-1 shrink-0"
+                              title={isArabic ? 'إزالة الحساب من الشير' : 'Remove Account from Share'}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          <div className="text-zinc-400">
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                          </div>
                         </div>
-                      </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
-                      {/* Accordion Expandable Content: Child Transactions */}
-                      {isExpanded && (
-                        <div className="p-3 bg-zinc-950/70 border-t border-zinc-850 space-y-1.5 animate-in slide-in-from-top-2 duration-150">
-                          {accTxs.length === 0 ? (
-                            <div className="text-xs text-zinc-500 py-3 text-center">
-                              {isArabic ? 'لا توجد معاملات مسجلة لهذا الحساب' : 'No transactions recorded for this account'}
-                            </div>
-                          ) : (
-                            accTxs.map((tx) => (
-                              <div
-                                key={tx.id}
-                                className="p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800/80 flex items-center justify-between text-xs"
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span>{tx.categoryIcon || '💸'}</span>
-                                  <div className="min-w-0">
-                                    <span className="font-medium text-white truncate block">
-                                      {tx.description}
-                                    </span>
-                                    <span className="text-[10px] text-zinc-500 font-mono">
-                                      {tx.date}
-                                    </span>
-                                  </div>
-                                </div>
-                                <span
-                                  className={`font-mono font-bold ${
-                                    tx.type === 'income' ? 'text-emerald-400' : 'text-red-400'
-                                  }`}
-                                >
-                                  {tx.type === 'income' ? '+' : '-'}
-                                  {formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
-                                </span>
-                              </div>
-                            ))
+              {/* Categories Bar */}
+              {categories.length > 0 && (
+                <div className="space-y-1.5 pt-1.5 border-t border-zinc-800/60">
+                  <div className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5">
+                    <Tags className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{isArabic ? 'التصنيفات المضمنة' : 'Included Categories'} ({categories.length})</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {categories.map((cat) => {
+                      const catTxs = transactions.filter(
+                        (t) => t.categoryId === cat.id || t.categoryName === cat.name
+                      );
+                      const isSelected = activeEntityFilter?.type === 'category' && activeEntityFilter?.id === cat.id;
+
+                      return (
+                        <div
+                          key={cat.id}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-2xl border text-xs transition cursor-pointer ${
+                            isSelected
+                              ? 'bg-emerald-600/20 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500/50 shadow-sm'
+                              : 'bg-zinc-950/80 hover:bg-zinc-850 border-zinc-800 text-zinc-200'
+                          }`}
+                          onClick={() => {
+                            if (isSelected) {
+                              setActiveEntityFilter(null);
+                            } else {
+                              setActiveEntityFilter({
+                                type: 'category',
+                                id: cat.id,
+                                name: cat.name,
+                                icon: cat.icon || '🏷️',
+                              });
+                            }
+                          }}
+                        >
+                          <span className="text-xl">{cat.icon || '🏷️'}</span>
+                          <div className="min-w-0">
+                            <span className="font-bold block leading-tight truncate max-w-[130px] sm:max-w-xs">{cat.name}</span>
+                            <span className="text-[10px] text-zinc-400">
+                              {catTxs.length} {isArabic ? 'معاملة' : 'txs'}
+                            </span>
+                          </div>
+
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                initiatePreDeleteReview('category', cat.id, cat.name, cat.icon);
+                              }}
+                              className="p-1 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer rtl:mr-1 ltr:ml-1 shrink-0"
+                              title={isArabic ? 'إزالة التصنيف من الشير' : 'Remove Category from Share'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           )}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* SECTION 2: Collapsible Full Categories (Accordion Cards) */}
-          {categories.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 px-1 flex items-center gap-1.5">
-                <Tags className="w-3.5 h-3.5 text-emerald-400" />
-                <span>{isArabic ? 'التصنيفات المضمنة' : 'Included Categories'}</span>
-              </h3>
+          {/* Active Filter Pill if Filtering by specific entity */}
+          {activeEntityFilter && (
+            <div className="p-3 rounded-2xl bg-blue-950/40 border border-blue-500/30 flex items-center justify-between gap-2 animate-in fade-in">
+              <div className="flex items-center gap-2 text-xs text-blue-300 min-w-0">
+                <Filter className="w-3.5 h-3.5 shrink-0 text-blue-400" />
+                <span className="truncate">
+                  {isArabic ? 'تصفية حسب:' : 'Filtered by:'}{' '}
+                  <span className="font-bold text-white">
+                    {activeEntityFilter.icon} {activeEntityFilter.name}
+                  </span>{' '}
+                  ({displayedTransactions.length} {isArabic ? 'معاملة' : 'txs'})
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveEntityFilter(null)}
+                className="px-2.5 py-1 rounded-xl bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 text-xs font-semibold flex items-center gap-1 transition cursor-pointer shrink-0"
+              >
+                <X className="w-3 h-3" />
+                <span>{isArabic ? 'إلغاء التصفية' : 'Clear'}</span>
+              </button>
+            </div>
+          )}
 
-              <div className="space-y-2">
-                {categories.map((cat) => {
-                  const isExpanded = !!expandedCategoryIds[cat.id];
-                  const catTxs = transactions.filter(
-                    (t) => t.categoryId === cat.id || t.categoryName === cat.name
-                  );
+          {/* SECTION: Timeline Grouped Identically to HomeView by Months and Days */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                <Receipt className="w-3.5 h-3.5 text-amber-400" />
+                <span>{isArabic ? 'الجدول الزمني للمعاملات' : 'Transaction Timeline'}</span>
+                <span className="font-mono text-[10px] text-zinc-500">
+                  ({displayedTransactions.length})
+                </span>
+              </h3>
+            </div>
+
+            {displayedTransactions.length === 0 ? (
+              <div className="py-12 px-4 rounded-3xl bg-zinc-900/40 border border-zinc-850 text-center text-xs text-zinc-500 space-y-1">
+                <p className="font-medium text-zinc-400">
+                  {activeEntityFilter
+                    ? (isArabic
+                        ? `لا توجد معاملات مسجلة مرتبطة بـ "${activeEntityFilter.name}"`
+                        : `No transactions found for "${activeEntityFilter.name}"`)
+                    : (isArabic
+                        ? 'لا توجد معاملات في هذه المساحة المشتركة بعد'
+                        : 'No transactions inside this share space yet')}
+                </p>
+                {activeEntityFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveEntityFilter(null)}
+                    className="text-blue-400 hover:text-blue-300 font-semibold pt-1 underline cursor-pointer"
+                  >
+                    {isArabic ? 'عرض كافة المعاملات' : 'Show All Transactions'}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {groupedData.map((monthGroup) => {
+                  const isMonthCollapsed = Boolean(collapsedMonths[monthGroup.monthKey]);
+                  const monthTitle = getMonthHeaderTitle(monthGroup.monthKey, isArabic ? 'ar' : 'en');
+                  const isMonthPositive = monthGroup.monthNet >= 0;
 
                   return (
                     <div
-                      key={cat.id}
-                      className="rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden shadow-sm transition"
+                      key={monthGroup.monthKey}
+                      className="rounded-3xl bg-zinc-950 border border-zinc-800/80 overflow-hidden shadow-lg"
                     >
-                      {/* Accordion Header Block */}
-                      <div
-                        onClick={() => toggleCategoryAccordion(cat.id)}
-                        className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-zinc-850 transition"
+                      {/* Month Header with Monthly Total */}
+                      <button
+                        type="button"
+                        onClick={() => toggleMonth(monthGroup.monthKey)}
+                        className="w-full flex items-center justify-between px-4 py-3 bg-zinc-900/90 hover:bg-zinc-850 text-start transition border-b border-zinc-800/60 cursor-pointer"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="text-2xl shrink-0">{cat.icon}</span>
-                          <div className="min-w-0">
-                            <span className="text-sm font-bold text-white block truncate">
-                              {cat.name}
-                            </span>
-                            <span className="text-xs text-zinc-400">
-                              {cat.type === 'expense'
-                                ? isArabic
-                                  ? 'مصروف'
-                                  : 'Expense'
-                                : isArabic
-                                ? 'دخل'
-                                : 'Income'}{' '}
-                              · {catTxs.length} {isArabic ? 'معاملة' : 'txs'}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          {canEdit && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteItem('category', cat.id, cat.name);
-                              }}
-                              className="p-1.5 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer"
-                              title="Remove Category"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          <div className="text-zinc-400">
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Accordion Expandable Content: Child Transactions */}
-                      {isExpanded && (
-                        <div className="p-3 bg-zinc-950/70 border-t border-zinc-850 space-y-1.5 animate-in slide-in-from-top-2 duration-150">
-                          {catTxs.length === 0 ? (
-                            <div className="text-xs text-zinc-500 py-3 text-center">
-                              {isArabic ? 'لا توجد معاملات مسجلة لهذا التصنيف' : 'No transactions recorded for this category'}
-                            </div>
+                        <div className="flex items-center gap-2 font-bold text-white text-sm">
+                          {isMonthCollapsed ? (
+                            <ChevronDown className="w-4 h-4 text-zinc-400 rtl:rotate-90 ltr:-rotate-90" />
                           ) : (
-                            catTxs.map((tx) => (
+                            <ChevronDown className="w-4 h-4 text-zinc-400" />
+                          )}
+                          <span>{monthTitle}</span>
+                        </div>
+                        <div
+                          className={`text-xs font-mono font-bold ${
+                            isMonthPositive ? 'text-emerald-400' : 'text-red-400'
+                          }`}
+                        >
+                          {isMonthPositive ? '+' : ''}
+                          {formatCurrency(monthGroup.monthNet, currencySymbol, isArabic ? 'ar' : 'en')}
+                        </div>
+                      </button>
+
+                      {/* Days list inside Month */}
+                      {!isMonthCollapsed && (
+                        <div className="p-2 sm:p-3 space-y-3">
+                          {monthGroup.days.map((dayGroup) => {
+                            const isDayCollapsed = Boolean(collapsedDays[dayGroup.dayKey]);
+                            const dayTitle = getDayHeaderTitle(dayGroup.dayKey, isArabic ? 'ar' : 'en');
+                            const isDayPositive = dayGroup.dayNet >= 0;
+
+                            return (
                               <div
-                                key={tx.id}
-                                className="p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800/80 flex items-center justify-between text-xs"
+                                key={dayGroup.dayKey}
+                                className="rounded-2xl bg-zinc-900/50 border border-zinc-800/60 overflow-hidden"
                               >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span>{tx.categoryIcon || '💸'}</span>
-                                  <div className="min-w-0">
-                                    <span className="font-medium text-white truncate block">
-                                      {tx.description}
-                                    </span>
+                                {/* Day Header with Daily Total */}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleDay(dayGroup.dayKey)}
+                                  className="w-full flex items-center justify-between px-3.5 py-2 bg-zinc-900/90 hover:bg-zinc-850 text-start transition border-b border-zinc-800/40 cursor-pointer"
+                                >
+                                  <div className="flex items-center gap-2 font-semibold text-xs text-zinc-300">
+                                    {isDayCollapsed ? (
+                                      <ChevronDown className="w-3.5 h-3.5 text-zinc-500 rtl:rotate-90 ltr:-rotate-90" />
+                                    ) : (
+                                      <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
+                                    )}
+                                    <span>{dayTitle}</span>
                                     <span className="text-[10px] text-zinc-500 font-mono">
-                                      {tx.date}
+                                      ({dayGroup.txs.length})
                                     </span>
                                   </div>
-                                </div>
-                                <span
-                                  className={`font-mono font-bold ${
-                                    tx.type === 'income' ? 'text-emerald-400' : 'text-red-400'
-                                  }`}
-                                >
-                                  {tx.type === 'income' ? '+' : '-'}
-                                  {formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
-                                </span>
+                                  <div
+                                    className={`text-[11px] font-mono font-bold ${
+                                      isDayPositive ? 'text-emerald-400' : 'text-red-400'
+                                    }`}
+                                  >
+                                    {isDayPositive ? '+' : ''}
+                                    {formatCurrency(dayGroup.dayNet, currencySymbol, isArabic ? 'ar' : 'en')}
+                                  </div>
+                                </button>
+
+                                {/* Day Transactions */}
+                                {!isDayCollapsed && (
+                                  <div className="p-1.5 space-y-1">
+                                    {dayGroup.txs.map((tx) => (
+                                      <div
+                                        key={tx.id}
+                                        className="p-2.5 rounded-xl bg-zinc-900/80 hover:bg-zinc-850 border border-zinc-800/60 flex items-center justify-between transition group"
+                                      >
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                          <div className="w-8 h-8 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-sm shrink-0">
+                                            {tx.categoryIcon || '💸'}
+                                          </div>
+                                          <div className="min-w-0">
+                                            <span className="text-xs font-semibold text-white block truncate">
+                                              {tx.description || tx.categoryName}
+                                            </span>
+                                            <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                                              <span className="truncate">{tx.categoryName}</span>
+                                              {tx.time && (
+                                                <>
+                                                  <span>·</span>
+                                                  <span className="font-mono text-zinc-500">
+                                                    {formatTime12h(tx.time, isArabic ? 'ar' : 'en')}
+                                                  </span>
+                                                </>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span
+                                            className={`font-mono text-xs font-bold ${
+                                              tx.type === 'income'
+                                                ? 'text-emerald-400'
+                                                : tx.type === 'expense'
+                                                ? 'text-red-400'
+                                                : 'text-blue-400'
+                                            }`}
+                                          >
+                                            {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
+                                            {formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
+                                          </span>
+
+                                          {canEdit && (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                initiatePreDeleteReview(
+                                                  'transaction',
+                                                  tx.id,
+                                                  tx.description || tx.categoryName || 'Transaction',
+                                                  tx.categoryIcon
+                                                )
+                                              }
+                                              className="p-1 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer"
+                                              title={isArabic ? 'حذف المعاملة' : 'Delete Transaction'}
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                            ))
-                          )}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
                   );
                 })}
-              </div>
-            </div>
-          )}
-
-          {/* SECTION 3: Individual Transactions / Activity Feed */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 px-1 flex items-center gap-1.5">
-              <Receipt className="w-3.5 h-3.5 text-amber-400" />
-              <span>{isArabic ? 'كافة المعاملات والأنشطة' : 'All Transactions & Activity'}</span>
-              <span className="font-mono text-[10px] text-zinc-500">({transactions.length})</span>
-            </h3>
-
-            {transactions.length === 0 ? (
-              <div className="p-8 rounded-2xl bg-zinc-900/40 border border-zinc-850 text-center text-xs text-zinc-500">
-                {isArabic ? 'لا توجد معاملات في هذه المشاركة بعد' : 'No transactions inside this share space yet'}
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {transactions.map((tx) => (
-                  <div
-                    key={tx.id}
-                    className="p-3 rounded-2xl bg-zinc-900 border border-zinc-800/80 flex items-center justify-between hover:bg-zinc-850 transition"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-base shrink-0">
-                        {tx.categoryIcon || '💸'}
-                      </div>
-                      <div className="min-w-0">
-                        <span className="text-sm font-semibold text-white block truncate">
-                          {tx.description || tx.categoryName}
-                        </span>
-                        <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                          <span>{tx.categoryName}</span>
-                          <span>·</span>
-                          <span className="font-mono text-[11px]">{tx.date}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span
-                        className={`font-mono text-sm font-bold ${
-                          tx.type === 'income'
-                            ? 'text-emerald-400'
-                            : tx.type === 'expense'
-                            ? 'text-red-400'
-                            : 'text-blue-400'
-                        }`}
-                      >
-                        {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
-                        {formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
-                      </span>
-
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteItem('transaction', tx.id, tx.description)}
-                          className="p-1.5 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer"
-                          title="Remove Transaction"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
               </div>
             )}
           </div>
@@ -1333,115 +1590,236 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
         </div>
       )}
 
-      {/* Modal: Remove Transaction Options with Explicit Exit & Cancel Buttons */}
-      {deleteTxTarget && (
+      {/* Modal: Pre-Delete Review with Overlap Detection & Empty Entity Smart Cleanup */}
+      {preDeleteState && (
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[85] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
-          onClick={() => setDeleteTxTarget(null)}
+          className="fixed inset-0 z-[85] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/85 backdrop-blur-md animate-in fade-in overscroll-contain"
+          onClick={() => setPreDeleteState(null)}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm max-h-[92dvh] overflow-y-auto my-auto bg-zinc-950 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4 relative"
+            className="w-full max-w-lg max-h-[92dvh] overflow-y-auto my-auto bg-zinc-950 border border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 relative"
             dir={isArabic ? 'rtl' : 'ltr'}
           >
-            {/* Header with Exit (X) Button */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
-                  <Trash2 className="w-5 h-5" />
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">
-                    {isArabic ? 'خيارات إزالة المعاملة' : 'Remove Transaction Options'}
+                  <h3 className="text-sm sm:text-base font-bold text-white">
+                    {isArabic ? 'مراجعة العناصر قبل الحذف' : 'Pre-Delete Review'}
                   </h3>
-                  <p className="text-[11px] text-zinc-400">
-                    {deleteTxTarget.description} • {formatCurrency(deleteTxTarget.amount, currencySymbol, isArabic ? 'ar' : 'en')}
+                  <p className="text-xs text-zinc-400">
+                    {isArabic ? 'أنت بصدد حذف:' : 'Deleting:'}{' '}
+                    <span className="font-semibold text-zinc-200">
+                      {preDeleteState.targetIcon || ''} {preDeleteState.targetName}
+                    </span>{' '}
+                    <span className="text-[11px] text-zinc-500">
+                      ({preDeleteState.targetType === 'account'
+                        ? isArabic ? 'حساب' : 'Account'
+                        : preDeleteState.targetType === 'category'
+                        ? isArabic ? 'تصنيف' : 'Category'
+                        : isArabic ? 'معاملة' : 'Transaction'})
+                    </span>
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setDeleteTxTarget(null)}
+                onClick={() => setPreDeleteState(null)}
                 className="p-1.5 rounded-full hover:bg-zinc-850 text-zinc-400 hover:text-white transition cursor-pointer"
                 title={isArabic ? 'إغلاق' : 'Close'}
-                aria-label={isArabic ? 'إغلاق' : 'Close'}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              {isArabic
-                ? 'يرجى تحديد الإجراء المطلوب تنفيذه على هذه المعاملة:'
-                : 'Please select what you would like to do with this transaction:'}
-            </p>
-
-            {/* Action 1: Remove from share only */}
-            <div className="space-y-2 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  const updated = removeItemFromShareFolder(folder.id, 'transaction', deleteTxTarget.id);
-                  if (updated) setFolder(updated);
-                  setDeleteTxTarget(null);
-                  showToast(isArabic ? 'تمت إزالة المعاملة من الشير فقط (موجودة بحسابك)' : 'Removed from Share only', 'info');
-                }}
-                className="w-full p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-750 hover:border-zinc-650 text-start flex items-center gap-3 transition cursor-pointer active:scale-98 group"
-              >
-                <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
-                  <Share2 className="w-4 h-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-bold text-white">
-                    {isArabic ? 'إزالة من الشير فقط' : 'Remove from Share Only'}
+            {/* Overlap Summary Warning if any overlapping transactions exist */}
+            {preDeleteState.candidates.some((c) => c.overlappingWith.length > 0) && (
+              <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/40 text-amber-300 text-xs leading-relaxed flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                <div>
+                  <div className="font-bold">
+                    {isArabic ? 'تنبيه المعاملات المتداخلة / المشتركة:' : 'Overlapping / Shared Transactions Warning:'}
                   </div>
-                  <div className="text-[10px] text-zinc-400">
+                  <div>
                     {isArabic
-                      ? 'تبقى في حسابك الشخصي كما هي، وتُحذف فقط من هذه المساحة المشتركة'
-                      : 'Keeps it safe in your personal account, only removes from this share'}
+                      ? 'بعض المعاملات أدناه مرتبطة بحسابات أو تصنيفات أخرى مضمنة بالشير. تم تمييزها بشارة تحذير باللون البرتقالي لتراجعها بدقة قبل التأكيد.'
+                      : 'Some transactions below link to other included accounts or categories in this share. They are highlighted with an orange warning badge for careful review.'}
                   </div>
                 </div>
-              </button>
+              </div>
+            )}
 
-              {/* Action 2: Delete everywhere permanently */}
-              <button
-                type="button"
-                onClick={() => {
-                  deleteTransaction(deleteTxTarget.id);
-                  const updated = removeItemFromShareFolder(folder.id, 'transaction', deleteTxTarget.id);
-                  if (updated) setFolder(updated);
-                  setDeleteTxTarget(null);
-                  showToast(isArabic ? 'تم حذف المعاملة نهائياً من كل مكان' : 'Transaction deleted everywhere', 'info');
-                }}
-                className="w-full p-3 rounded-2xl bg-red-950/30 hover:bg-red-900/40 border border-red-500/40 hover:border-red-500/60 text-start flex items-center gap-3 transition cursor-pointer active:scale-98 group"
-              >
-                <div className="w-8 h-8 rounded-xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
-                  <Trash2 className="w-4 h-4" />
+            {/* Candidate Transactions List */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-zinc-400">
+                <span>
+                  {isArabic ? 'المعاملات المتأثرة بالحذف' : 'Transactions Affected by Deletion'}{' '}
+                  ({preDeleteState.selectedTxIds.size} / {preDeleteState.candidates.length})
+                </span>
+                {preDeleteState.candidates.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (preDeleteState.selectedTxIds.size === preDeleteState.candidates.length) {
+                        setPreDeleteState((prev) => (prev ? { ...prev, selectedTxIds: new Set() } : null));
+                      } else {
+                        setPreDeleteState((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                selectedTxIds: new Set(prev.candidates.map((c) => c.tx.id)),
+                              }
+                            : null
+                        );
+                      }
+                    }}
+                    className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold cursor-pointer"
+                  >
+                    {preDeleteState.selectedTxIds.size === preDeleteState.candidates.length
+                      ? (isArabic ? 'إلغاء تحديد الكل' : 'Deselect All')
+                      : (isArabic ? 'تحديد الكل' : 'Select All')}
+                  </button>
+                )}
+              </div>
+
+              {preDeleteState.candidates.length === 0 ? (
+                <div className="p-6 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-center text-xs text-zinc-400">
+                  {isArabic
+                    ? 'لا توجد معاملات مسجلة مرتبطة بهذا العنصر في هذه المساحة المشتركة.'
+                    : 'No recorded transactions associated with this entity in this share.'}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-bold text-red-300">
-                    {isArabic ? 'حذف نهائياً من كل مكان' : 'Delete Permanently Everywhere'}
-                  </div>
-                  <div className="text-[10px] text-zinc-400">
-                    {isArabic
-                      ? 'حذف المعاملة من حسابك الشخصي ومن الشير نهائياً ولا يمكن التراجع'
-                      : 'Deletes from both your account and share folder permanently'}
-                  </div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                  {preDeleteState.candidates.map(({ tx, overlappingWith }) => {
+                    const isChecked = preDeleteState.selectedTxIds.has(tx.id);
+                    const hasOverlap = overlappingWith.length > 0;
+
+                    return (
+                      <div
+                        key={tx.id}
+                        onClick={() => {
+                          setPreDeleteState((prev) => {
+                            if (!prev) return null;
+                            const nextSet = new Set(prev.selectedTxIds);
+                            if (nextSet.has(tx.id)) {
+                              nextSet.delete(tx.id);
+                            } else {
+                              nextSet.add(tx.id);
+                            }
+                            return { ...prev, selectedTxIds: nextSet };
+                          });
+                        }}
+                        className={`p-3 rounded-2xl border transition cursor-pointer select-none space-y-1.5 ${
+                          isChecked
+                            ? 'bg-zinc-900/90 border-zinc-700'
+                            : 'bg-zinc-950/40 border-zinc-850 opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {}}
+                              className="w-4 h-4 rounded text-blue-600 focus:ring-0 bg-zinc-800 border-zinc-700"
+                            />
+                            <span className="text-base">{tx.categoryIcon || '💸'}</span>
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold text-white block truncate">
+                                {tx.description || tx.categoryName}
+                              </span>
+                              <span className="text-[10px] font-mono text-zinc-500">
+                                {tx.date} {tx.time ? `· ${formatTime12h(tx.time, isArabic ? 'ar' : 'en')}` : ''}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-xs font-mono font-bold shrink-0">
+                            <span className={tx.type === 'income' ? 'text-emerald-400' : 'text-red-400'}>
+                              {tx.type === 'income' ? '+' : '-'}
+                              {formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Overlap Badge */}
+                        {hasOverlap && (
+                          <div className="flex flex-wrap gap-1 pt-1 rtl:pr-6 ltr:pl-6">
+                            {overlappingWith.map((ov, oIdx) => (
+                              <span
+                                key={oIdx}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/50 text-[10px] font-semibold text-amber-300"
+                              >
+                                <AlertTriangle className="w-2.5 h-2.5" />
+                                <span>
+                                  {isArabic ? 'مشتركة مع' : 'Shared with'}: {ov.icon} {ov.name}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              </button>
+              )}
             </div>
 
-            {/* Explicit Cancel & Exit Button */}
-            <div className="pt-2 border-t border-zinc-800">
+            {/* Automatic Cleanup Info Banner (Requirement 4) */}
+            <div className="p-3 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-[11px] text-zinc-400 leading-relaxed flex items-start gap-2">
+              <Sparkles className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+              <span>
+                {isArabic
+                  ? 'تنظيف تلقائي ذكي: في حال تم حذف جميع المعاملات التابعة لأي حساب أو تصنيف داخل الشير، فسيتم حذفه تلقائياً من المساحة لمنع وجود عناصر فارغة.'
+                  : 'Smart auto-cleanup: If all transactions belonging to an Account or Category inside this share are deleted, it will be automatically removed from the Share Space.'}
+              </span>
+            </div>
+
+            {/* Delete from Personal Feed Checkbox */}
+            <label className="flex items-center gap-2.5 p-3 rounded-2xl bg-zinc-900/40 border border-zinc-850 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={preDeleteState.deleteFromPersonal}
+                onChange={(e) => {
+                  const val = e.target.checked;
+                  setPreDeleteState((prev) => (prev ? { ...prev, deleteFromPersonal: val } : null));
+                }}
+                className="w-4 h-4 rounded text-red-600 focus:ring-0 bg-zinc-800 border-zinc-700"
+              />
+              <div className="text-xs">
+                <span className="font-bold text-zinc-200 block">
+                  {isArabic ? 'حذف المعاملات أيضاً من حسابي الشخصي' : 'Also delete transactions from my personal account'}
+                </span>
+                <span className="text-[10px] text-zinc-400">
+                  {isArabic
+                    ? 'إذا لم يتم التحديد، فستُحذف فقط من الشير وتبقى آمنة في سجلك الشخصي'
+                    : 'If unchecked, items will be removed only from this share and remain safe in your feed'}
+                </span>
+              </div>
+            </label>
+
+            {/* Modal Actions */}
+            <div className="flex items-center gap-2 pt-2 border-t border-zinc-800">
               <button
                 type="button"
-                onClick={() => setDeleteTxTarget(null)}
-                className="w-full py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-zinc-300 hover:text-white text-xs font-bold transition cursor-pointer border border-zinc-800 flex items-center justify-center gap-1.5"
+                onClick={() => setPreDeleteState(null)}
+                className="flex-1 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-zinc-300 text-xs font-bold transition cursor-pointer"
               >
-                <X className="w-3.5 h-3.5 text-zinc-400" />
-                <span>{isArabic ? 'إلغاء وتراجع (عدم الحذف)' : 'Cancel & Exit'}</span>
+                {isArabic ? 'إلغاء وتراجع' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmPreDelete}
+                className="flex-1 py-2.5 rounded-2xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition cursor-pointer shadow-lg flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isArabic ? 'تأكيد الحذف' : 'Confirm Delete'}</span>
               </button>
             </div>
           </div>

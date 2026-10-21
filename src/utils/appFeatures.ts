@@ -21,7 +21,7 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: '1.1.21',
+    version: '1.1.22',
     releaseDate: 'October 22, 2026',
     title: {
       en: 'Share Space Settings Modal (Rename, Icon Selector & Full Deletion)',

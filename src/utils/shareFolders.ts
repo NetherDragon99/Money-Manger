@@ -1082,6 +1082,108 @@ export function removeItemFromShareFolder(
 }
 
 /**
+ * Smart deletion from a Share Folder:
+ * Deletes specified transactions (and optionally an account or category),
+ * detects remaining transactions, and automatically cleans up any accounts
+ * or categories that are left with 0 transactions in the share space.
+ */
+export function removeItemsFromShareFolderSmart(
+  folderId: string,
+  params: {
+    deletedAccountIds?: string[];
+    deletedCategoryIds?: string[];
+    deletedTxIds: string[];
+  }
+): ShareFolder | null {
+  const existing = loadMyShareFolders();
+  const myIdx = existing.findIndex((f) => f.id === folderId);
+  const received = loadReceivedShareFolders();
+  const recvIdx = received.findIndex((f) => f.id === folderId);
+
+  let targetFolder: ShareFolder | null = null;
+  let isOwner = false;
+
+  if (myIdx !== -1) {
+    targetFolder = existing[myIdx];
+    isOwner = true;
+  } else if (recvIdx !== -1) {
+    targetFolder = received[recvIdx];
+  }
+
+  if (!targetFolder) return null;
+
+  const deletedTxSet = new Set(params.deletedTxIds || []);
+  const deletedAccSet = new Set(params.deletedAccountIds || []);
+  const deletedCatSet = new Set(params.deletedCategoryIds || []);
+
+  // 1. Filter remaining transactions
+  const remainingTxs = (targetFolder.payload.transactions || []).filter(
+    (t) => !deletedTxSet.has(t.id)
+  );
+
+  // 2. Track which accounts and categories have remaining transactions
+  const accIdsWithRemainingTxs = new Set(
+    remainingTxs.flatMap((t) => [t.accountId, t.toAccountId].filter(Boolean))
+  );
+  const catIdsWithRemainingTxs = new Set(
+    remainingTxs.map((t) => t.categoryId).filter(Boolean)
+  );
+  const catNamesWithRemainingTxs = new Set(
+    remainingTxs.map((t) => t.categoryName).filter(Boolean)
+  );
+
+  // 3. Filter accounts:
+  // Must NOT be explicitly deleted, AND if all transactions belonging to it are deleted (leaving 0),
+  // automatically remove it from the share space!
+  const remainingAccounts = (targetFolder.payload.accounts || []).filter((acc) => {
+    if (deletedAccSet.has(acc.id)) return false;
+    const hadTxs = (targetFolder!.payload.transactions || []).some(
+      (t) => t.accountId === acc.id || t.toAccountId === acc.id
+    );
+    if (hadTxs && !accIdsWithRemainingTxs.has(acc.id)) {
+      return false;
+    }
+    return true;
+  });
+
+  // 4. Filter categories:
+  // Must NOT be explicitly deleted, AND if all transactions belonging to it are deleted (leaving 0),
+  // automatically remove it from the share space!
+  const remainingCategories = (targetFolder.payload.categories || []).filter((cat) => {
+    if (deletedCatSet.has(cat.id)) return false;
+    const hadTxs = (targetFolder!.payload.transactions || []).some(
+      (t) => t.categoryId === cat.id || t.categoryName === cat.name
+    );
+    if (hadTxs && !catIdsWithRemainingTxs.has(cat.id) && !catNamesWithRemainingTxs.has(cat.name)) {
+      return false;
+    }
+    return true;
+  });
+
+  const updatedFolder: ShareFolder = {
+    ...targetFolder,
+    updatedAt: Date.now(),
+    itemCount: remainingAccounts.length + remainingCategories.length + remainingTxs.length,
+    payload: {
+      accounts: remainingAccounts,
+      categories: remainingCategories,
+      transactions: remainingTxs,
+    },
+  };
+
+  if (isOwner) {
+    existing[myIdx] = updatedFolder;
+    saveMyShareFolders(existing);
+  } else {
+    received[recvIdx] = updatedFolder;
+    saveReceivedShareFolders(received);
+  }
+
+  syncFolderToCloud(updatedFolder);
+  return updatedFolder;
+}
+
+/**
  * Update Share Page settings (name, icon, description, permission)
  */
 export function updateShareFolderSettings(
