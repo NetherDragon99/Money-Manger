@@ -31,6 +31,7 @@ import {
   ShareFolder,
   ShareMember,
   subscribeToShareFolder,
+  fetchShareFolderFromCloud,
   addTransactionToShareFolder,
   removeItemFromShareFolder,
   addMemberToShareFolder,
@@ -98,7 +99,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     type: string;
   } | null>(null);
 
-  // Subscribe to real-time updates for this folder from Firebase RTDB
+  // Dual Sync 1: Subscribe to real-time updates for this folder from Firebase RTDB
   useEffect(() => {
     if (!initialFolder.id) return;
     const unsub = subscribeToShareFolder(initialFolder.id, (liveFolder) => {
@@ -107,6 +108,39 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       }
     });
     return () => unsub();
+  }, [initialFolder.id]);
+
+  // Dual Sync 2: Automatic 4-second periodic polling loop fetching active shared_accounts/share_${shareId}
+  useEffect(() => {
+    if (!initialFolder.id) return;
+
+    let isMounted = true;
+    const pollActiveShare = async () => {
+      try {
+        const live = await fetchShareFolderFromCloud(initialFolder.id);
+        if (isMounted && live) {
+          setFolder((prev) => {
+            if (
+              live.updatedAt !== prev.updatedAt ||
+              live.members.length !== prev.members.length ||
+              live.payload.transactions.length !== prev.payload.transactions.length ||
+              live.payload.accounts.length !== prev.payload.accounts.length
+            ) {
+              return live;
+            }
+            return prev;
+          });
+        }
+      } catch (err) {
+        // Quiet poll error handling
+      }
+    };
+
+    const intervalId = setInterval(pollActiveShare, 4000);
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
   }, [initialFolder.id]);
 
   const isOwner = folder.ownerNumericId === myCleanNumericId;

@@ -37,6 +37,7 @@ import {
   leaveShareFolder,
   generateShareUrl,
   subscribeToMyInbox,
+  fetchMyInboxOnce,
   subscribeToShareFolder,
   fetchShareFolderFromCloud,
   extractShareIdFromUrl,
@@ -100,7 +101,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     }
   }, [isOpen, myCleanNumericId, myName, settings.userProfile]);
 
-  // Real-time inbox listener on Firebase RTDB (shared_accounts/inbox_${myCleanNumericId})
+  // Dual Sync 1: Real-time inbox listener on Firebase RTDB (shared_accounts/inbox_${myCleanNumericId})
   useEffect(() => {
     if (!isOpen || myCleanNumericId.length !== 16) return;
     const unsub = subscribeToMyInbox(myCleanNumericId, (liveReceived) => {
@@ -110,6 +111,40 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
       }
     });
     return () => unsub();
+  }, [isOpen, myCleanNumericId]);
+
+  // Dual Sync 2: Automatic 4-second periodic polling loop fetching get(ref(db, 'shared_accounts/inbox_' + myClean16Id))
+  useEffect(() => {
+    if (!isOpen || myCleanNumericId.length !== 16) return;
+
+    let isMounted = true;
+    const pollInbox = async () => {
+      try {
+        const live = await fetchMyInboxOnce(myCleanNumericId);
+        if (isMounted && live && Array.isArray(live)) {
+          setReceivedFolders((prev) => {
+            if (
+              live.length !== prev.length ||
+              JSON.stringify(live.map((f) => [f.id, f.updatedAt, f.members.length])) !==
+                JSON.stringify(prev.map((f) => [f.id, f.updatedAt, f.members.length]))
+            ) {
+              saveReceivedShareFolders(live);
+              return live;
+            }
+            return prev;
+          });
+        }
+      } catch (err) {
+        // Quiet poll error handling
+      }
+    };
+
+    pollInbox();
+    const intervalId = setInterval(pollInbox, 4000);
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
   }, [isOpen, myCleanNumericId]);
 
   // Real-time listener on custom events when inbox is updated globally or hub is opened

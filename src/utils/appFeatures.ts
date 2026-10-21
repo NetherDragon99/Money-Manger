@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.19',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Reliable 16-Digit Share Delivery via Server Sync & Dual Real-Time + 4s Polling',
+      ar: 'تسليم ومزامنة فورية للشير الرقمي عبر الخادم مع استماع لحظي وتحديث دوري كل 4 ثوانٍ',
+    },
+    highlights: {
+      en: [
+        'Guaranteed Share Delivery: Adding a user or updating a share immediately writes full share payloads with all required Firebase rule fields (ownerUid, accountName, updatedAt: Date.now(), and invites map) to shared_accounts/share_${shareId} and shared_accounts/inbox_${targetClean16Id}.',
+        'Dual Real-Time + 4-Second Polling: Combines live Firebase onValue listeners with an automatic 4000ms periodic background polling loop in both Share Hub and Share Detail views so incoming shares and changes appear without manual refresh.',
+        'Resilient Metadata Parsing: Automatically filters out rule metadata properties and reconstructs full share spaces and member rosters from cloud snapshots.',
+      ],
+      ar: [
+        'تسليم مضمون للمشاركات الرقمية: عند إضافة مستخدم أو تحديث الشير، تتم كتابة كامل بيانات الشير مع حقول قواعد فايربيس الإلزامية (ownerUid وaccountName وupdatedAt وخريطة invites) على مسارات shared_accounts/share_${shareId} وshared_accounts/inbox_${targetClean16Id}.',
+        'مزامنة مزدوجة: استماع لحظي onValue مع حلقة استعلام دورية كل 4 ثوانٍ (4000ms) في صفحة المشاركات وصفحة تفاصيل الشير لظهور الدعوات والتحديثات تلقائياً دون الحاجة لإعادة تحميل الصفحة.',
+        'معالجة ذكية للبيانات الواردة: فلترة حقول القواعد الإلزامية وإعادة بناء عناصر الشير وقوائم الأعضاء بدقة متناهية من الخادم.',
+      ],
+    },
+  },
+  {
     version: '1.1.18',
     releaseDate: 'October 21, 2026',
     title: {

@@ -129,7 +129,7 @@ export async function executeAutoBackup(data: AppData): Promise<{ success: boole
   const fileName = `auto_backup_${timestamp}.json`;
 
   const backupPayload = {
-    version: '1.1.18',
+    version: '1.1.19',
     type: 'automated_backup',
     backupDate: new Date().toISOString(),
     ...data,

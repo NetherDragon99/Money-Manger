@@ -6,7 +6,7 @@ export const PERMANENT_ID_STORAGE_KEY = 'app_permanent_16digit_id';
 const LEGACY_ID_STORAGE_KEY = 'pwa_finance_user_numeric_id';
 
 /** Strip everything except digits */
-export function cleanNumericId(id: string): string {
+export function cleanNumericId(id: string | undefined | null): string {
   return id ? String(id).replace(/\D/g, '') : '';
 }
 
