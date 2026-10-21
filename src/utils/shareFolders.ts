@@ -70,6 +70,7 @@ export interface ShareFolder {
 
 const STORAGE_MY_FOLDERS_KEY = 'pwa_finance_share_folders_v3';
 const STORAGE_RECEIVED_FOLDERS_KEY = 'pwa_finance_received_share_folders_v3';
+const STORAGE_KNOWN_CONTACTS_KEY = 'pwa_finance_known_contacts_v1';
 
 /**
  * Strict 16-digit ID sanitization (strips all non-digit characters)
@@ -77,6 +78,87 @@ const STORAGE_RECEIVED_FOLDERS_KEY = 'pwa_finance_received_share_folders_v3';
 export function normalize16DigitId(rawId: string | null | undefined): string {
   if (!rawId) return '';
   return String(rawId).replace(/\D/g, '');
+}
+
+/**
+ * Load locally cached known contacts (16-digit ID -> UserProfileCard)
+ */
+export function loadKnownContacts(): Record<string, UserProfileCard> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KNOWN_CONTACTS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Save / Cache a known contact locally
+ */
+export function saveKnownContact(contact: Partial<UserProfileCard> & { numericId: string }): void {
+  try {
+    const cleanId = normalize16DigitId(contact.numericId);
+    if (cleanId.length !== 16) return;
+    const contacts = loadKnownContacts();
+    contacts[cleanId] = {
+      numericId: cleanId,
+      name: contact.name || contacts[cleanId]?.name || `User ${cleanId.slice(0, 4)}`,
+      avatar: contact.avatar || contacts[cleanId]?.avatar || '👤',
+      photoURL: contact.photoURL !== undefined ? contact.photoURL : (contacts[cleanId]?.photoURL || ''),
+      updatedAt: Date.now(),
+    };
+    localStorage.setItem(STORAGE_KNOWN_CONTACTS_KEY, JSON.stringify(contacts));
+  } catch (e) {
+    console.warn('[ShareFolders] Failed to save contact:', e);
+  }
+}
+
+/**
+ * Retrieve a cached contact by 16-digit ID
+ */
+export function getKnownContact(numericId: string): UserProfileCard | null {
+  const cleanId = normalize16DigitId(numericId);
+  if (!cleanId) return null;
+  const contacts = loadKnownContacts();
+  return contacts[cleanId] || null;
+}
+
+/**
+ * Generate a deterministic vibrant gradient background for user avatars
+ */
+export function getAvatarColorGradient(idOrName: string): string {
+  const gradients = [
+    'from-blue-600 to-indigo-700',
+    'from-emerald-600 to-teal-700',
+    'from-purple-600 to-pink-700',
+    'from-amber-600 to-orange-700',
+    'from-rose-600 to-red-700',
+    'from-cyan-600 to-blue-700',
+    'from-violet-600 to-purple-800',
+  ];
+  let hash = 0;
+  for (let i = 0; i < (idOrName || '').length; i++) {
+    hash = (hash << 5) - hash + idOrName.charCodeAt(i);
+  }
+  return gradients[Math.abs(hash) % gradients.length];
+}
+
+/**
+ * Compute 1-2 letter uppercase initials for display when photo is absent
+ */
+export function getMemberInitials(name: string, numericId?: string): string {
+  if (!name) {
+    return numericId ? numericId.slice(-2) : '👤';
+  }
+  const clean = name.trim();
+  if (clean.toLowerCase().startsWith('user ') && numericId) {
+    return numericId.slice(-2);
+  }
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
+  }
+  return clean.slice(0, 2).toUpperCase();
 }
 
 /**
@@ -90,6 +172,14 @@ export async function publishUserProfileCard(profile: {
 }): Promise<void> {
   const cleanId = normalize16DigitId(profile.numericId);
   if (cleanId.length !== 16) return;
+
+  saveKnownContact({
+    numericId: cleanId,
+    name: profile.name,
+    avatar: profile.avatar,
+    photoURL: profile.photoURL,
+  });
+
   try {
     const card: UserProfileCard = {
       numericId: cleanId,
@@ -113,12 +203,14 @@ export async function fetchUserProfileCard(numericId: string): Promise<UserProfi
   try {
     const snap = await get(ref(rtdb, `shared_accounts/profile_${cleanId}`));
     if (snap.exists()) {
-      return snap.val() as UserProfileCard;
+      const card = snap.val() as UserProfileCard;
+      saveKnownContact(card);
+      return card;
     }
   } catch (err) {
     console.warn('[ShareFolders] Failed to fetch profile card:', err);
   }
-  return null;
+  return getKnownContact(cleanId);
 }
 
 /**
@@ -260,19 +352,22 @@ export function deduceFolderMetadata(
  */
 export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
   try {
+    // Sanitize any undefined properties (Firebase RTDB throws if any field is undefined)
+    const cleanFolder: ShareFolder = JSON.parse(JSON.stringify(folder));
+
     await withTimeout(
       (async () => {
         // 1. Modern unified path
-        await set(ref(rtdb, `shared_accounts/share_${folder.id}`), folder);
+        await set(ref(rtdb, `shared_accounts/share_${cleanFolder.id}`), cleanFolder);
         // 2. Legacy fallback bundle path
-        await set(ref(rtdb, `sharedBundles/${folder.id}`), folder);
+        await set(ref(rtdb, `sharedBundles/${cleanFolder.id}`), cleanFolder);
 
         // 3. Deliver to member inboxes
-        for (const member of folder.members) {
+        for (const member of cleanFolder.members || []) {
           const cleanMemberId = normalize16DigitId(member.numericId);
           if (cleanMemberId.length === 16) {
-            await set(ref(rtdb, `shared_accounts/inbox_${cleanMemberId}/${folder.id}`), folder);
-            await set(ref(rtdb, `inboxByNumericId/${cleanMemberId}/${folder.id}`), folder);
+            await set(ref(rtdb, `shared_accounts/inbox_${cleanMemberId}/${cleanFolder.id}`), cleanFolder);
+            await set(ref(rtdb, `inboxByNumericId/${cleanMemberId}/${cleanFolder.id}`), cleanFolder);
           }
         }
       })(),
@@ -281,6 +376,102 @@ export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
     );
   } catch (err) {
     console.warn('[ShareFolders] Failed to sync folder to cloud:', err);
+  }
+}
+
+/**
+ * Automatically synchronize created Share Pages with live app data (accounts, categories, transactions)
+ * and broadcast the updates to Firebase RTDB in real time so external shared pages are 100% live!
+ */
+export function syncShareFoldersWithMainData(
+  allAccounts: Account[],
+  allCategories: Category[],
+  allTransactions: Transaction[]
+): void {
+  const myFolders = loadMyShareFolders();
+  if (!myFolders || myFolders.length === 0) return;
+
+  let anyChanged = false;
+  const updatedFolders = myFolders.map((folder) => {
+    if (!folder.payload) return folder;
+
+    const folderAccountIds = new Set(folder.payload.accounts.map((a) => a.id));
+    const folderCategoryIds = new Set(folder.payload.categories.map((c) => c.id));
+    const folderTxIds = new Set(folder.payload.transactions.map((t) => t.id));
+
+    // 1. Update accounts inside folder with latest balance, name, and properties
+    let accountsUpdated = false;
+    const nextAccounts = folder.payload.accounts.map((acc) => {
+      const latest = allAccounts.find((a) => a.id === acc.id);
+      if (
+        latest &&
+        (latest.balance !== acc.balance ||
+          latest.name !== acc.name ||
+          latest.icon !== acc.icon ||
+          latest.isPrivate !== acc.isPrivate)
+      ) {
+        accountsUpdated = true;
+        return { ...latest };
+      }
+      return acc;
+    });
+
+    // 2. Update categories inside folder
+    let categoriesUpdated = false;
+    const nextCategories = folder.payload.categories.map((cat) => {
+      const latest = allCategories.find((c) => c.id === cat.id);
+      if (
+        latest &&
+        (latest.name !== cat.name ||
+          latest.icon !== cat.icon ||
+          latest.budgetLimit !== cat.budgetLimit)
+      ) {
+        categoriesUpdated = true;
+        return { ...latest };
+      }
+      return cat;
+    });
+
+    // 3. Find latest transactions for this folder:
+    // Any transaction that belongs to a shared account, or shared category,
+    // or was explicitly part of the folder
+    const nextTxs = allTransactions.filter((t) => {
+      if (t.accountId && folderAccountIds.has(t.accountId)) return true;
+      if (t.categoryId && folderCategoryIds.has(t.categoryId)) return true;
+      if (folderTxIds.has(t.id)) return true;
+      return false;
+    });
+
+    const txsChanged =
+      nextTxs.length !== folder.payload.transactions.length ||
+      JSON.stringify(nextTxs.map((t) => [t.id, t.amount, t.type, t.description, t.date])) !==
+        JSON.stringify(
+          folder.payload.transactions.map((t) => [t.id, t.amount, t.type, t.description, t.date])
+        );
+
+    if (accountsUpdated || categoriesUpdated || txsChanged) {
+      anyChanged = true;
+      const updatedFolder: ShareFolder = {
+        ...folder,
+        updatedAt: Date.now(),
+        itemCount: nextAccounts.length + nextCategories.length + nextTxs.length,
+        payload: {
+          accounts: nextAccounts,
+          categories: nextCategories,
+          transactions: nextTxs,
+        },
+      };
+
+      // Push real-time update to cloud!
+      syncFolderToCloud(updatedFolder);
+      return updatedFolder;
+    }
+
+    return folder;
+  });
+
+  if (anyChanged) {
+    saveMyShareFolders(updatedFolders);
   }
 }
 
@@ -570,17 +761,34 @@ export async function addMemberToShareFolder(
   member16DigitId: string,
   memberName?: string,
   role: 'viewer' | 'editor' = 'viewer'
-): Promise<{ success: boolean; folder?: ShareFolder; error?: string }> {
+): Promise<{ success: boolean; folder?: ShareFolder; error?: string; cloudSynced?: boolean }> {
   const cleanId = normalize16DigitId(member16DigitId);
   if (cleanId.length !== 16) {
     return { success: false, error: 'Invalid ID. Must be 16 digits.' };
   }
 
-  // Fetch target user's public profile card to show avatar photo and name
+  // 1. Fetch target user's public profile card or check local known contacts
   const profileCard = await fetchUserProfileCard(cleanId);
-  const resolvedName = profileCard?.name || memberName || `User ${format16DigitId(cleanId).slice(0, 4)}`;
-  const resolvedAvatar = profileCard?.avatar || '👤';
-  const resolvedPhotoURL = profileCard?.photoURL || '';
+  const localContact = getKnownContact(cleanId);
+
+  const trimmedName = memberName?.trim();
+  const resolvedName =
+    trimmedName ||
+    (profileCard?.name && profileCard.name !== 'User' ? profileCard.name : '') ||
+    (localContact?.name && localContact.name !== 'User' ? localContact.name : '') ||
+    `User ${format16DigitId(cleanId).slice(0, 4)}`;
+
+  const resolvedAvatar = profileCard?.avatar || localContact?.avatar || '👤';
+  const resolvedPhotoURL = profileCard?.photoURL || localContact?.photoURL || '';
+
+  // Cache resolved contact locally
+  saveKnownContact({
+    numericId: cleanId,
+    name: resolvedName,
+    avatar: resolvedAvatar,
+    photoURL: resolvedPhotoURL,
+    updatedAt: Date.now(),
+  });
 
   const existing = loadMyShareFolders();
   const idx = existing.findIndex((f) => f.id === folderId);
@@ -589,7 +797,7 @@ export async function addMemberToShareFolder(
   }
 
   const folder = existing[idx];
-  if (folder.members.some((m) => m.numericId === cleanId)) {
+  if (folder.members.some((m) => normalize16DigitId(m.numericId) === cleanId)) {
     return { success: false, error: 'Member is already added to this share' };
   }
 
@@ -612,19 +820,94 @@ export async function addMemberToShareFolder(
   existing[idx] = updatedFolder;
   saveMyShareFolders(existing);
 
+  let cloudSynced = true;
   try {
-    // Deliver to recipient's inbox in Firebase RTDB
-    await set(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folder.id}`), updatedFolder);
-    await set(ref(rtdb, `inboxByNumericId/${cleanId}/${folder.id}`), updatedFolder);
-
-    // Update cloud bundle
-    await set(ref(rtdb, `shared_accounts/share_${folder.id}`), updatedFolder);
-    await set(ref(rtdb, `sharedBundles/${folder.id}`), updatedFolder);
-
-    return { success: true, folder: updatedFolder };
+    // Deliver to recipient's inbox in Firebase RTDB (sanitize any undefined values)
+    const cleanFolder: ShareFolder = JSON.parse(JSON.stringify(updatedFolder));
+    await withTimeout(
+      (async () => {
+        await set(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folder.id}`), cleanFolder);
+        await set(ref(rtdb, `inboxByNumericId/${cleanId}/${folder.id}`), cleanFolder);
+        await set(ref(rtdb, `shared_accounts/share_${folder.id}`), cleanFolder);
+        await set(ref(rtdb, `sharedBundles/${folder.id}`), cleanFolder);
+      })(),
+      10000
+    );
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Failed to deliver to recipient' };
+    console.warn('[ShareFolders] Firebase delivery deferred or rules restricted:', err);
+    cloudSynced = false;
   }
+
+  return { success: true, folder: updatedFolder, cloudSynced };
+}
+
+/**
+ * Update member details (custom nickname/name, role, or avatar)
+ */
+export async function updateMemberDetailsInShareFolder(
+  folderId: string,
+  member16DigitId: string,
+  updates: { name?: string; role?: 'viewer' | 'editor'; avatar?: string; photoURL?: string }
+): Promise<{ success: boolean; folder?: ShareFolder }> {
+  const cleanId = normalize16DigitId(member16DigitId);
+  const existing = loadMyShareFolders();
+  const idx = existing.findIndex((f) => f.id === folderId);
+  let targetFolder: ShareFolder | null = null;
+  let isMyFolder = true;
+
+  if (idx !== -1) {
+    targetFolder = existing[idx];
+  } else {
+    const received = loadReceivedShareFolders();
+    const rIdx = received.findIndex((f) => f.id === folderId);
+    if (rIdx !== -1) {
+      targetFolder = received[rIdx];
+      isMyFolder = false;
+    }
+  }
+
+  if (!targetFolder) return { success: false };
+
+  const updatedMembers = targetFolder.members.map((m) => {
+    if (normalize16DigitId(m.numericId) === cleanId) {
+      return {
+        ...m,
+        name: updates.name?.trim() || m.name,
+        role: updates.role || m.role,
+        avatar: updates.avatar || m.avatar,
+        photoURL: updates.photoURL !== undefined ? updates.photoURL : m.photoURL,
+      };
+    }
+    return m;
+  });
+
+  const updatedFolder: ShareFolder = {
+    ...targetFolder,
+    members: updatedMembers,
+    updatedAt: Date.now(),
+  };
+
+  if (isMyFolder && idx !== -1) {
+    existing[idx] = updatedFolder;
+    saveMyShareFolders(existing);
+  } else {
+    const received = loadReceivedShareFolders();
+    const rIdx = received.findIndex((f) => f.id === folderId);
+    if (rIdx !== -1) {
+      received[rIdx] = updatedFolder;
+      saveReceivedShareFolders(received);
+    }
+  }
+
+  if (updates.name) {
+    saveKnownContact({
+      numericId: cleanId,
+      name: updates.name.trim(),
+    });
+  }
+
+  await syncFolderToCloud(updatedFolder);
+  return { success: true, folder: updatedFolder };
 }
 
 export async function updateMemberRoleInShareFolder(
@@ -632,29 +915,11 @@ export async function updateMemberRoleInShareFolder(
   member16DigitId: string,
   role: 'viewer' | 'editor'
 ): Promise<{ success: boolean; folder?: ShareFolder }> {
-  const cleanId = normalize16DigitId(member16DigitId);
-  const existing = loadMyShareFolders();
-  const idx = existing.findIndex((f) => f.id === folderId);
-  if (idx === -1) return { success: false };
-
-  const folder = existing[idx];
-  const updatedMembers = folder.members.map((m) =>
-    normalize16DigitId(m.numericId) === cleanId ? { ...m, role } : m
-  );
-  const updatedFolder: ShareFolder = {
-    ...folder,
-    members: updatedMembers,
-    updatedAt: Date.now(),
-  };
-
-  existing[idx] = updatedFolder;
-  saveMyShareFolders(existing);
-  await syncFolderToCloud(updatedFolder);
-  return { success: true, folder: updatedFolder };
+  return updateMemberDetailsInShareFolder(folderId, member16DigitId, { role });
 }
 
 /**
- * Remove / Revoke a member from a Share Page
+ * Remove / Revoke a member from a Share Page (strictly normalized ID matching)
  */
 export async function removeMemberFromShareFolder(
   folderId: string,
@@ -663,12 +928,71 @@ export async function removeMemberFromShareFolder(
   const cleanId = normalize16DigitId(member16DigitId);
   const existing = loadMyShareFolders();
   const idx = existing.findIndex((f) => f.id === folderId);
+  let targetFolder: ShareFolder | null = null;
+  let isMyFolder = true;
+
+  if (idx !== -1) {
+    targetFolder = existing[idx];
+  } else {
+    const received = loadReceivedShareFolders();
+    const rIdx = received.findIndex((f) => f.id === folderId);
+    if (rIdx !== -1) {
+      targetFolder = received[rIdx];
+      isMyFolder = false;
+    }
+  }
+
+  if (!targetFolder) return { success: false };
+
+  const updatedFolder: ShareFolder = {
+    ...targetFolder,
+    members: targetFolder.members.filter((m) => normalize16DigitId(m.numericId) !== cleanId),
+    updatedAt: Date.now(),
+  };
+
+  if (isMyFolder && idx !== -1) {
+    existing[idx] = updatedFolder;
+    saveMyShareFolders(existing);
+  } else {
+    const received = loadReceivedShareFolders();
+    const rIdx = received.findIndex((f) => f.id === folderId);
+    if (rIdx !== -1) {
+      received[rIdx] = updatedFolder;
+      saveReceivedShareFolders(received);
+    }
+  }
+
+  try {
+    const cleanFolder: ShareFolder = JSON.parse(JSON.stringify(updatedFolder));
+    // Delete from recipient's inbox
+    await remove(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folderId}`));
+    await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}`));
+
+    // Update cloud bundle
+    await set(ref(rtdb, `shared_accounts/share_${folderId}`), cleanFolder);
+    await set(ref(rtdb, `sharedBundles/${folderId}`), cleanFolder);
+  } catch (err) {
+    console.warn('[ShareFolders] Failed to remove member from cloud inbox:', err);
+  }
+
+  return { success: true, folder: updatedFolder };
+}
+
+/**
+ * Remove all members from a Share Page at once
+ */
+export async function removeAllMembersFromShareFolder(
+  folderId: string
+): Promise<{ success: boolean; folder?: ShareFolder }> {
+  const existing = loadMyShareFolders();
+  const idx = existing.findIndex((f) => f.id === folderId);
   if (idx === -1) return { success: false };
 
   const folder = existing[idx];
+  const oldMembers = [...folder.members];
   const updatedFolder: ShareFolder = {
     ...folder,
-    members: folder.members.filter((m) => m.numericId !== cleanId),
+    members: [],
     updatedAt: Date.now(),
   };
 
@@ -676,15 +1000,18 @@ export async function removeMemberFromShareFolder(
   saveMyShareFolders(existing);
 
   try {
-    // Delete from recipient's inbox
-    await remove(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folder.id}`));
-    await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${folder.id}`));
-
-    // Update cloud bundle
-    await set(ref(rtdb, `shared_accounts/share_${folder.id}`), updatedFolder);
-    await set(ref(rtdb, `sharedBundles/${folder.id}`), updatedFolder);
+    const cleanFolder: ShareFolder = JSON.parse(JSON.stringify(updatedFolder));
+    for (const m of oldMembers) {
+      const cleanId = normalize16DigitId(m.numericId);
+      if (cleanId.length === 16) {
+        await remove(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folderId}`));
+        await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}`));
+      }
+    }
+    await set(ref(rtdb, `shared_accounts/share_${folderId}`), cleanFolder);
+    await set(ref(rtdb, `sharedBundles/${folderId}`), cleanFolder);
   } catch (err) {
-    console.warn('[ShareFolders] Failed to remove member from cloud inbox:', err);
+    console.warn('[ShareFolders] Failed to clear members from cloud:', err);
   }
 
   return { success: true, folder: updatedFolder };
@@ -704,7 +1031,9 @@ export async function acceptShareInvitation(
     if (f.id === folderId) {
       return {
         ...f,
-        members: f.members.map((m) => (m.numericId === cleanId ? { ...m, status: 'accepted' as const } : m)),
+        members: f.members.map((m) =>
+          normalize16DigitId(m.numericId) === cleanId ? { ...m, status: 'accepted' as const } : m
+        ),
       };
     }
     return f;
@@ -718,7 +1047,9 @@ export async function acceptShareInvitation(
     if (snap.exists()) {
       const members = snap.val() as ShareMember[];
       if (Array.isArray(members)) {
-        const nextMembers = members.map((m) => (m.numericId === cleanId ? { ...m, status: 'accepted' } : m));
+        const nextMembers = members.map((m) =>
+          normalize16DigitId(m.numericId) === cleanId ? { ...m, status: 'accepted' } : m
+        );
         await set(inboxRef, nextMembers);
       }
     }
@@ -729,7 +1060,9 @@ export async function acceptShareInvitation(
     if (cloudSnap.exists()) {
       const cMembers = cloudSnap.val() as ShareMember[];
       if (Array.isArray(cMembers)) {
-        const nextCMembers = cMembers.map((m) => (m.numericId === cleanId ? { ...m, status: 'accepted' } : m));
+        const nextCMembers = cMembers.map((m) =>
+          normalize16DigitId(m.numericId) === cleanId ? { ...m, status: 'accepted' } : m
+        );
         await set(cloudMemberRef, nextCMembers);
       }
     }
@@ -772,9 +1105,10 @@ export async function leaveShareFolder(
  */
 export async function sendShareFolderToRecipient(
   folder: ShareFolder,
-  recipient16DigitId: string
+  recipient16DigitId: string,
+  recipientName?: string
 ): Promise<{ success: boolean; error?: string }> {
-  return addMemberToShareFolder(folder.id, recipient16DigitId);
+  return addMemberToShareFolder(folder.id, recipient16DigitId, recipientName);
 }
 
 /**
@@ -817,10 +1151,25 @@ export function subscribeToShareFolder(
     if (snap.exists()) {
       callback(snap.val() as ShareFolder);
     } else {
-      callback(null);
+      // Check fallback bundle path
+      get(ref(rtdb, `sharedBundles/${folderId}`))
+        .then((bSnap) => {
+          if (bSnap.exists()) {
+            callback(bSnap.val() as ShareFolder);
+          } else {
+            callback(null);
+          }
+        })
+        .catch(() => callback(null));
     }
   };
-  onValue(shareRef, listener);
+  onValue(
+    shareRef,
+    listener,
+    (err) => {
+      console.warn('[ShareFolders] Real-time subscription error:', err);
+    }
+  );
   return () => {
     off(shareRef, 'value', listener);
   };
@@ -828,6 +1177,7 @@ export function subscribeToShareFolder(
 
 /**
  * Real-time listener for incoming share folders in user's 16-digit inbox
+ * Listens to both modern and legacy inbox paths simultaneously for 100% instant delivery without refresh!
  */
 export function subscribeToMyInbox(
   my16DigitId: string,
@@ -837,24 +1187,39 @@ export function subscribeToMyInbox(
   if (cleanId.length !== 16) return () => {};
 
   const inboxRef = ref(rtdb, `shared_accounts/inbox_${cleanId}`);
-  const listener = (snapshot: any) => {
-    if (!snapshot.exists()) {
-      callback([]);
-      return;
-    }
-    const data = snapshot.val();
-    if (!data) {
-      callback([]);
-      return;
-    }
+  const fallbackRef = ref(rtdb, `inboxByNumericId/${cleanId}`);
 
-    const folders: ShareFolder[] = Object.keys(data).map((key) => data[key]);
+  let primaryData: Record<string, ShareFolder> = {};
+  let fallbackData: Record<string, ShareFolder> = {};
+
+  const emitCombined = () => {
+    const combined = { ...fallbackData, ...primaryData };
+    const folders: ShareFolder[] = Object.values(combined);
+    // Sort newest first
+    folders.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
     callback(folders);
   };
 
-  onValue(inboxRef, listener);
+  const primaryListener = (snapshot: any) => {
+    primaryData = snapshot.exists() && snapshot.val() ? snapshot.val() : {};
+    emitCombined();
+  };
+
+  const fallbackListener = (snapshot: any) => {
+    fallbackData = snapshot.exists() && snapshot.val() ? snapshot.val() : {};
+    emitCombined();
+  };
+
+  onValue(inboxRef, primaryListener, (err) => {
+    console.warn('[ShareFolders] Inbox subscription error:', err);
+  });
+  onValue(fallbackRef, fallbackListener, (err) => {
+    console.warn('[ShareFolders] Fallback inbox error:', err);
+  });
+
   return () => {
-    off(inboxRef, 'value', listener);
+    off(inboxRef, 'value', primaryListener);
+    off(fallbackRef, 'value', fallbackListener);
   };
 }
 
@@ -864,16 +1229,12 @@ export function subscribeToMyInbox(
 export const listenToMyNumericIdInbox = subscribeToMyInbox;
 
 /**
- * Generate clean public web share URL with embedded data snapshot fallback
+ * Generate clean, live, dynamic public web share URL: ?share=share_...
+ * Never embeds stale data snapshots in query params, ensuring the URL stays identical
+ * while its content updates live from Firebase Realtime Database.
  */
 export function generateShareUrl(folder: ShareFolder): string {
   if (typeof window === 'undefined') return '';
   const base = `${window.location.origin}${window.location.pathname}`;
-  try {
-    const encoded = encodeShareSnapshot(folder);
-    if (encoded) {
-      return `${base}?share=${encodeURIComponent(folder.id)}&data=${encodeURIComponent(encoded)}`;
-    }
-  } catch {}
   return `${base}?share=${encodeURIComponent(folder.id)}`;
 }

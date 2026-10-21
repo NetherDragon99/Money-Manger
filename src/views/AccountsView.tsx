@@ -26,11 +26,7 @@ interface AccountCardProps {
   metrics: { income: number; expense: number };
   isPrimary: boolean;
   currencySymbol: string;
-  isAccountMultiSelect: boolean;
-  isSelected: boolean;
   onOpenDetails: () => void;
-  onToggleSelection: () => void;
-  onStartMultiSelect: () => void;
   onMoveAccount: (index: number, direction: 'up' | 'down') => void;
   t: (key: any) => string;
   language: 'en' | 'ar';
@@ -43,23 +39,32 @@ const AccountCard: React.FC<AccountCardProps> = ({
   metrics,
   isPrimary,
   currencySymbol,
-  isAccountMultiSelect,
-  isSelected,
   onOpenDetails,
-  onToggleSelection,
-  onStartMultiSelect,
   onMoveAccount,
   t,
   language,
 }) => {
+  const {
+    isAccountMultiSelect,
+    selectedAccountIds,
+    toggleAccountSelection,
+    startAccountMultiSelect,
+  } = useApp();
+
+  const isSelected = selectedAccountIds.includes(acc.id);
+
+  const handleToggle = (e?: React.SyntheticEvent) => {
+    e?.stopPropagation?.();
+    toggleAccountSelection(acc.id);
+  };
+
   const { handlers } = useLongPress({
     onLongPress: () => {
-      onStartMultiSelect();
+      startAccountMultiSelect(acc.id);
     },
     onClick: (e) => {
       if (isAccountMultiSelect) {
-        e?.stopPropagation?.();
-        onToggleSelection();
+        handleToggle(e);
       } else {
         onOpenDetails();
       }
@@ -69,10 +74,17 @@ const AccountCard: React.FC<AccountCardProps> = ({
   return (
     <div
       {...handlers}
+      onClick={(e) => {
+        if (isAccountMultiSelect) {
+          handleToggle(e);
+        } else {
+          handlers.onClick(e);
+        }
+      }}
       data-no-swipe="true"
       onContextMenu={(e) => {
         e.preventDefault();
-        onStartMultiSelect();
+        startAccountMultiSelect(acc.id);
       }}
       role="button"
       tabIndex={0}
@@ -117,10 +129,7 @@ const AccountCard: React.FC<AccountCardProps> = ({
           {isAccountMultiSelect && (
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleSelection();
-              }}
+              onClick={handleToggle}
               className={`w-6 h-6 rounded-lg flex items-center justify-center transition border cursor-pointer active:scale-90 ${
                 isSelected
                   ? 'bg-blue-600 border-blue-500 text-white shadow-md'
@@ -405,7 +414,6 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
             {accounts.map((acc, index) => {
               const metrics = accountMonthMetricsMap.get(acc.id) || { income: 0, expense: 0 };
               const isPrimary = index === 0;
-              const isSelected = selectedAccountIds.includes(acc.id);
               return (
                 <AccountCard
                   key={acc.id}
@@ -415,11 +423,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
                   metrics={metrics}
                   isPrimary={isPrimary}
                   currencySymbol={currencySymbol}
-                  isAccountMultiSelect={isAccountMultiSelect}
-                  isSelected={isSelected}
                   onOpenDetails={() => setSelectedAccountId(acc.id)}
-                  onToggleSelection={() => toggleAccountSelection(acc.id)}
-                  onStartMultiSelect={() => startAccountMultiSelect(acc.id)}
                   onMoveAccount={handleMoveAccount}
                   t={t}
                   language={settings.language}

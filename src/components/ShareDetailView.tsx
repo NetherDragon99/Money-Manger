@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
-import { format16DigitId, cleanNumericId } from '../utils/userId';
+import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
 import {
   ShareFolder,
   ShareMember,
@@ -32,9 +32,13 @@ import {
   removeItemFromShareFolder,
   addMemberToShareFolder,
   removeMemberFromShareFolder,
+  removeAllMembersFromShareFolder,
   updateMemberRoleInShareFolder,
+  updateMemberDetailsInShareFolder,
   generateShareUrl,
   fetchUserProfileCard,
+  getAvatarColorGradient,
+  getMemberInitials,
 } from '../utils/shareFolders';
 import { formatCurrency, formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
 
@@ -74,7 +78,18 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [isManageMembersOpen, setIsManageMembersOpen] = useState(false);
   const [newMemberId, setNewMemberId] = useState('');
+  const [newMemberName, setNewMemberName] = useState('');
   const [isSubmittingMember, setIsSubmittingMember] = useState(false);
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [editingMemberName, setEditingMemberName] = useState('');
+
+  // Dedicated Transaction Deletion Options Modal State with Explicit Exit & Cancel
+  const [deleteTxTarget, setDeleteTxTarget] = useState<{
+    id: string;
+    description: string;
+    amount: number;
+    type: string;
+  } | null>(null);
 
   // Subscribe to real-time updates for this folder from Firebase RTDB
   useEffect(() => {
@@ -179,30 +194,15 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       return;
     }
 
-    // Phase 1 choice: when deleting from share, offer choice to remove from share only or delete everywhere
+    // Phase 1 choice: when deleting from share, open dedicated options modal with explicit Cancel & Exit
     if (itemType === 'transaction') {
-      const confirmed = await showConfirm({
-        title: isArabic ? 'خيارات إزالة المعاملة' : 'Remove Transaction Options',
-        message: isArabic
-          ? `هل ترغب في إزالة "${itemName}" من الشير فقط (مع الإبقاء عليها في حسابك)، أم حذفها تماماً من كل مكان؟`
-          : `Do you want to remove "${itemName}" from this Share only, or delete it permanently everywhere?`,
-        confirmText: isArabic ? 'حذف من كل مكان' : 'Delete Everywhere',
-        cancelText: isArabic ? 'إزالة من الشير فقط' : 'Remove from Share Only',
-        isDanger: true,
+      const tx = folder.payload?.transactions?.find((t: Transaction) => t.id === itemId);
+      setDeleteTxTarget({
+        id: itemId,
+        description: itemName || tx?.description || (isArabic ? 'معاملة بدون وصف' : 'Transaction'),
+        amount: tx?.amount || 0,
+        type: tx?.type || 'expense',
       });
-
-      if (confirmed) {
-        // Delete everywhere
-        deleteTransaction(itemId);
-        const updated = removeItemFromShareFolder(folder.id, 'transaction', itemId);
-        if (updated) setFolder(updated);
-        showToast(isArabic ? 'تم حذف المعاملة من كل مكان' : 'Transaction deleted everywhere', 'info');
-      } else {
-        // Remove from share only
-        const updated = removeItemFromShareFolder(folder.id, 'transaction', itemId);
-        if (updated) setFolder(updated);
-        showToast(isArabic ? 'تمت إزالة المعاملة من الشير فقط' : 'Removed from Share only', 'info');
-      }
       return;
     }
 
@@ -231,16 +231,23 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     }
 
     setIsSubmittingMember(true);
-    const res = await addMemberToShareFolder(folder.id, cleanId);
+    const res = await addMemberToShareFolder(folder.id, cleanId, newMemberName.trim());
     setIsSubmittingMember(false);
 
     if (res.success && res.folder) {
       setFolder(res.folder);
       setNewMemberId('');
+      setNewMemberName('');
       setIsAddMemberOpen(false);
       showToast(
-        isArabic ? 'تمت إضافة العضو وإرسال الدعوة لحظياً!' : 'Member added and invite sent instantly!',
-        'success'
+        res.cloudSynced === false
+          ? (isArabic
+              ? 'تمت إضافة العضو بنجاح محلياً! (بانتظار تحديث صلاحيات قواعد Firebase للمزامنة السحابية)'
+              : 'Member added locally! (Firebase RTDB rules update needed for cloud sync)')
+          : (isArabic
+              ? 'تمت إضافة العضو وإرسال الدعوة لحظياً!'
+              : 'Member added and invite sent instantly!'),
+        res.cloudSynced === false ? 'info' : 'success'
       );
     } else {
       showToast(res.error || (isArabic ? 'فشلت إضافة العضو' : 'Failed to add member'), 'error');
@@ -355,7 +362,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                     {folder.ownerPhotoURL ? (
                       <img src={folder.ownerPhotoURL} alt={folder.ownerName} className="w-full h-full object-cover" />
                     ) : (
-                      <span>{folder.ownerAvatar || folder.ownerName.slice(0, 1)}</span>
+                      <span>{folder.ownerAvatar || getMemberInitials(folder.ownerName, folder.ownerNumericId)}</span>
                     )}
                   </div>
 
@@ -369,12 +376,14 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                       <div
                         key={m.numericId}
                         title={`${m.name} (${m.status})`}
-                        className="relative w-7 h-7 rounded-full bg-purple-600/30 border border-purple-500/50 flex items-center justify-center text-xs font-bold text-purple-300 shrink-0 overflow-hidden"
+                        className={`relative w-7 h-7 rounded-full border border-purple-500/50 flex items-center justify-center text-[10px] font-bold text-white shrink-0 overflow-hidden bg-gradient-to-tr ${getAvatarColorGradient(m.numericId || m.name)}`}
                       >
                         {m.photoURL ? (
                           <img src={m.photoURL} alt={m.name} className="w-full h-full object-cover" />
+                        ) : m.avatar && m.avatar !== '👤' ? (
+                          <span>{m.avatar}</span>
                         ) : (
-                          <span>{m.avatar || m.name.slice(0, 1)}</span>
+                          <span>{getMemberInitials(m.name, m.numericId)}</span>
                         )}
                         <span
                           className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border border-black ${
@@ -812,29 +821,51 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             </p>
 
             <form onSubmit={handleAddMember} className="space-y-3.5">
-              <input
-                type="text"
-                autoFocus
-                required
-                maxLength={24}
-                placeholder="4829 1038 4756 1928"
-                value={newMemberId}
-                onChange={(e) => setNewMemberId(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-center text-base focus:outline-none focus:border-purple-500 tracking-wider"
-              />
+              <div className="space-y-1.5">
+                <label className="text-xs text-zinc-300 font-bold block">
+                  {isArabic ? 'المعرّف الرقمي (16 رقم):' : '16-Digit Numeric ID:'}
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  maxLength={19}
+                  placeholder="4829 1038 4756 1928"
+                  value={format16DigitId(newMemberId)}
+                  onChange={(e) => {
+                    const { clean } = format16DigitInput(e.target.value, newMemberId);
+                    setNewMemberId(clean);
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-center text-base focus:outline-none focus:border-purple-500 tracking-wider"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs text-zinc-300 font-bold block">
+                  {isArabic ? 'اسم أو لقب العضو (اختياري):' : 'Member Name or Nickname (optional):'}
+                </label>
+                <input
+                  type="text"
+                  maxLength={30}
+                  placeholder={isArabic ? 'مثال: أحمد، سارة، صديق...' : 'e.g. Ahmed, Sarah, Friend...'}
+                  value={newMemberName}
+                  onChange={(e) => setNewMemberName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs focus:outline-none focus:border-purple-500"
+                />
+              </div>
 
               <div className="flex items-center gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsAddMemberOpen(false)}
-                  className="flex-1 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-zinc-400 text-xs font-bold transition"
+                  className="flex-1 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-zinc-400 text-xs font-bold transition cursor-pointer"
                 >
                   {isArabic ? 'إلغاء' : 'Cancel'}
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingMember || cleanNumericId(newMemberId).length !== 16}
-                  className="flex-1 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md transition disabled:opacity-40"
+                  className="flex-1 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md transition disabled:opacity-40 cursor-pointer"
                 >
                   {isSubmittingMember ? (isArabic ? 'جارٍ الإرسال...' : 'Sending...') : (isArabic ? 'إرسال الدعوة' : 'Send Invite')}
                 </button>
@@ -869,13 +900,40 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsManageMembersOpen(false)}
-                className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {isOwner && folder.members.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const confirmed = await showConfirm({
+                        title: isArabic ? 'إفراغ جميع الأعضاء' : 'Remove All Members',
+                        message: isArabic
+                          ? 'هل تريد بالتأكيد إزالة جميع الأعضاء من صفحة المشاركة هذه والبدء من جديد؟'
+                          : 'Are you sure you want to remove all members from this share and start fresh?',
+                        confirmLabel: isArabic ? 'نعم، إفراغ الكل' : 'Remove All',
+                        cancelLabel: isArabic ? 'تراجع' : 'Cancel',
+                        isDanger: true,
+                      });
+                      if (!confirmed) return;
+                      const res = await removeAllMembersFromShareFolder(folder.id);
+                      if (res.success && res.folder) {
+                        setFolder(res.folder);
+                        showToast(isArabic ? 'تمت إزالة جميع الأعضاء بنجاح' : 'All members removed', 'success');
+                      }
+                    }}
+                    className="text-[11px] text-red-400 hover:text-red-300 font-semibold px-2 py-1 rounded-lg bg-red-950/30 hover:bg-red-900/40 border border-red-500/20 transition cursor-pointer"
+                  >
+                    {isArabic ? 'إفراغ الأعضاء' : 'Clear All'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsManageMembersOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 overscroll-contain">
@@ -917,16 +975,76 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                       className="p-3 rounded-2xl bg-zinc-900 border border-zinc-800/90 flex items-center justify-between gap-3"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-full bg-purple-600/20 border border-purple-500/40 flex items-center justify-center text-sm font-bold text-purple-300 shrink-0 overflow-hidden">
+                        <div
+                          className={`w-10 h-10 rounded-full border border-purple-500/40 flex items-center justify-center text-xs font-bold text-white shrink-0 overflow-hidden bg-gradient-to-tr ${getAvatarColorGradient(
+                            m.numericId || m.name
+                          )}`}
+                        >
                           {m.photoURL ? (
                             <img src={m.photoURL} alt={m.name} className="w-full h-full object-cover" />
+                          ) : m.avatar && m.avatar !== '👤' ? (
+                            <span className="text-base">{m.avatar}</span>
                           ) : (
-                            <span>{m.avatar || '👤'}</span>
+                            <span>{getMemberInitials(m.name, m.numericId)}</span>
                           )}
                         </div>
                         <div className="min-w-0">
                           <div className="text-sm font-bold text-white truncate flex items-center gap-1.5">
-                            <span>{m.name}</span>
+                            {editingMemberId === m.numericId ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  value={editingMemberName}
+                                  onChange={(e) => setEditingMemberName(e.target.value)}
+                                  maxLength={30}
+                                  className="px-2 py-0.5 rounded-lg bg-zinc-800 border border-purple-500 text-xs text-white focus:outline-none"
+                                  autoFocus
+                                />
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (editingMemberName.trim()) {
+                                      const res = await updateMemberDetailsInShareFolder(folder.id, m.numericId, {
+                                        name: editingMemberName.trim(),
+                                      });
+                                      if (res.success && res.folder) {
+                                        setFolder(res.folder);
+                                      }
+                                    }
+                                    setEditingMemberId(null);
+                                  }}
+                                  className="p-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                  title="Save"
+                                >
+                                  <Check className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingMemberId(null)}
+                                  className="p-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 cursor-pointer"
+                                  title="Cancel"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <span>{m.name}</span>
+                                {isOwner && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingMemberId(m.numericId);
+                                      setEditingMemberName(m.name);
+                                    }}
+                                    className="p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition cursor-pointer"
+                                    title={isArabic ? 'تعديل اسم أو لقب العضو' : 'Edit Member Name'}
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </>
+                            )}
                             <span
                               className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono ${
                                 isPending
@@ -1039,6 +1157,121 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               >
                 <Plus className="w-4 h-4" />
                 <span>{isArabic ? 'إضافة عضو جديد بالمعرّف الرقمي' : 'Add New Member by ID'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Remove Transaction Options with Explicit Exit & Cancel Buttons */}
+      {deleteTxTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
+          onClick={() => setDeleteTxTarget(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4 relative"
+            dir={isArabic ? 'rtl' : 'ltr'}
+          >
+            {/* Header with Exit (X) Button */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    {isArabic ? 'خيارات إزالة المعاملة' : 'Remove Transaction Options'}
+                  </h3>
+                  <p className="text-[11px] text-zinc-400">
+                    {deleteTxTarget.description} • {formatCurrency(deleteTxTarget.amount, currencySymbol, isArabic ? 'ar' : 'en')}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteTxTarget(null)}
+                className="p-1.5 rounded-full hover:bg-zinc-850 text-zinc-400 hover:text-white transition cursor-pointer"
+                title={isArabic ? 'إغلاق' : 'Close'}
+                aria-label={isArabic ? 'إغلاق' : 'Close'}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-300 leading-relaxed">
+              {isArabic
+                ? 'يرجى تحديد الإجراء المطلوب تنفيذه على هذه المعاملة:'
+                : 'Please select what you would like to do with this transaction:'}
+            </p>
+
+            {/* Action 1: Remove from share only */}
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const updated = removeItemFromShareFolder(folder.id, 'transaction', deleteTxTarget.id);
+                  if (updated) setFolder(updated);
+                  setDeleteTxTarget(null);
+                  showToast(isArabic ? 'تمت إزالة المعاملة من الشير فقط (موجودة بحسابك)' : 'Removed from Share only', 'info');
+                }}
+                className="w-full p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-750 hover:border-zinc-650 text-start flex items-center gap-3 transition cursor-pointer active:scale-98 group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
+                  <Share2 className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold text-white">
+                    {isArabic ? 'إزالة من الشير فقط' : 'Remove from Share Only'}
+                  </div>
+                  <div className="text-[10px] text-zinc-400">
+                    {isArabic
+                      ? 'تبقى في حسابك الشخصي كما هي، وتُحذف فقط من هذه المساحة المشتركة'
+                      : 'Keeps it safe in your personal account, only removes from this share'}
+                  </div>
+                </div>
+              </button>
+
+              {/* Action 2: Delete everywhere permanently */}
+              <button
+                type="button"
+                onClick={() => {
+                  deleteTransaction(deleteTxTarget.id);
+                  const updated = removeItemFromShareFolder(folder.id, 'transaction', deleteTxTarget.id);
+                  if (updated) setFolder(updated);
+                  setDeleteTxTarget(null);
+                  showToast(isArabic ? 'تم حذف المعاملة نهائياً من كل مكان' : 'Transaction deleted everywhere', 'info');
+                }}
+                className="w-full p-3 rounded-2xl bg-red-950/30 hover:bg-red-900/40 border border-red-500/40 hover:border-red-500/60 text-start flex items-center gap-3 transition cursor-pointer active:scale-98 group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold text-red-300">
+                    {isArabic ? 'حذف نهائياً من كل مكان' : 'Delete Permanently Everywhere'}
+                  </div>
+                  <div className="text-[10px] text-zinc-400">
+                    {isArabic
+                      ? 'حذف المعاملة من حسابك الشخصي ومن الشير نهائياً ولا يمكن التراجع'
+                      : 'Deletes from both your account and share folder permanently'}
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {/* Explicit Cancel & Exit Button */}
+            <div className="pt-2 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setDeleteTxTarget(null)}
+                className="w-full py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-zinc-300 hover:text-white text-xs font-bold transition cursor-pointer border border-zinc-800 flex items-center justify-center gap-1.5"
+              >
+                <X className="w-3.5 h-3.5 text-zinc-400" />
+                <span>{isArabic ? 'إلغاء وتراجع (عدم الحذف)' : 'Cancel & Exit'}</span>
               </button>
             </div>
           </div>

@@ -20,6 +20,33 @@ export function format16DigitId(id: string): string {
   return digits.replace(/(\d{4})(?=\d)/g, '$1 ');
 }
 
+/**
+ * Format raw user input into 4-digit partitioned chunks (e.g. `4829 1038 4756 1928`)
+ * Automatically partitions digits into 4-character blocks as the user types
+ * and handles natural backspacing across chunk spaces smoothly.
+ */
+export function format16DigitInput(
+  rawInput: string,
+  prevCleanVal?: string
+): { formatted: string; clean: string } {
+  const digits = cleanNumericId(rawInput).slice(0, 16);
+  if (
+    prevCleanVal &&
+    digits.length === prevCleanVal.length &&
+    rawInput.length < format16DigitId(prevCleanVal).length
+  ) {
+    const shortened = digits.slice(0, -1);
+    return {
+      formatted: format16DigitId(shortened),
+      clean: shortened,
+    };
+  }
+  return {
+    formatted: format16DigitId(digits),
+    clean: digits,
+  };
+}
+
 /** Random 16-digit numeric ID (first digit never 0) */
 export function generate16DigitNumericId(): string {
   let out = String(1 + Math.floor(Math.random() * 9));

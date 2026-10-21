@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "shared_accounts": {
+      ".read": true,
+      ".write": true
+    },
+    "numericIds": {
+      ".read": true,
+      ".write": true
+    },
+    "sharedBundles": {
+      ".read": true,
+      ".write": true
+    },
+    "inboxByNumericId": {
+      ".read": true,
+      ".write": true
+    }
+  }
+}

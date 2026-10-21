@@ -468,6 +468,7 @@ const MainAppContent: React.FC = () => {
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (isAnyModalOpen) return;
     const target = e.target as HTMLElement;
     if (target.closest('input, textarea, select, [data-no-swipe], .no-swipe, .overflow-x-auto, button')) return;
     const touch = e.touches[0];
@@ -475,7 +476,7 @@ const MainAppContent: React.FC = () => {
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchStartRef.current) return;
+    if (isAnyModalOpen || !touchStartRef.current) return;
     const touch = e.touches[0];
     const deltaX = touch.clientX - touchStartRef.current.x;
     const deltaY = touch.clientY - touchStartRef.current.y;
@@ -576,7 +577,6 @@ const MainAppContent: React.FC = () => {
     isAccountModalOpen ||
     !!viewingTx ||
     isAddTxModalOpen ||
-    !!editingTx ||
     isPinModalOpen ||
     isRecurringModalOpen ||
     isEmojiPickerOpen ||
@@ -602,6 +602,9 @@ const MainAppContent: React.FC = () => {
       };
     } else {
       document.body.style.overflow = '';
+      // Restore bars visibility when all overlays/sub-pages are closed
+      setIsBarsVisible(true);
+      setIsHeaderVisible(true);
     }
   }, [isAnyModalOpen]);
 

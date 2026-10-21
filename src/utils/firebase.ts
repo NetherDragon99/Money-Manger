@@ -18,6 +18,7 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   ConfirmationResult,
+  signInAnonymously,
 } from 'firebase/auth';
 import {
   getDatabase,
@@ -49,6 +50,21 @@ export const rtdb = getDatabase(app);
 // Google Provider
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+/**
+ * Ensure the client has an active Firebase Auth session (signs in anonymously if not signed in)
+ * This allows public share links to read real-time RTDB data without requiring Google sign-in.
+ */
+export async function ensureFirebaseAuth(): Promise<User | null> {
+  if (auth.currentUser) return auth.currentUser;
+  try {
+    const cred = await signInAnonymously(auth);
+    return cred.user;
+  } catch (err) {
+    console.warn('[Firebase] Anonymous sign-in attempt (falling back to public RTDB rules):', err);
+    return null;
+  }
+}
 
 /**
  * Sign In With Google (Popup with Redirect Fallback for mobile/PWA)

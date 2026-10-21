@@ -67,7 +67,14 @@ import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomD
 import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId, cleanNumericId } from '../utils/userId';
 import { auth } from '../utils/firebase';
 import { decodeShareSnapshot } from '../utils/sharing';
-import { publishUserProfileCard } from '../utils/shareFolders';
+import {
+  publishUserProfileCard,
+  syncShareFoldersWithMainData,
+  subscribeToMyInbox,
+  loadReceivedShareFolders,
+  saveReceivedShareFolders,
+  ShareFolder,
+} from '../utils/shareFolders';
 
 export interface ToastItem {
   id: string;
@@ -715,6 +722,64 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     saveTransactions(transactions);
   }, [transactions]);
 
+  // Auto-synchronize any created Share Pages with live accounts, categories, and transactions
+  // and broadcast the updates to Firebase RTDB in real time so external shared pages are 100% live
+  useEffect(() => {
+    if (!accounts || !transactions || !categories) return;
+    const timer = setTimeout(() => {
+      syncShareFoldersWithMainData(accounts, categories, transactions);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [accounts, categories, transactions]);
+
+  // Active global real-time listener for incoming shares to user's 16-digit ID
+  // Delivers instant incoming shares without requiring the recipient to refresh!
+  useEffect(() => {
+    const rawId = settings.userProfile?.numericId;
+    const cleanId = cleanNumericId(rawId || '');
+    if (cleanId.length !== 16) return;
+
+    // Track known IDs so we only alert for brand new shares
+    const initialReceived = loadReceivedShareFolders();
+    const knownIds = new Set(initialReceived.map((f) => f.id));
+
+    const unsub = subscribeToMyInbox(cleanId, (liveReceived) => {
+      if (!Array.isArray(liveReceived)) return;
+
+      // Check for brand new shares
+      for (const folder of liveReceived) {
+        if (!knownIds.has(folder.id)) {
+          knownIds.add(folder.id);
+          // Show interactive real-time notification toast!
+          showToast(
+            settings.language === 'ar'
+              ? `📬 وصلتك مشاركة جديدة من "${folder.ownerName}": "${folder.name}"!`
+              : `📬 New share received from "${folder.ownerName}": "${folder.name}"!`,
+            'info',
+            {
+              label: settings.language === 'ar' ? 'عرض المشاركة' : 'View Share',
+              onClick: () => {
+                setIsSharedHubModalOpen(true);
+                window.dispatchEvent(
+                  new CustomEvent('open_shared_accounts_hub', {
+                    detail: { tab: 'shared_with_me', folderId: folder.id },
+                  })
+                );
+              },
+            },
+            7000
+          );
+        }
+      }
+
+      saveReceivedShareFolders(liveReceived);
+      // Dispatch event to update any open UI instantly
+      window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: liveReceived }));
+    });
+
+    return () => unsub();
+  }, [settings.userProfile?.numericId, settings.language]);
+
   useEffect(() => {
     debouncedPersist('recurring_transactions', () => saveRecurringTransactions(recurringTransactions));
   }, [recurringTransactions]);
@@ -902,6 +967,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const closeAddTxModal = () => {
     setIsAddTxModalOpen(false);
+    setEditingTx(null);
     setDefaultTxAccountId(undefined);
     setDefaultTxAmount(undefined);
   };
@@ -914,6 +980,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const closeEditTxModal = () => {
     setEditingTx(null);
     setIsAddTxModalOpen(false);
+    setDefaultTxAccountId(undefined);
+    setDefaultTxAmount(undefined);
   };
 
   const openTxDetailsModal = (tx: Transaction) => {
@@ -1673,6 +1741,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       budgetAlerts,
       dismissedAlertIds,
       isEmojiPickerOpen,
+      selectedAccountIds,
+      isAccountMultiSelect,
+      isGlobalMultiSelect,
+      shareModalState,
+      remainingBalanceModalState,
+      isHeaderVisible,
       selectedTxIds,
       isTxMultiSelect,
       selectedCategoryIds,

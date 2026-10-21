@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
-import { format16DigitId, cleanNumericId } from '../utils/userId';
+import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
 import {
   loadMyShareFolders,
   loadReceivedShareFolders,
@@ -36,6 +36,8 @@ import {
   subscribeToShareFolder,
   ShareFolder,
   publishUserProfileCard,
+  getAvatarColorGradient,
+  getMemberInitials,
 } from '../utils/shareFolders';
 import { ShareDetailView } from './ShareDetailView';
 
@@ -69,6 +71,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   // Quick invite inside modal state
   const [invitingFolderId, setInvitingFolderId] = useState<string | null>(null);
   const [invite16Id, setInvite16Id] = useState('');
+  const [inviteName, setInviteName] = useState('');
   const [isSendingInvite, setIsSendingInvite] = useState(false);
 
   // Automatically publish user's public lookup card on open
@@ -94,6 +97,33 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     });
     return () => unsub();
   }, [isOpen, myCleanNumericId]);
+
+  // Real-time listener on custom events when inbox is updated globally or hub is opened
+  useEffect(() => {
+    const handleUpdated = (e: any) => {
+      if (e?.detail && Array.isArray(e.detail)) {
+        setReceivedFolders(e.detail);
+      }
+    };
+    const handleOpenHub = (e: any) => {
+      if (e?.detail?.tab) {
+        setActiveTab(e.detail.tab);
+      }
+      if (e?.detail?.folderId) {
+        const received = loadReceivedShareFolders();
+        const found = received.find((f) => f.id === e.detail.folderId);
+        if (found) {
+          setActiveShareDetailFolder(found);
+        }
+      }
+    };
+    window.addEventListener('received_shares_updated', handleUpdated);
+    window.addEventListener('open_shared_accounts_hub', handleOpenHub);
+    return () => {
+      window.removeEventListener('received_shares_updated', handleUpdated);
+      window.removeEventListener('open_shared_accounts_hub', handleOpenHub);
+    };
+  }, []);
 
   // Real-time listener for current user's created share pages
   useEffect(() => {
@@ -160,15 +190,23 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     }
 
     setIsSendingInvite(true);
-    const res = await addMemberToShareFolder(folderId, cleanId);
+    const res = await addMemberToShareFolder(folderId, cleanId, inviteName.trim());
     setIsSendingInvite(false);
 
     if (res.success && res.folder) {
       setMyFolders(loadMyShareFolders());
       setInvite16Id('');
+      setInviteName('');
+      setInvitingFolderId(null);
       showToast(
-        isArabic ? 'تمت إضافة العضو وإرسال الدعوة لحظياً!' : 'Member added and invite sent instantly!',
-        'success'
+        res.cloudSynced === false
+          ? (isArabic
+              ? 'تمت إضافة العضو بنجاح محلياً! (بانتظار تحديث صلاحيات قواعد Firebase للمزامنة السحابية)'
+              : 'Member added locally! (Firebase RTDB rules update needed for cloud sync)')
+          : (isArabic
+              ? 'تمت إضافة العضو وإرسال الدعوة لحظياً!'
+              : 'Member added and invite sent instantly!'),
+        res.cloudSynced === false ? 'info' : 'success'
       );
     } else {
       showToast(res.error || (isArabic ? 'فشلت إضافة العضو' : 'Failed to add member'), 'error');
@@ -377,8 +415,16 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                               >
                                 {m.photoURL ? (
                                   <img src={m.photoURL} alt={m.name} className="w-4 h-4 rounded-full object-cover" />
+                                ) : m.avatar && m.avatar !== '👤' ? (
+                                  <span className="text-[11px]">{m.avatar}</span>
                                 ) : (
-                                  <span className="text-[11px]">{m.avatar || '👤'}</span>
+                                  <span
+                                    className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
+                                      m.numericId || m.name
+                                    )}`}
+                                  >
+                                    {getMemberInitials(m.name, m.numericId).slice(0, 1)}
+                                  </span>
                                 )}
                                 <span className="text-[11px] font-medium text-zinc-300 truncate max-w-[80px]">
                                   {m.name}
@@ -452,23 +498,36 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                           <form
                             onSubmit={(e) => handleAddMember(folder.id, e)}
                             onClick={(e) => e.stopPropagation()}
-                            className="pt-2 border-t border-zinc-800 flex items-center gap-2 animate-in fade-in"
+                            className="pt-2 border-t border-zinc-800 space-y-2 animate-in fade-in"
                           >
                             <input
                               type="text"
                               autoFocus
+                              maxLength={19}
                               placeholder={isArabic ? 'أدخل المعرّف الرقمي (16 رقم)' : 'Enter 16-Digit Numeric ID'}
-                              value={invite16Id}
-                              onChange={(e) => setInvite16Id(e.target.value)}
-                              className="flex-1 px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-750 text-xs font-mono text-white focus:outline-none focus:border-purple-500"
+                              value={format16DigitId(invite16Id)}
+                              onChange={(e) => {
+                                const { clean } = format16DigitInput(e.target.value, invite16Id);
+                                setInvite16Id(clean);
+                              }}
+                              className="w-full px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-750 text-xs font-mono text-white focus:outline-none focus:border-purple-500 tracking-wider"
                             />
-                            <button
-                              type="submit"
-                              disabled={isSendingInvite || cleanNumericId(invite16Id).length !== 16}
-                              className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition disabled:opacity-40 cursor-pointer"
-                            >
-                              {isSendingInvite ? (isArabic ? 'إرسال...' : 'Sending...') : (isArabic ? 'دعوة' : 'Invite')}
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                placeholder={isArabic ? 'اسم أو لقب العضو (اختياري)' : 'Name or Nickname (optional)'}
+                                value={inviteName}
+                                onChange={(e) => setInviteName(e.target.value)}
+                                className="flex-1 px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-750 text-xs text-white focus:outline-none focus:border-purple-500"
+                              />
+                              <button
+                                type="submit"
+                                disabled={isSendingInvite || cleanNumericId(invite16Id).length !== 16}
+                                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition disabled:opacity-40 cursor-pointer"
+                              >
+                                {isSendingInvite ? (isArabic ? 'إرسال...' : 'Sending...') : (isArabic ? 'دعوة' : 'Invite')}
+                              </button>
+                            </div>
                           </form>
                         )}
                       </div>

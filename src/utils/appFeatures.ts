@@ -21,6 +21,30 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.14',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'Instant Account Multi-Select, 4-Digit Smart ID Formatting, Dedicated Share Deletion Modal & Scroll-Lock Polish',
+      ar: 'تحديد فوري للحسابات لحظياً، تقسيم ذكي للمعرف الرقمي كل 4 أرقام، نافذة مخصصة لحذف معاملات الشير، وإصلاح قفل التمرير',
+    },
+    highlights: {
+      en: [
+        'Instant Account Multi-Selection: Tapping account cards while in select mode toggles selection immediately (0ms delay) with instant checkmark feedback and action-bar synchronization, eliminating the need to switch tabs.',
+        'Smart 4-Digit ID Partitioning: All 16-digit ID inputs across the app format numbers automatically into 4-digit blocks (XXXX XXXX XXXX XXXX) with smooth backspace handling across chunk boundaries.',
+        'Dedicated Share Transaction Deletion Modal: Purpose-built dialog providing explicit choices ("Remove from Share Only" vs "Delete Everywhere"), a top-corner close (X) button, an explicit Cancel & Exit button, and backdrop tap dismissal.',
+        'Zero Ghost-Modal Scroll Locks: Resolved dangling transaction edit state (editingTx) on modal close, ensuring background page scrolling and navigation bars remain 100% responsive without requiring back button resets.',
+        'Universal Dialog Exit Controls: Added top-corner exit (X) buttons and backdrop click-to-dismiss to all system confirmation and prompt dialogs.',
+      ],
+      ar: [
+        'تحديد فوري للحسابات بدون تأخير: الضغط على بطاقة الحساب في وضع التحديد المتعدد ينفذ الاختيار لحظياً ويظهر علامة الصح فوراً في قائمة العناصر وشريط الإجراءات دون الحاجة لتبديل الصفحة.',
+        'تقسيم ذكي للمعرّف الرقمي (كل 4 أرقام): تنسيق تلقائي فوري للمعرّفات المكونة من 16 رقماً إلى مجموعات رباعية (XXXX XXXX XXXX XXXX) في جميع النوافذ مع حذف ذكي وسلس للمسافات عند الضغط على Backspace.',
+        'نافذة مخصصة لخيارات حذف معاملات الشير: نافذة مستقلة بخيارات واضحة ("إزالة من الشير فقط" أو "حذف نهائي من كل مكان") مع زر إغلاق (X) علوي، وزر إلغاء وخروج صريح، وإمكانية الإغلاق بالنقر على الخلفية.',
+        'إزالة تجميد التمرير الخفي: تصفير كامل وتلقائي لحالة التعديل عند إغلاق النوافذ، مما يمنع بقاء الصفحة في حالة قفل التمرير أو إخفاء أشرطة التنقل دون وجود نوافذ مفتوحة.',
+        'أزرار إغلاق وخروج لنوافذ التأكيد: إضافة زر إغلاق (X) علوي وإمكانية الإلغاء بالنقر خارج النافذة لكافة نوافذ التأكيد والحوار.',
+      ],
+    },
+  },
+  {
     version: '1.1.13',
     releaseDate: 'October 21, 2026',
     title: {
