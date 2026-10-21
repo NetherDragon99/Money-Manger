@@ -73,13 +73,13 @@ export const TransactionDetailsModal: React.FC = () => {
     <div
       onClick={handleAnimatedClose}
       onTouchMove={(e) => e.stopPropagation()}
-      className={`fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 overscroll-contain transition-all duration-200 ${
+      className={`fixed inset-0 z-[80] flex items-end sm:items-center landscape:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 landscape:p-2 overflow-y-auto overscroll-contain transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl p-6 text-white space-y-6 overflow-hidden transition-all duration-200 ${
+        className={`w-full max-w-md max-h-[92dvh] my-auto flex flex-col rounded-t-3xl sm:rounded-3xl landscape:rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl p-6 landscape:p-4 text-white space-y-6 landscape:space-y-4 overflow-y-auto transition-all duration-200 ${
           isClosing ? 'modal-container-closing' : 'modal-container-anim'
         }`}
       >

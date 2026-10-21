@@ -62,13 +62,13 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
     <div
       onClick={handleAnimatedClose}
       onTouchMove={(e) => e.stopPropagation()}
-      className={`fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-md overscroll-contain transition-all duration-200 ${
+      className={`fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 overflow-y-auto bg-black/60 backdrop-blur-md overscroll-contain transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-4xl h-[92vh] sm:h-[86vh] flex flex-col rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl text-white overflow-hidden relative transition-all duration-200 ${
+        className={`w-full max-w-4xl h-[92dvh] sm:h-[86dvh] my-auto flex flex-col rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl text-white overflow-hidden relative transition-all duration-200 ${
           isClosing ? 'modal-container-closing' : 'modal-container-anim'
         }`}
       >

@@ -45,11 +45,11 @@ export const RemainingBalanceModal: React.FC = () => {
     <div
       onClick={closeRemainingBalanceModal}
       onTouchMove={(e) => e.stopPropagation()}
-      className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain"
+      className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-6 text-white space-y-5 animate-in zoom-in-95 duration-200"
+        className="w-full max-w-md max-h-[92dvh] overflow-y-auto my-auto rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-6 text-white space-y-5 animate-in zoom-in-95 duration-200"
         dir={isArabic ? 'rtl' : 'ltr'}
       >
         {/* Header */}

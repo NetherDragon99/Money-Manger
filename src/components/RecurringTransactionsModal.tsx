@@ -66,13 +66,13 @@ export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProp
     <div
       onClick={handleAnimatedClose}
       onTouchMove={(e) => e.stopPropagation()}
-      className={`fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-md overscroll-contain transition-all duration-200 ${
+      className={`fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/60 backdrop-blur-md overscroll-contain transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-lg max-h-[85vh] rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl flex flex-col text-white overflow-hidden transition-all duration-200 ${
+        className={`w-full max-w-lg max-h-[90dvh] my-auto rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl flex flex-col text-white overflow-hidden transition-all duration-200 ${
           isClosing ? 'modal-container-closing' : 'modal-container-anim'
         }`}
       >

@@ -190,13 +190,13 @@ export const ExportCustomizeModal: React.FC<ExportCustomizeModalProps> = ({ isOp
   return (
     <div
       onClick={handleAnimatedClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md transition-all duration-200 ${
+      className={`fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/60 backdrop-blur-md transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-md max-h-[90vh] flex flex-col rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl text-white overflow-hidden transition-all duration-200 ${
+        className={`w-full max-w-md max-h-[92dvh] my-auto flex flex-col rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl text-white overflow-hidden transition-all duration-200 ${
           isClosing ? 'modal-container-closing' : 'modal-container-anim'
         }`}
       >

@@ -35,13 +35,13 @@ export const ActionProgressModal: React.FC<ActionProgressModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain select-none"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/85 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain select-none"
       dir={isArabic ? 'rtl' : 'ltr'}
       onTouchMove={(e) => e.stopPropagation()}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-3xl bg-zinc-950 border border-zinc-800 p-6 shadow-2xl text-white space-y-5 animate-in zoom-in-95 duration-200 relative overflow-hidden"
+        className="w-full max-w-sm max-h-[92dvh] overflow-y-auto my-auto rounded-3xl bg-zinc-950 border border-zinc-800 p-6 shadow-2xl text-white space-y-5 animate-in zoom-in-95 duration-200 relative overflow-hidden"
       >
         {/* Ambient Top Glow */}
         <div className="absolute -top-12 left-1/2 -translate-x-1/2 w-48 h-24 bg-blue-500/15 rounded-full blur-2xl pointer-events-none" />

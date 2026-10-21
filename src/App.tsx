@@ -619,15 +619,15 @@ const MainAppContent: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex justify-center text-white selection:bg-blue-600 selection:text-white">
-      {/* Responsive Container Frame across Mobile, Tablet & Desktop (Item 2) */}
+    <div className="min-h-[100dvh] bg-zinc-950 flex justify-center text-white selection:bg-blue-600 selection:text-white">
+      {/* Responsive Container Frame across Mobile, Tablet & Desktop (Landscape & Portrait adaptive) */}
       <div
         onScrollCapture={handleScrollCapture}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        className="w-full max-w-full md:max-w-5xl lg:max-w-6xl xl:max-w-7xl min-h-screen bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
+        className="w-full max-w-full md:max-w-5xl lg:max-w-6xl xl:max-w-7xl min-h-[100dvh] bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
       >
         <OfflineBanner />
         <ToastContainer />
@@ -641,7 +641,7 @@ const MainAppContent: React.FC = () => {
         <div className="flex-1 flex flex-col relative overflow-hidden">
           {selectedAccountId && (
             <div className="fixed inset-0 z-40 bg-black animate-in slide-in-from-right rtl:slide-in-from-left duration-250 flex flex-col overflow-y-auto overscroll-contain">
-              <div className="w-full max-w-full md:max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto min-h-screen flex flex-col bg-black">
+              <div className="w-full max-w-full md:max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto min-h-[100dvh] flex flex-col bg-black">
                 <AccountDetailsView />
               </div>
             </div>
@@ -650,7 +650,7 @@ const MainAppContent: React.FC = () => {
           {/* Active Tab View Display: Only mount active tab at rest; dynamically mount adjacent tabs during horizontal swipe (Item 1) */}
           <div
             className={`flex-1 flex flex-col relative ${
-              isAnyModalOpen ? 'overflow-y-hidden max-h-screen select-none' : ''
+              isAnyModalOpen ? 'overflow-y-hidden max-h-[100dvh] select-none' : ''
             }`}
             style={isAnyModalOpen ? { touchAction: 'none' } : undefined}
           >

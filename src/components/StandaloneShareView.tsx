@@ -741,11 +741,11 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
           <div
             onClick={() => setViewingTx(null)}
             onTouchMove={(e) => e.stopPropagation()}
-            className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-150 overscroll-contain"
+            className="fixed inset-0 z-[80] flex items-end sm:items-center landscape:items-center justify-center bg-black/75 backdrop-blur-md p-0 sm:p-4 landscape:p-2 overflow-y-auto animate-in fade-in duration-150 overscroll-contain"
           >
             <div
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-6 text-white space-y-5 animate-in zoom-in-95 duration-200"
+              className="w-full max-w-md max-h-[92dvh] overflow-y-auto my-auto rounded-t-3xl sm:rounded-3xl landscape:rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-6 landscape:p-4 text-white space-y-5 animate-in zoom-in-95 duration-200"
               dir={isArabic ? 'rtl' : 'ltr'}
             >
               {/* Header */}

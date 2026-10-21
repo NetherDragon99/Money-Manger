@@ -236,7 +236,7 @@ export const MiniDateTimePicker: React.FC<MiniDateTimePickerProps> = ({
   const content = (
     <div
       onClick={(e) => e.stopPropagation()}
-      className={`w-full max-w-[340px] sm:max-w-sm rounded-3xl bg-zinc-950/90 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl p-4 sm:p-5 text-white relative transition-all duration-200 ${
+      className={`w-full max-w-[340px] sm:max-w-sm max-h-[92dvh] overflow-y-auto my-auto rounded-3xl bg-zinc-950/90 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl p-4 sm:p-5 text-white relative transition-all duration-200 ${
         isClosing ? 'modal-container-closing' : 'modal-container-anim'
       }`}
     >
@@ -613,7 +613,7 @@ export const MiniDateTimePicker: React.FC<MiniDateTimePickerProps> = ({
     return (
       <div
         onClick={handleAnimatedClose}
-        className={`fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-md transition-opacity duration-200 ${
+        className={`fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/60 backdrop-blur-md transition-opacity duration-200 ${
           isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
         }`}
       >

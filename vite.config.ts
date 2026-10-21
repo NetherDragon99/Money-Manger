@@ -15,7 +15,7 @@ export default defineConfig(({ command }) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.png', 'apple-touch-icon.png', 'icon.svg', 'version.json'],
+        includeAssets: ['favicon.png', 'apple-touch-icon.png', 'icon.svg', 'version.json', 'manifest.json', 'manifest.webmanifest'],
         manifest: {
           id: base,
           name: 'Personal Finance Tracker',

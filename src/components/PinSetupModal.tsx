@@ -153,12 +153,12 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
     <div
       onClick={onClose}
       onTouchMove={(e) => e.stopPropagation()}
-      className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain"
+      className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/75 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain"
       style={{ overscrollBehavior: 'contain' }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-3xl bg-zinc-950/95 dark:bg-zinc-950/95 border border-zinc-800 shadow-2xl p-5 text-white overflow-hidden animate-in zoom-in-95 duration-200 select-none"
+        className="w-full max-w-sm max-h-[92dvh] overflow-y-auto my-auto rounded-3xl bg-zinc-950/95 dark:bg-zinc-950/95 border border-zinc-800 shadow-2xl p-5 text-white animate-in zoom-in-95 duration-200 select-none"
       >
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">

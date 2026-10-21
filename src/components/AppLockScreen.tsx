@@ -101,13 +101,13 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex flex-col items-center justify-between p-6 bg-black text-white selection:bg-blue-600"
+      className="fixed inset-0 z-[9999] flex flex-col items-center justify-between p-4 sm:p-6 landscape:py-3 bg-black text-white selection:bg-blue-600 overflow-y-auto overscroll-contain"
       style={{ overscrollBehavior: 'contain' }}
     >
       {/* Top Header */}
-      <div className="pt-10 flex flex-col items-center text-center">
-        <div className="w-16 h-16 rounded-3xl bg-zinc-900 border border-zinc-800 shadow-2xl flex items-center justify-center text-blue-400 mb-4 animate-in fade-in zoom-in duration-300">
-          <Shield className="w-8 h-8" />
+      <div className="pt-4 sm:pt-10 landscape:pt-2 flex flex-col items-center text-center">
+        <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-3xl bg-zinc-900 border border-zinc-800 shadow-2xl flex items-center justify-center text-blue-400 mb-2 sm:mb-4 animate-in fade-in zoom-in duration-300">
+          <Shield className="w-6 h-6 sm:w-8 sm:h-8" />
         </div>
         <h2 className="text-xl font-bold tracking-tight text-white">
           {isArabic ? 'التطبيق مقفل' : 'Personal Finance'}

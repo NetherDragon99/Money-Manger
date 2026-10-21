@@ -21,6 +21,28 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.16',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'Tablet & Landscape Orientation Unlock, Universal Responsive Modals & PWA Manifest Standardization',
+      ar: 'إلغاء قفل التدوير للشاشات الكبيرة والتابلت، تكييف النوافذ المنبثقة للوضع الأفقي، وتوحيد ملفات الـ PWA',
+    },
+    highlights: {
+      en: [
+        'Universal Orientation Support: Completely removed orientation constraints across public/manifest.json, manifest.webmanifest, vite.config.ts, and index.html, setting orientation: "any" so the app rotates fluidly between Portrait and Landscape on all tablets, foldables, and desktop displays.',
+        'Adaptive Responsive Modals: Re-engineered all 20+ modal windows with dynamic viewport heights (max-h-[92dvh]), auto-centering, landscape-specific padding, and smooth vertical scrolling to eliminate overflow and cut-offs.',
+        'Dynamic Viewport (100dvh) Root Layout: Updated App viewport container to min-h-[100dvh] ensuring seamless adjustments when browser bars retract during screen rotation.',
+        'Standalone PWA Manifests: Explicitly generated and linked public/manifest.json and manifest.webmanifest with "orientation": "any" for flawless system-level installation.',
+      ],
+      ar: [
+        'دعم كامل وغير مقيد لتدوير الشاشة: إزالة أي قيود رأسية في ملفات manifest.json و manifest.webmanifest و vite.config.ts و index.html مع ضبط التدوير على "any" ليدعم الدوران السلس بين الوضعين الأفقي والرأسي على الأجهزة اللوحية والقابلة للطي والكمبيوتر.',
+        'تكييف ذكي للنوافذ المنبثقة: إعادة هندسة أكثر من 20 نافذة منبثقة بنظام ارتفاع ديناميكي (max-h-[92dvh]) وتمركز تلقائي وهوامش خاصة بالوضع الأفقي مع تمرير رأسي انسيابي يمنع أي اقتطاع.',
+        'تصميم حاوية ديناميكي (100dvh): تحديث إطار التطبيق الجذري ليعتمد على min-h-[100dvh] ليتكيف بدقة مع ظهور واختفاء أشرطة المتصفح والنظام عند التدوير.',
+        'توحيد ملفات تعريف الـ PWA: إنشاء وربط ملفات manifest.json و manifest.webmanifest المحدثة لضمان التثبيت المستقل بأفضل أداء.',
+      ],
+    },
+  },
+  {
     version: '1.1.15',
     releaseDate: 'October 21, 2026',
     title: {

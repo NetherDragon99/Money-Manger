@@ -25,12 +25,12 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
         onClose();
       }}
       onTouchMove={(e) => e.stopPropagation()}
-      className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md pointer-events-auto select-none animate-in fade-in duration-150 overscroll-contain"
+      className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/75 backdrop-blur-md pointer-events-auto select-none animate-in fade-in duration-150 overscroll-contain"
       style={{ overscrollBehavior: 'contain' }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-6 text-white space-y-4 relative pointer-events-auto animate-in zoom-in-95 duration-150"
+        className="w-full max-w-sm max-h-[92dvh] overflow-y-auto my-auto rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-6 text-white space-y-4 relative pointer-events-auto animate-in zoom-in-95 duration-150"
       >
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-rose-600/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">

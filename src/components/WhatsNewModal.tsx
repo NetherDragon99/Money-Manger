@@ -49,13 +49,13 @@ export const WhatsNewModal: React.FC = () => {
     <div
       onClick={handleDismiss}
       onTouchMove={(e) => e.stopPropagation()}
-      className={`fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md overscroll-contain transition-all duration-200 ${
+      className={`fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/75 backdrop-blur-md overscroll-contain transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-md rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-blue-500/40 p-6 shadow-2xl text-white space-y-5 relative overflow-hidden overscroll-contain transition-all duration-200 ${
+        className={`w-full max-w-md max-h-[92dvh] overflow-y-auto my-auto flex flex-col rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-blue-500/40 p-6 shadow-2xl text-white space-y-5 relative overscroll-contain transition-all duration-200 ${
           isClosing ? 'modal-container-closing' : 'modal-container-anim'
         }`}
       >

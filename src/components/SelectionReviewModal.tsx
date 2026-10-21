@@ -102,13 +102,13 @@ export const SelectionReviewModal: React.FC<SelectionReviewModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
+      className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
       onClick={onClose}
       onTouchMove={(e) => e.stopPropagation()}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg max-h-[85vh] bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 overscroll-contain"
+        className="w-full max-w-lg max-h-[90dvh] my-auto bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 overscroll-contain"
         dir={isArabic ? 'rtl' : 'ltr'}
       >
         {/* Header */}

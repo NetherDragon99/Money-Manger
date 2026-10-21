@@ -756,12 +756,12 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       {isAddTxOpen && (
         <div
           role="dialog"
-          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
+          className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
           onClick={() => setIsAddTxOpen(false)}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4"
+            className="w-full max-w-md max-h-[92dvh] overflow-y-auto my-auto bg-zinc-950 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4"
           >
             <h3 className="text-base font-bold text-white flex items-center gap-2">
               <Plus className="w-5 h-5 text-blue-400" />
@@ -844,7 +844,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       {isAddMemberOpen && (
         <div
           role="dialog"
-          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
+          className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
           onClick={() => {
             setIsAddMemberOpen(false);
             setSelectedMemberUser(null);
@@ -854,7 +854,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4"
+            className="w-full max-w-md max-h-[92dvh] overflow-y-auto my-auto bg-zinc-950 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4"
           >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -951,12 +951,12 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       {isManageMembersOpen && (
         <div
           role="dialog"
-          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
+          className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
           onClick={() => setIsManageMembersOpen(false)}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col overflow-hidden"
+            className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90dvh] my-auto flex flex-col overflow-hidden"
           >
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div className="flex items-center gap-2.5">
@@ -1258,12 +1258,12 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
+          className="fixed inset-0 z-[85] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
           onClick={() => setDeleteTxTarget(null)}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4 relative"
+            className="w-full max-w-sm max-h-[92dvh] overflow-y-auto my-auto bg-zinc-950 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4 relative"
             dir={isArabic ? 'rtl' : 'ltr'}
           >
             {/* Header with Exit (X) Button */}
