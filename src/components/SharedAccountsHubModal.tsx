@@ -3,37 +3,44 @@ import {
   X,
   Users,
   Share2,
-  ExternalLink,
   Copy,
   Trash2,
   Check,
   Plus,
-  RefreshCw,
-  Edit,
-  ShieldCheck,
   Radio,
   Send,
   Folder,
   Eye,
-  ArrowDownLeft,
+  ArrowLeft,
+  Settings,
+  ShieldCheck,
+  CheckCircle,
+  Clock,
+  UserX,
+  ChevronRight,
+  ExternalLink,
+  Download,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { Account, Transaction } from '../types';
-import {
-  auth,
-  publishSharedAccount,
-  stopSharingAccount,
-  listenToSharedAccount,
-} from '../utils/firebase';
-import { buildShareUrl } from '../utils/sharing';
+import { Account, Category, Transaction } from '../types';
 import { format16DigitId, cleanNumericId } from '../utils/userId';
 import {
   loadMyShareFolders,
   loadReceivedShareFolders,
-  saveReceivedShareFolders,
   saveMyShareFolders,
-  sendShareFolderToRecipient,
+  saveReceivedShareFolders,
   createNewShareFolder,
+  appendToExistingShareFolder,
+  removeItemFromShareFolder,
+  updateShareFolderSettings,
+  deleteShareFolder,
+  addMemberToShareFolder,
+  removeMemberFromShareFolder,
+  acceptShareInvitation,
+  rejectShareInvitation,
+  leaveShareFolder,
+  generateShareUrl,
+  fetchShareFolderFromCloud,
   ShareFolder,
 } from '../utils/shareFolders';
 
@@ -42,836 +49,1010 @@ interface SharedAccountsHubModalProps {
   onClose: () => void;
 }
 
-interface FollowedAccountItem {
-  id: string;
-  name: string;
-  icon: string;
-  balance: number;
-  ownerEmail?: string;
-  lastUpdated?: number;
-}
-
-const STORAGE_FOLLOWED_KEY = 'pwa_finance_followed_accounts';
-const STORAGE_MY_SHARED_KEY = 'pwa_finance_my_shared_ids';
-
 export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   isOpen,
   onClose,
 }) => {
   const {
-    accounts,
-    transactions,
     settings,
+    accounts,
+    categories,
+    transactions,
+    importSharedItems,
+    openSharedLiveView,
     showToast,
     showConfirm,
-    openSharedLiveView,
-    openShareModal,
-    importSingleAccountData,
   } = useApp();
+
   const isArabic = settings.language === 'ar';
+  const myNumericId = settings.userProfile?.numericId || '0000000000000000';
+  const myName = settings.userProfile?.name || 'User';
 
-  const [activeTab, setActiveTab] = useState<'my_shared' | 'shared_with_me'>('my_shared');
-  const [isClosing, setIsClosing] = useState(false);
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'my_shares' | 'shared_with_me'>('my_shares');
+  const [myFolders, setMyFolders] = useState<ShareFolder[]>(() => loadMyShareFolders());
+  const [receivedFolders, setReceivedFolders] = useState<ShareFolder[]>(() => loadReceivedShareFolders());
 
-  // My shared account IDs
-  const [mySharedIds, setMySharedIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_MY_SHARED_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  // Active Managing Share Page
+  const [managingFolderId, setManagingFolderId] = useState<string | null>(null);
 
-  // Followed shared accounts
-  const [followedAccounts, setFollowedAccounts] = useState<FollowedAccountItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_FOLLOWED_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  // Active Viewing Received Share Page
+  const [viewingFolder, setViewingFolder] = useState<ShareFolder | null>(null);
 
-  // Share Folders (Item 6 & 7)
-  const [myShareFolders, setMyShareFolders] = useState<ShareFolder[]>(() => loadMyShareFolders());
-  const [receivedShareFolders, setReceivedShareFolders] = useState<ShareFolder[]>(() =>
-    loadReceivedShareFolders()
-  );
+  // Add Member State
+  const [newMemberId, setNewMemberId] = useState('');
+  const [isAddingMember, setIsAddingMember] = useState(false);
 
-  // Direct Share via 16-Digit ID input state
-  const [target16DigitId, setTarget16DigitId] = useState('');
-  const [selectedFolderToSend, setSelectedFolderToSend] = useState<string>('');
-  const [isSendingDirect, setIsSendingDirect] = useState(false);
-  const [copiedMyId, setCopiedMyId] = useState(false);
+  // Add Item to Share State
+  const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
+  const [selectedItemType, setSelectedItemType] = useState<'account' | 'category' | 'transaction'>('account');
+  const [selectedItemIdToAdd, setSelectedItemIdToAdd] = useState('');
 
-  // Follow input
-  const [joinInput, setJoinInput] = useState('');
-  const [isJoining, setIsJoining] = useState(false);
+  // Selective Import State inside viewing folder
+  const [isSelectiveMode, setIsSelectiveMode] = useState(false);
+  const [selectedImportAccIds, setSelectedImportAccIds] = useState<string[]>([]);
+  const [selectedImportCatIds, setSelectedImportCatIds] = useState<string[]>([]);
+  const [selectedImportTxIds, setSelectedImportTxIds] = useState<string[]>([]);
 
-  // Share new picker state
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  // Reload folders when modal opens
+  // Refresh data on mount or open
   useEffect(() => {
     if (isOpen) {
-      setMyShareFolders(loadMyShareFolders());
-      setReceivedShareFolders(loadReceivedShareFolders());
+      setMyFolders(loadMyShareFolders());
+      setReceivedFolders(loadReceivedShareFolders());
     }
   }, [isOpen]);
 
-  // Save to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_MY_SHARED_KEY, JSON.stringify(mySharedIds));
-    } catch {}
-  }, [mySharedIds]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_FOLLOWED_KEY, JSON.stringify(followedAccounts));
-    } catch {}
-  }, [followedAccounts]);
-
-  // Real-time listener for followed accounts
-  useEffect(() => {
-    if (!isOpen || followedAccounts.length === 0) return;
-
-    const unsubs = followedAccounts.map((item) => {
-      return listenToSharedAccount(item.id, (data) => {
-        if (data && data.account) {
-          setFollowedAccounts((prev) =>
-            prev.map((acc) =>
-              acc.id === item.id
-                ? {
-                    ...acc,
-                    name: data.account.name,
-                    icon: data.account.icon,
-                    balance: data.account.balance,
-                    ownerEmail: data.ownerEmail,
-                    lastUpdated: data.updatedAt,
-                  }
-                : acc
-            )
-          );
-        }
-      });
-    });
-
-    return () => {
-      unsubs.forEach((unsub) => unsub());
-    };
-  }, [isOpen, followedAccounts.length]);
-
   if (!isOpen) return null;
 
-  const handleAnimatedClose = () => {
-    setIsClosing(true);
-    setTimeout(() => {
-      setIsClosing(false);
-      onClose();
-    }, 180);
-  };
+  const managingFolder = myFolders.find((f) => f.id === managingFolderId) || null;
 
-  const my16DigitId = settings.userProfile?.numericId || '0000000000000000';
-
-  const handleCopyMyNumericId = () => {
-    navigator.clipboard.writeText(my16DigitId);
-    setCopiedMyId(true);
-    showToast(
-      isArabic
-        ? `تم نسخ معرّفك الرقمي (${format16DigitId(my16DigitId)}) للحافظة!`
-        : `Your 16-Digit ID (${format16DigitId(my16DigitId)}) copied!`,
-      'success'
-    );
-    setTimeout(() => setCopiedMyId(false), 2000);
-  };
-
-  const handleShareAccount = async (account: Account) => {
-    setIsPublishing(true);
+  const handleCopyLink = async (folder: ShareFolder) => {
     try {
-      const user = auth.currentUser;
-      const ownerUid = user ? user.uid : 'local_device_user';
-      const ownerEmail = user?.email || user?.displayName || 'Family Account Owner';
-
-      const sharedId = await publishSharedAccount(ownerUid, ownerEmail, account, transactions);
-
-      if (!mySharedIds.includes(sharedId)) {
-        setMySharedIds((prev) => [...prev, sharedId]);
-      }
-      setIsPickerOpen(false);
+      const url = generateShareUrl(folder);
+      await navigator.clipboard.writeText(url);
       showToast(
-        isArabic
-          ? `تم إنشاء ومشاركة صفحة الحساب "${account.name}" بنجاح!`
-          : `Live shared page created for "${account.name}"!`,
+        isArabic ? `تم نسخ رابط المشاركة لشير "${folder.name}"!` : `Share link for "${folder.name}" copied!`,
         'success'
       );
-    } catch (err: any) {
-      showToast(err?.message || 'Failed to share account', 'error');
-    } finally {
-      setIsPublishing(false);
+    } catch {
+      showToast(isArabic ? 'تعذر نسخ الرابط' : 'Failed to copy link', 'error');
     }
   };
 
-  const handleStopSharing = async (sharedId: string) => {
-    const confirmed = await showConfirm({
-      title: isArabic ? 'إيقاف المشاركة السحابية' : 'Stop Cloud Sharing',
+  const handleDeleteFolder = async (folder: ShareFolder) => {
+    const ok = await showConfirm({
+      title: isArabic ? 'حذف صفحة المشاركة' : 'Delete Share Page',
       message: isArabic
-        ? 'هل أنت متأكد من إلغاء مشاركة هذا الحساب؟ سيتوقف المتابعون عن تلقي التحديثات.'
-        : 'Are you sure you want to stop sharing this account? Followers will no longer receive live updates.',
-      confirmText: isArabic ? 'إيقاف المشاركة' : 'Stop Sharing',
+        ? `هل أنت متأكد من حذف صفحة "${folder.name}" تماماً؟ سيتم إلغاء وصول جميع الأعضاء.`
+        : `Are you sure you want to delete "${folder.name}"? Access will be revoked for all members.`,
+      confirmText: isArabic ? 'حذف نهائي' : 'Delete',
       isDanger: true,
     });
-    if (!confirmed) return;
+    if (!ok) return;
 
-    setRevokingId(sharedId);
-    try {
-      await stopSharingAccount(sharedId);
-      setMySharedIds((prev) => prev.filter((id) => id !== sharedId));
-      showToast(
-        isArabic ? 'تم إيقاف وإلغاء مشاركة الحساب السحابية' : 'Shared page revoked and stopped',
-        'info'
-      );
-    } catch (err: any) {
-      showToast(err?.message || 'Error revoking share', 'error');
-    } finally {
-      setRevokingId(null);
-    }
+    await deleteShareFolder(folder.id);
+    const updated = loadMyShareFolders();
+    setMyFolders(updated);
+    if (managingFolderId === folder.id) setManagingFolderId(null);
+    showToast(isArabic ? 'تم حذف صفحة المشاركة بنجاح' : 'Share page deleted', 'info');
   };
 
-  const handleDeleteShareFolder = (folderId: string) => {
-    const updated = myShareFolders.filter((f) => f.id !== folderId);
-    setMyShareFolders(updated);
-    saveMyShareFolders(updated);
-    showToast(isArabic ? 'تم حذف مجلد المشاركة' : 'Share folder deleted', 'info');
-  };
-
-  const handleDeleteReceivedFolder = (folderId: string) => {
-    const updated = receivedShareFolders.filter((f) => f.id !== folderId);
-    setReceivedShareFolders(updated);
-    saveReceivedShareFolders(updated);
-    showToast(isArabic ? 'تمت إزالة المجلد المشترك' : 'Removed received folder', 'info');
-  };
-
-  const handleSendFolderToId = async (e: React.FormEvent) => {
+  const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanTarget = cleanNumericId(target16DigitId);
-    if (cleanTarget.length !== 16) {
+    if (!managingFolder) return;
+    const cleanId = cleanNumericId(newMemberId);
+    if (cleanId.length !== 16) {
       showToast(
-        isArabic
-          ? 'يرجى إدخال معرّف صديق صحيح مكون من 16 رقماً'
-          : 'Please enter a valid 16-digit recipient ID',
+        isArabic ? 'يرجى إدخال معرّف صحيح مكون من 16 رقماً' : 'Please enter a valid 16-digit ID',
         'error'
       );
       return;
     }
 
-    if (!selectedFolderToSend && myShareFolders.length > 0) {
-      showToast(
-        isArabic ? 'يرجى اختيار المجلد المراد مشاركته' : 'Please select a folder to share',
-        'info'
-      );
-      return;
-    }
-
-    const folder = myShareFolders.find((f) => f.id === selectedFolderToSend) || myShareFolders[0];
-    if (!folder) {
-      showToast(
-        isArabic ? 'لا توجد مجلدات مشاركة بعد. أنشئ مجلداً أولاً!' : 'No share folders available yet!',
-        'info'
-      );
-      return;
-    }
-
-    setIsSendingDirect(true);
+    setIsAddingMember(true);
     try {
-      const res = await sendShareFolderToRecipient(folder, cleanTarget);
-      if (res.success) {
+      const res = await addMemberToShareFolder(managingFolder.id, cleanId);
+      if (res.success && res.folder) {
+        setMyFolders(loadMyShareFolders());
+        setNewMemberId('');
         showToast(
           isArabic
-            ? `تم إرسال مجلد "${folder.name}" بنجاح إلى المعرّف (${format16DigitId(cleanTarget)})!`
-            : `Folder "${folder.name}" successfully sent to (${format16DigitId(cleanTarget)})!`,
+            ? `تمت إضافة العضو (${format16DigitId(cleanId)}) بنجاح!`
+            : `Member (${format16DigitId(cleanId)}) added successfully!`,
           'success'
         );
-        setTarget16DigitId('');
       } else {
-        showToast(
-          isArabic ? `فشل الإرسال: ${res.error}` : `Failed to send: ${res.error}`,
-          'error'
-        );
+        showToast(res.error || (isArabic ? 'فشل إضافة العضو' : 'Failed to add member'), 'error');
       }
-    } catch (err: any) {
-      showToast(err?.message || 'Error sending folder', 'error');
     } finally {
-      setIsSendingDirect(false);
+      setIsAddingMember(false);
     }
   };
 
-  const getSharedAccountUrl = (sharedId: string): string => {
-    return buildShareUrl({ sharedAccountId: sharedId });
+  const handleRemoveMember = async (memberNumericId: string) => {
+    if (!managingFolder) return;
+    const ok = await showConfirm({
+      title: isArabic ? 'إلغاء وصول العضو' : 'Revoke Member Access',
+      message: isArabic
+        ? `هل تريد إزالة هذا العضو وإلغاء وصوله لشير "${managingFolder.name}"؟`
+        : `Revoke this member's access to "${managingFolder.name}"?`,
+      confirmText: isArabic ? 'إلغاء الوصول' : 'Revoke',
+      isDanger: true,
+    });
+    if (!ok) return;
+
+    const res = await removeMemberFromShareFolder(managingFolder.id, memberNumericId);
+    if (res.success) {
+      setMyFolders(loadMyShareFolders());
+      showToast(isArabic ? 'تم إلغاء وصول العضو بنجاح' : 'Member access revoked', 'info');
+    }
   };
 
-  const handleCopyLink = (sharedId: string) => {
-    const url = getSharedAccountUrl(sharedId);
-    navigator.clipboard.writeText(url);
-    setCopiedId(sharedId);
+  const handleRemoveItem = (itemType: 'account' | 'category' | 'transaction', itemId: string) => {
+    if (!managingFolder) return;
+    const updated = removeItemFromShareFolder(managingFolder.id, itemType, itemId);
+    if (updated) {
+      setMyFolders(loadMyShareFolders());
+      showToast(isArabic ? 'تم حذف العنصر من الشير' : 'Item removed from share', 'info');
+    }
+  };
+
+  const handleAddItemToShare = () => {
+    if (!managingFolder || !selectedItemIdToAdd) return;
+    if (selectedItemType === 'account') {
+      const acc = accounts.find((a) => a.id === selectedItemIdToAdd);
+      if (acc) appendToExistingShareFolder(managingFolder.id, { accounts: [acc] });
+    } else if (selectedItemType === 'category') {
+      const cat = categories.find((c) => c.id === selectedItemIdToAdd);
+      if (cat) appendToExistingShareFolder(managingFolder.id, { categories: [cat] });
+    } else {
+      const tx = transactions.find((t) => t.id === selectedItemIdToAdd);
+      if (tx) appendToExistingShareFolder(managingFolder.id, { transactions: [tx] });
+    }
+    setMyFolders(loadMyShareFolders());
+    setIsAddItemModalOpen(false);
+    setSelectedItemIdToAdd('');
+    showToast(isArabic ? 'تمت إضافة العنصر إلى صفحة الشير' : 'Item added to share page', 'success');
+  };
+
+  const handleAcceptInvite = async (folder: ShareFolder) => {
+    await acceptShareInvitation(folder.id, myNumericId);
+    setReceivedFolders(loadReceivedShareFolders());
     showToast(
-      isArabic ? 'تم نسخ رابط الحساب المشترك للحافظة!' : 'Live shared link copied to clipboard!',
+      isArabic ? `تم قبول دعوة مشاركة "${folder.name}"!` : `Accepted invitation for "${folder.name}"!`,
       'success'
     );
-    setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleOpenViewer = (sharedId: string) => {
-    handleAnimatedClose();
-    setTimeout(() => {
-      openSharedLiveView(sharedId);
-    }, 190);
+  const handleRejectInvite = async (folder: ShareFolder) => {
+    await rejectShareInvitation(folder.id, myNumericId);
+    setReceivedFolders(loadReceivedShareFolders());
+    showToast(isArabic ? 'تم رفض الدعوة' : 'Invitation declined', 'info');
   };
 
-  const handleJoinAccount = () => {
-    let cleanCode = joinInput.trim();
-    if (!cleanCode) return;
+  const handleLeaveShare = async (folder: ShareFolder) => {
+    const ok = await showConfirm({
+      title: isArabic ? 'إزالة الشير من حسابي' : 'Remove Shared Page',
+      message: isArabic
+        ? `هل تريد مغادرة وحذف صفحة "${folder.name}" من قائمة المشاركات المستلمة؟`
+        : `Leave and remove "${folder.name}" from your received shares?`,
+      confirmText: isArabic ? 'إزالة' : 'Remove',
+      isDanger: true,
+    });
+    if (!ok) return;
 
-    if (cleanCode.includes('sharedAccountId=')) {
-      try {
-        const u = new URL(cleanCode);
-        cleanCode = u.searchParams.get('sharedAccountId') || cleanCode;
-      } catch {
-        const match = cleanCode.match(/sharedAccountId=([^&]+)/);
-        if (match) cleanCode = match[1];
-      }
+    await leaveShareFolder(folder.id, myNumericId);
+    setReceivedFolders(loadReceivedShareFolders());
+    if (viewingFolder?.id === folder.id) setViewingFolder(null);
+    showToast(isArabic ? 'تمت إزالة الشير من قائمتك' : 'Shared page removed', 'info');
+  };
+
+  // Full Import
+  const handleImportAll = (folder: ShareFolder) => {
+    const res = importSharedItems({
+      accounts: folder.payload.accounts,
+      categories: folder.payload.categories,
+      transactions: folder.payload.transactions,
+    });
+    showToast(
+      isArabic
+        ? `تم الاستيراد بنجاح! (${res.accountsCount} حسابات، ${res.categoriesCount} تصنيفات، ${res.txsCount} معاملات)`
+        : `Successfully imported! (${res.accountsCount} accounts, ${res.categoriesCount} categories, ${res.txsCount} transactions)`,
+      'success'
+    );
+  };
+
+  // Selective Import
+  const handleImportSelected = (folder: ShareFolder) => {
+    const chosenAccounts = folder.payload.accounts.filter((a) => selectedImportAccIds.includes(a.id));
+    const chosenCategories = folder.payload.categories.filter((c) => selectedImportCatIds.includes(c.id));
+    const chosenTransactions = folder.payload.transactions.filter((t) => selectedImportTxIds.includes(t.id));
+
+    if (chosenAccounts.length === 0 && chosenCategories.length === 0 && chosenTransactions.length === 0) {
+      showToast(isArabic ? 'يرجى تحديد عنصر واحد على الأقل' : 'Please select at least one item', 'info');
+      return;
     }
 
-    setIsJoining(true);
-    listenToSharedAccount(cleanCode, (data) => {
-      setIsJoining(false);
-      if (data && data.account) {
-        setFollowedAccounts((prev) => {
-          if (prev.some((a) => a.id === cleanCode)) return prev;
-          return [
-            ...prev,
-            {
-              id: cleanCode,
-              name: data.account.name,
-              icon: data.account.icon,
-              balance: data.account.balance,
-              ownerEmail: data.ownerEmail,
-              lastUpdated: data.updatedAt,
-            },
-          ];
-        });
-
-        importSingleAccountData(data.account, data.transactions || []);
-        setJoinInput('');
-        showToast(
-          isArabic
-            ? `تمت متابعة ومزامنة حساب "${data.account.name}" بنجاح!`
-            : `Followed and synced "${data.account.name}" in real time!`,
-          'success'
-        );
-      } else {
-        showToast(
-          isArabic
-            ? 'رمز الحساب المشترك غير صالح أو لم يعد متاحاً'
-            : 'Invalid or inactive shared account code',
-          'error'
-        );
-      }
+    const res = importSharedItems({
+      accounts: chosenAccounts,
+      categories: chosenCategories,
+      transactions: chosenTransactions,
     });
-  };
 
-  const handleUnfollow = (id: string) => {
-    setFollowedAccounts((prev) => prev.filter((a) => a.id !== id));
-    showToast(isArabic ? 'تمت إزالة الحساب من قائمة المتابعة' : 'Unfollowed shared account', 'info');
+    showToast(
+      isArabic
+        ? `تم استيراد العناصر المحددة! (${res.accountsCount} حسابات، ${res.categoriesCount} تصنيفات، ${res.txsCount} معاملات)`
+        : `Imported selected items! (${res.accountsCount} accounts, ${res.categoriesCount} categories, ${res.txsCount} transactions)`,
+      'success'
+    );
+    setIsSelectiveMode(false);
   };
-
-  const sharedAccountsList = accounts.filter((acc) =>
-    mySharedIds.includes(`share_${acc.id}`)
-  );
 
   return (
     <div
-      onClick={handleAnimatedClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-md transition-all duration-200 ${
-        isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
-      }`}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-lg h-full sm:h-auto sm:max-h-[90vh] flex flex-col rounded-none sm:rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl text-white overflow-hidden transition-all duration-200 ${
-          isClosing ? 'modal-container-closing' : 'modal-container-anim'
-        }`}
+        className="w-full max-w-lg md:max-w-2xl rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-5 sm:p-6 text-white space-y-4 animate-in zoom-in-95 duration-200 max-h-[92dvh] overflow-y-auto flex flex-col"
+        dir={isArabic ? 'rtl' : 'ltr'}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/80 bg-zinc-900/40">
+        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-cyan-600/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
-              <Users className="w-4 h-4" />
-            </div>
+            {managingFolderId || viewingFolder ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setManagingFolderId(null);
+                  setViewingFolder(null);
+                  setIsSelectiveMode(false);
+                }}
+                className="w-8 h-8 rounded-xl bg-zinc-900 hover:bg-zinc-850 flex items-center justify-center text-zinc-300 transition cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4 rtl:rotate-180" />
+              </button>
+            ) : (
+              <div className="w-9 h-9 rounded-2xl bg-blue-600/20 text-blue-400 flex items-center justify-center text-lg">
+                👥
+              </div>
+            )}
             <div>
               <h3 className="text-base font-bold text-white">
-                {isArabic ? 'مركز المشاركة والحسابات' : 'Shared Accounts & Hub'}
+                {managingFolder
+                  ? `${isArabic ? 'إدارة صفحة:' : 'Manage:'} ${managingFolder.name}`
+                  : viewingFolder
+                  ? `${isArabic ? 'تصفح:' : 'Browse:'} ${viewingFolder.name}`
+                  : isArabic
+                  ? 'مركز المشاركات (Share Hub)'
+                  : 'Share Pages Hub'}
               </h3>
-              <p className="text-[11px] text-zinc-400">
-                {isArabic ? 'مشاركة المجلدات والحسابات لحظياً' : 'Live sharing & instant numeric delivery'}
+              <p className="text-xs text-zinc-400">
+                {managingFolder
+                  ? `${managingFolder.itemCount} ${isArabic ? 'عناصر' : 'items'} • ${managingFolder.members.length} ${isArabic ? 'أعضاء' : 'members'}`
+                  : viewingFolder
+                  ? `${isArabic ? 'بواسطة' : 'By'} ${viewingFolder.ownerName}`
+                  : isArabic
+                  ? 'إدارة صفحات وقوالب المشاركة ومتابعة الحسابات المشتركة'
+                  : 'Manage share templates and live collaborative pages'}
               </p>
             </div>
           </div>
           <button
             type="button"
-            onClick={handleAnimatedClose}
+            onClick={onClose}
             className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* User's Own 16-Digit ID Banner with 1-Tap Copy */}
-        <div className="px-5 py-2.5 bg-blue-950/30 border-b border-blue-900/30 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <span className="block text-[10px] font-bold text-blue-300 uppercase tracking-wider">
-              {isArabic ? 'معرّفك الرقمي للمشاركة (16 رقماً):' : 'Your 16-Digit Numeric ID:'}
-            </span>
-            <span className="block text-xs font-mono font-bold text-white tracking-wider mt-0.5 select-all truncate">
-              {format16DigitId(my16DigitId)}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={handleCopyMyNumericId}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer shrink-0 active:scale-95 ${
-              copiedMyId
-                ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300'
-                : 'bg-blue-600 hover:bg-blue-500 border-blue-500 text-white shadow-sm'
-            }`}
-          >
-            {copiedMyId ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copiedMyId ? (isArabic ? 'تم النسخ' : 'Copied') : isArabic ? 'نسخ معرّفي' : 'Copy My ID'}</span>
-          </button>
-        </div>
-
-        {/* Tab Switcher */}
-        <div className="px-5 pt-3 pb-2 border-b border-zinc-800/60 bg-zinc-900/20">
-          <div className="flex p-1 rounded-2xl bg-zinc-900 border border-zinc-800 text-xs font-bold">
-            <button
-              type="button"
-              onClick={() => setActiveTab('my_shared')}
-              className={`flex-1 py-2 rounded-xl transition text-center cursor-pointer ${
-                activeTab === 'my_shared'
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              {isArabic ? 'مشاركاتي' : 'My Shared'} ({sharedAccountsList.length + myShareFolders.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('shared_with_me')}
-              className={`flex-1 py-2 rounded-xl transition text-center cursor-pointer ${
-                activeTab === 'shared_with_me'
-                  ? 'bg-cyan-600 text-white shadow-md'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              {isArabic ? 'مشتركة معي' : 'Shared with Me'} ({followedAccounts.length + receivedShareFolders.length})
-            </button>
-          </div>
-        </div>
-
-        {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {activeTab === 'my_shared' ? (
-            /* TAB 1: My Shared Items & Add Someone by 16-Digit ID (Item 5) */
-            <div className="space-y-5">
-              {/* Add / Direct Send via 16-Digit ID Input Box (Item 5 user request) */}
-              <div className="p-4 rounded-2xl bg-zinc-900/90 border border-blue-500/30 space-y-3 shadow-lg">
-                <div className="flex items-center gap-2">
-                  <Send className="w-4 h-4 text-blue-400" />
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-white">
-                    {isArabic ? 'إرسال مجلد مشاركة لصديق بمعرّفه (16 رقماً)' : 'Send Share Folder to Friend by 16-Digit ID'}
-                  </h4>
-                </div>
-
-                <form onSubmit={handleSendFolderToId} className="space-y-2.5">
-                  {myShareFolders.length > 0 && (
-                    <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1">
-                        {isArabic ? 'اختر المجلد المراد إرساله:' : 'Select folder to send:'}
-                      </label>
-                      <select
-                        value={selectedFolderToSend || myShareFolders[0]?.id}
-                        onChange={(e) => setSelectedFolderToSend(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:outline-none focus:border-blue-500"
-                      >
-                        {myShareFolders.map((f) => (
-                          <option key={f.id} value={f.id}>
-                            {f.icon} {f.name} ({f.itemCount} items)
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={19}
-                      value={format16DigitId(target16DigitId)}
-                      onChange={(e) => setTarget16DigitId(cleanNumericId(e.target.value))}
-                      placeholder={isArabic ? 'أدخل معرّف الصديق (16 رقماً)' : 'Enter 16-Digit Friend ID'}
-                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono tracking-wider text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
-                    />
-                    <button
-                      type="submit"
-                      disabled={isSendingDirect || cleanNumericId(target16DigitId).length !== 16}
-                      className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold transition shadow cursor-pointer shrink-0 flex items-center gap-1.5 active:scale-95"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>{isSendingDirect ? '...' : isArabic ? 'إرسال' : 'Send'}</span>
-                    </button>
-                  </div>
-                </form>
+        {/* VIEW 1: MANAGE CREATED SHARE PAGE */}
+        {managingFolder ? (
+          <div className="space-y-4 animate-in fade-in">
+            {/* Quick Settings & Permissions */}
+            <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                  {isArabic ? 'إعدادات وصلاحيات الشير' : 'Share Settings & Role'}
+                </span>
+                <span className="text-xs font-mono text-zinc-500">{managingFolder.icon}</span>
               </div>
 
-              {/* My Share Folders List (Item 6) */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                    <Folder className="w-3.5 h-3.5 text-purple-400" />
-                    <span>{isArabic ? 'مجلدات المشاركة المستقلة' : 'My Share Folders'}</span>
-                    <span className="text-[10px] text-zinc-500 font-mono">({myShareFolders.length})</span>
-                  </h4>
-                </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = managingFolder.permission === 'view_only' ? 'allow_import_edit' : 'view_only';
+                    updateShareFolderSettings(managingFolder.id, { permission: next });
+                    setMyFolders(loadMyShareFolders());
+                  }}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    managingFolder.permission === 'view_only'
+                      ? 'bg-amber-500/10 border-amber-500/40 text-amber-300'
+                      : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>
+                    {managingFolder.permission === 'view_only'
+                      ? isArabic
+                        ? 'للمشاهدة فقط'
+                        : 'View Only'
+                      : isArabic
+                      ? 'سماح بالاستيراد'
+                      : 'Allow Import'}
+                  </span>
+                </button>
 
-                {myShareFolders.length === 0 ? (
-                  <div className="text-center py-6 px-4 rounded-2xl bg-zinc-900/30 border border-zinc-800/60 text-zinc-500 text-xs">
-                    {isArabic
-                      ? 'لا توجد مجلدات مشاركة بعد. حدد معاملات من الصفحة الرئيسية واضغط "مجلد مشاركة" لإنشاء مجلد فوري.'
-                      : 'No share folders yet. Multi-select items from Home view and tap "Share Folder".'}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {myShareFolders.map((folder) => (
-                      <div
-                        key={folder.id}
-                        className="p-3 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-3"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="text-2xl shrink-0">{folder.icon}</span>
-                          <div className="min-w-0">
-                            <span className="text-xs font-bold text-white block truncate">{folder.name}</span>
-                            <span className="text-[10px] text-zinc-400">
-                              {folder.itemCount} {isArabic ? 'عناصر' : 'items'} •{' '}
-                              {new Date(folder.createdAt).toLocaleDateString()}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedFolderToSend(folder.id);
-                              showToast(
-                                isArabic ? 'تم اختيار المجلد للإرسال بالأعلى' : 'Folder selected for sending above',
-                                'info'
-                              );
-                            }}
-                            className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-blue-400 text-xs transition cursor-pointer"
-                            title="Select to send"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteShareFolder(folder.id)}
-                            className="p-2 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 text-red-400 text-xs transition cursor-pointer"
-                            title="Delete Folder"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Shared Live Accounts List */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-                    {isArabic ? 'الحسابات التي أشاركها عبر الرابط' : 'Accounts Shared via Link'} ({sharedAccountsList.length})
-                  </h4>
-                  <button
-                    type="button"
-                    onClick={() => setIsPickerOpen(!isPickerOpen)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 text-[11px] font-bold transition cursor-pointer"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>{isArabic ? 'مشاركة حساب' : 'Share Account'}</span>
-                  </button>
-                </div>
-
-                {isPickerOpen && (
-                  <div className="p-3 rounded-2xl bg-zinc-900 border border-blue-500/40 space-y-2 animate-in fade-in">
-                    <span className="block text-xs font-bold text-white">
-                      {isArabic ? 'اختر حساباً لمشاركته مباشرة:' : 'Choose an account to share:'}
-                    </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto">
-                      {accounts.map((acc) => {
-                        const isAlreadyShared = mySharedIds.includes(`share_${acc.id}`);
-                        return (
-                          <button
-                            key={acc.id}
-                            type="button"
-                            disabled={isAlreadyShared}
-                            onClick={() => { setIsPickerOpen(false); openShareModal({ accounts: [acc] }); }}
-                            className={`flex items-center justify-between p-2 rounded-xl text-left text-xs transition cursor-pointer ${
-                              isAlreadyShared
-                                ? 'bg-zinc-950/40 border border-zinc-800 text-zinc-500 opacity-60'
-                                : 'bg-zinc-950 border border-zinc-800 hover:border-blue-500 hover:bg-zinc-850 text-white'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 truncate">
-                              <span>{acc.icon}</span>
-                              <span className="truncate">{acc.name}</span>
-                            </div>
-                            {isAlreadyShared ? (
-                              <span className="text-[10px] text-emerald-400 font-bold shrink-0">Shared</span>
-                            ) : (
-                              <Share2 className="w-3 h-3 text-blue-400 shrink-0" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {sharedAccountsList.map((acc) => {
-                  const sharedId = `share_${acc.id}`;
-                  const isCopied = copiedId === sharedId;
-
-                  return (
-                    <div
-                      key={acc.id}
-                      className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-3 shadow-md"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="text-2xl shrink-0">{acc.icon}</span>
-                        <div className="min-w-0">
-                          <span className="text-xs font-bold text-white block truncate">{acc.name}</span>
-                          <span className="text-[10px] text-zinc-400 font-mono">ID: {sharedId}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleCopyLink(sharedId)}
-                          className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-blue-400 text-xs transition cursor-pointer"
-                          title="Copy Link"
-                        >
-                          {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenViewer(sharedId)}
-                          className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-cyan-400 text-xs transition cursor-pointer"
-                          title="Open Live View"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={revokingId === sharedId}
-                          onClick={() => handleStopSharing(sharedId)}
-                          className="p-2 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 text-red-400 text-xs transition cursor-pointer"
-                          title="Stop Sharing"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                <button
+                  type="button"
+                  onClick={() => handleCopyLink(managingFolder)}
+                  className="py-2 px-3 rounded-xl bg-zinc-850 hover:bg-zinc-800 border border-zinc-700/80 text-xs font-bold text-blue-400 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Copy className="w-4 h-4" />
+                  <span>{isArabic ? 'نسخ رابط الويب' : 'Copy Web Link'}</span>
+                </button>
               </div>
             </div>
-          ) : (
-            /* TAB 2: Shared With Me (Received Folders & Followed Accounts) */
-            <div className="space-y-5">
-              {/* Follow via link / code */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-                  {isArabic ? 'متابعة رابط أو رمز مشاركة' : 'Follow Shared Account / Code'}
-                </h4>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={joinInput}
-                    onChange={(e) => setJoinInput(e.target.value)}
-                    placeholder={
-                      isArabic ? 'ألصق الرمز أو الرابط هنا' : 'Paste ID or link'
-                    }
-                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500 transition"
-                  />
-                  <button
-                    type="button"
-                    disabled={isJoining || !joinInput.trim()}
-                    onClick={handleJoinAccount}
-                    className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold transition shadow cursor-pointer shrink-0"
-                  >
-                    {isJoining ? '...' : isArabic ? 'متابعة' : 'Follow'}
-                  </button>
-                </div>
+
+            {/* Members Section (16-Digit IDs) */}
+            <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                  {isArabic ? 'الأعضاء والأشخاص المضافين' : 'Members & People'} ({managingFolder.members.length})
+                </span>
               </div>
 
-              {/* Received Share Folders from Friends (Delivered via 16-Digit ID) */}
-              <div className="space-y-3">
-                <h5 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{isArabic ? 'المجلدات المرسلة لي' : 'Folders Received via My ID'}</span>
-                  <span className="text-[10px] text-zinc-500 font-mono">({receivedShareFolders.length})</span>
-                </h5>
+              {/* Add Member Input */}
+              <form onSubmit={handleAddMember} className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={19}
+                  value={format16DigitId(newMemberId)}
+                  onChange={(e) => setNewMemberId(cleanNumericId(e.target.value))}
+                  placeholder="1234 5678 9012 3456"
+                  className="flex-1 px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono tracking-wider text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  type="submit"
+                  disabled={isAddingMember || cleanNumericId(newMemberId).length !== 16}
+                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold transition flex items-center gap-1 shrink-0 cursor-pointer active:scale-95"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{isArabic ? 'إضافة' : 'Add'}</span>
+                </button>
+              </form>
 
-                {receivedShareFolders.length === 0 ? (
-                  <div className="text-center py-6 px-4 rounded-2xl bg-zinc-900/30 border border-zinc-800/60 text-zinc-500 text-xs">
-                    {isArabic
-                      ? 'لم تتلق أي مجلدات بعد. شارك معرّفك المكون من 16 رقماً مع أصدقائك ليرسلوا لك مجلداتهم مباشرة!'
-                      : 'No received folders yet. Give your 16-digit ID to friends to receive folders directly!'}
-                  </div>
-                ) : (
-                  <div className="space-y-2.5">
-                    {receivedShareFolders.map((folder) => (
-                      <div
-                        key={folder.id}
-                        className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-3 shadow-md"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="text-2xl shrink-0">{folder.icon}</span>
-                          <div className="min-w-0">
-                            <span className="text-xs font-bold text-white block truncate">{folder.name}</span>
-                            <span className="text-[10px] text-emerald-400 font-semibold block">
-                              {isArabic ? 'من' : 'From'}: {folder.ownerName} ({format16DigitId(folder.ownerNumericId)})
-                            </span>
-                            <span className="text-[9px] text-zinc-500">
-                              {folder.itemCount} {isArabic ? 'عناصر' : 'items'} •{' '}
-                              {folder.payload.transactions.length} txs
-                            </span>
-                          </div>
+              {/* Members List */}
+              {managingFolder.members.length === 0 ? (
+                <p className="text-xs text-zinc-500 py-1 text-center">
+                  {isArabic ? 'لم تتم إضافة أي أشخاص بعد. أضف شخصاً بالمعرف المكون من 16 رقماً.' : 'No members added yet. Add someone by their 16-digit ID.'}
+                </p>
+              ) : (
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                  {managingFolder.members.map((m) => (
+                    <div
+                      key={m.numericId}
+                      className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="text-xs font-mono font-bold text-zinc-200">
+                          {format16DigitId(m.numericId)}
                         </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              // Open Live View with folder snapshot
-                              handleAnimatedClose();
-                              setTimeout(() => {
-                                openSharedLiveView(undefined, {
-                                  title: folder.name,
-                                  ownerName: folder.ownerName,
-                                  createdAt: folder.createdAt,
-                                  accounts: folder.payload.accounts,
-                                  categories: folder.payload.categories,
-                                  transactions: folder.payload.transactions,
-                                });
-                              }, 190);
-                            }}
-                            className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-cyan-400 transition cursor-pointer"
-                            title="View Folder Content"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteReceivedFolder(folder.id)}
-                            className="p-2 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 text-red-400 transition cursor-pointer"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Followed Accounts */}
-              <div className="space-y-3">
-                <h5 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                  {isArabic ? 'الحسابات المتابعة عبر الرابط' : 'Followed Accounts via Link'} ({followedAccounts.length})
-                </h5>
-
-                {followedAccounts.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-3 shadow-md"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
-                        {item.icon || '🏦'}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-white truncate">{item.name}</span>
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 text-[9px] font-bold">
-                            Live
+                        <div className="text-[10px] text-zinc-400 flex items-center gap-1.5">
+                          <span>{m.role === 'editor' ? (isArabic ? 'محرر' : 'Editor') : (isArabic ? 'مشاهد' : 'Viewer')}</span>
+                          <span>•</span>
+                          <span className={m.status === 'accepted' ? 'text-emerald-400' : 'text-amber-400'}>
+                            {m.status === 'accepted' ? (isArabic ? 'مقبول' : 'Accepted') : (isArabic ? 'معلق' : 'Pending')}
                           </span>
                         </div>
-                        <div className="text-xs font-mono font-bold text-emerald-400 mt-0.5">
-                          {settings.currencySymbol || '£'}{Number(item.balance || 0).toFixed(2)}
-                        </div>
-                        {item.ownerEmail && (
-                          <div className="text-[10px] text-zinc-500 truncate mt-0.5">
-                            by {item.ownerEmail}
-                          </div>
-                        )}
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveMember(m.numericId)}
+                        className="p-1.5 rounded-lg bg-zinc-900 hover:bg-red-950/40 text-zinc-400 hover:text-red-400 transition cursor-pointer"
+                        title={isArabic ? 'إلغاء الوصول' : 'Revoke Access'}
+                      >
+                        <UserX className="w-4 h-4" />
+                      </button>
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenViewer(item.id)}
-                        className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-cyan-400 transition cursor-pointer"
-                        title="Open Live View"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleUnfollow(item.id)}
-                        className="p-2 rounded-xl bg-red-950/30 hover:bg-red-950/60 border border-red-900/50 text-red-400 transition cursor-pointer"
-                        title="Unfollow"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+            {/* Contents Section (Accounts, Categories, Transactions) */}
+            <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                  {isArabic ? 'محتويات الشير' : 'Shared Items'} ({managingFolder.itemCount})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsAddItemModalOpen(true)}
+                  className="px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 text-xs font-semibold flex items-center gap-1 cursor-pointer transition active:scale-95"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{isArabic ? 'إضافة عناصر' : 'Add Items'}</span>
+                </button>
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                {managingFolder.payload.accounts.map((a) => (
+                  <div key={a.id} className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between text-xs">
+                    <span className="truncate">🏦 {a.name} ({a.balance})</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveItem('account', a.id)}
+                      className="p-1 text-zinc-500 hover:text-red-400 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                {managingFolder.payload.categories.map((c) => (
+                  <div key={c.id} className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between text-xs">
+                    <span className="truncate">🏷️ {c.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveItem('category', c.id)}
+                      className="p-1 text-zinc-500 hover:text-red-400 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                {managingFolder.payload.transactions.map((t) => (
+                  <div key={t.id} className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between text-xs">
+                    <span className="truncate">💳 {t.description || t.categoryName} ({t.amount})</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveItem('transaction', t.id)}
+                      className="p-1 text-zinc-500 hover:text-red-400 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 ))}
               </div>
             </div>
-          )}
-        </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex justify-end">
-          <button
-            type="button"
-            onClick={handleAnimatedClose}
-            className="px-5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-bold text-white transition cursor-pointer"
+            {/* Danger Zone: Delete Share Page */}
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => handleDeleteFolder(managingFolder)}
+                className="px-4 py-2 rounded-xl bg-red-600/20 hover:bg-red-600/30 border border-red-500/40 text-red-400 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isArabic ? 'حذف صفحة الشير نهائياً' : 'Delete Share Page'}</span>
+              </button>
+            </div>
+          </div>
+        ) : viewingFolder ? (
+          /* VIEW 2: BROWSE & IMPORT RECEIVED SHARE PAGE */
+          <div className="space-y-4 animate-in fade-in">
+            {/* Owner Info & Import Bar */}
+            <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-base font-bold text-white flex items-center gap-2">
+                    <span>{viewingFolder.icon}</span>
+                    <span>{viewingFolder.name}</span>
+                  </div>
+                  <div className="text-xs text-zinc-400 mt-0.5">
+                    {isArabic ? 'المرسل:' : 'Sent by:'} {viewingFolder.ownerName} ({format16DigitId(viewingFolder.ownerNumericId)})
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleLeaveShare(viewingFolder)}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-850 hover:bg-red-950/40 border border-zinc-700 text-zinc-400 hover:text-red-400 text-xs font-semibold transition cursor-pointer"
+                >
+                  {isArabic ? 'إزالة الشير' : 'Leave Share'}
+                </button>
+              </div>
+
+              {/* Two Import Modes */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800/80">
+                <button
+                  type="button"
+                  onClick={() => handleImportAll(viewingFolder)}
+                  className="py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{isArabic ? 'إضافة كل العناصر لحسابي' : 'Add All to My Account'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSelectiveMode(!isSelectiveMode);
+                    if (!isSelectiveMode) {
+                      setSelectedImportAccIds(viewingFolder.payload.accounts.map((a) => a.id));
+                      setSelectedImportCatIds(viewingFolder.payload.categories.map((c) => c.id));
+                      setSelectedImportTxIds(viewingFolder.payload.transactions.map((t) => t.id));
+                    }
+                  }}
+                  className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    isSelectiveMode
+                      ? 'bg-purple-600 border-purple-500 text-white'
+                      : 'bg-zinc-850 hover:bg-zinc-800 border-zinc-700 text-zinc-300'
+                  }`}
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{isArabic ? 'اختيار عناصر معينة' : 'Select Specific Items'}</span>
+                </button>
+              </div>
+
+              {isSelectiveMode && (
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => handleImportSelected(viewingFolder)}
+                    className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>
+                      {isArabic ? 'استيراد العناصر المختارة فقط' : 'Import Selected Items'} (
+                      {selectedImportAccIds.length + selectedImportCatIds.length + selectedImportTxIds.length})
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Contents View */}
+            <div className="space-y-3">
+              {/* Accounts */}
+              {viewingFolder.payload.accounts.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-xs font-bold uppercase text-zinc-400">
+                    🏦 {isArabic ? 'الحسابات' : 'Accounts'} ({viewingFolder.payload.accounts.length})
+                  </div>
+                  {viewingFolder.payload.accounts.map((a) => {
+                    const isChecked = selectedImportAccIds.includes(a.id);
+                    return (
+                      <div
+                        key={a.id}
+                        onClick={() => {
+                          if (isSelectiveMode) {
+                            setSelectedImportAccIds((prev) =>
+                              prev.includes(a.id) ? prev.filter((id) => id !== a.id) : [...prev, a.id]
+                            );
+                          }
+                        }}
+                        className={`p-3 rounded-2xl border transition flex items-center justify-between text-xs ${
+                          isSelectiveMode ? 'cursor-pointer' : ''
+                        } ${
+                          isChecked && isSelectiveMode
+                            ? 'bg-blue-950/40 border-blue-500'
+                            : 'bg-zinc-900 border-zinc-800/80'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          {isSelectiveMode && (
+                            <div
+                              className={`w-4 h-4 rounded flex items-center justify-center border ${
+                                isChecked ? 'bg-blue-600 border-blue-500 text-white' : 'border-zinc-700 bg-zinc-950'
+                              }`}
+                            >
+                              {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                            </div>
+                          )}
+                          <span className="text-lg">{a.icon}</span>
+                          <span className="font-bold text-white">{a.name}</span>
+                        </div>
+                        <span className="font-mono text-zinc-300 font-bold">{a.balance}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Categories */}
+              {viewingFolder.payload.categories.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-xs font-bold uppercase text-zinc-400">
+                    🏷️ {isArabic ? 'التصنيفات' : 'Categories'} ({viewingFolder.payload.categories.length})
+                  </div>
+                  {viewingFolder.payload.categories.map((c) => {
+                    const isChecked = selectedImportCatIds.includes(c.id);
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => {
+                          if (isSelectiveMode) {
+                            setSelectedImportCatIds((prev) =>
+                              prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id]
+                            );
+                          }
+                        }}
+                        className={`p-3 rounded-2xl border transition flex items-center justify-between text-xs ${
+                          isSelectiveMode ? 'cursor-pointer' : ''
+                        } ${
+                          isChecked && isSelectiveMode
+                            ? 'bg-blue-950/40 border-blue-500'
+                            : 'bg-zinc-900 border-zinc-800/80'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          {isSelectiveMode && (
+                            <div
+                              className={`w-4 h-4 rounded flex items-center justify-center border ${
+                                isChecked ? 'bg-blue-600 border-blue-500 text-white' : 'border-zinc-700 bg-zinc-950'
+                              }`}
+                            >
+                              {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                            </div>
+                          )}
+                          <span className="text-lg">{c.icon}</span>
+                          <span className="font-bold text-white">{c.name}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Transactions */}
+              {viewingFolder.payload.transactions.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-xs font-bold uppercase text-zinc-400">
+                    💳 {isArabic ? 'المعاملات' : 'Transactions'} ({viewingFolder.payload.transactions.length})
+                  </div>
+                  {viewingFolder.payload.transactions.map((t) => {
+                    const isChecked = selectedImportTxIds.includes(t.id);
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => {
+                          if (isSelectiveMode) {
+                            setSelectedImportTxIds((prev) =>
+                              prev.includes(t.id) ? prev.filter((id) => id !== t.id) : [...prev, t.id]
+                            );
+                          }
+                        }}
+                        className={`p-3 rounded-2xl border transition flex items-center justify-between text-xs ${
+                          isSelectiveMode ? 'cursor-pointer' : ''
+                        } ${
+                          isChecked && isSelectiveMode
+                            ? 'bg-blue-950/40 border-blue-500'
+                            : 'bg-zinc-900 border-zinc-800/80'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          {isSelectiveMode && (
+                            <div
+                              className={`w-4 h-4 rounded flex items-center justify-center border ${
+                                isChecked ? 'bg-blue-600 border-blue-500 text-white' : 'border-zinc-700 bg-zinc-950'
+                              }`}
+                            >
+                              {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                            </div>
+                          )}
+                          <div>
+                            <div className="font-bold text-white truncate max-w-[160px]">
+                              {t.description || t.categoryName}
+                            </div>
+                            <div className="text-[10px] text-zinc-500">{t.date}</div>
+                          </div>
+                        </div>
+                        <span className={`font-mono font-bold ${t.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {t.amount}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* VIEW 3: MAIN HUB (TABS: MY SHARES vs SHARED WITH ME) */
+          <div className="space-y-4">
+            {/* Tabs Bar */}
+            <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-zinc-900 border border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setActiveTab('my_shares')}
+                className={`py-2 px-3 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  activeTab === 'my_shares'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Folder className="w-3.5 h-3.5" />
+                <span>{isArabic ? 'صفحات الشير الخاصة بي' : 'My Share Pages'} ({myFolders.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('shared_with_me')}
+                className={`py-2 px-3 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  activeTab === 'shared_with_me'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>{isArabic ? 'مشارك معي' : 'Shared With Me'} ({receivedFolders.length})</span>
+              </button>
+            </div>
+
+            {/* TAB 1: MY SHARES */}
+            {activeTab === 'my_shares' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-xs text-zinc-400 font-medium">
+                    {isArabic ? 'صفحات وقوالب شير محفوظة يمكنك تعديلها وإضافة أعضاء لها' : 'Created Share Pages with live member collaboration'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newFolder = createNewShareFolder({
+                        customName: isArabic ? `شير جديد #${myFolders.length + 1}` : `Shared Page #${myFolders.length + 1}`,
+                        ownerNumericId: myNumericId,
+                        ownerName: myName,
+                        isArabic,
+                      });
+                      setMyFolders(loadMyShareFolders());
+                      setManagingFolderId(newFolder.id);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 shadow transition cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{isArabic ? 'إنشاء صفحة شير' : 'New Share Page'}</span>
+                  </button>
+                </div>
+
+                {myFolders.length === 0 ? (
+                  <div className="p-8 rounded-3xl bg-zinc-900/60 border border-zinc-800 text-center space-y-2">
+                    <div className="text-3xl">📁</div>
+                    <div className="text-sm font-bold text-white">
+                      {isArabic ? 'لا توجد صفحات شير بعد' : 'No Share Pages Created Yet'}
+                    </div>
+                    <p className="text-xs text-zinc-400 max-w-xs mx-auto">
+                      {isArabic
+                        ? 'حدد معاملات أو حسابات بالضغط المطول واضغط مشاركة، أو اضغط على الزر أعلاه لإنشاء صفحة شير جديدة.'
+                        : 'Long-press items and tap Share, or click the button above to create a share template.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                    {myFolders.map((f) => (
+                      <div
+                        key={f.id}
+                        className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700 transition flex items-center justify-between"
+                      >
+                        <div
+                          onClick={() => setManagingFolderId(f.id)}
+                          className="flex items-center gap-3 min-w-0 cursor-pointer flex-1"
+                        >
+                          <span className="text-2xl">{f.icon || '📁'}</span>
+                          <div className="min-w-0">
+                            <div className="text-sm font-bold text-white truncate hover:text-blue-300 transition">
+                              {f.name}
+                            </div>
+                            <div className="text-[11px] text-zinc-400 flex items-center gap-2 mt-0.5">
+                              <span>{f.itemCount} {isArabic ? 'عناصر' : 'items'}</span>
+                              <span>•</span>
+                              <span>{f.members.length} {isArabic ? 'أعضاء' : 'members'}</span>
+                              <span>•</span>
+                              <span className="text-blue-400">
+                                {f.permission === 'view_only' ? (isArabic ? 'مشاهدة' : 'View') : (isArabic ? 'استيراد' : 'Import')}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0 pl-2">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyLink(f)}
+                            className="p-2 rounded-xl bg-zinc-850 hover:bg-zinc-800 text-zinc-300 hover:text-white transition cursor-pointer"
+                            title={isArabic ? 'نسخ رابط الويب' : 'Copy Public Web Link'}
+                          >
+                            <Copy className="w-4 h-4 text-blue-400" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setManagingFolderId(f.id)}
+                            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition cursor-pointer active:scale-95"
+                          >
+                            {isArabic ? 'إدارة' : 'Manage'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 2: SHARED WITH ME */}
+            {activeTab === 'shared_with_me' && (
+              <div className="space-y-3">
+                {receivedFolders.length === 0 ? (
+                  <div className="p-8 rounded-3xl bg-zinc-900/60 border border-zinc-800 text-center space-y-2">
+                    <div className="text-3xl">👥</div>
+                    <div className="text-sm font-bold text-white">
+                      {isArabic ? 'لا توجد مشاركات مستلمة حالياً' : 'No Shares Received Yet'}
+                    </div>
+                    <p className="text-xs text-zinc-400 max-w-xs mx-auto">
+                      {isArabic
+                        ? 'عندما يقوم صديق بإضافتك عبر معرّفك المكون من 16 رقماً، ستظهر مشاركته هنا فوراً.'
+                        : 'When someone shares with your 16-digit ID, their share page appears here.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                    {receivedFolders.map((f) => {
+                      const myMemberRecord = f.members.find((m) => m.numericId === cleanNumericId(myNumericId));
+                      const isPending = !myMemberRecord || myMemberRecord.status === 'pending';
+
+                      return (
+                        <div
+                          key={f.id}
+                          className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800/80 transition flex items-center justify-between"
+                        >
+                          <div
+                            onClick={() => setViewingFolder(f)}
+                            className="flex items-center gap-3 min-w-0 cursor-pointer flex-1"
+                          >
+                            <span className="text-2xl">{f.icon || '📁'}</span>
+                            <div className="min-w-0">
+                              <div className="text-sm font-bold text-white truncate hover:text-blue-300 transition">
+                                {f.name}
+                              </div>
+                              <div className="text-[11px] text-zinc-400 mt-0.5">
+                                {isArabic ? 'المرسل:' : 'From:'} {f.ownerName} • {f.itemCount} {isArabic ? 'عناصر' : 'items'}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0 pl-2">
+                            {isPending ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAcceptInvite(f)}
+                                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer active:scale-95"
+                                >
+                                  {isArabic ? 'قبول' : 'Accept'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRejectInvite(f)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-red-950/40 text-zinc-400 hover:text-red-400 text-xs font-semibold transition cursor-pointer"
+                                >
+                                  {isArabic ? 'رفض' : 'Decline'}
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setViewingFolder(f)}
+                                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer active:scale-95"
+                              >
+                                {isArabic ? 'تصفح واستيراد' : 'Browse & Import'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* MODAL: ADD ITEM TO SHARE PAGE */}
+        {isAddItemModalOpen && managingFolder && (
+          <div
+            onClick={() => setIsAddItemModalOpen(false)}
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-150"
           >
-            {isArabic ? 'إغلاق' : 'Close'}
-          </button>
-        </div>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-3xl bg-zinc-950 border border-zinc-800 p-5 space-y-3"
+            >
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                <h4 className="text-sm font-bold text-white">
+                  {isArabic ? 'إضافة عنصر إلى الشير' : 'Add Item to Share Page'}
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setIsAddItemModalOpen(false)}
+                  className="p-1 rounded-full text-zinc-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Type Switcher */}
+              <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-zinc-900 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedItemType('account');
+                    setSelectedItemIdToAdd('');
+                  }}
+                  className={`py-1.5 rounded-lg transition ${
+                    selectedItemType === 'account' ? 'bg-blue-600 text-white' : 'text-zinc-400'
+                  }`}
+                >
+                  {isArabic ? 'حساب' : 'Account'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedItemType('category');
+                    setSelectedItemIdToAdd('');
+                  }}
+                  className={`py-1.5 rounded-lg transition ${
+                    selectedItemType === 'category' ? 'bg-blue-600 text-white' : 'text-zinc-400'
+                  }`}
+                >
+                  {isArabic ? 'تصنيف' : 'Category'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedItemType('transaction');
+                    setSelectedItemIdToAdd('');
+                  }}
+                  className={`py-1.5 rounded-lg transition ${
+                    selectedItemType === 'transaction' ? 'bg-blue-600 text-white' : 'text-zinc-400'
+                  }`}
+                >
+                  {isArabic ? 'معاملة' : 'Transaction'}
+                </button>
+              </div>
+
+              {/* Item Dropdown */}
+              <select
+                value={selectedItemIdToAdd}
+                onChange={(e) => setSelectedItemIdToAdd(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white focus:outline-none focus:border-blue-500"
+              >
+                <option value="">{isArabic ? '-- اختر عنصراً --' : '-- Choose item --'}</option>
+                {selectedItemType === 'account' &&
+                  accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.icon} {a.name} ({a.balance})
+                    </option>
+                  ))}
+                {selectedItemType === 'category' &&
+                  categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.icon} {c.name}
+                    </option>
+                  ))}
+                {selectedItemType === 'transaction' &&
+                  transactions.slice(0, 50).map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.description || t.categoryName} ({t.amount})
+                    </option>
+                  ))}
+              </select>
+
+              <button
+                type="button"
+                disabled={!selectedItemIdToAdd}
+                onClick={handleAddItemToShare}
+                className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold transition shadow"
+              >
+                {isArabic ? 'إضافة إلى صفحة الشير' : 'Add to Share Page'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

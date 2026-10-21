@@ -1,13 +1,52 @@
 import { useApp } from '../context/AppContext';
 
 /**
- * Smart Auto-Hiding Header on Scroll (Item 3)
- * Synchronized with root layout onScrollCapture in App.tsx:
- * - Scroll up deltaY < -2 OR scrollTop <= 25 -> Instant show
- * - Scroll down deltaY > 10 AND scrollTop > 60 -> Slide out
- * - Tab change -> Resets to visible
+ * Smart Auto-Hiding Header on Scroll
+ * - Hides completely whenever any sub-page, drawer, or modal is active
+ * - Slides out on downward scroll (deltaY > 5 && currentScrollTop > 40)
+ * - Slides back into view immediately on upward scroll (deltaY < -2 || currentScrollTop <= 30)
  */
 export function useHeaderScroll() {
-  const { isHeaderVisible } = useApp();
+  const {
+    isHeaderVisible,
+    selectedAccountId,
+    isSidebarOpen,
+    isUserProfileModalOpen,
+    isSharedHubModalOpen,
+    isFeaturesModalOpen,
+    isRecurringModalOpen,
+    isPinModalOpen,
+    isAddTxModalOpen,
+    isAccountModalOpen,
+    isCategoryModalOpen,
+    isResetPeriodModalOpen,
+    isFilterModalOpen,
+    shareModalState,
+    remainingBalanceModalState,
+    activeSharedId,
+  } = useApp();
+
+  const isAnySubPageOrModalOpen = Boolean(
+    selectedAccountId ||
+    isSidebarOpen ||
+    isUserProfileModalOpen ||
+    isSharedHubModalOpen ||
+    isFeaturesModalOpen ||
+    isRecurringModalOpen ||
+    isPinModalOpen ||
+    isAddTxModalOpen ||
+    isAccountModalOpen ||
+    isCategoryModalOpen ||
+    isResetPeriodModalOpen ||
+    isFilterModalOpen ||
+    shareModalState?.isOpen ||
+    remainingBalanceModalState?.isOpen ||
+    activeSharedId
+  );
+
+  if (isAnySubPageOrModalOpen) {
+    return false;
+  }
+
   return isHeaderVisible;
 }

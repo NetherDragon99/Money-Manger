@@ -39,6 +39,9 @@ export const CalculatorView: React.FC = React.memo(() => {
   const isArabic = settings.language === 'ar';
 
   const activeCursor = cursorPos !== null ? Math.min(cursorPos, expression.length) : expression.length;
+  const openRootsCount = (expression.match(/√\(/g) || []).length;
+  const closeParensCount = (expression.match(/\)/g) || []).length;
+  const canMoveRight = activeCursor < expression.length || openRootsCount > closeParensCount;
 
   // Precision Evaluation Engine for √, ^, %, parentheses, and standard operators
   const evaluateMath = (raw: string): number | null => {
@@ -180,12 +183,19 @@ export const CalculatorView: React.FC = React.memo(() => {
     const openRoots = (expression.match(/√\(/g) || []).length;
     const closeParens = (expression.match(/\)/g) || []).length;
 
+    // Smart Scope Exit: if at the end of an unclosed root, auto-close and step out
     if (activeCursor === expression.length && openRoots > closeParens) {
       const next = expression + ')';
       setExpression(next);
       setCursorPos(next.length);
       const calculated = evaluateMath(next);
       if (calculated !== null) setResult(calculated);
+      return;
+    }
+
+    // Step over closing parenthesis if cursor is right before it
+    if (activeCursor < expression.length && expression[activeCursor] === ')') {
+      setCursorPos(activeCursor + 1);
       return;
     }
 
@@ -316,7 +326,7 @@ export const CalculatorView: React.FC = React.memo(() => {
     return elements;
   };
 
-  // Render Expression with Visual Cursor Position Indicator
+  // Render Expression with Visual Cursor Position Indicator integrated inside mathematical structures
   const renderExpressionWithCursor = () => {
     if (!expression) {
       return (
@@ -327,30 +337,118 @@ export const CalculatorView: React.FC = React.memo(() => {
       );
     }
 
-    const before = expression.slice(0, activeCursor);
-    const after = expression.slice(activeCursor);
+    const cursorElem = (
+      <span
+        key="calc-active-cursor"
+        className="inline-block w-[2.5px] h-5 bg-blue-500 animate-pulse align-middle mx-0.5 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]"
+      />
+    );
+
+    const renderRange = (start: number, end: number): React.ReactNode[] => {
+      const elements: React.ReactNode[] = [];
+      let i = start;
+
+      while (i < end) {
+        if (i === activeCursor) {
+          elements.push(cursorElem);
+        }
+
+        if (expression[i] === '√') {
+          if (expression[i + 1] === '(') {
+            let depth = 1;
+            let j = i + 2;
+            while (j < expression.length && depth > 0) {
+              if (expression[j] === '(') depth++;
+              else if (expression[j] === ')') depth--;
+              j++;
+            }
+            const closeIdx = depth === 0 ? j - 1 : Math.min(j, end);
+            elements.push(
+              <span key={`sqrt-${i}`} className="inline-flex items-center mx-0.5 align-baseline">
+                <span className="font-serif text-base sm:text-lg leading-none font-bold text-cyan-400 select-none">√</span>
+                <span className="border-t-2 border-cyan-400/80 pt-0.5 px-0.5 inline-flex items-center font-mono">
+                  {renderRange(i + 2, closeIdx)}
+                </span>
+              </span>
+            );
+            i = depth === 0 ? j : closeIdx;
+            continue;
+          } else {
+            let j = i + 1;
+            while (j < end && /[0-9.]/.test(expression[j])) {
+              j++;
+            }
+            elements.push(
+              <span key={`sqrt-single-${i}`} className="inline-flex items-center mx-0.5 align-baseline">
+                <span className="font-serif text-base sm:text-lg leading-none font-bold text-cyan-400 select-none">√</span>
+                <span className="border-t-2 border-cyan-400/80 pt-0.5 px-0.5 inline-flex items-center font-mono">
+                  {renderRange(i + 1, j)}
+                </span>
+              </span>
+            );
+            i = j;
+            continue;
+          }
+        } else if (expression[i] === '^') {
+          let j = i + 1;
+          if (expression[j] === '(') {
+            let depth = 1;
+            j++;
+            while (j < expression.length && depth > 0) {
+              if (expression[j] === '(') depth++;
+              else if (expression[j] === ')') depth--;
+              j++;
+            }
+            const closeIdx = depth === 0 ? j - 1 : Math.min(j, end);
+            elements.push(
+              <sup key={`sup-${i}`} className="text-xs font-mono font-bold text-cyan-400 ml-0.5 inline-flex items-center">
+                {renderRange(i + 2, closeIdx)}
+              </sup>
+            );
+            i = depth === 0 ? j : closeIdx;
+            continue;
+          } else {
+            while (j < end && /[0-9.]/.test(expression[j])) {
+              j++;
+            }
+            elements.push(
+              <sup key={`sup-single-${i}`} className="text-xs font-mono font-bold text-cyan-400 ml-0.5 inline-flex items-center">
+                {renderRange(i + 1, j)}
+              </sup>
+            );
+            i = j;
+            continue;
+          }
+        } else {
+          const char = expression[i];
+          const charIdx = i;
+          const isOp = /[\+\-×÷=/%]/.test(char);
+          elements.push(
+            <span
+              key={`char-${charIdx}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setCursorPos(charIdx + 1);
+              }}
+              className={`cursor-pointer transition-colors ${isOp ? 'text-blue-400 font-bold px-0.5' : 'text-zinc-200 hover:text-white'}`}
+            >
+              {char}
+            </span>
+          );
+          i++;
+        }
+      }
+
+      if (end === expression.length && activeCursor === expression.length) {
+        elements.push(cursorElem);
+      }
+
+      return elements;
+    };
 
     return (
       <span className="inline-flex items-center flex-wrap justify-end select-none">
-        <span
-          onClick={(e) => {
-            e.stopPropagation();
-            setCursorPos(0);
-          }}
-          className="cursor-pointer"
-        >
-          {renderMathTypography(before)}
-        </span>
-        <span className="inline-block w-[2.5px] h-5 bg-blue-500 animate-pulse align-middle mx-0.5 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
-        <span
-          onClick={(e) => {
-            e.stopPropagation();
-            setCursorPos(expression.length);
-          }}
-          className="cursor-pointer"
-        >
-          {renderMathTypography(after)}
-        </span>
+        {renderRange(0, expression.length)}
       </span>
     );
   };
@@ -358,7 +456,7 @@ export const CalculatorView: React.FC = React.memo(() => {
   return (
     <div className="h-[calc(100dvh-4.25rem)] sm:h-[calc(100dvh-4.75rem)] w-full max-w-lg md:max-w-2xl mx-auto flex flex-col justify-between overflow-hidden bg-black text-white px-3.5 pt-1 pb-2 select-none animate-in fade-in">
       {/* 1. Unified Header Bar Across All 5 Tabs (Standardized h-16) */}
-      <header className={`sticky top-0 z-30 h-16 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2 transition-all duration-200 ease-in-out ${
+      <header className={`sticky top-0 z-20 h-16 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2 transition-all duration-200 ease-in-out ${
         isHeaderVisible ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
       }`}>
         <div className="flex items-center gap-2">
@@ -510,7 +608,7 @@ export const CalculatorView: React.FC = React.memo(() => {
             <button
               type="button"
               onClick={handleCursorRight}
-              disabled={activeCursor === expression.length}
+              disabled={!canMoveRight}
               className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition flex items-center gap-1.5 text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
               title="Move Cursor Right"
             >

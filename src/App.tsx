@@ -384,8 +384,25 @@ const MainAppContent: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Item 3: Auto-hiding header scroll capture handler
+  // Unified bulletproof scroll tracker (window + container)
   const lastScrollTopRef = useRef<number>(0);
+
+  useEffect(() => {
+    const handleWindowScroll = () => {
+      const currentScrollTop = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      const deltaY = currentScrollTop - lastScrollTopRef.current;
+      lastScrollTopRef.current = currentScrollTop;
+
+      if (currentScrollTop <= 30 || deltaY < -2) {
+        setIsHeaderVisible(true);
+      } else if (deltaY > 5 && currentScrollTop > 40) {
+        setIsHeaderVisible(false);
+      }
+    };
+
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleWindowScroll);
+  }, []);
 
   const handleScrollCapture = (e: React.UIEvent) => {
     const target = e.target as HTMLElement;
@@ -395,16 +412,16 @@ const MainAppContent: React.FC = () => {
       return;
     }
 
-    const scrollTop = target.scrollTop;
-    const deltaY = scrollTop - lastScrollTopRef.current;
-    lastScrollTopRef.current = scrollTop;
+    const currentScrollTop = target.scrollTop;
+    const deltaY = currentScrollTop - lastScrollTopRef.current;
+    lastScrollTopRef.current = currentScrollTop;
 
     // Synchronized Header & Navigation Visibility
-    // Immediate Show on Slight Scroll Up (scrollTop <= 20 OR deltaY < -2)
-    if (scrollTop <= 20 || deltaY < -2) {
+    // Immediate Show on Slight Scroll Up (currentScrollTop <= 30 OR deltaY < -2)
+    if (currentScrollTop <= 30 || deltaY < -2) {
       setIsHeaderVisible(true);
-    } else if (deltaY > 6 && scrollTop > 40) {
-      // Hide on Scroll Down (deltaY > 6 AND scrollTop > 40)
+    } else if (deltaY > 5 && currentScrollTop > 40) {
+      // Hide on Scroll Down (deltaY > 5 AND currentScrollTop > 40)
       setIsHeaderVisible(false);
     }
   };
@@ -597,8 +614,8 @@ const MainAppContent: React.FC = () => {
         {/* Main View Display with Isolated Per-Tab Heights */}
         <div className="flex-1 flex flex-col relative overflow-hidden">
           {selectedAccountId && (
-            <div className="fixed inset-0 z-40 bg-black animate-in slide-in-from-right rtl:slide-in-from-left duration-250 flex flex-col overflow-y-auto">
-              <div className="w-full max-w-full md:max-w-5xl lg:max-w-6xl mx-auto min-h-screen flex flex-col">
+            <div className="fixed inset-0 z-50 bg-black animate-in slide-in-from-right rtl:slide-in-from-left duration-250 flex flex-col overflow-y-auto">
+              <div className="w-full max-w-full md:max-w-5xl lg:max-w-6xl mx-auto min-h-screen flex flex-col bg-black">
                 <AccountDetailsView />
               </div>
             </div>

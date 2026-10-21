@@ -21,6 +21,28 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.9',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'Complete Share System Rebuild, Long-Press Multi-Select Fix, Header/Footer Sub-Page Isolation, & Calculator Square Root Polish',
+      ar: 'إعادة بناء نظام المشاركة بالكامل (صفحات وقوالب)، إصلاح الضغط المطول للتحديد المتعدد، عزل الهيدر والفوتر عن الصفحات الفرعية، وتحسين جذر الآلة الحاسبة',
+    },
+    highlights: {
+      en: [
+        'Complete Share System Architecture: Share Pages & Templates with Add to Existing Share vs Create New Share flows, auto-naming & icon inheritance, member management by 16-digit ID, Shared With Me hub, external web links, and full or selective item imports.',
+        'Long-Press Multi-Select Stability: Rock-solid touch/mouse long-press detection on Account cards, Categories, and Transactions with strict click suppression to prevent accidental navigation.',
+        'Zero Header/Footer Z-Index Overlap: Floating Header and Bottom Navigation automatically hide when entering sub-pages, modals, or sidebars with an unbreachable z-index hierarchy.',
+        'Calculator Square Root Navigation: Square root right-arrow never traps the cursor, allowing smart stepping out of the radical with smooth inline typography.',
+      ],
+      ar: [
+        'نظام مشاركة متكامل كصفحات وقوالب: مشاركة الحسابات والتصنيفات والمعاملات، الإضافة لشير موجود أو إنشاء شير جديد، إدارة الأعضاء بالمعرف الرقمي (16 رقم)، ورابط ويب خارجي وتحديد عناصر مخصصة للاستيراد.',
+        'استقرار التحديد بالضغط المطول: دعم قوي وموثوق للضغط المطول على بطاقات الحسابات والتصنيفات والمعاملات مع إلغاء النقر التلقائي لمنع فتح التفاصيل بالخطأ.',
+        'منع تداخل الهيدر والفوتر مع الصفحات الفرعية: إخفاء الهيدر وشريط التنقل تماماً عند فتح الصفحات الفرعية أو الإعدادات أو القائمة مع طبقات Z-Index محكمة.',
+        'تحسين سهم الجذر في الآلة الحاسبة: عدم احتجاز المؤشر داخل الجذر التربيعي وخروج ذكي بسهم اليمين مع محاذاة بصرية انسيابية.',
+      ],
+    },
+  },
+  {
     version: '1.1.8',
     releaseDate: 'October 21, 2026',
     title: {

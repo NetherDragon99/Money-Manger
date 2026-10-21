@@ -21,6 +21,313 @@ import {
 } from '../utils/dateCycle';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
+import { useLongPress } from '../hooks/useLongPress';
+
+interface ExpenseCategoryRowProps {
+  cat: Category;
+  originalIdx: number;
+  totalCategories: number;
+  isSelected: boolean;
+  isCategoryMultiSelect: boolean;
+  spent: number;
+  currencySymbol: string;
+  language: 'en' | 'ar';
+  onMove: (idx: number, dir: 'up' | 'down', type: 'expense') => void;
+  onSelect: () => void;
+  onToggle: () => void;
+  onEdit: () => void;
+}
+
+const ExpenseCategoryRow: React.FC<ExpenseCategoryRowProps> = ({
+  cat,
+  originalIdx,
+  totalCategories,
+  isSelected,
+  isCategoryMultiSelect,
+  spent,
+  currencySymbol,
+  language,
+  onMove,
+  onSelect,
+  onToggle,
+  onEdit,
+}) => {
+  const { handlers } = useLongPress({
+    onLongPress: onSelect,
+    onClick: () => {
+      if (isCategoryMultiSelect) {
+        onToggle();
+      } else {
+        onEdit();
+      }
+    },
+  });
+
+  const hasBudget = Boolean(cat.budgetLimit && cat.budgetLimit > 0);
+  const isCatOver = Boolean(hasBudget && spent > cat.budgetLimit);
+  const isCatNear = Boolean(hasBudget && !isCatOver && spent >= cat.budgetLimit * 0.8);
+  const catProgress = hasBudget ? Math.min(100, (spent / cat.budgetLimit) * 100) : 0;
+
+  return (
+    <div
+      className={`flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-zinc-900 border transition group ${
+        isSelected
+          ? 'border-blue-500/80 bg-blue-950/20 shadow-md shadow-blue-900/20'
+          : 'border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700'
+      }`}
+    >
+      {/* Distinct Reorder Controls */}
+      <div
+        className="flex flex-col gap-1 shrink-0 z-10"
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          disabled={originalIdx <= 0}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (originalIdx > 0) onMove(originalIdx, 'up', 'expense');
+          }}
+          aria-label="Move Up"
+          className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-blue-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
+        >
+          <ArrowUp className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          disabled={originalIdx >= totalCategories - 1}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (originalIdx < totalCategories - 1) onMove(originalIdx, 'down', 'expense');
+          }}
+          aria-label="Move Down"
+          className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-blue-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
+        >
+          <ArrowDown className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Main Category Body */}
+      <div
+        {...handlers}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onSelect();
+        }}
+        role="button"
+        tabIndex={0}
+        className="flex-1 flex items-center justify-between min-w-0 cursor-pointer pl-1 active:scale-[0.99] transition select-none"
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          {isCategoryMultiSelect && (
+            <div
+              className={`w-5 h-5 rounded-md flex items-center justify-center border transition shrink-0 ${
+                isSelected ? 'bg-blue-600 border-blue-500 text-white' : 'border-zinc-700 bg-zinc-950 text-transparent'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5" />
+            </div>
+          )}
+          <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
+            {cat.icon}
+          </div>
+
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs group-hover:text-blue-300 transition">
+              {cat.name}
+            </div>
+            {hasBudget && (
+              <div className="text-[10px] text-zinc-400 mt-0.5">
+                {isCatOver ? (
+                  <span className="text-red-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> Over by{' '}
+                    {formatCurrency(spent - cat.budgetLimit, currencySymbol, language)}
+                  </span>
+                ) : (
+                  <span>
+                    {formatCurrency(cat.budgetLimit - spent, currencySymbol, language)} remaining
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Side: £ Spent / £ Budget */}
+        <div className="text-right shrink-0 pl-3">
+          {hasBudget ? (
+            <div>
+              <div className="text-sm font-black font-mono text-white">
+                {formatCurrency(spent, currencySymbol, language)}
+                <span className="text-xs font-normal text-zinc-500">
+                  {' '}
+                  / {formatCurrency(cat.budgetLimit, currencySymbol, language)}
+                </span>
+              </div>
+              <div className="w-24 sm:w-32 h-1.5 rounded-full bg-zinc-950 overflow-hidden mt-1.5 ml-auto">
+                <div
+                  style={{ width: `${catProgress}%` }}
+                  className={`h-full rounded-full ${
+                    isCatOver
+                      ? 'bg-red-500'
+                      : catProgress > 85
+                      ? 'bg-amber-400'
+                      : 'bg-emerald-500'
+                  }`}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="text-right">
+              <span className="text-xs font-mono font-medium text-zinc-400">
+                {spent > 0 ? formatCurrency(spent, currencySymbol, language) : 'No budget'}
+              </span>
+              <div className="text-[10px] text-zinc-500">Tap to set limit</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface IncomeCategoryRowProps {
+  cat: Category;
+  originalIdx: number;
+  totalCategories: number;
+  isSelected: boolean;
+  isCategoryMultiSelect: boolean;
+  received: number;
+  currencySymbol: string;
+  language: 'en' | 'ar';
+  onMove: (idx: number, dir: 'up' | 'down', type: 'income') => void;
+  onSelect: () => void;
+  onToggle: () => void;
+  onEdit: () => void;
+}
+
+const IncomeCategoryRow: React.FC<IncomeCategoryRowProps> = ({
+  cat,
+  originalIdx,
+  totalCategories,
+  isSelected,
+  isCategoryMultiSelect,
+  received,
+  currencySymbol,
+  language,
+  onMove,
+  onSelect,
+  onToggle,
+  onEdit,
+}) => {
+  const { handlers } = useLongPress({
+    onLongPress: onSelect,
+    onClick: () => {
+      if (isCategoryMultiSelect) {
+        onToggle();
+      } else {
+        onEdit();
+      }
+    },
+  });
+
+  return (
+    <div
+      className={`flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-zinc-900 border transition group ${
+        isSelected
+          ? 'border-emerald-500/80 bg-emerald-950/20 shadow-md shadow-emerald-900/20'
+          : 'border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700'
+      }`}
+    >
+      {/* Reorder Controls */}
+      <div
+        className="flex flex-col gap-1 shrink-0 z-10"
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          disabled={originalIdx <= 0}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (originalIdx > 0) onMove(originalIdx, 'up', 'income');
+          }}
+          aria-label="Move Up"
+          className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-emerald-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
+        >
+          <ArrowUp className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          disabled={originalIdx >= totalCategories - 1}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (originalIdx < totalCategories - 1) onMove(originalIdx, 'down', 'income');
+          }}
+          aria-label="Move Down"
+          className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-emerald-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
+        >
+          <ArrowDown className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Main Category Body */}
+      <div
+        {...handlers}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onSelect();
+        }}
+        role="button"
+        tabIndex={0}
+        className="flex-1 flex items-center justify-between min-w-0 cursor-pointer pl-1 active:scale-[0.99] transition select-none"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          {isCategoryMultiSelect && (
+            <div
+              className={`w-5 h-5 rounded-md flex items-center justify-center border transition shrink-0 ${
+                isSelected ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-zinc-700 bg-zinc-950 text-transparent'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5" />
+            </div>
+          )}
+          <div className="w-11 h-11 rounded-xl bg-emerald-950/40 border border-emerald-800/60 flex items-center justify-center text-2xl shrink-0">
+            {cat.icon}
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-white truncate max-w-[160px] sm:max-w-xs group-hover:text-emerald-300 transition">
+              {cat.name}
+            </div>
+            <div className="text-[10px] text-emerald-400 mt-0.5">
+              {language === 'ar' ? 'فئة دخل واردة' : 'Incoming Category'}
+            </div>
+          </div>
+        </div>
+
+        <div className="text-right shrink-0">
+          <div className="text-sm font-black font-mono text-emerald-400">
+            +{formatCurrency(received, currencySymbol, language)}
+          </div>
+          <div className="text-[10px] text-zinc-500">
+            {language === 'ar' ? 'انقر للتعديل أو الحذف' : 'Tap to edit/delete'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const BudgetView: React.FC = React.memo(() => {
   const {
@@ -37,21 +344,6 @@ export const BudgetView: React.FC = React.memo(() => {
     toggleCategorySelection,
     t,
   } = useApp();
-
-  const pressTimerRef = useRef<any>(null);
-
-  const startCategoryLongPress = (id: string) => {
-    pressTimerRef.current = setTimeout(() => {
-      startCategoryMultiSelect(id);
-    }, 500);
-  };
-
-  const cancelCategoryLongPress = () => {
-    if (pressTimerRef.current) {
-      clearTimeout(pressTimerRef.current);
-      pressTimerRef.current = null;
-    }
-  };
 
   const isHeaderVisible = useHeaderScroll();
 
@@ -241,7 +533,7 @@ export const BudgetView: React.FC = React.memo(() => {
   return (
     <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
       {/* 1. Standardized Top Header Across All Views (Item 2) */}
-      <header className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-40 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-all duration-200 ease-in-out ${
+      <header className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-all duration-200 ease-in-out ${
         isHeaderVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
       }`}>
         <div className="flex items-center gap-2">
@@ -430,150 +722,25 @@ export const BudgetView: React.FC = React.memo(() => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {displayExpenseCategories.map((cat) => {
               const spent = categorySpentMap.get(cat.id) || 0;
-              const hasBudget = cat.budgetLimit > 0;
-              const isCatOver = hasBudget && spent > cat.budgetLimit;
-              const catProgress = hasBudget ? Math.min(100, (spent / cat.budgetLimit) * 100) : 0;
               const originalIdx = expenseCategories.findIndex((c) => c.id === cat.id);
               const isSelected = selectedCategoryIds.includes(cat.id);
 
               return (
-                <div
+                <ExpenseCategoryRow
                   key={cat.id}
-                  className={`flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-zinc-900 border transition group ${
-                    isSelected
-                      ? 'border-blue-500/80 bg-blue-950/20 shadow-md shadow-blue-900/20'
-                      : 'border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700'
-                  }`}
-                >
-                  {/* Distinct Reorder Controls (Clicking here ONLY reorders and NEVER opens edit modal) */}
-                  <div
-                    className="flex flex-col gap-1 shrink-0 z-10"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      type="button"
-                      disabled={originalIdx <= 0}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        if (originalIdx > 0) handleMove(originalIdx, 'up', 'expense');
-                      }}
-                      aria-label="Move Up"
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-blue-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
-                    >
-                      <ArrowUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={originalIdx >= expenseCategories.length - 1}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        if (originalIdx < expenseCategories.length - 1) handleMove(originalIdx, 'down', 'expense');
-                      }}
-                      aria-label="Move Down"
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-blue-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
-                    >
-                      <ArrowDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Main Category Body (Clicking ANY other part opens the category edit panel) */}
-                  <div
-                    onTouchStart={() => startCategoryLongPress(cat.id)}
-                    onTouchEnd={cancelCategoryLongPress}
-                    onTouchMove={cancelCategoryLongPress}
-                    onMouseDown={() => startCategoryLongPress(cat.id)}
-                    onMouseUp={cancelCategoryLongPress}
-                    onMouseLeave={cancelCategoryLongPress}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      startCategoryMultiSelect(cat.id);
-                    }}
-                    onClick={() => {
-                      if (isCategoryMultiSelect) {
-                        toggleCategorySelection(cat.id);
-                      } else {
-                        openEditCategoryModal(cat);
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    className="flex-1 flex items-center justify-between min-w-0 cursor-pointer pl-1 active:scale-[0.99] transition select-none"
-                  >
-                    {/* Category Emoji + Name + Limit */}
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      {isCategoryMultiSelect && (
-                        <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition shrink-0 ${
-                          isSelected ? 'bg-blue-600 border-blue-500 text-white' : 'border-zinc-700 bg-zinc-950 text-transparent'
-                        }`}>
-                          <Check className="w-3.5 h-3.5" />
-                        </div>
-                      )}
-                      <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
-                        {cat.icon}
-                      </div>
-
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs group-hover:text-blue-300 transition">
-                          {cat.name}
-                        </div>
-                        {hasBudget && (
-                          <div className="text-[10px] text-zinc-400 mt-0.5">
-                            {isCatOver ? (
-                              <span className="text-red-400 flex items-center gap-1">
-                                <AlertCircle className="w-3 h-3" /> Over by{' '}
-                                {formatCurrency(spent - cat.budgetLimit, currencySymbol)}
-                              </span>
-                            ) : (
-                              <span>
-                                {formatCurrency(cat.budgetLimit - spent, currencySymbol)} remaining
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Right Side: £ Spent / £ Budget */}
-                    <div className="text-right shrink-0 pl-3">
-                      {hasBudget ? (
-                        <div>
-                          <div className="text-sm font-black font-mono text-white">
-                            {formatCurrency(spent, currencySymbol)}
-                            <span className="text-xs font-normal text-zinc-500">
-                              {' '}
-                              / {formatCurrency(cat.budgetLimit, currencySymbol)}
-                            </span>
-                          </div>
-                          <div className="w-24 sm:w-32 h-1.5 rounded-full bg-zinc-950 overflow-hidden mt-1.5 ml-auto">
-                            <div
-                              style={{ width: `${catProgress}%` }}
-                              className={`h-full rounded-full ${
-                                isCatOver
-                                  ? 'bg-red-500'
-                                  : catProgress > 85
-                                  ? 'bg-amber-400'
-                                  : 'bg-emerald-500'
-                              }`}
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-right">
-                          <span className="text-xs font-mono font-medium text-zinc-400">
-                            {spent > 0 ? formatCurrency(spent, currencySymbol) : 'No budget'}
-                          </span>
-                          <div className="text-[10px] text-zinc-500">Tap to set limit</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  cat={cat}
+                  originalIdx={originalIdx}
+                  totalCategories={expenseCategories.length}
+                  isSelected={isSelected}
+                  isCategoryMultiSelect={isCategoryMultiSelect}
+                  spent={spent}
+                  currencySymbol={currencySymbol}
+                  language={settings.language}
+                  onMove={handleMove}
+                  onSelect={() => startCategoryMultiSelect(cat.id)}
+                  onToggle={() => toggleCategorySelection(cat.id)}
+                  onEdit={() => openEditCategoryModal(cat)}
+                />
               );
             })}
           </div>
@@ -642,105 +809,21 @@ export const BudgetView: React.FC = React.memo(() => {
                 const isSelected = selectedCategoryIds.includes(cat.id);
 
                 return (
-                  <div
+                  <IncomeCategoryRow
                     key={cat.id}
-                    className={`flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-zinc-900 border transition group ${
-                      isSelected
-                        ? 'border-emerald-500/80 bg-emerald-950/20 shadow-md shadow-emerald-900/20'
-                        : 'border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700'
-                    }`}
-                  >
-                    {/* Distinct Reorder Controls (Clicking here ONLY reorders and NEVER opens edit modal) */}
-                    <div
-                      className="flex flex-col gap-1 shrink-0 z-10"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                      }}
-                      onPointerDown={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        type="button"
-                        disabled={originalIdx <= 0}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          if (originalIdx > 0) handleMove(originalIdx, 'up', 'income');
-                        }}
-                        aria-label="Move Up"
-                        className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-emerald-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
-                      >
-                        <ArrowUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={originalIdx >= incomeCategories.length - 1}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          if (originalIdx < incomeCategories.length - 1) handleMove(originalIdx, 'down', 'income');
-                        }}
-                        aria-label="Move Down"
-                        className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 active:scale-90 active:bg-emerald-600 active:text-white disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer"
-                      >
-                        <ArrowDown className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    {/* Main Category Body (Clicking ANY other part opens the edit modal) */}
-                    <div
-                      onTouchStart={() => startCategoryLongPress(cat.id)}
-                      onTouchEnd={cancelCategoryLongPress}
-                      onTouchMove={cancelCategoryLongPress}
-                      onMouseDown={() => startCategoryLongPress(cat.id)}
-                      onMouseUp={cancelCategoryLongPress}
-                      onMouseLeave={cancelCategoryLongPress}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        startCategoryMultiSelect(cat.id);
-                      }}
-                      onClick={() => {
-                        if (isCategoryMultiSelect) {
-                          toggleCategorySelection(cat.id);
-                        } else {
-                          openEditCategoryModal(cat);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      className="flex-1 flex items-center justify-between min-w-0 cursor-pointer pl-1 active:scale-[0.99] transition select-none"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        {isCategoryMultiSelect && (
-                          <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition shrink-0 ${
-                            isSelected ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-zinc-700 bg-zinc-950 text-transparent'
-                          }`}>
-                            <Check className="w-3.5 h-3.5" />
-                          </div>
-                        )}
-                        <div className="w-11 h-11 rounded-xl bg-emerald-950/40 border border-emerald-800/60 flex items-center justify-center text-2xl shrink-0">
-                          {cat.icon}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-sm font-bold text-white truncate max-w-[160px] sm:max-w-xs group-hover:text-emerald-300 transition">
-                            {cat.name}
-                          </div>
-                          <div className="text-[10px] text-emerald-400 mt-0.5">
-                            {settings.language === 'ar' ? 'فئة دخل واردة' : 'Incoming Category'}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="text-right shrink-0">
-                        <div className="text-sm font-black font-mono text-emerald-400">
-                          +{formatCurrency(received, currencySymbol)}
-                        </div>
-                        <div className="text-[10px] text-zinc-500">
-                          {settings.language === 'ar' ? 'انقر للتعديل أو الحذف' : 'Tap to edit/delete'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    cat={cat}
+                    originalIdx={originalIdx}
+                    totalCategories={incomeCategories.length}
+                    isSelected={isSelected}
+                    isCategoryMultiSelect={isCategoryMultiSelect}
+                    received={received}
+                    currencySymbol={currencySymbol}
+                    language={settings.language}
+                    onMove={handleMove}
+                    onSelect={() => startCategoryMultiSelect(cat.id)}
+                    onToggle={() => toggleCategorySelection(cat.id)}
+                    onEdit={() => openEditCategoryModal(cat)}
+                  />
                 );
               })}
             </div>

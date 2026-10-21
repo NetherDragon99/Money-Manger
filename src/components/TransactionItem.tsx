@@ -1,8 +1,9 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { Transaction } from '../types';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatTime12h } from '../utils/dateCycle';
 import { Check } from 'lucide-react';
+import { useLongPress } from '../hooks/useLongPress';
 
 interface TransactionItemProps {
   transaction: Transaction;
@@ -20,29 +21,20 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({ transaction, onCl
   } = useApp();
 
   const isSelected = selectedTxIds.includes(transaction.id);
-  const pressTimerRef = useRef<any>(null);
 
-  const startLongPress = () => {
-    pressTimerRef.current = setTimeout(() => {
+  const { handlers } = useLongPress({
+    onLongPress: () => {
       startTxMultiSelect(transaction.id);
-    }, 500);
-  };
-
-  const cancelLongPress = () => {
-    if (pressTimerRef.current) {
-      clearTimeout(pressTimerRef.current);
-      pressTimerRef.current = null;
-    }
-  };
-
-  const handleClick = (e: React.MouseEvent) => {
-    if (isTxMultiSelect) {
-      e.stopPropagation();
-      toggleTxSelection(transaction.id);
-    } else {
-      onClick();
-    }
-  };
+    },
+    onClick: (e) => {
+      if (isTxMultiSelect) {
+        e.stopPropagation();
+        toggleTxSelection(transaction.id);
+      } else {
+        onClick();
+      }
+    },
+  });
 
   const isTransfer = transaction.type === 'transfer';
   const fromAccount = accounts.find((a) => a.id === transaction.accountId);
@@ -88,13 +80,7 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({ transaction, onCl
 
   return (
     <div
-      onClick={handleClick}
-      onTouchStart={startLongPress}
-      onTouchEnd={cancelLongPress}
-      onTouchMove={cancelLongPress}
-      onMouseDown={startLongPress}
-      onMouseUp={cancelLongPress}
-      onMouseLeave={cancelLongPress}
+      {...handlers}
       onContextMenu={(e) => {
         e.preventDefault();
         startTxMultiSelect(transaction.id);

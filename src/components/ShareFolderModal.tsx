@@ -3,22 +3,22 @@ import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
 import {
   FolderPlus,
-  Share2,
   Send,
   Copy,
   X,
   Folder,
-  Layers,
   Check,
+  PlusCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { format16DigitId, cleanNumericId } from '../utils/userId';
-import { buildShareUrl, encodeShareSnapshot } from '../utils/sharing';
 import {
   createNewShareFolder,
   appendToExistingShareFolder,
   sendShareFolderToRecipient,
   loadMyShareFolders,
   deduceFolderMetadata,
+  generateShareUrl,
   ShareFolder,
 } from '../utils/shareFolders';
 
@@ -44,11 +44,13 @@ export const ShareFolderModal: React.FC = () => {
   const totalItems = accounts.length + categories.length + transactions.length;
 
   const autoMeta = deduceFolderMetadata(accounts, categories, transactions, isArabic);
+  const existingFolders = loadMyShareFolders();
 
-  const [folderMode, setFolderMode] = useState<'new' | 'existing'>('new');
+  const [folderMode, setFolderMode] = useState<'new' | 'existing'>(
+    existingFolders.length > 0 ? 'existing' : 'new'
+  );
   const [customFolderName, setCustomFolderName] = useState(autoMeta.name);
   const [customFolderIcon, setCustomFolderIcon] = useState(autoMeta.icon);
-  const existingFolders = loadMyShareFolders();
   const [selectedExistingId, setSelectedExistingId] = useState(existingFolders[0]?.id || '');
 
   // Direct Send via 16-digit ID
@@ -59,7 +61,7 @@ export const ShareFolderModal: React.FC = () => {
   const myName = settings.userProfile?.name || 'User';
 
   const getOrCreateFolder = (): ShareFolder | null => {
-    if (folderMode === 'new') {
+    if (folderMode === 'new' || existingFolders.length === 0) {
       return createNewShareFolder({
         customName: customFolderName.trim() || autoMeta.name,
         customIcon: customFolderIcon.trim() || autoMeta.icon,
@@ -103,7 +105,7 @@ export const ShareFolderModal: React.FC = () => {
 
     const folder = getOrCreateFolder();
     if (!folder) {
-      showToast(isArabic ? 'تعذر إنشاء مجلد المشاركة' : 'Failed to create share folder', 'error');
+      showToast(isArabic ? 'تعذر إنشاء صفحة المشاركة' : 'Failed to create share page', 'error');
       return;
     }
 
@@ -113,8 +115,8 @@ export const ShareFolderModal: React.FC = () => {
       if (res.success) {
         showToast(
           isArabic
-            ? `تم إرسال مجلد "${folder.name}" بنجاح إلى المعرّف (${format16DigitId(cleanId)})!`
-            : `Folder "${folder.name}" successfully sent to (${format16DigitId(cleanId)})!`,
+            ? `تم إرسال شير "${folder.name}" بنجاح إلى المعرّف (${format16DigitId(cleanId)})!`
+            : `Share "${folder.name}" successfully sent to (${format16DigitId(cleanId)})!`,
           'success'
         );
         cleanupAndClose();
@@ -127,7 +129,7 @@ export const ShareFolderModal: React.FC = () => {
         );
       }
     } catch (err: any) {
-      showToast(err?.message || 'Error delivering folder', 'error');
+      showToast(err?.message || 'Error delivering share', 'error');
     } finally {
       setIsSending(false);
     }
@@ -139,23 +141,12 @@ export const ShareFolderModal: React.FC = () => {
     if (!folder) return;
 
     try {
-      const snapshotUrl = buildShareUrl({
-        sharedData: encodeShareSnapshot({
-          type: 'custom_share_bundle',
-          title: folder.name,
-          createdAt: Date.now(),
-          ownerName: myName,
-          accounts: folder.payload.accounts,
-          categories: folder.payload.categories,
-          transactions: folder.payload.transactions,
-        }),
-      });
-
-      await navigator.clipboard.writeText(snapshotUrl);
+      const shareUrl = generateShareUrl(folder);
+      await navigator.clipboard.writeText(shareUrl);
       showToast(
         isArabic
-          ? `تم نسخ رابط المشاركة لمجلد "${folder.name}" بنجاح!`
-          : `Share link for "${folder.name}" copied to clipboard!`,
+          ? `تم نسخ رابط المشاركة لشير "${folder.name}" بنجاح!`
+          : `Public share link for "${folder.name}" copied to clipboard!`,
         'success'
       );
       cleanupAndClose();
@@ -164,14 +155,14 @@ export const ShareFolderModal: React.FC = () => {
     }
   };
 
-  // 3. Save Folder Locally
+  // 3. Save / Append Folder
   const handleSaveOnly = () => {
     const folder = getOrCreateFolder();
     if (folder) {
       showToast(
         isArabic
-          ? `تم حفظ مجلد المشاركة "${folder.name}" بنجاح!`
-          : `Share Folder "${folder.name}" saved successfully!`,
+          ? `تم حفظ وتحديث صفحة المشاركة "${folder.name}" بنجاح!`
+          : `Share Page "${folder.name}" updated successfully!`,
         'success'
       );
       cleanupAndClose();
@@ -191,15 +182,15 @@ export const ShareFolderModal: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-purple-600/20 text-purple-400 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-2xl bg-blue-600/20 text-blue-400 flex items-center justify-center">
               <FolderPlus className="w-5 h-5" />
             </div>
             <div>
               <h3 className="text-base font-bold text-white">
-                {isArabic ? 'مشاركة عبر مجلد مشاركة' : 'Unified Share Folder'}
+                {isArabic ? 'نظام المشاركة (صفحات وقوالب)' : 'Share Page & Template'}
               </h3>
               <p className="text-xs text-zinc-400">
-                {totalItems} {isArabic ? 'عناصر محددة للمشاركة' : 'items selected to share'}
+                {totalItems} {isArabic ? 'عناصر محددة للمشاركة' : 'items selected'}
               </p>
             </div>
           </div>
@@ -231,46 +222,90 @@ export const ShareFolderModal: React.FC = () => {
           )}
         </div>
 
-        {/* Step 1: Mode Switcher */}
-        <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-zinc-900 border border-zinc-800">
-          <button
-            type="button"
-            onClick={() => setFolderMode('new')}
-            className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-              folderMode === 'new'
-                ? 'bg-purple-600 text-white shadow-md'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            {isArabic ? '✨ إنشاء مجلد جديد' : '✨ New Folder'}
-          </button>
-          <button
-            type="button"
-            disabled={existingFolders.length === 0}
-            onClick={() => setFolderMode('existing')}
-            className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
-              folderMode === 'existing'
-                ? 'bg-purple-600 text-white shadow-md'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            {isArabic ? '📁 مجلد موجود' : '📁 Existing Folder'}
-          </button>
+        {/* Choice: Add to Existing Share vs Create New Share */}
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
+            {isArabic ? 'طريقة المشاركة:' : 'Share Destination Mode:'}
+          </label>
+          <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-zinc-900 border border-zinc-800">
+            <button
+              type="button"
+              disabled={existingFolders.length === 0}
+              onClick={() => setFolderMode('existing')}
+              className={`py-2 px-1 rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-40 flex items-center justify-center gap-1.5 ${
+                folderMode === 'existing'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Folder className="w-3.5 h-3.5" />
+              <span>{isArabic ? 'إضافة لشير موجود' : 'Add to Existing'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFolderMode('new')}
+              className={`py-2 px-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                folderMode === 'new'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>{isArabic ? 'إنشاء شير جديد' : 'Create New Share'}</span>
+            </button>
+          </div>
         </div>
 
-        {/* Folder Customization */}
-        {folderMode === 'new' ? (
-          <div className="space-y-1.5">
+        {/* Option A: Select Existing Share Page */}
+        {folderMode === 'existing' && existingFolders.length > 0 && (
+          <div className="space-y-2">
             <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
-              {isArabic ? 'اسم وأيقونة المجلد:' : 'Folder Name & Icon:'}
+              {isArabic ? 'اختر صفحة الشير للإضافة إليها:' : 'Select Share Page to Append to:'}
             </label>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800">
+            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              {existingFolders.map((f) => {
+                const isSelected = selectedExistingId === f.id;
+                return (
+                  <div
+                    key={f.id}
+                    onClick={() => setSelectedExistingId(f.id)}
+                    className={`p-3 rounded-2xl border transition cursor-pointer flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-blue-950/40 border-blue-500 text-white shadow-md'
+                        : 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-850 text-zinc-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="text-xl">{f.icon || '📁'}</span>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold truncate">{f.name}</div>
+                        <div className="text-[10px] text-zinc-400">
+                          {f.itemCount} {isArabic ? 'عناصر حالية' : 'current items'} •{' '}
+                          {f.members.length} {isArabic ? 'أعضاء' : 'members'}
+                        </div>
+                      </div>
+                    </div>
+                    {isSelected && <Check className="w-4 h-4 text-blue-400 shrink-0" />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Option B: Create New Share Page */}
+        {folderMode === 'new' && (
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
+              {isArabic ? 'اسم وأيقونة صفحة الشير الجديدة:' : 'New Share Page Name & Icon:'}
+            </label>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-zinc-900 border border-zinc-800">
               <input
                 type="text"
                 value={customFolderIcon}
                 onChange={(e) => setCustomFolderIcon(e.target.value)}
                 maxLength={4}
-                className="w-10 text-center text-lg bg-zinc-950 rounded-lg border border-zinc-700 py-0.5"
+                className="w-10 text-center text-lg bg-zinc-950 rounded-xl border border-zinc-700 py-1"
                 title="Icon / Emoji"
               />
               <input
@@ -284,38 +319,20 @@ export const ShareFolderModal: React.FC = () => {
             <p className="text-[11px] text-zinc-500">
               {totalItems === 1
                 ? isArabic
-                  ? 'تم أخذ اسم وأيقونة العنصر تلقائياً.'
-                  : 'Automatically adopted item name and icon.'
+                  ? 'تم وراثة اسم وأيقونة العنصر المختار تلقائياً.'
+                  : 'Automatically inherited the name and icon of your chosen item.'
                 : isArabic
-                ? 'اسم وايقونة افتراضية لمجموعة العناصر المختارة.'
-                : 'Default bundle name & icon for selected items.'}
+                ? 'اسم وايقونة افتراضية لمجموعة العناصر.'
+                : 'Default template name & icon for your selected items.'}
             </p>
-          </div>
-        ) : (
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
-              {isArabic ? 'اختر المجلد المراد الإضافة إليه:' : 'Select Target Folder:'}
-            </label>
-            <select
-              value={selectedExistingId}
-              onChange={(e) => setSelectedExistingId(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white focus:outline-none focus:border-purple-500"
-            >
-              {existingFolders.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.icon} {f.name} ({f.itemCount} items)
-                </option>
-              ))}
-            </select>
           </div>
         )}
 
-        {/* Step 2: Share Destination Actions */}
+        {/* Send to 16-Digit ID */}
         <div className="pt-2 border-t border-zinc-800/80 space-y-3">
-          {/* Method A: Send directly to 16-Digit Friend ID */}
           <form onSubmit={handleSendDirect} className="space-y-2">
             <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
-              {isArabic ? 'إرسال فوري إلى معرّف الصديق (16 رقماً):' : 'Direct Send via 16-Digit ID:'}
+              {isArabic ? 'إرسال فوري لشخص بالـ 16 رقماً:' : 'Send to Person via 16-Digit ID:'}
             </label>
             <div className="flex gap-2">
               <input
@@ -338,30 +355,23 @@ export const ShareFolderModal: React.FC = () => {
             </div>
           </form>
 
-          <div className="relative flex py-1 items-center">
-            <div className="flex-grow border-t border-zinc-800"></div>
-            <span className="flex-shrink mx-3 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-              {isArabic ? 'أو طرق مشاركة أخرى' : 'OTHER METHODS'}
-            </span>
-            <div className="flex-grow border-t border-zinc-800"></div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
+          {/* Action Buttons: Copy Web Link & Save */}
+          <div className="grid grid-cols-2 gap-2 pt-1">
             <button
               type="button"
               onClick={handleCopyLink}
-              className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xs font-semibold text-zinc-200 transition cursor-pointer"
+              className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xs font-semibold text-zinc-200 transition cursor-pointer active:scale-95"
             >
               <Copy className="w-3.5 h-3.5 text-blue-400" />
-              <span>{isArabic ? 'نسخ الرابط' : 'Copy Link'}</span>
+              <span>{isArabic ? 'نسخ رابط الويب' : 'Copy Web Link'}</span>
             </button>
             <button
               type="button"
               onClick={handleSaveOnly}
-              className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-xs font-semibold text-purple-300 transition cursor-pointer"
+              className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xs font-semibold text-blue-300 transition cursor-pointer active:scale-95"
             >
               <Folder className="w-3.5 h-3.5" />
-              <span>{isArabic ? 'حفظ المجلد فقط' : 'Save Folder'}</span>
+              <span>{isArabic ? 'حفظ في الشير' : 'Save to Share'}</span>
             </button>
           </div>
         </div>

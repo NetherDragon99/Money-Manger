@@ -50,7 +50,7 @@ export const MultiSelectActionBar: React.FC = () => {
   const handleShare = () => {
     if (count === 0) return;
     openShareModal({
-      accounts: isAccountMultiSelect ? selectedAccs : relatedAccounts,
+      accounts: selectedAccs,
       categories: selectedCats,
       transactions: selectedTxs,
     });

@@ -240,6 +240,11 @@ interface AppContextType {
   // Backup & Restore
   importFullData: (data: AppData) => boolean;
   importSingleAccountData: (importedAccount: Account, importedTxs: Transaction[]) => boolean;
+  importSharedItems: (payload: {
+    accounts?: Account[];
+    categories?: Category[];
+    transactions?: Transaction[];
+  }) => { accountsCount: number; categoriesCount: number; txsCount: number };
 
   // Toasts
   toasts: ToastItem[];
@@ -1209,6 +1214,93 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  const importSharedItems = (payload: {
+    accounts?: Account[];
+    categories?: Category[];
+    transactions?: Transaction[];
+  }): { accountsCount: number; categoriesCount: number; txsCount: number } => {
+    try {
+      const incomingAccounts = payload.accounts || [];
+      const incomingCategories = payload.categories || [];
+      const incomingTransactions = payload.transactions || [];
+
+      // 1. Accounts with duplicate detection by ID or Name
+      const updatedAccounts = [...accounts];
+      let accountsAdded = 0;
+      for (const incAcc of incomingAccounts) {
+        if (!incAcc || !incAcc.name) continue;
+        const exists = updatedAccounts.some(
+          (a) => a.id === incAcc.id || a.name.toLowerCase().trim() === incAcc.name.toLowerCase().trim()
+        );
+        if (!exists) {
+          updatedAccounts.push({
+            ...incAcc,
+            id: incAcc.id || `acc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          });
+          accountsAdded++;
+        }
+      }
+
+      // 2. Categories with duplicate detection by name & type
+      const updatedCategories = [...categories];
+      let categoriesAdded = 0;
+      for (const incCat of incomingCategories) {
+        if (!incCat || !incCat.name) continue;
+        const exists = updatedCategories.some(
+          (c) => c.name.toLowerCase().trim() === incCat.name.toLowerCase().trim() && c.type === incCat.type
+        );
+        if (!exists) {
+          updatedCategories.push({
+            ...incCat,
+            id: incCat.id || `cat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          });
+          categoriesAdded++;
+        }
+      }
+
+      // 3. Transactions with duplicate detection by ID or (date + amount + description + type)
+      const updatedTxs = [...transactions];
+      let txsAdded = 0;
+      for (const incTx of incomingTransactions) {
+        if (!incTx) continue;
+        const exists = updatedTxs.some(
+          (t) =>
+            t.id === incTx.id ||
+            (t.date === incTx.date &&
+              Math.abs(t.amount - incTx.amount) < 0.001 &&
+              t.type === incTx.type &&
+              (t.description || '').trim() === (incTx.description || '').trim())
+        );
+        if (!exists) {
+          let targetAccId = incTx.accountId;
+          if (!updatedAccounts.some((a) => a.id === targetAccId)) {
+            targetAccId = updatedAccounts[0]?.id || 'default_acc';
+          }
+          updatedTxs.push({
+            ...incTx,
+            id: incTx.id || `tx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            accountId: targetAccId,
+          });
+          txsAdded++;
+        }
+      }
+
+      const syncedAccounts = syncAllAccountBalances(updatedAccounts, updatedTxs);
+      setAccounts(syncedAccounts);
+      setCategories(updatedCategories);
+      setTransactions(updatedTxs);
+
+      return {
+        accountsCount: accountsAdded,
+        categoriesCount: categoriesAdded,
+        txsCount: txsAdded,
+      };
+    } catch (err) {
+      console.error('[AppContext] Failed to import shared items:', err);
+      return { accountsCount: 0, categoriesCount: 0, txsCount: 0 };
+    }
+  };
+
   // Custom In-App Confirm and Prompt System (Item 6)
   const [customDialogState, setCustomDialogState] = useState<{
     type: 'confirm' | 'prompt';
@@ -1243,8 +1335,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Seamless Shared Account Live View Switcher (Item 13)
   const [activeSharedId, setActiveSharedId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
-      const p = new URLSearchParams(window.location.search).get('sharedAccountId');
-      return p && p.trim() ? p.trim() : null;
+      const search = new URLSearchParams(window.location.search);
+      const share = search.get('share') || search.get('sharedAccountId');
+      return share && share.trim() ? share.trim() : null;
     }
     return null;
   });
@@ -1280,6 +1373,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const u = new URL(window.location.href);
     u.searchParams.delete('sharedAccountId');
     u.searchParams.delete('sharedData');
+    u.searchParams.delete('share');
     window.history.replaceState({}, '', u.pathname + (u.search ? u.search : ''));
   };
 
@@ -1388,6 +1482,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     applyPeriodReset,
     importFullData,
     importSingleAccountData,
+    importSharedItems,
     showToast,
     showConfirm,
     showPrompt,
