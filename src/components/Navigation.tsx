@@ -81,9 +81,9 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
         <div
           style={{
             transform: isNavVisible ? 'translateY(0%)' : 'translateY(115%)',
-            transition: 'transform 260ms cubic-bezier(0.4, 0, 0.2, 1)',
+            transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
           }}
-          className={`fixed bottom-20 left-0 right-0 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto pointer-events-none z-20 px-5 flex justify-end ${
+          className={`fixed bottom-20 left-0 right-0 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto pointer-events-none z-30 px-5 flex justify-end ${
             isNavVisible ? 'opacity-100' : 'opacity-0'
           }`}
         >
@@ -102,9 +102,9 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
       <nav
         style={{
           transform: isNavVisible ? 'translateY(0%)' : 'translateY(115%)',
-          transition: 'transform 260ms cubic-bezier(0.4, 0, 0.2, 1)',
+          transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`fixed bottom-0 left-0 right-0 z-20 bg-black/95 backdrop-blur-lg border-t border-zinc-800/80 px-2 py-2 safe-area-bottom ${
+        className={`fixed bottom-0 left-0 right-0 z-30 bg-black/95 backdrop-blur-lg border-t border-zinc-800/80 px-2 py-2 safe-area-bottom ${
           isNavVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >

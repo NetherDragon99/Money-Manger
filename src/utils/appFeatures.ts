@@ -21,6 +21,36 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.11',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'Z-Index Hierarchy Discipline, Standalone Public Read-Only Dashboard, Interactive Action Progress, Cross-Tab Multi-Select Reactivity, & Member Management with Undo',
+      ar: 'انضباط طبقات النوافذ والرسائل، لوحة عرض مستقلة للروابط العامة للقراءة فقط، نافذة تقدم تفاعلية للعمليات، تفاعل فوري للتحديد المتعدد بين التبويبات، وإدارة الأعضاء والطلبات مع التراجع',
+    },
+    highlights: {
+      en: [
+        'Top-Level Notification Precedence: Toast notifications elevated to z-[9999] so clipboard copy and action alerts are always visible above sidebars and modals.',
+        'Strict Modal Hierarchy: Nested modals (e.g. Create Share inside Share Hub) strictly stack at z-[75] above parent dialogs at z-[60] without hiding underneath.',
+        'Interactive Operation Progress: Visual step-by-step progress modal displaying live stages and percentage completion during share creation and dispatch.',
+        'Standalone Read-Only Public Link: External share links (?share=...) open a dedicated read-only financial dashboard without forcing account login or import prompts.',
+        'Zero-Bleed Scroll Discipline: Universal body and viewport scroll locking whenever any modal, drawer, or sheet is open.',
+        'Instant Multi-Select Reactivity: Seamless cross-tab selection between Home, Budget, and Accounts with instant checkbox toggle response on account cards.',
+        'Member Revocation & Temporary Undo: Cancel pending share requests or remove members with instant confirmation and a 5-second undo recovery notice.',
+        'Silky Auto-Hide Navigation: Both hide and reveal transitions on top headers and bottom navigation are completely smooth and synchronized (300ms ease-in-out).',
+      ],
+      ar: [
+        'أولوية مطلقة للرسائل التنبيهية (z-[9999]): ظهور إشعارات نسخ الكود والعمليات دائماً فوق القائمة الجانبية وكافة النوافذ دون أن تختفي خلفها.',
+        'ترتيب صارم لطبقات النوافذ (z-index): نوافذ المشاركة الجديدة تُفتح دائماً فوق مركز المشاركة دون أن تظهر تحته أو تختفي خلفه.',
+        'مؤشر تقدم تفاعلي للعمليات: نافذة تفاعلية توضح كل خطوة ونسبة الإنجاز (25%، 65%، 100%) عند إنشاء ومزامنة المشاركات.',
+        'لوحة عرض مستقلة للرابط العام: روابط المشاركة الخارجية تفتح مباشرة لوحة مالية مستقلة للقراءة فقط دون طلب تسجيل أو أزرار إضافة قسرية.',
+        'منع تسريب التمرير خلف النوافذ: قفل تام لتمرير الصفحة الخلفية عند فتح أي نافذة منبثقة أو قائمة جانبية مع استعادة موضع التمرير بدقة.',
+        'تحديد متعدد فوري بين التبويبات: التنقل بحرية بين الرئيسية والميزانية والحسابات مع استجابة فورية للضغط والتحديد دون تعليق.',
+        'إلغاء الطلبات وإدارة الأعضاء مع التراجع: إمكانية إلغاء طلبات المشاركة المرسلة أو استبعاد الأعضاء مع تأكيد وإشعار تراجع مؤقت.',
+        'إخفاء وظهور فائق الانسيابية للهيدر والفوتر: تحريك متناسق وناعم بنسبة 100% في الإخفاء والظهور عند التمرير.',
+      ],
+    },
+  },
+  {
     version: '1.1.10',
     releaseDate: 'October 21, 2026',
     title: {

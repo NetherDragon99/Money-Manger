@@ -68,6 +68,15 @@ const AccountCard: React.FC<AccountCardProps> = ({
   return (
     <div
       {...handlers}
+      onClick={(e) => {
+        if (isAccountMultiSelect) {
+          e.preventDefault();
+          onToggleSelection();
+        } else {
+          handlers.onClick?.(e);
+        }
+      }}
+      data-no-swipe="true"
       onContextMenu={(e) => {
         e.preventDefault();
         onStartMultiSelect();
@@ -113,15 +122,21 @@ const AccountCard: React.FC<AccountCardProps> = ({
 
         <div className="flex items-center gap-1.5">
           {isAccountMultiSelect && (
-            <div
-              className={`w-5 h-5 rounded-lg flex items-center justify-center transition border ${
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelection();
+              }}
+              className={`w-6 h-6 rounded-lg flex items-center justify-center transition border cursor-pointer active:scale-90 ${
                 isSelected
-                  ? 'bg-blue-600 border-blue-500 text-white'
-                  : 'bg-zinc-950 border-zinc-700 text-transparent'
+                  ? 'bg-blue-600 border-blue-500 text-white shadow-md'
+                  : 'bg-zinc-950 border-zinc-700 hover:border-zinc-500 text-transparent'
               }`}
+              title={isSelected ? 'Deselect' : 'Select'}
             >
               <Check className="w-3.5 h-3.5 stroke-[3]" />
-            </div>
+            </button>
           )}
           {isPrimary && (
             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30">
@@ -279,7 +294,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
       <header
         style={{
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
-          transition: 'transform 260ms cubic-bezier(0.4, 0, 0.2, 1)',
+          transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
         className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'

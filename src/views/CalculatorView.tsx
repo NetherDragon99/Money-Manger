@@ -476,7 +476,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
       <header
         style={{
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
-          transition: 'transform 260ms cubic-bezier(0.4, 0, 0.2, 1)',
+          transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
         className={`sticky top-0 z-20 h-16 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2 ${
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'

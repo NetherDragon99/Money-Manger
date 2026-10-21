@@ -193,12 +193,12 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg md:max-w-2xl max-h-[90vh] bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        className="w-full max-w-lg md:max-w-2xl max-h-[90vh] bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 overscroll-contain"
         dir={isArabic ? 'rtl' : 'ltr'}
       >
         {/* Top Header */}
@@ -391,6 +391,56 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                                 >
                                   {m.status === 'accepted' ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'معلق' : 'Pending')}
                                 </span>
+
+                                {/* Quick Cancel Invitation / Remove Member with Undo */}
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const isPending = m.status === 'pending';
+                                    const confirmed = await showConfirm({
+                                      title: isArabic
+                                        ? isPending ? 'إلغاء طلب المشاركة' : 'استبعاد العضو'
+                                        : isPending ? 'Cancel Share Request' : 'Remove Member',
+                                      message: isArabic
+                                        ? isPending
+                                          ? `هل تريد بالتأكيد إلغاء طلب المشاركة المرسل إلى "${m.name}"؟`
+                                          : `هل تريد بالتأكيد استبعاد العضو "${m.name}" من هذه المشاركة؟`
+                                        : isPending
+                                        ? `Are you sure you want to cancel the invitation sent to "${m.name}"?`
+                                        : `Are you sure you want to remove member "${m.name}" from this share?`,
+                                      confirmLabel: isArabic ? 'تأكيد الإلغاء' : 'Confirm',
+                                      cancelLabel: isArabic ? 'تراجع' : 'Cancel',
+                                      isDanger: true,
+                                    });
+                                    if (!confirmed) return;
+
+                                    const backupMember = { ...m };
+                                    const res = await removeMemberFromShareFolder(folder.id, m.numericId);
+                                    if (res.success && res.folder) {
+                                      setMyFolders((prev) => prev.map((f) => (f.id === folder.id ? res.folder! : f)));
+                                      showToast(
+                                        isArabic
+                                          ? isPending ? `تم إلغاء طلب "${m.name}" بنجاح` : `تم استبعاد "${m.name}" بنجاح`
+                                          : isPending ? `Invitation for "${m.name}" cancelled` : `Member "${m.name}" removed`,
+                                        'info',
+                                        {
+                                          label: isArabic ? 'تراجع' : 'Undo',
+                                          onClick: async () => {
+                                            await addMemberToShareFolder(folder.id, backupMember.numericId, backupMember.name, backupMember.role);
+                                            setMyFolders(loadMyShareFolders());
+                                            showToast(isArabic ? 'تمت استعادة العضو بنجاح' : 'Member restored', 'success');
+                                          },
+                                        },
+                                        5000
+                                      );
+                                    }
+                                  }}
+                                  className="p-0.5 rounded-md hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer shrink-0"
+                                  title={m.status === 'pending' ? (isArabic ? 'إلغاء الطلب' : 'Cancel Request') : (isArabic ? 'استبعاد العضو' : 'Remove Member')}
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
                               </div>
                             ))}
                           </div>

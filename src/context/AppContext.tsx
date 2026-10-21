@@ -64,14 +64,19 @@ import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
 import { translations } from '../utils/translations';
 import { DEFAULT_SETTINGS } from '../utils/constants';
 import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomDialogModal';
-import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId } from '../utils/userId';
+import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId, cleanNumericId } from '../utils/userId';
 import { auth } from '../utils/firebase';
 import { decodeShareSnapshot } from '../utils/sharing';
+import { publishUserProfileCard } from '../utils/shareFolders';
 
 export interface ToastItem {
   id: string;
   message: string;
   type: 'success' | 'error' | 'info';
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
 }
 
 interface AppContextType {
@@ -250,7 +255,12 @@ interface AppContextType {
 
   // Toasts
   toasts: ToastItem[];
-  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  showToast: (
+    message: string,
+    type?: 'success' | 'error' | 'info',
+    action?: { label: string; onClick: () => void },
+    duration?: number
+  ) => void;
 
   // Custom Dialogs (Replaces browser confirm/prompt/alert)
   showConfirm: (options: ConfirmDialogOptions) => Promise<boolean>;
@@ -638,12 +648,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Toasts
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' | 'info' = 'success',
+    action?: { label: string; onClick: () => void },
+    duration: number = 3600
+  ) => {
     const id = `${Date.now()}_${Math.random()}`;
-    setToasts((prev) => [...prev, { id, message, type }]);
+    setToasts((prev) => [...prev, { id, message, type, action }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3200);
+    }, duration);
   };
 
   // Translation helper
@@ -806,6 +821,63 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       document.documentElement.setAttribute('lang', 'en');
     }
   }, [settings]);
+
+  // Real-time synchronization of 16-Digit Identity & Public Profile Card with Firebase RTDB
+  useEffect(() => {
+    let isMounted = true;
+
+    const syncIdentity = async (user: any) => {
+      let finalNumId = cleanNumericId(settings.userProfile?.numericId || '');
+
+      if (user) {
+        try {
+          const resolvedId = await resolvePermanent16DigitId(user.uid);
+          if (resolvedId && isMounted) {
+            finalNumId = cleanNumericId(resolvedId);
+            if (settings.userProfile?.numericId !== finalNumId) {
+              setSettings((prev) => ({
+                ...prev,
+                userProfile: {
+                  ...prev.userProfile,
+                  numericId: finalNumId,
+                },
+              }));
+            }
+          }
+          await syncNumericIdToFirebase(
+            finalNumId,
+            user.uid,
+            settings.userProfile?.name || user.displayName || '',
+            user.email || ''
+          );
+        } catch (e) {
+          console.warn('[AppContext] Error resolving signed-in numeric ID:', e);
+        }
+      }
+
+      // Publish public lookup card so recipients and searchers can discover the profile
+      if (finalNumId && finalNumId.length === 16) {
+        publishUserProfileCard({
+          numericId: finalNumId,
+          name: settings.userProfile?.name || (user?.displayName) || 'User',
+          avatar: settings.userProfile?.avatarEmoji || '👤',
+          photoURL: settings.userProfile?.customAvatarUrl || user?.photoURL || '',
+        });
+      }
+    };
+
+    const unsubAuth = auth.onAuthStateChanged((user) => {
+      syncIdentity(user);
+    });
+
+    // Also run immediate sync for current session
+    syncIdentity(auth.currentUser);
+
+    return () => {
+      isMounted = false;
+      unsubAuth();
+    };
+  }, [settings.userProfile?.name, settings.userProfile?.avatarEmoji, settings.userProfile?.customAvatarUrl]);
 
   // Modals open/close handlers
   const openAddTxModal = (preselectedAccountId?: string, initialAmount?: number) => {

@@ -67,6 +67,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
 
   // Add Member State
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
+  const [isManageMembersOpen, setIsManageMembersOpen] = useState(false);
   const [newMemberId, setNewMemberId] = useState('');
   const [isSubmittingMember, setIsSubmittingMember] = useState(false);
 
@@ -354,37 +355,55 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                   </div>
 
                   {/* Members avatars */}
-                  {folder.members.map((m) => (
-                    <div
-                      key={m.numericId}
-                      title={`${m.name} (${m.status})`}
-                      className="relative w-7 h-7 rounded-full bg-purple-600/30 border border-purple-500/50 flex items-center justify-center text-xs font-bold text-purple-300 shrink-0 overflow-hidden"
-                    >
-                      {m.photoURL ? (
-                        <img src={m.photoURL} alt={m.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <span>{m.avatar || m.name.slice(0, 1)}</span>
-                      )}
-                      <span
-                        className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border border-black ${
-                          m.status === 'accepted' ? 'bg-emerald-500' : 'bg-amber-500'
-                        }`}
-                      />
-                    </div>
-                  ))}
+                  <div
+                    onClick={() => isOwner && setIsManageMembersOpen(true)}
+                    className={`flex items-center -space-x-1.5 rtl:space-x-reverse ${isOwner ? 'cursor-pointer hover:opacity-85 transition' : ''}`}
+                    title={isOwner ? (isArabic ? 'إدارة الأعضاء' : 'Manage Members') : undefined}
+                  >
+                    {folder.members.map((m) => (
+                      <div
+                        key={m.numericId}
+                        title={`${m.name} (${m.status})`}
+                        className="relative w-7 h-7 rounded-full bg-purple-600/30 border border-purple-500/50 flex items-center justify-center text-xs font-bold text-purple-300 shrink-0 overflow-hidden"
+                      >
+                        {m.photoURL ? (
+                          <img src={m.photoURL} alt={m.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <span>{m.avatar || m.name.slice(0, 1)}</span>
+                        )}
+                        <span
+                          className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border border-black ${
+                            m.status === 'accepted' ? 'bg-emerald-500' : 'bg-amber-500'
+                          }`}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
 
             {isOwner && (
-              <button
-                type="button"
-                onClick={() => setIsAddMemberOpen(true)}
-                className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-xs font-semibold text-zinc-200 flex items-center gap-1.5 transition active:scale-95 cursor-pointer shrink-0 border border-zinc-700/60"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>{isArabic ? 'إضافة عضو' : 'Add Member'}</span>
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {folder.members.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsManageMembersOpen(true)}
+                    className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-800"
+                  >
+                    <Users className="w-3.5 h-3.5 text-purple-400" />
+                    <span>{isArabic ? 'إدارة الأعضاء' : 'Manage'}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsAddMemberOpen(true)}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-xs font-semibold text-zinc-200 flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-700/60"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{isArabic ? 'إضافة عضو' : 'Add Member'}</span>
+                </button>
+              </div>
             )}
           </div>
 
