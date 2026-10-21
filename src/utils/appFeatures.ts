@@ -21,6 +21,36 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.23',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Smart Share Spaces, Live 16-Digit Verification, Timeline Grouping & Tablet Landscape',
+      ar: 'مساحات المشاركة الذكية، التحقق اللحظي بالمعرّف الرقمي، التجميع الزمني، ودعم دوران الأجهزة اللوحية',
+    },
+    highlights: {
+      en: [
+        'Tablet & Landscape Freedom: Full auto-rotation with "orientation: any", responsive landscape modals and scrollable views without forced vertical orientation.',
+        'Clean Search Feed: Streamlined transaction rows hiding account badges in search and filtered results for distraction-free expense lookup.',
+        'Live 16-Digit User Lookup: Instant numeric profile verification with avatar photo and full name preview card before sending share invites.',
+        'Dual Real-Time & 4s Polling Sync: Reliable cloud delivery ensuring invites and changes appear automatically in member inboxes and shared views.',
+        'External Share Live Streaming: Standalone share links (?share=...) stream directly from Firebase RTDB with a 5-second polling fallback without manual refresh.',
+        'Dedicated Space Settings (⚙️): Full control to rename spaces, select custom emojis/icons, or permanently delete the share space across all members.',
+        'Home-Style Grouped Timeline: Shared transactions grouped by months and days with date headers, daily/monthly net totals, and collapsible blocks.',
+        'Included Entities & Overlap Deletion: Dedicated bar for included accounts and categories with inspection filtering, plus Pre-Delete Review with overlap warnings and automatic cleanup of empty entities.',
+      ],
+      ar: [
+        'حرية التدوير للأجهزة اللوحية: دعم كامل للشاشات الأفقية واللوحية مع "orientation: any" وتكييف النوافذ المنبثقة دون قفل الاتجاه الرأسي.',
+        'سجل بحث نقي: إخفاء شارة الحساب من نتائج البحث والمعاملات المصفاة لتجربة تصفح نظيفة ومركزة.',
+        'تحقق لحظي للمستخدم بالمعرّف 16 رقم: فحص فوري للملف الشخصي مع عرض صورة الحساب والاسم الحقيقي قبل إرسال الدعوة للشير.',
+        'مزامنة سحابية مزدوجة مع فحص كل 4 ثوانٍ: وصول فوري لدعوات ومستجدات المشاركة إلى صناديق الأعضاء بدون الحاجة لإجراء يدوي.',
+        'بث حي لصفحات المشاركة الخارجية: روابط الشير الخارجية (?share=...) تبث البيانات مباشرة من السحابة مع تحديث خلفي كل 5 ثوانٍ.',
+        'إعدادات مساحة المشاركة (⚙️): إمكانية تعديل اسم المساحة، اختيار أيقونة مخصصة، أو حذف مساحة المشاركة نهائياً من كافة الأجهزة.',
+        'جدول زمني مجمع مماثل للشاشة الرئيسية: تجميع معاملات الشير بالشهور والأيام مع فواصل التواريخ والمجاميع اليومية والشهرية.',
+        'شريط العناصر المضمنة ومراجعة التداخل: قسم مخصص للحسابات والتصنيفات مع ميزة التصفية، ونافذة مراجعة ذكية تكشف المعاملات المشتركة قبل الحذف مع تنظيف تلقائي للعناصر الفارغة.',
+      ],
+    },
+  },
+  {
     version: '1.1.22',
     releaseDate: 'October 22, 2026',
     title: {
