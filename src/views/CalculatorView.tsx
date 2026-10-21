@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { useHeaderScroll } from '../hooks/useHeaderScroll';
 import {
   Menu,
   RotateCcw,
@@ -22,6 +23,7 @@ interface HistoryItem {
 
 export const CalculatorView: React.FC = React.memo(() => {
   const { settings, openAddTxModal, setIsSidebarOpen, showToast, t } = useApp();
+  const isHeaderVisible = useHeaderScroll();
   const [expression, setExpression] = useState('');
   const [result, setResult] = useState<number>(0);
   const [cursorPos, setCursorPos] = useState<number | null>(null);
@@ -53,8 +55,7 @@ export const CalculatorView: React.FC = React.memo(() => {
       // 2. Implicit multiplication: e.g. 5(3) -> 5*(3), (2)(3) -> (2)*(3), 5√9 -> 5*√9
       expr = expr.replace(/(\d)\(/g, '$1*(');
       expr = expr.replace(/\)(\d)/g, ')*$1');
-      expr = expr.replace(/(\d)√/g, '$1*√');
-      expr = expr.replace(/\)√/g, ')*√');
+      expr = expr.replace(/(\d|\))√/g, '$1*√');
 
       // 3. Auto-balance unclosed parentheses: e.g. √(25 or (5+3
       const openParens = (expr.match(/\(/g) || []).length;
@@ -63,17 +64,17 @@ export const CalculatorView: React.FC = React.memo(() => {
         expr = expr + ')'.repeat(openParens - closeParens);
       }
 
-      // 4. Handle square roots:
-      // Handle nested or grouped roots first: √(x)
-      let maxLoops = 15;
-      while (expr.includes('√(') && maxLoops-- > 0) {
+      // 4. Handle square roots (Item 5: iteratively transform √\(([^()]+)\) and √(\d+(?:\.\d+)?) into Math.sqrt($1))
+      let maxLoops = 20;
+      while (expr.includes('√') && maxLoops-- > 0) {
+        const prev = expr;
         expr = expr.replace(/√\(([^()]+)\)/g, 'Math.sqrt($1)');
+        expr = expr.replace(/√(\d+(?:\.\d+)?)/g, 'Math.sqrt($1)');
+        if (expr === prev) {
+          expr = expr.replace(/√+$/g, '');
+          break;
+        }
       }
-      // Handle standalone number roots like √25
-      expr = expr.replace(/√(\d+(\.\d+)?)/g, 'Math.sqrt($1)');
-
-      // If trailing √ without operand, remove it
-      expr = expr.replace(/√+$/g, '');
 
       // 5. Handle percentage:
       expr = expr.replace(/(\d+(\.\d+)?)%/g, '($1/100)');
@@ -291,7 +292,7 @@ export const CalculatorView: React.FC = React.memo(() => {
       return (
         <span className="inline-flex items-center">
           <span className="text-zinc-600">0</span>
-          <span className="inline-block w-[2px] h-4.5 bg-blue-500 animate-pulse align-middle ml-1 rounded-full" />
+          <span className="inline-block w-[2.5px] h-5 bg-blue-500 animate-pulse align-middle ml-1 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
         </span>
       );
     }
@@ -300,10 +301,26 @@ export const CalculatorView: React.FC = React.memo(() => {
     const after = expression.slice(activeCursor);
 
     return (
-      <span className="inline-flex items-center flex-wrap justify-end">
-        <span>{renderMathTypography(before)}</span>
-        <span className="inline-block w-[2px] h-5 bg-blue-500 animate-pulse align-middle mx-0.5 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
-        <span>{renderMathTypography(after)}</span>
+      <span className="inline-flex items-center flex-wrap justify-end select-none">
+        <span
+          onClick={(e) => {
+            e.stopPropagation();
+            setCursorPos(0);
+          }}
+          className="cursor-pointer"
+        >
+          {renderMathTypography(before)}
+        </span>
+        <span className="inline-block w-[2.5px] h-5 bg-blue-500 animate-pulse align-middle mx-0.5 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
+        <span
+          onClick={(e) => {
+            e.stopPropagation();
+            setCursorPos(expression.length);
+          }}
+          className="cursor-pointer"
+        >
+          {renderMathTypography(after)}
+        </span>
       </span>
     );
   };
@@ -311,13 +328,15 @@ export const CalculatorView: React.FC = React.memo(() => {
   return (
     <div className="h-[calc(100dvh-4.25rem)] sm:h-[calc(100dvh-4.75rem)] w-full max-w-lg md:max-w-2xl mx-auto flex flex-col justify-between overflow-hidden bg-black text-white px-3.5 pt-1 pb-2 select-none animate-in fade-in">
       {/* 1. Unified Header Bar Across All 5 Tabs (Standardized h-16) */}
-      <header className="h-16 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2">
+      <header className={`sticky top-0 z-30 h-16 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2 transition-all duration-200 ease-in-out ${
+        isHeaderVisible ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
+      }`}>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setIsSidebarOpen(true)}
             aria-label="Open Menu"
-            className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
+            className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -423,7 +442,16 @@ export const CalculatorView: React.FC = React.memo(() => {
         {/* Live Calculation Display with True Mathematical Typography and Cursor */}
         <div className="text-right space-y-1.5">
           {/* Active Expression with cursor */}
-          <div className="text-sm sm:text-base font-mono text-zinc-300 tracking-wider min-h-[1.75rem] flex items-center justify-end overflow-x-auto overflow-y-hidden py-0.5">
+          <div
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const clickX = e.clientX - rect.left;
+              const ratio = Math.max(0, Math.min(1, clickX / (rect.width || 1)));
+              const newPos = Math.round(ratio * expression.length);
+              setCursorPos(newPos);
+            }}
+            className="text-sm sm:text-base font-mono text-zinc-300 tracking-wider min-h-[1.75rem] flex items-center justify-end overflow-x-auto overflow-y-hidden py-0.5 cursor-pointer hover:bg-zinc-900/30 rounded-lg px-1 transition"
+          >
             {renderExpressionWithCursor()}
           </div>
 
@@ -433,31 +461,31 @@ export const CalculatorView: React.FC = React.memo(() => {
           </div>
         </div>
 
-        {/* Arrow Navigation Bar between Numbers (Item 4) */}
+        {/* Arrow Navigation Bar between Numbers (Item 6: ◀ and ▶) */}
         <div className="flex items-center justify-between pt-2 border-t border-zinc-850/80 mt-2 text-zinc-400">
           <span className="text-[10px] font-mono text-zinc-500">
-            {isArabic ? 'المؤشر' : 'Pos'}: {activeCursor}/{expression.length}
+            {isArabic ? 'المؤشر' : 'Cursor'}: {activeCursor}/{expression.length}
           </span>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handleCursorLeft}
               disabled={activeCursor === 0}
-              className="p-1.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition flex items-center gap-1 text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
+              className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition flex items-center gap-1.5 text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
               title="Move Cursor Left"
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>←</span>
+              <span className="text-sm font-black select-none">◀</span>
+              <span className="text-[10px] uppercase font-semibold">{isArabic ? 'يسار' : 'Left'}</span>
             </button>
             <button
               type="button"
               onClick={handleCursorRight}
               disabled={activeCursor === expression.length}
-              className="p-1.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition flex items-center gap-1 text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
+              className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition flex items-center gap-1.5 text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
               title="Move Cursor Right"
             >
-              <span>→</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <span className="text-[10px] uppercase font-semibold">{isArabic ? 'يمين' : 'Right'}</span>
+              <span className="text-sm font-black select-none">▶</span>
             </button>
           </div>
         </div>
@@ -615,9 +643,9 @@ export const CalculatorView: React.FC = React.memo(() => {
         <button
           type="button"
           onClick={handleEquals}
-          className="calc-equals-btn h-12 sm:h-13 rounded-2xl bg-blue-600 hover:bg-blue-500 !text-white text-2xl font-black font-mono active:scale-95 transition cursor-pointer flex items-center justify-center shadow-lg shadow-blue-600/60 border border-blue-400/50"
+          className="calc-equals-btn h-12 sm:h-13 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-2xl font-black font-mono active:scale-95 transition cursor-pointer flex items-center justify-center shadow-lg shadow-emerald-600/50 border border-emerald-400/50"
         >
-          =
+          <span className="text-2xl font-black leading-none select-none text-white">=</span>
         </button>
       </div>
     </div>

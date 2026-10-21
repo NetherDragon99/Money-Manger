@@ -27,8 +27,10 @@ import {
   Mail,
   Users,
   Trash2,
+  Copy,
 } from 'lucide-react';
 import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from '../utils/security';
+import { format16DigitId } from '../utils/userId';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ExportCustomizeModal } from './ExportCustomizeModal';
 import { auth, rtdb } from '../utils/firebase';
@@ -258,7 +260,7 @@ export const Sidebar: React.FC = () => {
 
   const handleEmailBackup = () => {
     const data = {
-      version: '1.1.5',
+      version: '1.1.6',
       exportDate: new Date().toISOString(),
       accounts,
       categories,
@@ -413,17 +415,17 @@ export const Sidebar: React.FC = () => {
           className="hidden"
         />
 
-        {/* User Profile Header: 100% Clickable Card (Item 10) */}
-        <div className="border-b border-zinc-800/80 bg-zinc-900/50 flex items-center justify-between shrink-0 hover:bg-zinc-900 transition">
-          <div
-            onClick={() => {
-              handleAnimatedClose(() => setIsUserProfileModalOpen(true));
-            }}
-            role="button"
-            tabIndex={0}
-            className="flex-1 p-4 flex items-center gap-3.5 cursor-pointer group active:scale-[0.98] transition"
-          >
-            <div className="w-13 h-13 rounded-full bg-zinc-900 border-2 border-blue-500/80 overflow-hidden flex items-center justify-center text-3xl shadow-lg group-hover:scale-105 transition shrink-0">
+        {/* User Profile Header: Entire Section is 100% Clickable Card (Item 10) */}
+        <div
+          onClick={() => {
+            handleAnimatedClose(() => setIsUserProfileModalOpen(true));
+          }}
+          role="button"
+          tabIndex={0}
+          className="border-b border-zinc-800/80 bg-zinc-900/50 hover:bg-zinc-900/90 p-4 flex items-center justify-between shrink-0 cursor-pointer group active:scale-[0.99] transition select-none"
+        >
+          <div className="flex items-center gap-3.5 min-w-0 flex-1">
+            <div className="w-13 h-13 rounded-2xl bg-zinc-900 border-2 border-blue-500/80 overflow-hidden flex items-center justify-center text-3xl shadow-lg group-hover:scale-105 transition shrink-0">
               {settings.userProfile?.customAvatarUrl ? (
                 <img
                   src={settings.userProfile.customAvatarUrl}
@@ -435,10 +437,43 @@ export const Sidebar: React.FC = () => {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="font-bold text-white text-base group-hover:text-blue-400 transition truncate">
-                {settings.userProfile?.name || 'My Profile'}
-              </h3>
-              <p className="text-xs text-zinc-400 mt-0.5">{t('editProfile')}</p>
+              <div className="flex items-center gap-1.5">
+                <h3 className="font-bold text-white text-base group-hover:text-blue-400 transition truncate">
+                  {settings.userProfile?.name || 'My Profile'}
+                </h3>
+                {auth.currentUser ? (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0 font-medium">
+                    {isArabic ? 'سحابي' : 'Cloud'}
+                  </span>
+                ) : (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 shrink-0 font-medium">
+                    {isArabic ? 'ضيف' : 'Guest'}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 mt-0.5 text-xs text-zinc-400">
+                <span className="font-mono text-[11px] text-zinc-400">
+                  {format16DigitId(settings.userProfile?.numericId || '0000000000000000')}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const numId = settings.userProfile?.numericId || '0000000000000000';
+                    navigator.clipboard.writeText(numId);
+                    showToast(
+                      isArabic
+                        ? `تم نسخ معرّفك الرقمي (${format16DigitId(numId)}) للحافظة!`
+                        : `16-Digit ID (${format16DigitId(numId)}) copied to clipboard!`,
+                      'success'
+                    );
+                  }}
+                  className="p-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                  title="Copy 16-digit ID"
+                >
+                  <Copy className="w-3 h-3" />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -448,7 +483,7 @@ export const Sidebar: React.FC = () => {
               e.stopPropagation();
               handleAnimatedClose();
             }}
-            className="p-3 mr-3 rtl:mr-0 rtl:ml-3 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
+            className="p-2.5 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer shrink-0 ml-2 rtl:ml-0 rtl:mr-2"
             aria-label="Close Sidebar"
           >
             <X className="w-5 h-5" />

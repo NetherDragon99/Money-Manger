@@ -100,26 +100,20 @@ export const UserProfileModal: React.FC = () => {
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [copiedNumericId, setCopiedNumericId] = useState(false);
-  const [copiedUid, setCopiedUid] = useState(false);
-
-  const handleCopyNumericId = (id: string) => {
-    navigator.clipboard.writeText(id);
-    setCopiedNumericId(true);
-    showToast(
-      isArabic ? `تم نسخ المعرّف الرقمي (${id}) للحافظة!` : `Numeric ID (${id}) copied to clipboard!`,
-      'success'
-    );
-    setTimeout(() => setCopiedNumericId(false), 2000);
-  };
-
-  const handleCopyUid = (uid: string) => {
-    navigator.clipboard.writeText(uid);
-    setCopiedUid(true);
-    showToast(
-      isArabic ? 'تم نسخ معرّف الحساب السحابي إلى الحافظة بنجاح!' : 'Account UID copied to clipboard!',
-      'success'
-    );
-    setTimeout(() => setCopiedUid(false), 2000);
+  const handleCopyNumericId = async (id: string) => {
+    const digits = id.replace(/\D/g, '');
+    if (digits.length !== 16) {
+      showToast(isArabic ? 'المعرّف الرقمي غير جاهز بعد' : '16-Digit ID is not ready yet', 'error');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(digits);
+      setCopiedNumericId(true);
+      showToast(isArabic ? 'تم نسخ المعرّف المكوّن من 16 رقماً!' : '16-Digit ID copied to clipboard!', 'success');
+      setTimeout(() => setCopiedNumericId(false), 2000);
+    } catch {
+      showToast(isArabic ? 'تعذّر النسخ إلى الحافظة' : 'Could not copy to clipboard', 'error');
+    }
   };
 
   // Sync Firebase Auth user

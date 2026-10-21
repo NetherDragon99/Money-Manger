@@ -116,10 +116,10 @@ export const AccountsView: React.FC = React.memo(() => {
   const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
 
   return (
-    <div className="bg-black text-white flex flex-col pb-24 px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto w-full space-y-5 animate-in fade-in">
-      {/* Header with Universal Sidebar Access & Smart Auto-Hide on Scroll (Standardized h-16) */}
-      <header className={`sticky top-0 z-30 h-16 bg-black/90 backdrop-blur-md -mx-4 px-4 border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
-        isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
+    <div className="bg-black text-white flex flex-col pb-24 animate-in fade-in">
+      {/* 1. Standardized Top Header Across All Views (Item 2) */}
+      <header className={`sticky top-0 z-30 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-all duration-200 ease-in-out ${
+        isHeaderVisible ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
       }`}>
         <div className="flex items-center gap-2">
           {/* Universal Sidebar Menu Button (☰) */}
@@ -127,7 +127,7 @@ export const AccountsView: React.FC = React.memo(() => {
             type="button"
             onClick={() => setIsSidebarOpen(true)}
             aria-label="Open Menu"
-            className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
+            className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -149,6 +149,8 @@ export const AccountsView: React.FC = React.memo(() => {
           </button>
         </div>
       </header>
+
+      <div className="px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto w-full space-y-5">
 
       {/* Global Net Worth Summary Block:
           Top Center: TOTAL BALANCE in large White text.
@@ -337,5 +339,6 @@ export const AccountsView: React.FC = React.memo(() => {
         </div>
       </div>
     </div>
+  </div>
   );
 });

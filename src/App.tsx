@@ -121,6 +121,8 @@ const MainAppContent: React.FC = () => {
     closeSharedLiveView,
     customDialogState,
     closeCustomDialog,
+    isHeaderVisible,
+    setIsHeaderVisible,
   } = useApp();
 
   const [updating, setUpdating] = useState(false);
@@ -377,17 +379,63 @@ const MainAppContent: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Touch gesture swipe handling across tabs & sidebar
+  // Item 3: Auto-hiding header scroll capture handler
+  const lastScrollTopRef = useRef<number>(0);
+
+  const handleScrollCapture = (e: React.UIEvent) => {
+    const target = e.target as HTMLElement;
+    if (!target || typeof target.scrollTop !== 'number') return;
+    // Ignore scrolls originating from inside modal overlays, sidebars, or dropdowns
+    if (target.closest?.('[role="dialog"], [data-modal], .modal-container-anim, .overflow-y-auto.fixed, [data-no-header-scroll], aside')) {
+      return;
+    }
+
+    const scrollTop = target.scrollTop;
+    const deltaY = scrollTop - lastScrollTopRef.current;
+    lastScrollTopRef.current = scrollTop;
+
+    // Immediate Show on Slight Scroll Up (scrollTop <= 25 OR deltaY < -2)
+    if (scrollTop <= 25 || deltaY < -2) {
+      setIsHeaderVisible(true);
+    } else if (deltaY > 10 && scrollTop > 60) {
+      // Hide on Scroll Down (deltaY > 10 AND scrollTop > 60)
+      setIsHeaderVisible(false);
+    }
+  };
+
+  useEffect(() => {
+    lastScrollTopRef.current = 0;
+    setIsHeaderVisible(true);
+  }, [currentTab]);
+
+  // Touch gesture swipe handling across tabs & sidebar (Item 1)
+  const [isSwiping, setIsSwiping] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     const target = e.target as HTMLElement;
-    if (target.closest('input, textarea, select, [data-no-swipe], .no-swipe, .overflow-x-auto')) return;
+    if (target.closest('input, textarea, select, [data-no-swipe], .no-swipe, .overflow-x-auto, button')) return;
     const touch = e.touches[0];
     touchStartRef.current = { x: touch.clientX, y: touch.clientY };
   };
 
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+    if (Math.abs(deltaX) > 15 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+      if (!isSwiping) setIsSwiping(true);
+    }
+  };
+
+  const handleTouchCancel = () => {
+    setIsSwiping(false);
+    touchStartRef.current = null;
+  };
+
   const handleTouchEnd = (e: React.TouchEvent) => {
+    setIsSwiping(false);
     if (!touchStartRef.current) return;
     const touch = e.changedTouches[0];
     const deltaX = touch.clientX - touchStartRef.current.x;
@@ -523,8 +571,11 @@ const MainAppContent: React.FC = () => {
     <div className="min-h-screen bg-zinc-950 flex justify-center text-white selection:bg-blue-600 selection:text-white">
       {/* Responsive Container Frame across Mobile, Tablet & Desktop (Item 2) */}
       <div
+        onScrollCapture={handleScrollCapture}
         onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
         className="w-full max-w-full md:max-w-5xl lg:max-w-6xl min-h-screen bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
       >
         <OfflineBanner />
@@ -545,17 +596,49 @@ const MainAppContent: React.FC = () => {
             </div>
           )}
 
-          {/* Active Tab View Display: Only mount active tab to eliminate re-render cascades & GPU frame drops (Item 1) */}
+          {/* Active Tab View Display: Only mount active tab at rest; dynamically mount adjacent tabs during horizontal swipe (Item 1) */}
           <div className="flex-1 flex flex-col relative">
-            {currentTab === 'home' && <HomeView />}
-            {currentTab === 'budget' && <BudgetView />}
-            {currentTab === 'insights' && <InsightsView />}
-            {currentTab === 'accounts' && <AccountsView />}
-            {currentTab === 'calculator' && (
-              <div className="h-full flex-1 flex flex-col overflow-hidden animate-in fade-in duration-150">
-                <CalculatorView />
-              </div>
-            )}
+            {(() => {
+              const curIdx = TABS.indexOf(currentTab);
+              const shouldMount = (tab: TabType) => {
+                if (tab === currentTab) return true;
+                if (isSwiping) {
+                  const idx = TABS.indexOf(tab);
+                  return Math.abs(idx - curIdx) === 1;
+                }
+                return false;
+              };
+
+              return (
+                <>
+                  {shouldMount('home') && (
+                    <div className={currentTab === 'home' ? 'block' : 'hidden'}>
+                      <HomeView />
+                    </div>
+                  )}
+                  {shouldMount('budget') && (
+                    <div className={currentTab === 'budget' ? 'block' : 'hidden'}>
+                      <BudgetView />
+                    </div>
+                  )}
+                  {shouldMount('insights') && (
+                    <div className={currentTab === 'insights' ? 'block' : 'hidden'}>
+                      <InsightsView />
+                    </div>
+                  )}
+                  {shouldMount('accounts') && (
+                    <div className={currentTab === 'accounts' ? 'block' : 'hidden'}>
+                      <AccountsView />
+                    </div>
+                  )}
+                  {shouldMount('calculator') && (
+                    <div className={currentTab === 'calculator' ? 'h-full flex-1 flex flex-col overflow-hidden' : 'hidden'}>
+                      <CalculatorView />
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
           <MultiSelectActionBar />
           <Navigation />

@@ -2,6 +2,7 @@ import { Account, Category, Transaction, AppSettings, AppData } from '../types';
 import { DEFAULT_ACCOUNTS, INITIAL_CATEGORIES, DEFAULT_SETTINGS } from './constants';
 import { syncAllAccountBalances } from './balanceEngine';
 import { saveItemToIndexedDB } from './indexedDB';
+import { debouncedPersist } from './persistQueue';
 
 const ACCOUNTS_KEY = 'pwa_finance_accounts';
 const CATEGORIES_KEY = 'pwa_finance_categories';
@@ -65,44 +66,32 @@ export function loadInitialData(): AppData {
   }
 }
 
-export function saveAccounts(accounts: Account[]): void {
+// Immediate writers (used by the debounced queue)
+function writeNow(key: string, storeName: 'accounts' | 'categories' | 'transactions' | 'settings', value: unknown): void {
   try {
-    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch (err) {
-    console.error('Failed to save accounts to localStorage:', err);
+    console.error(`Failed to save ${storeName} to localStorage:`, err);
   }
   // Permanently sync to IndexedDB
-  saveItemToIndexedDB('accounts', accounts);
+  saveItemToIndexedDB(storeName, value as any);
+}
+
+// Debounced (400ms) persistence so JSON serialization never blocks UI interactions
+export function saveAccounts(accounts: Account[]): void {
+  debouncedPersist(ACCOUNTS_KEY, () => writeNow(ACCOUNTS_KEY, 'accounts', accounts));
 }
 
 export function saveCategories(categories: Category[]): void {
-  try {
-    localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
-  } catch (err) {
-    console.error('Failed to save categories to localStorage:', err);
-  }
-  // Permanently sync to IndexedDB
-  saveItemToIndexedDB('categories', categories);
+  debouncedPersist(CATEGORIES_KEY, () => writeNow(CATEGORIES_KEY, 'categories', categories));
 }
 
 export function saveTransactions(transactions: Transaction[]): void {
-  try {
-    localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(transactions));
-  } catch (err) {
-    console.error('Failed to save transactions to localStorage:', err);
-  }
-  // Permanently sync to IndexedDB
-  saveItemToIndexedDB('transactions', transactions);
+  debouncedPersist(TRANSACTIONS_KEY, () => writeNow(TRANSACTIONS_KEY, 'transactions', transactions));
 }
 
 export function saveSettings(settings: AppSettings): void {
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  } catch (err) {
-    console.error('Failed to save settings to localStorage:', err);
-  }
-  // Permanently sync to IndexedDB
-  saveItemToIndexedDB('settings', settings);
+  debouncedPersist(SETTINGS_KEY, () => writeNow(SETTINGS_KEY, 'settings', settings));
 }
 
 /**

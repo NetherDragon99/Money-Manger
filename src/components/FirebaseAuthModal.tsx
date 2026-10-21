@@ -221,7 +221,7 @@ export const FirebaseAuthModal: React.FC<FirebaseAuthModalProps> = ({ isOpen, on
                   {currentUser.displayName || (isArabic ? 'مستخدم مسجل' : 'Authenticated User')}
                 </div>
                 <div className="text-[10px] text-zinc-400 truncate">
-                  {currentUser.email || currentUser.phoneNumber || currentUser.uid}
+                  {currentUser.email || currentUser.phoneNumber || 'Signed in'}
                 </div>
                 <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium mt-1">
                   <CheckCircle2 className="w-3 h-3" />

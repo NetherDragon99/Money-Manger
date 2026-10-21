@@ -248,15 +248,15 @@ export const HomeView: React.FC = React.memo(() => {
   return (
     <div className="bg-black text-white flex flex-col pb-24 animate-in fade-in">
       {/* 1. Top Header Bar with Smart Auto-Hide on Scroll (Standardized h-16) */}
-      <header className={`sticky top-0 z-30 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-transform duration-300 ease-in-out ${
-        isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
+      <header className={`sticky top-0 z-30 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-all duration-200 ease-in-out ${
+        isHeaderVisible ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
       }`}>
         {/* Left: Hamburger Menu Button (☰) */}
         <button
           type="button"
           onClick={() => setIsSidebarOpen(true)}
           aria-label="Open Menu"
-          className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
+          className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
         >
           <Menu className="w-5 h-5" />
         </button>

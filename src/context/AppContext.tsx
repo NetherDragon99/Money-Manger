@@ -1,4 +1,33 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+  useMemo,
+  useCallback,
+  useRef,
+} from 'react';
+import { debouncedPersist } from '../utils/persistQueue';
+
+/**
+ * Wraps every mutator in a permanently stable callback (useCallback with [] deps) that always
+ * delegates to the latest implementation via a ref. This gives consumers referentially stable
+ * functions (no re-render cascades) while completely avoiding stale-closure bugs.
+ */
+function useStableCallbacks<T extends Record<string, (...args: any[]) => any>>(fns: T): T {
+  const latestRef = useRef(fns);
+  latestRef.current = fns;
+  const stableRef = useRef<T | null>(null);
+  if (!stableRef.current) {
+    const out = {} as Record<string, (...args: any[]) => any>;
+    Object.keys(fns).forEach((key) => {
+      out[key] = (...args: any[]) => latestRef.current[key](...args);
+    });
+    stableRef.current = out as T;
+  }
+  return stableRef.current;
+}
 import {
   Account,
   Category,
@@ -35,7 +64,7 @@ import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
 import { translations } from '../utils/translations';
 import { DEFAULT_SETTINGS } from '../utils/constants';
 import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomDialogModal';
-import { getOrCreateNumericId, syncNumericIdToFirebase } from '../utils/userId';
+import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId } from '../utils/userId';
 import { auth } from '../utils/firebase';
 import { decodeShareSnapshot } from '../utils/sharing';
 
@@ -55,6 +84,8 @@ interface AppContextType {
   // Active Navigation & View
   currentTab: TabType;
   setCurrentTab: (tab: TabType) => void;
+  isHeaderVisible: boolean;
+  setIsHeaderVisible: (visible: boolean) => void;
   homeSubView: 'daily' | 'calendar';
   setHomeSubView: (view: 'daily' | 'calendar') => void;
   selectedAccountId: string | null;
@@ -229,6 +260,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Nav
   const [currentTab, setCurrentTab] = useState<TabType>('home');
+  const [isHeaderVisible, setIsHeaderVisible] = useState<boolean>(true);
   const [homeSubView, setHomeSubView] = useState<'daily' | 'calendar'>('daily');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
 
@@ -411,10 +443,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Translation helper
-  const t = (key: keyof typeof translations.en): string => {
-    const lang = settings.language || 'en';
-    return (translations[lang] && translations[lang][key]) || translations.en[key] || key;
-  };
+  const t = useCallback(
+    (key: keyof typeof translations.en): string => {
+      const lang = settings.language || 'en';
+      return (translations[lang] && translations[lang][key]) || translations.en[key] || key;
+    },
+    [settings.language]
+  );
 
   // Initialize Permanent IndexedDB Storage and verify backup
   useEffect(() => {
@@ -453,7 +488,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [transactions]);
 
   useEffect(() => {
-    saveRecurringTransactions(recurringTransactions);
+    debouncedPersist('recurring_transactions', () => saveRecurringTransactions(recurringTransactions));
   }, [recurringTransactions]);
 
   // App Lock on resume / visibility change
@@ -1053,155 +1088,162 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     window.history.replaceState({}, '', u.pathname + (u.search ? u.search : ''));
   };
 
-  // Auto-populate profile name from Google Account / Email & Sync Numeric ID (Item 7 & 12)
+  // Auto-populate profile name & resolve the PERMANENT 16-digit numeric ID for signed-in users
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((user) => {
-      if (user) {
-        const currentName = settings.userProfile?.name;
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (!user) return;
+      const permanentId = await resolvePermanent16DigitId(user.uid);
+      const suggestedName = user.displayName || (user.email ? user.email.split('@')[0] : 'User');
+      let finalName = suggestedName;
+
+      setSettings((prev) => {
+        const currentName = prev.userProfile?.name;
         const isDefaultOrBlank =
-          !currentName ||
-          currentName === 'My Profile' ||
-          currentName === 'User' ||
-          currentName.trim() === '';
-        const suggestedName = user.displayName || (user.email ? user.email.split('@')[0] : 'User');
-        const numId = getOrCreateNumericId(settings.userProfile?.numericId);
-
-        const updatedProfile = {
-          ...settings.userProfile,
-          numericId: numId,
-          name: isDefaultOrBlank && suggestedName ? suggestedName : currentName || 'User',
-        };
-
-        if (isDefaultOrBlank || !settings.userProfile?.numericId) {
-          updateSettings({ userProfile: updatedProfile });
+          !currentName || currentName === 'My Profile' || currentName === 'User' || currentName.trim() === '';
+        finalName = isDefaultOrBlank && suggestedName ? suggestedName : currentName || 'User';
+        if (prev.userProfile?.numericId === permanentId && prev.userProfile?.name === finalName) {
+          return prev;
         }
+        return {
+          ...prev,
+          userProfile: { ...prev.userProfile, numericId: permanentId, name: finalName },
+        };
+      });
 
-        syncNumericIdToFirebase(numId, user.uid, updatedProfile.name, user.email || undefined);
-      }
+      syncNumericIdToFirebase(permanentId, user.uid, finalName, user.email || undefined);
     });
     return () => unsub();
-  }, [settings.userProfile]);
+  }, []);
 
-  const contextValue = useMemo(
+  // All mutators: permanently stable identities, always executing the latest logic
+  const stable = useStableCallbacks({
+    setCurrentTab,
+    setIsHeaderVisible,
+    setHomeSubView,
+    setSelectedAccountId,
+    setPeriodFilter,
+    setPeriodOffset,
+    setCustomDateRange,
+    setAdvancedFilter,
+    clearAdvancedFilter,
+    setIsSidebarOpen,
+    openAddTxModal,
+    closeAddTxModal,
+    openEditTxModal,
+    closeEditTxModal,
+    openTxDetailsModal,
+    closeTxDetailsModal,
+    openAddAccountModal,
+    openEditAccountModal,
+    closeAccountModal,
+    openAddCategoryModal,
+    openEditCategoryModal,
+    closeCategoryModal,
+    setIsUserProfileModalOpen,
+    setIsResetPeriodModalOpen,
+    setIsFilterModalOpen,
+    setIsFeaturesModalOpen,
+    setIsRecurringModalOpen,
+    setIsPinModalOpen,
+    setIsSharedHubModalOpen,
+    setIsAppLocked,
+    unlockApp,
+    lockApp,
+    addRecurringTransaction,
+    updateRecurringTransaction,
+    deleteRecurringTransaction,
+    processDueRecurring,
+    dismissBudgetAlert,
+    openEmojiPicker,
+    closeEmojiPicker,
+    selectEmoji,
+    addTransaction,
+    updateTransaction,
+    deleteTransaction,
+    addAccount,
+    updateAccount,
+    deleteAccount,
+    reorderAccounts,
+    addCategory,
+    updateCategory,
+    deleteCategory,
+    reorderCategories,
+    startTxMultiSelect,
+    toggleTxSelection,
+    selectAllTxs,
+    clearTxSelection,
+    deleteSelectedTxs,
+    batchAssignCategory,
+    startCategoryMultiSelect,
+    toggleCategorySelection,
+    selectAllCategories,
+    clearCategorySelection,
+    deleteSelectedCategories,
+    updateSettings,
+    applyPeriodReset,
+    importFullData,
+    importSingleAccountData,
+    showToast,
+    showConfirm,
+    showPrompt,
+    closeCustomDialog,
+    setActiveSharedId,
+    setActiveSharedSnapshot,
+    openSharedLiveView,
+    closeSharedLiveView,
+  });
+
+  // Context value only changes when actual STATE changes (mutators are stable)
+  const contextValue = useMemo<AppContextType>(
     () => ({
+      ...stable,
       accounts,
       categories,
       transactions,
       settings,
       currentTab,
-      setCurrentTab,
+      isHeaderVisible,
       homeSubView,
-      setHomeSubView,
       selectedAccountId,
-      setSelectedAccountId,
       periodFilter,
-      setPeriodFilter,
       periodOffset,
-      setPeriodOffset,
       customDateRange,
-      setCustomDateRange,
       advancedFilter,
-      setAdvancedFilter,
-      clearAdvancedFilter,
       isSidebarOpen,
-      setIsSidebarOpen,
       isAddTxModalOpen,
       defaultTxAccountId,
       defaultTxAmount,
-      openAddTxModal,
-      closeAddTxModal,
       editingTx,
-      openEditTxModal,
-      closeEditTxModal,
       viewingTx,
-      openTxDetailsModal,
-      closeTxDetailsModal,
       isAccountModalOpen,
       editingAccount,
-      openAddAccountModal,
-      openEditAccountModal,
-      closeAccountModal,
       isCategoryModalOpen,
       editingCategory,
       defaultCategoryType,
-      openAddCategoryModal,
-      openEditCategoryModal,
-      closeCategoryModal,
       isUserProfileModalOpen,
-      setIsUserProfileModalOpen,
       isResetPeriodModalOpen,
-      setIsResetPeriodModalOpen,
       isFilterModalOpen,
-      setIsFilterModalOpen,
       isFeaturesModalOpen,
-      setIsFeaturesModalOpen,
       isRecurringModalOpen,
-      setIsRecurringModalOpen,
       isPinModalOpen,
-      setIsPinModalOpen,
       isSharedHubModalOpen,
-      setIsSharedHubModalOpen,
       isAppLocked,
-      setIsAppLocked,
-      unlockApp,
-      lockApp,
       recurringTransactions,
-      addRecurringTransaction,
-      updateRecurringTransaction,
-      deleteRecurringTransaction,
-      processDueRecurring,
       budgetAlerts,
-      dismissBudgetAlert,
       dismissedAlertIds,
       isEmojiPickerOpen,
-      openEmojiPicker,
-      closeEmojiPicker,
-      selectEmoji,
-      addTransaction,
-      updateTransaction,
-      deleteTransaction,
-      addAccount,
-      updateAccount,
-      deleteAccount,
-      reorderAccounts,
-      addCategory,
-      updateCategory,
-      deleteCategory,
-      reorderCategories,
       selectedTxIds,
       isTxMultiSelect,
-      startTxMultiSelect,
-      toggleTxSelection,
-      selectAllTxs,
-      clearTxSelection,
-      deleteSelectedTxs,
-      batchAssignCategory,
       selectedCategoryIds,
       isCategoryMultiSelect,
-      startCategoryMultiSelect,
-      toggleCategorySelection,
-      selectAllCategories,
-      clearCategorySelection,
-      deleteSelectedCategories,
-      updateSettings,
-      applyPeriodReset,
-      importFullData,
-      importSingleAccountData,
       toasts,
-      showToast,
-      showConfirm,
-      showPrompt,
       customDialogState,
-      closeCustomDialog,
       activeSharedId,
-      setActiveSharedId,
       activeSharedSnapshot,
-      setActiveSharedSnapshot,
-      openSharedLiveView,
-      closeSharedLiveView,
       t,
     }),
     [
+      stable,
       accounts,
       categories,
       transactions,
