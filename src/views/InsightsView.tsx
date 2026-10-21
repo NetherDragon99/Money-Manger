@@ -213,10 +213,10 @@ export const InsightsView: React.FC = React.memo(() => {
     : categoryAnalytics.list.slice(0, 3);
 
   return (
-    <div className="bg-black text-white flex flex-col pb-24 animate-in fade-in">
+    <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
       {/* 1. Standardized Top Header Across All Views (Item 2) */}
-      <header className={`sticky top-0 z-30 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-all duration-200 ease-in-out ${
-        isHeaderVisible ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
+      <header className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-40 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-all duration-200 ease-in-out ${
+        isHeaderVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
       }`}>
         <div className="flex items-center gap-2">
           {/* Universal Sidebar Menu Button (☰) */}

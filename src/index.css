@@ -250,6 +250,55 @@ html.light-mode .grid-cols-4 button[aria-label="Backspace"] {
   border-color: #fecdd3 !important;
 }
 
+
+/* Calculator Display & History Panel Theme-Aware Overrides (Item 5) */
+html.light-mode .calc-display-screen,
+.light .calc-display-screen {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05) !important;
+}
+
+html.light-mode .calc-history-drawer,
+.light .calc-history-drawer {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+html.light-mode .calc-history-item,
+.light .calc-history-item {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #1e293b !important;
+}
+
+html.light-mode .calc-history-item:hover,
+.light .calc-history-item:hover {
+  background-color: #f1f5f9 !important;
+}
+
+html.light-mode .calc-history-item .text-zinc-400,
+.light .calc-history-item .text-zinc-400 {
+  color: #475569 !important;
+}
+
+html.light-mode .calc-display-result,
+.light .calc-display-result {
+  color: #0f172a !important;
+}
+
+html.light-mode .calc-display-expression,
+.light .calc-display-expression {
+  color: #334155 !important;
+}
+
+html.light-mode .calc-display-zero,
+.light .calc-display-zero {
+  color: #94a3b8 !important;
+}
+
 /* Disabled State */
 html.light-mode button:disabled {
   background-color: #e2e8f0 !important;

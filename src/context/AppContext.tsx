@@ -195,6 +195,35 @@ interface AppContextType {
   deleteSelectedTxs: () => void;
   batchAssignCategory: (txIds: string[], category: Category) => void;
 
+  // Multi-Select for Accounts (Item 7)
+  selectedAccountIds: string[];
+  isAccountMultiSelect: boolean;
+  startAccountMultiSelect: (initialId?: string) => void;
+  toggleAccountSelection: (id: string) => void;
+  selectAllAccounts: (ids: string[]) => void;
+  clearAccountSelection: () => void;
+  deleteAccountWithBalanceTransfer: (id: string, transferTargetAccountId?: string) => boolean;
+  deleteMultipleAccounts: (ids: string[], transferTargetAccountId?: string) => boolean;
+
+  // Unified Share Folder Modal System (Item 6)
+  shareModalState: {
+    isOpen: boolean;
+    accounts?: Account[];
+    categories?: Category[];
+    transactions?: Transaction[];
+  };
+  openShareModal: (items: { accounts?: Account[]; categories?: Category[]; transactions?: Transaction[] }) => void;
+  closeShareModal: () => void;
+
+  // Remaining Balance Resolution Modal (Item 8)
+  remainingBalanceModalState: {
+    isOpen: boolean;
+    accounts: Account[];
+    onConfirmDelete: (targetAccountId?: string) => void;
+  } | null;
+  openRemainingBalanceModal: (accounts: Account[], onConfirmDelete: (targetAccountId?: string) => void) => void;
+  closeRemainingBalanceModal: () => void;
+
   // Multi-Select for Categories
   selectedCategoryIds: string[];
   isCategoryMultiSelect: boolean;
@@ -394,6 +423,172 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         : `Assigned category "${category.name}" to ${count} transactions!`,
       'success'
     );
+  };
+
+  // Account Multi-Select (Item 7)
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [isAccountMultiSelect, setIsAccountMultiSelect] = useState<boolean>(false);
+
+  const startAccountMultiSelect = (initialId?: string) => {
+    setIsAccountMultiSelect(true);
+    if (initialId) setSelectedAccountIds([initialId]);
+  };
+
+  const toggleAccountSelection = (id: string) => {
+    setSelectedAccountIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllAccounts = (ids: string[]) => {
+    setSelectedAccountIds(ids);
+  };
+
+  const clearAccountSelection = () => {
+    setSelectedAccountIds([]);
+    setIsAccountMultiSelect(false);
+    releaseScrollLocks();
+  };
+
+  // Unified Share Modal (Item 6)
+  const [shareModalState, setShareModalState] = useState<{
+    isOpen: boolean;
+    accounts?: Account[];
+    categories?: Category[];
+    transactions?: Transaction[];
+  }>({ isOpen: false });
+
+  const openShareModal = (items: { accounts?: Account[]; categories?: Category[]; transactions?: Transaction[] }) => {
+    setShareModalState({
+      isOpen: true,
+      accounts: items.accounts,
+      categories: items.categories,
+      transactions: items.transactions,
+    });
+  };
+
+  const closeShareModal = () => {
+    setShareModalState({ isOpen: false });
+  };
+
+  // Remaining Balance Modal (Item 8)
+  const [remainingBalanceModalState, setRemainingBalanceModalState] = useState<{
+    isOpen: boolean;
+    accounts: Account[];
+    onConfirmDelete: (targetAccountId?: string) => void;
+  } | null>(null);
+
+  const openRemainingBalanceModal = (
+    accs: Account[],
+    onConfirmDelete: (targetAccountId?: string) => void
+  ) => {
+    setRemainingBalanceModalState({
+      isOpen: true,
+      accounts: accs,
+      onConfirmDelete,
+    });
+  };
+
+  const closeRemainingBalanceModal = () => {
+    setRemainingBalanceModalState(null);
+  };
+
+  const deleteAccountWithBalanceTransfer = (id: string, transferTargetAccountId?: string): boolean => {
+    if (accounts.length <= 1) {
+      showToast(t('cannotDeleteOnlyAccount'), 'error');
+      return false;
+    }
+
+    const accToDelete = accounts.find((a) => a.id === id);
+    if (!accToDelete) return false;
+
+    let updatedTxs = transactions.filter(
+      (tx) => tx.accountId !== id && tx.toAccountId !== id
+    );
+
+    if (transferTargetAccountId && accToDelete.balance !== 0) {
+      const now = new Date();
+      const transferTx: Transaction = {
+        id: `tx_rem_bal_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        accountId: transferTargetAccountId,
+        type: accToDelete.balance > 0 ? 'income' : 'expense',
+        amount: Math.abs(accToDelete.balance),
+        date: formatDateToYYYYMMDD(now),
+        time: formatTimeToHHMM(now),
+        categoryName: 'Remaining Balance Transfer',
+        categoryIcon: '🔄',
+        description: settings.language === 'ar'
+          ? `تحويل الرصيد المتبقي من حساب "${accToDelete.name}" المحذوف`
+          : `Remaining balance transferred from deleted account "${accToDelete.name}"`,
+        createdAt: Date.now(),
+      };
+      updatedTxs.push(transferTx);
+    }
+
+    setTransactions(updatedTxs);
+    const remainingAccounts = accounts.filter((a) => a.id !== id);
+    const synced = syncAllAccountBalances(remainingAccounts, updatedTxs);
+    setAccounts(synced);
+
+    if (selectedAccountId === id) {
+      setSelectedAccountId(null);
+    }
+
+    showToast(t('deletedSuccess'), 'success');
+    return true;
+  };
+
+  const deleteMultipleAccounts = (ids: string[], transferTargetAccountId?: string): boolean => {
+    if (accounts.length - ids.length < 1) {
+      showToast(t('cannotDeleteOnlyAccount'), 'error');
+      return false;
+    }
+
+    const accountsToDelete = accounts.filter((a) => ids.includes(a.id));
+    let updatedTxs = transactions.filter(
+      (tx) => !ids.includes(tx.accountId) && (!tx.toAccountId || !ids.includes(tx.toAccountId))
+    );
+
+    if (transferTargetAccountId) {
+      const now = new Date();
+      accountsToDelete.forEach((acc) => {
+        if (acc.balance !== 0) {
+          const transferTx: Transaction = {
+            id: `tx_rem_bal_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            accountId: transferTargetAccountId,
+            type: acc.balance > 0 ? 'income' : 'expense',
+            amount: Math.abs(acc.balance),
+            date: formatDateToYYYYMMDD(now),
+            time: formatTimeToHHMM(now),
+            categoryName: 'Remaining Balance Transfer',
+            categoryIcon: '🔄',
+            description: settings.language === 'ar'
+              ? `تحويل الرصيد المتبقي من حساب "${acc.name}" المحذوف`
+              : `Remaining balance transferred from deleted account "${acc.name}"`,
+            createdAt: Date.now(),
+          };
+          updatedTxs.push(transferTx);
+        }
+      });
+    }
+
+    setTransactions(updatedTxs);
+    const remainingAccounts = accounts.filter((a) => !ids.includes(a.id));
+    const synced = syncAllAccountBalances(remainingAccounts, updatedTxs);
+    setAccounts(synced);
+
+    if (selectedAccountId && ids.includes(selectedAccountId)) {
+      setSelectedAccountId(null);
+    }
+
+    clearAccountSelection();
+    showToast(
+      settings.language === 'ar'
+        ? `تم حذف ${ids.length} حساب بنجاح!`
+        : `Deleted ${ids.length} accounts successfully!`,
+      'success'
+    );
+    return true;
   };
 
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
@@ -1168,6 +1363,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     updateCategory,
     deleteCategory,
     reorderCategories,
+    startAccountMultiSelect,
+    toggleAccountSelection,
+    selectAllAccounts,
+    clearAccountSelection,
+    deleteAccountWithBalanceTransfer,
+    deleteMultipleAccounts,
+    openShareModal,
+    closeShareModal,
+    openRemainingBalanceModal,
+    closeRemainingBalanceModal,
     startTxMultiSelect,
     toggleTxSelection,
     selectAllTxs,
@@ -1232,6 +1437,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       budgetAlerts,
       dismissedAlertIds,
       isEmojiPickerOpen,
+      selectedAccountIds,
+      isAccountMultiSelect,
+      shareModalState,
+      remainingBalanceModalState,
       selectedTxIds,
       isTxMultiSelect,
       selectedCategoryIds,

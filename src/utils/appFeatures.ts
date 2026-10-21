@@ -21,6 +21,36 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.7',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'Floating Auto-Hide Header, Swipe-to-Close Sidebar, Calculator Square Root & Navigation Fixes, Unified Share Modal, Account Multi-Select & Balance Protection',
+      ar: 'هيدر عائم متجاوب فورياً، إغلاق القائمة بالسحب، تصحيح جذر الحاسبة والمؤشر، نظام مشاركة موحد بالكامل، تحديد الحسابات المتعدد، وحماية الرصيد عند الحذف',
+    },
+    highlights: {
+      en: [
+        'True Floating Overlay Header: Top header is fixed above content with glass blur, sliding back down instantly on even a 2px upward scroll at any scroll position.',
+        'Swipe-to-Close Sidebar: Intuitive swipe gesture in the closing direction (Left in LTR, Right in RTL) smoothly dismisses the sidebar.',
+        'Calculator Phantom 0 Bug Fix: Eliminated the ghost trailing "0" (e.g. 5÷5|0), rendering placeholder "0" only when expression is completely empty.',
+        'Calculator Square Root Navigation: Moving cursor Right (▶) cleanly exits the root block without getting trapped; accurate live evaluation of nested/complex roots.',
+        'Calculator Light Mode Theme: Fully theme-aware display container and expandable history panel with bright morning backgrounds in light mode.',
+        '100% Unified Share System: Every share across Accounts, Categories, Transactions, and Multi-Select uses the identical ShareFolderModal with automatic metadata inheritance.',
+        'Account Multi-Select with Long-Press: 500ms long-press on any Account card enters multi-select mode for batch sharing or safe deletion.',
+        'Remaining Balance Resolution: Financial safety prompt prevents losing money when deleting accounts with non-zero balances by offering automatic transfer to another account.',
+      ],
+      ar: [
+        'هيدر عائم حقيقي فوق المحتوى: شريط علوي عائم بزجاج ضبابي يظهر فوراً وبدقة عند التمرير لأعلى حتى 2 بكسل في أي موضع من الصفحة.',
+        'إغلاق القائمة الجانبية بالسحب: إمكانية سحب القائمة الجانبية في الاتجاه المعاكس (يسار في الإنجليزية، يمين في العربية) لإغلاقها بسلاسة.',
+        'إزالة الصفر الشبح بالحاسبة: القضاء نهائياً على ظهور 0 بجانب المؤشر (5÷5|0) وقصر الصفر على حالة فراغ التعبير الحسابي تماماً.',
+        'التنقل الدقيق داخل وخارج الجذر: الضغط على سهم اليمين يخرج من نطاق الجذر الرياضي واليسار يعود لداخله، مع حساب دقيق لجميع الجذور المركبة.',
+        'مظهر نهاري مشرق لسجل الحاسبة: دعم كامل للوضع الفاتح في شاشة العرض وسجل العمليات الحسابية بخلفيات ناصعة وألوان عالية التباين.',
+        'نظام مشاركة موحد 100%: كل عمليات المشاركة في الحسابات والتصنيفات والمعاملات والتحديد المتعدد أصبحت تستخدم نفس نافذة مجلد المشاركة الموحدة.',
+        'تحديد الحسابات بالضغط المطول: ضغط مطول 500ms على أي كارت حساب للدخول في وضع التحديد المتعدد لمشاركة مجمعة أو حذف آمن.',
+        'حماية الرصيد المتبقي عند حذف الحساب: نافذة ذكية تمنع ضياع الأموال عند حذف حساب به رصيد، وتتيح تحويل الرصيد المتبقي لحساب آخر تلقائياً قبل الحذف.',
+      ],
+    },
+  },
+  {
     version: '1.1.6',
     releaseDate: 'October 20, 2026',
     title: {

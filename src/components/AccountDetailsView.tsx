@@ -25,7 +25,7 @@ import { exportAccountAsJSON } from '../utils/storage';
 import { GroupedTransactionList } from './GroupedTransactionList';
 import { getAccountTransactions } from '../utils/balanceEngine';
 import { MiniDateTimePicker } from './MiniDateTimePicker';
-import { SharedAccountModal } from './SharedAccountModal';
+import { Share2 } from 'lucide-react';
 
 export const AccountDetailsView: React.FC = () => {
   const {
@@ -36,6 +36,9 @@ export const AccountDetailsView: React.FC = () => {
     settings,
     openEditAccountModal,
     deleteAccount,
+    deleteAccountWithBalanceTransfer,
+    openRemainingBalanceModal,
+    openShareModal,
     openAddTxModal,
     importSingleAccountData,
     showToast,
@@ -49,7 +52,6 @@ export const AccountDetailsView: React.FC = () => {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const periodDropdownRef = useRef<HTMLDivElement | null>(null);
 
@@ -163,6 +165,13 @@ export const AccountDetailsView: React.FC = () => {
 
   const handleDelete = async () => {
     setMenuOpen(false);
+    if (account.balance !== 0) {
+      openRemainingBalanceModal([account], (targetAccountId?: string) => {
+        deleteAccountWithBalanceTransfer(account.id, targetAccountId);
+      });
+      return;
+    }
+
     const confirmed = await showConfirm({
       title: settings.language === 'ar' ? 'حذف الحساب' : 'Delete Account',
       message: t('confirmDeleteAccount'),
@@ -266,12 +275,12 @@ export const AccountDetailsView: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setMenuOpen(false);
-                  setIsShareModalOpen(true);
+                  openShareModal({ accounts: [account], transactions: accountAllTxs });
                 }}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-zinc-800 text-zinc-200 transition"
               >
-                <Users className="w-4 h-4 text-cyan-400" />
-                <span>{settings.language === 'ar' ? 'المشاركة السحابية الحية' : 'Live Cloud Share'}</span>
+                <Share2 className="w-4 h-4 text-purple-400" />
+                <span>{settings.language === 'ar' ? 'مشاركة الحساب' : 'Share Account'}</span>
               </button>
               <div className="my-1 border-t border-zinc-800" />
               <button
@@ -498,13 +507,7 @@ export const AccountDetailsView: React.FC = () => {
         </button>
       </div>
 
-      {/* Live Shared Account Modal */}
-      <SharedAccountModal
-        isOpen={isShareModalOpen}
-        onClose={() => setIsShareModalOpen(false)}
-        account={account}
-        transactions={transactions}
-      />
+
     </div>
   );
 };

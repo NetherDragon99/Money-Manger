@@ -204,7 +204,7 @@ export const Sidebar: React.FC = () => {
     setBackupStatusLabel(isArabic ? 'جارٍ جمع البيانات...' : 'Gathering financial data...');
     try {
       const data = {
-        version: '1.1.6',
+        version: '1.1.7',
         exportDate: new Date().toISOString(),
         accounts,
         categories,
@@ -260,7 +260,7 @@ export const Sidebar: React.FC = () => {
 
   const handleEmailBackup = () => {
     const data = {
-      version: '1.1.6',
+      version: '1.1.7',
       exportDate: new Date().toISOString(),
       accounts,
       categories,
@@ -289,7 +289,7 @@ export const Sidebar: React.FC = () => {
       setBackupStatusLabel(isArabic ? 'جارٍ تشفير ومزامنة البيانات مع السحابة...' : 'Encrypting and syncing backup...');
       const backupRef = ref(rtdb, `users/${user.uid}/backup`);
       await set(backupRef, {
-        version: '1.1.6',
+        version: '1.1.7',
         backupDate: new Date().toISOString(),
         accounts,
         categories,
@@ -388,6 +388,32 @@ export const Sidebar: React.FC = () => {
     e.target.value = '';
   };
 
+  // Swipe in opposite direction to close sidebar (Item 2)
+  const sidebarTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleSidebarTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    sidebarTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleSidebarTouchMove = () => {};
+
+  const handleSidebarTouchEnd = (e: React.TouchEvent) => {
+    if (!sidebarTouchStartRef.current) return;
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - sidebarTouchStartRef.current.x;
+    const deltaY = touch.clientY - sidebarTouchStartRef.current.y;
+    sidebarTouchStartRef.current = null;
+
+    if (Math.abs(deltaX) < 40 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) return;
+
+    if (!isArabic && deltaX < -40) {
+      handleAnimatedClose();
+    } else if (isArabic && deltaX > 40) {
+      handleAnimatedClose();
+    }
+  };
+
   const handleReloadApp = () => {
     setIsSidebarOpen(false);
     window.location.reload();
@@ -396,12 +422,18 @@ export const Sidebar: React.FC = () => {
   return (
     <div
       onClick={() => handleAnimatedClose()}
+      onTouchStart={handleSidebarTouchStart}
+      onTouchMove={handleSidebarTouchMove}
+      onTouchEnd={handleSidebarTouchEnd}
       className={`fixed inset-0 z-50 flex bg-black/60 backdrop-blur-md transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={handleSidebarTouchStart}
+        onTouchMove={handleSidebarTouchMove}
+        onTouchEnd={handleSidebarTouchEnd}
         className={`w-84 max-w-[85vw] h-full flex flex-col bg-zinc-950/95 backdrop-blur-2xl border-r rtl:border-l rtl:border-r-0 border-zinc-800/80 shadow-2xl text-white overflow-hidden transition-all duration-200 ${
           isClosing ? 'opacity-0 -translate-x-full rtl:translate-x-full' : 'animate-in slide-in-from-left rtl:slide-in-from-right duration-300'
         }`}
@@ -816,7 +848,7 @@ export const Sidebar: React.FC = () => {
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
                 <span>{isArabic ? 'النسخ الاحتياطي والاستعادة' : 'Backup & Restore'}</span>
               </h4>
-              <span className="text-[10px] font-mono text-zinc-500">v1.1.6</span>
+              <span className="text-[10px] font-mono text-zinc-500">v1.1.7</span>
             </div>
 
             {/* Mandatory Visual Progress Bar (0% to 100%) */}
@@ -1093,7 +1125,7 @@ export const Sidebar: React.FC = () => {
         {/* Sidebar Footer: Version & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-zinc-300">Version: Beta v1.1.6</span>
+            <span className="font-bold text-zinc-300">Version: Beta v1.1.7</span>
           </div>
 
           {/* Refresh App Button */}

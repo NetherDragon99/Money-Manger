@@ -133,6 +133,23 @@ export const CalculatorView: React.FC = React.memo(() => {
     const pos = activeCursor;
     if (pos <= 0) return;
 
+    if (expression.slice(0, pos).endsWith('×√(') && expression[pos] === ')') {
+      const next = expression.slice(0, pos - 3) + expression.slice(pos + 1);
+      setExpression(next);
+      setCursorPos(Math.max(0, pos - 3));
+      const calculated = evaluateMath(next);
+      setResult(calculated !== null ? calculated : 0);
+      return;
+    }
+    if (expression.slice(0, pos).endsWith('√(') && expression[pos] === ')') {
+      const next = expression.slice(0, pos - 2) + expression.slice(pos + 1);
+      setExpression(next);
+      setCursorPos(Math.max(0, pos - 2));
+      const calculated = evaluateMath(next);
+      setResult(calculated !== null ? calculated : 0);
+      return;
+    }
+
     let deleteCount = 1;
     if (expression.slice(0, pos).endsWith('×√(')) {
       deleteCount = 3;
@@ -141,8 +158,9 @@ export const CalculatorView: React.FC = React.memo(() => {
     }
 
     const next = expression.slice(0, pos - deleteCount) + expression.slice(pos);
+    const newPos = Math.max(0, Math.min(next.length, pos - deleteCount));
     setExpression(next);
-    setCursorPos(Math.max(0, pos - deleteCount));
+    setCursorPos(newPos);
 
     if (!next.trim()) {
       setResult(0);
@@ -159,6 +177,18 @@ export const CalculatorView: React.FC = React.memo(() => {
   };
 
   const handleCursorRight = () => {
+    const openRoots = (expression.match(/√\(/g) || []).length;
+    const closeParens = (expression.match(/\)/g) || []).length;
+
+    if (activeCursor === expression.length && openRoots > closeParens) {
+      const next = expression + ')';
+      setExpression(next);
+      setCursorPos(next.length);
+      const calculated = evaluateMath(next);
+      if (calculated !== null) setResult(calculated);
+      return;
+    }
+
     setCursorPos(Math.min(expression.length, activeCursor + 1));
   };
 
@@ -201,7 +231,7 @@ export const CalculatorView: React.FC = React.memo(() => {
   const recentHistory = history.slice(0, 2);
 
   const renderMathTypography = (raw: string) => {
-    if (!raw) return '0';
+    if (!raw) return null;
 
     const elements: React.ReactNode[] = [];
     let i = 0;
@@ -291,7 +321,7 @@ export const CalculatorView: React.FC = React.memo(() => {
     if (!expression) {
       return (
         <span className="inline-flex items-center">
-          <span className="text-zinc-600">0</span>
+          <span className="text-zinc-600 calc-display-zero">0</span>
           <span className="inline-block w-[2.5px] h-5 bg-blue-500 animate-pulse align-middle ml-1 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
         </span>
       );
@@ -366,10 +396,10 @@ export const CalculatorView: React.FC = React.memo(() => {
       </header>
 
       {/* 2. Display Screen with Smooth Animated History Drawer */}
-      <div className="flex-1 flex flex-col justify-end p-4 rounded-3xl bg-zinc-950/90 border border-zinc-800/90 shadow-2xl relative overflow-hidden my-2">
+      <div className="calc-display-screen flex-1 flex flex-col justify-end p-4 rounded-3xl bg-zinc-950/90 border border-zinc-800/90 shadow-2xl relative overflow-hidden my-2">
         {/* Animated In-Display History Tape */}
         <div
-          className={`absolute inset-0 bg-zinc-950/98 backdrop-blur-md p-3.5 flex flex-col justify-between z-20 transition-all duration-300 ease-in-out overscroll-contain ${
+          className={`calc-history-drawer absolute inset-0 bg-zinc-950/98 backdrop-blur-md p-3.5 flex flex-col justify-between z-20 transition-all duration-300 ease-in-out overscroll-contain ${
             showHistory
               ? 'translate-y-0 opacity-100 pointer-events-auto'
               : '-translate-y-full opacity-0 pointer-events-none'
@@ -409,7 +439,7 @@ export const CalculatorView: React.FC = React.memo(() => {
                     setCursorPos(String(item.result).length);
                     setShowHistory(false);
                   }}
-                  className="flex items-center justify-between p-2 rounded-xl bg-zinc-900/70 hover:bg-zinc-850 cursor-pointer transition text-xs font-mono"
+                  className="calc-history-item flex items-center justify-between p-2 rounded-xl bg-zinc-900/70 hover:bg-zinc-850 cursor-pointer transition text-xs font-mono border border-transparent"
                 >
                   <div className="text-zinc-400 truncate max-w-[200px]">{item.expression}</div>
                   <div className="text-blue-400 font-bold">= {item.result.toLocaleString()}</div>
@@ -450,13 +480,13 @@ export const CalculatorView: React.FC = React.memo(() => {
               const newPos = Math.round(ratio * expression.length);
               setCursorPos(newPos);
             }}
-            className="text-sm sm:text-base font-mono text-zinc-300 tracking-wider min-h-[1.75rem] flex items-center justify-end overflow-x-auto overflow-y-hidden py-0.5 cursor-pointer hover:bg-zinc-900/30 rounded-lg px-1 transition"
+            className="calc-display-expression text-sm sm:text-base font-mono text-zinc-300 tracking-wider min-h-[1.75rem] flex items-center justify-end overflow-x-auto overflow-y-hidden py-0.5 cursor-pointer hover:bg-zinc-900/30 rounded-lg px-1 transition"
           >
             {renderExpressionWithCursor()}
           </div>
 
           {/* Large Bold Live Result */}
-          <div className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-white truncate">
+          <div className="calc-display-result text-3xl sm:text-4xl font-black font-mono tracking-tight text-white truncate">
             {result !== 0 ? result.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0'}
           </div>
         </div>

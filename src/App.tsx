@@ -38,6 +38,8 @@ import { TabType } from './types';
 import { loadAutoBackupConfig, isBackupDue, executeAutoBackup } from './utils/autoBackup';
 import { decodeShareSnapshot } from './utils/sharing';
 import { listenToMyNumericIdInbox } from './utils/shareFolders';
+import { ShareFolderModal } from './components/ShareFolderModal';
+import { RemainingBalanceModal } from './components/RemainingBalanceModal';
 
 const OfflineBanner: React.FC = () => {
   const [isOnline, setIsOnline] = useState(
@@ -123,6 +125,8 @@ const MainAppContent: React.FC = () => {
     closeCustomDialog,
     isHeaderVisible,
     setIsHeaderVisible,
+    shareModalState,
+    remainingBalanceModalState,
   } = useApp();
 
   const [updating, setUpdating] = useState(false);
@@ -397,7 +401,7 @@ const MainAppContent: React.FC = () => {
     // Immediate Show on Slight Scroll Up (scrollTop <= 25 OR deltaY < -2)
     if (scrollTop <= 25 || deltaY < -2) {
       setIsHeaderVisible(true);
-    } else if (deltaY > 10 && scrollTop > 60) {
+    } else if (deltaY > 8 && scrollTop > 50) {
       // Hide on Scroll Down (deltaY > 10 AND scrollTop > 60)
       setIsHeaderVisible(false);
     }
@@ -531,7 +535,9 @@ const MainAppContent: React.FC = () => {
     isUserProfileModalOpen ||
     isSharedHubModalOpen ||
     isExitModalOpen ||
-    !!customDialogState;
+    !!customDialogState ||
+    shareModalState.isOpen ||
+    !!remainingBalanceModalState?.isOpen;
 
   // Background Scroll Lock (Bug Fix): Locks scrolling on underlying page container when ANY modal/drawer is open
   useEffect(() => {
@@ -653,6 +659,10 @@ const MainAppContent: React.FC = () => {
         <UserProfileModal />
         <ResetPeriodModal />
         <AdvancedFilterModal />
+
+        {/* Unified Share & Remaining Balance Modals (Items 6 & 8) */}
+        <ShareFolderModal />
+        <RemainingBalanceModal />
 
         {/* Shared Accounts Hub Modal */}
         <SharedAccountsHubModal

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { X, Trash2, Edit3, ArrowRight } from 'lucide-react';
+import { X, Trash2, Edit3, ArrowRight, Share2 } from 'lucide-react';
 import { getHistoricalBalance } from '../utils/balanceEngine';
 import { formatCurrency, formatFullDateTime } from '../utils/dateCycle';
 
@@ -14,6 +14,7 @@ export const TransactionDetailsModal: React.FC = () => {
     transactions,
     settings,
     showConfirm,
+    openShareModal,
     t,
   } = useApp();
 
@@ -84,13 +85,29 @@ export const TransactionDetailsModal: React.FC = () => {
         {/* Top Header */}
         <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
           <h3 className="text-base font-bold text-zinc-300">{t('transactionDetails')}</h3>
-          <button
-            type="button"
-            onClick={handleAnimatedClose}
-            className="p-1 rounded-full text-zinc-400 hover:text-white"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                const tx = viewingTx;
+                handleAnimatedClose();
+                setTimeout(() => {
+                  openShareModal({ transactions: [tx] });
+                }, 190);
+              }}
+              className="p-1.5 rounded-xl hover:bg-zinc-800 text-purple-400 hover:text-purple-300 transition cursor-pointer"
+              title="Share Transaction"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleAnimatedClose}
+              className="p-1 rounded-full text-zinc-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Big Icon & Main Info */}

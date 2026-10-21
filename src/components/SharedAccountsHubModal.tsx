@@ -65,6 +65,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     showToast,
     showConfirm,
     openSharedLiveView,
+    openShareModal,
     importSingleAccountData,
   } = useApp();
   const isArabic = settings.language === 'ar';
@@ -630,7 +631,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                             key={acc.id}
                             type="button"
                             disabled={isAlreadyShared}
-                            onClick={() => handleShareAccount(acc)}
+                            onClick={() => { setIsPickerOpen(false); openShareModal({ accounts: [acc] }); }}
                             className={`flex items-center justify-between p-2 rounded-xl text-left text-xs transition cursor-pointer ${
                               isAlreadyShared
                                 ? 'bg-zinc-950/40 border border-zinc-800 text-zinc-500 opacity-60'
