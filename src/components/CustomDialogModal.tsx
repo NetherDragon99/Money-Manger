@@ -116,6 +116,7 @@ export const CustomDialogModal: React.FC<CustomDialogModalProps> = ({
   return (
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 overscroll-contain"
+      onTouchMove={(e) => e.stopPropagation()}
       onKeyDown={handleKeyDown}
       tabIndex={-1}
       role="dialog"

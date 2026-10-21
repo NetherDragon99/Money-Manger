@@ -34,7 +34,7 @@ import { MultiSelectActionBar } from './components/MultiSelectActionBar';
 import { ToastContainer } from './components/Toast';
 import { CustomDialogModal } from './components/CustomDialogModal';
 import { WifiOff } from 'lucide-react';
-import { checkForAppUpdates, applyLatestAppUpdate } from './utils/versionChecker';
+import { checkForAppUpdates, applyLatestAppUpdate, CURRENT_APP_VERSION } from './utils/versionChecker';
 import { TabType } from './types';
 import { loadAutoBackupConfig, isBackupDue, executeAutoBackup } from './utils/autoBackup';
 import { decodeShareSnapshot } from './utils/sharing';
@@ -89,6 +89,8 @@ const MainAppContent: React.FC = () => {
     transactions,
     isFeaturesModalOpen,
     setIsFeaturesModalOpen,
+    isWhatsNewOpen,
+    setIsWhatsNewOpen,
     isFilterModalOpen,
     setIsFilterModalOpen,
     isResetPeriodModalOpen,
@@ -204,6 +206,7 @@ const MainAppContent: React.FC = () => {
     isRecurringModalOpen,
     isEmojiPickerOpen,
     isFeaturesModalOpen,
+    isWhatsNewOpen,
     isFilterModalOpen,
     isResetPeriodModalOpen,
     isUserProfileModalOpen,
@@ -233,6 +236,7 @@ const MainAppContent: React.FC = () => {
     isRecurringModalOpen,
     isEmojiPickerOpen,
     isFeaturesModalOpen,
+    isWhatsNewOpen,
     isFilterModalOpen,
     isResetPeriodModalOpen,
     isUserProfileModalOpen,
@@ -273,6 +277,14 @@ const MainAppContent: React.FC = () => {
       }
 
       // Layer 7: High-Priority Dialogs & Confirmations
+      if (s.isWhatsNewOpen) {
+        setIsWhatsNewOpen(false);
+        try {
+          localStorage.setItem('last_seen_app_version', CURRENT_APP_VERSION);
+        } catch {}
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
       if (s.customDialogState) {
         closeCustomDialog();
         window.history.pushState({ exitGuard: true }, '');
@@ -569,6 +581,7 @@ const MainAppContent: React.FC = () => {
     isRecurringModalOpen ||
     isEmojiPickerOpen ||
     isFeaturesModalOpen ||
+    isWhatsNewOpen ||
     isFilterModalOpen ||
     isResetPeriodModalOpen ||
     isUserProfileModalOpen ||
@@ -579,26 +592,15 @@ const MainAppContent: React.FC = () => {
     !!remainingBalanceModalState?.isOpen ||
     !!selectedAccountId;
 
-  // Background Scroll Lock (Bug Fix): Locks scrolling on underlying page container when ANY modal/drawer is open
+  // Background Scroll Lock (Safe Hotfix): Locks scrolling without position:fixed or touch-target freezing
   useEffect(() => {
     if (isAnyModalOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
       document.body.style.overflow = 'hidden';
 
       return () => {
-        document.body.style.position = '';
-        document.body.style.top = '';
-        document.body.style.width = '';
         document.body.style.overflow = '';
-        window.scrollTo(0, scrollY);
       };
     } else {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
       document.body.style.overflow = '';
     }
   }, [isAnyModalOpen]);
@@ -622,9 +624,7 @@ const MainAppContent: React.FC = () => {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        className={`w-full max-w-full md:max-w-5xl lg:max-w-6xl min-h-screen bg-black relative shadow-2xl flex flex-col overflow-x-hidden ${
-          isAnyModalOpen ? 'overflow-hidden max-h-screen pointer-events-none sm:pointer-events-auto' : ''
-        }`}
+        className="w-full max-w-full md:max-w-5xl lg:max-w-6xl min-h-screen bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
       >
         <OfflineBanner />
         <ToastContainer />
@@ -645,7 +645,12 @@ const MainAppContent: React.FC = () => {
           )}
 
           {/* Active Tab View Display: Only mount active tab at rest; dynamically mount adjacent tabs during horizontal swipe (Item 1) */}
-          <div className="flex-1 flex flex-col relative">
+          <div
+            className={`flex-1 flex flex-col relative ${
+              isAnyModalOpen ? 'overflow-y-hidden max-h-screen select-none' : ''
+            }`}
+            style={isAnyModalOpen ? { touchAction: 'none' } : undefined}
+          >
             {(() => {
               const curIdx = TABS.indexOf(currentTab);
               const shouldMount = (tab: TabType) => {

@@ -24,6 +24,7 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
         e.stopPropagation();
         onClose();
       }}
+      onTouchMove={(e) => e.stopPropagation()}
       className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md pointer-events-auto select-none animate-in fade-in duration-150 overscroll-contain"
       style={{ overscrollBehavior: 'contain' }}
     >

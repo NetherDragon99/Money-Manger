@@ -44,6 +44,7 @@ export const RemainingBalanceModal: React.FC = () => {
   return (
     <div
       onClick={closeRemainingBalanceModal}
+      onTouchMove={(e) => e.stopPropagation()}
       className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain"
     >
       <div

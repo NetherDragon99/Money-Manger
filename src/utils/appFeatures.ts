@@ -21,6 +21,28 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.13',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'Urgent Touch Freeze Hotfix & Safe Background Scroll Discipline for Updates',
+      ar: 'إصلاح عاجل لتجميد اللمس والقائمة الجانبية وقفل التمرير خلف نافذة التحديث',
+    },
+    highlights: {
+      en: [
+        'Zero Touch Interference: Eliminated pointer-events blocking and fixed-body constraints, restoring instant responsiveness to Sidebar and all modal touch interactions.',
+        'Isolated Scroll Containment: Background scrolling is locked strictly at the active tab container level without degrading viewport or touch mechanics.',
+        'Update Modal Scroll Discipline: The automatic "What\'s New" version update modal now safely locks background page scroll and stacks at Layer 7.',
+        'Reliable Dismissal: Version update modal and all dialogs close cleanly with immediate state restoration.',
+      ],
+      ar: [
+        'استعادة فورية لحرية اللمس: إزالة قيود مؤشرات اللمس والتثبيت القسري للجسم واستعادة الاستجابة الكاملة للقائمة الجانبية والنوافذ.',
+        'قفل تمرير معزول وآمن: قفل التمرير الخلفي محصور بحاوية التبويب النشط فقط دون التأثير على إمكانية لمس الشاشة أو النوافذ.',
+        'انضباط تمرير نافذة التحديث: نافذة "ما الجديد / تحديث الإصدار" التلقائية تقفل التمرير الخلفي بأمان وتعمل في الطبقة 7.',
+        'إغلاق سلس وموثوق: إغلاق فوري وسلس لنافذة التحديث وكافة النوافذ بأزرار الإغلاق وزر الرجوع.',
+      ],
+    },
+  },
+  {
     version: '1.1.12',
     releaseDate: 'October 21, 2026',
     title: {

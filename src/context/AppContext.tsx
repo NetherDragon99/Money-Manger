@@ -140,6 +140,8 @@ interface AppContextType {
   setIsFilterModalOpen: (open: boolean) => void;
   isFeaturesModalOpen: boolean;
   setIsFeaturesModalOpen: (open: boolean) => void;
+  isWhatsNewOpen: boolean;
+  setIsWhatsNewOpen: (open: boolean) => void;
   isRecurringModalOpen: boolean;
   setIsRecurringModalOpen: (open: boolean) => void;
   isPinModalOpen: boolean;
@@ -345,6 +347,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isResetPeriodModalOpen, setIsResetPeriodModalOpen] = useState(false);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
+  const [isWhatsNewOpen, setIsWhatsNewOpen] = useState(false);
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isSharedHubModalOpen, setIsSharedHubModalOpen] = useState(false);
@@ -1515,6 +1518,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsResetPeriodModalOpen,
     setIsFilterModalOpen,
     setIsFeaturesModalOpen,
+    setIsWhatsNewOpen,
     setIsRecurringModalOpen,
     setIsPinModalOpen,
     setIsSharedHubModalOpen,
@@ -1608,6 +1612,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isResetPeriodModalOpen,
       isFilterModalOpen,
       isFeaturesModalOpen,
+      isWhatsNewOpen,
       isRecurringModalOpen,
       isPinModalOpen,
       isSharedHubModalOpen,
@@ -1659,6 +1664,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isResetPeriodModalOpen,
       isFilterModalOpen,
       isFeaturesModalOpen,
+      isWhatsNewOpen,
       isRecurringModalOpen,
       isPinModalOpen,
       isSharedHubModalOpen,

@@ -205,7 +205,8 @@ export const TransactionModal: React.FC = () => {
   return (
     <div
       onClick={handleAnimatedClose}
-      className={`fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 transition-all duration-200 ${
+      onTouchMove={(e) => e.stopPropagation()}
+      className={`fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 overscroll-contain transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
@@ -278,7 +279,7 @@ export const TransactionModal: React.FC = () => {
         </div>
 
         {/* Scrollable Upper Section */}
-        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-4">
+        <div className="flex-1 overflow-y-auto overscroll-contain touch-pan-y px-5 py-3 space-y-4">
           {/* Amount Display & Read-Only Context in Edit Mode */}
           <div className="text-center py-1">
             {editingTx && selectedAccount && (

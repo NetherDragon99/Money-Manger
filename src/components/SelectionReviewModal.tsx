@@ -104,6 +104,7 @@ export const SelectionReviewModal: React.FC<SelectionReviewModalProps> = ({
       aria-modal="true"
       className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
       onClick={onClose}
+      onTouchMove={(e) => e.stopPropagation()}
     >
       <div
         onClick={(e) => e.stopPropagation()}

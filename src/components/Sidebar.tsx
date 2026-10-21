@@ -424,7 +424,7 @@ export const Sidebar: React.FC = () => {
       onTouchStart={handleSidebarTouchStart}
       onTouchMove={handleSidebarTouchMove}
       onTouchEnd={handleSidebarTouchEnd}
-      className={`fixed inset-0 z-[60] flex bg-black/60 backdrop-blur-md transition-all duration-200 ${
+      className={`fixed inset-0 z-[60] flex bg-black/60 backdrop-blur-md overscroll-contain transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
@@ -522,7 +522,7 @@ export const Sidebar: React.FC = () => {
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        <div className="flex-1 overflow-y-auto overscroll-contain touch-pan-y p-4 space-y-6">
           {/* Preferences & Cycle Settings */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
@@ -1124,7 +1124,7 @@ export const Sidebar: React.FC = () => {
         {/* Sidebar Footer: Version & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-zinc-300">Version: Beta v1.1.12</span>
+            <span className="font-bold text-zinc-300">Version: Beta v1.1.13</span>
           </div>
 
           {/* Refresh App Button */}

@@ -101,7 +101,8 @@ export const AccountModal: React.FC = () => {
   return (
     <div
       onClick={handleAnimatedClose}
-      className={`fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 transition-all duration-200 ${
+      onTouchMove={(e) => e.stopPropagation()}
+      className={`fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 overscroll-contain transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
