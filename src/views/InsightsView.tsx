@@ -243,37 +243,39 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
         </div>
       </header>
 
-      <div className="px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto w-full space-y-5">
+      <div className="px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto w-full space-y-5">
 
       {/* Top Summary Block: Current Month Total Balance, Income, Expense */}
       <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden">
-        <div className="text-center space-y-1">
-          <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
-            {t('totalBalance')} ({t('publicAccounts')})
-          </span>
-          <div className="text-3xl sm:text-4xl font-black font-mono text-white tracking-tight">
-            {formatCurrency(totalCycleBalance, currencySymbol)}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 mt-6 pt-5 border-t border-zinc-800/80">
-          <div className="text-left">
-            <div className="flex items-center gap-1 text-xs font-bold text-emerald-400">
-              <ArrowDown className="w-3.5 h-3.5" />
-              <span>{t('totalIncome')}</span>
-            </div>
-            <div className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-1">
-              {formatCurrency(totalCycleIncome, currencySymbol)}
+        <div className="md:grid md:grid-cols-3 md:items-center md:gap-6">
+          <div className="space-y-1 text-center md:text-start md:col-span-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+              {t('totalBalance')} ({t('publicAccounts')})
+            </span>
+            <div className="text-3xl sm:text-4xl font-black font-mono text-white tracking-tight">
+              {formatCurrency(totalCycleBalance, currencySymbol)}
             </div>
           </div>
 
-          <div className="text-right">
-            <div className="flex items-center justify-end gap-1 text-xs font-bold text-red-400">
-              <span>{t('totalExpense')}</span>
-              <ArrowUp className="w-3.5 h-3.5" />
+          <div className="grid grid-cols-2 gap-4 mt-6 md:mt-0 pt-5 md:pt-0 border-t md:border-t-0 md:border-s md:border-zinc-800/80 md:ps-6 md:col-span-2">
+            <div className="text-left rtl:text-right">
+              <div className="flex items-center gap-1 text-xs font-bold text-emerald-400">
+                <ArrowDown className="w-3.5 h-3.5" />
+                <span>{t('totalIncome')}</span>
+              </div>
+              <div className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-1">
+                {formatCurrency(totalCycleIncome, currencySymbol)}
+              </div>
             </div>
-            <div className="text-base sm:text-lg font-black font-mono text-red-400 mt-1">
-              {formatCurrency(totalCycleExpense, currencySymbol)}
+
+            <div className="text-right rtl:text-left">
+              <div className="flex items-center justify-end rtl:justify-start gap-1 text-xs font-bold text-red-400">
+                <span>{t('totalExpense')}</span>
+                <ArrowUp className="w-3.5 h-3.5" />
+              </div>
+              <div className="text-base sm:text-lg font-black font-mono text-red-400 mt-1">
+                {formatCurrency(totalCycleExpense, currencySymbol)}
+              </div>
             </div>
           </div>
         </div>
@@ -322,130 +324,133 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
         </button>
       </div>
 
-      {/* Section 1: Top Categories */}
-      <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-3.5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-            {t('topCategories')} ({categoryAnalytics.list.length})
-          </h3>
-          <span className="text-xs font-mono text-zinc-400 font-bold">
-            Total: {formatCurrency(categoryAnalytics.totalAmount, currencySymbol)}
-          </span>
-        </div>
-
-        {categoryAnalytics.list.length === 0 ? (
-          <p className="text-xs text-zinc-500 py-4 text-center">{t('noInsightsData')}</p>
-        ) : (
-          <div className="space-y-2.5">
-            {displayedCategories.map((item, idx) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800/60"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
-                    {item.icon}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs">
-                      {item.name}
-                    </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5">
-                      {item.count} {t('transactionsCount')} • {item.percentage.toFixed(1)}%
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-right shrink-0">
-                  <div className="text-sm font-mono font-black text-white">
-                    {formatCurrency(item.amount, currencySymbol)}
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {/* 4th item "Show More / View All" button */}
-            {categoryAnalytics.list.length > 3 && (
-              <button
-                type="button"
-                onClick={() => setShowAllCategories(!showAllCategories)}
-                className="w-full py-2.5 rounded-xl bg-zinc-950/80 hover:bg-zinc-800 text-blue-400 text-xs font-bold flex items-center justify-center gap-1 transition"
-              >
-                <span>{showAllCategories ? t('showLess') : `${t('viewAll')} (${categoryAnalytics.list.length})`}</span>
-                {showAllCategories ? (
-                  <ChevronUp className="w-4 h-4" />
-                ) : (
-                  <ChevronDown className="w-4 h-4" />
-                )}
-              </button>
-            )}
+      {/* Section 1 & 2 Grid on Large Screens */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+        {/* Section 1: Top Categories */}
+        <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-3.5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+              {t('topCategories')} ({categoryAnalytics.list.length})
+            </h3>
+            <span className="text-xs font-mono text-zinc-400 font-bold">
+              Total: {formatCurrency(categoryAnalytics.totalAmount, currencySymbol)}
+            </span>
           </div>
-        )}
-      </div>
 
-      {/* Section 2: Analytics Donut Chart */}
-      <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-4">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-          {t('categoryShare')}
-        </h3>
-
-        {categoryAnalytics.totalAmount === 0 ? (
-          <p className="text-xs text-zinc-500 py-6 text-center">{t('noInsightsData')}</p>
-        ) : (
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-6 pt-2">
-            {/* SVG Donut Chart with total in center */}
-            <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
-              <svg width="170" height="170" viewBox="0 0 160 160" className="transform -rotate-90">
-                <circle
-                  cx="80"
-                  cy="80"
-                  r="64"
-                  fill="none"
-                  stroke="#18181b"
-                  strokeWidth="24"
-                />
-                {donutPaths.map((slice, i) => (
-                  <path
-                    key={i}
-                    d={slice.pathData}
-                    fill="none"
-                    stroke={slice.color}
-                    strokeWidth={slice.strokeWidth}
-                    strokeLinecap="round"
-                    className="transition-all duration-500"
-                  />
-                ))}
-              </svg>
-              {/* Total Amount in center hole */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
-                <span className="text-[10px] text-zinc-400 font-semibold uppercase">
-                  Total
-                </span>
-                <span className="text-xs sm:text-sm font-black font-mono text-white tracking-tight">
-                  {formatCurrency(categoryAnalytics.totalAmount, currencySymbol)}
-                </span>
-              </div>
-            </div>
-
-            {/* Color-coded Legend */}
-            <div className="flex-1 w-full space-y-2 max-h-48 overflow-y-auto pr-1">
-              {categoryAnalytics.list.map((cat, idx) => (
-                <div key={cat.id} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}
-                    />
-                    <span className="text-zinc-300 truncate max-w-[120px]">{cat.name}</span>
+          {categoryAnalytics.list.length === 0 ? (
+            <p className="text-xs text-zinc-500 py-4 text-center">{t('noInsightsData')}</p>
+          ) : (
+            <div className="space-y-2.5">
+              {displayedCategories.map((item, idx) => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800/60"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
+                      {item.icon}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs">
+                        {item.name}
+                      </div>
+                      <div className="text-[10px] text-zinc-400 mt-0.5">
+                        {item.count} {t('transactionsCount')} • {item.percentage.toFixed(1)}%
+                      </div>
+                    </div>
                   </div>
-                  <div className="font-mono text-zinc-400 font-semibold shrink-0 pl-2">
-                    {formatCurrency(cat.amount, currencySymbol)} ({cat.percentage.toFixed(0)}%)
+
+                  <div className="text-right shrink-0">
+                    <div className="text-sm font-mono font-black text-white">
+                      {formatCurrency(item.amount, currencySymbol)}
+                    </div>
                   </div>
                 </div>
               ))}
+
+              {/* 4th item "Show More / View All" button */}
+              {categoryAnalytics.list.length > 3 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllCategories(!showAllCategories)}
+                  className="w-full py-2.5 rounded-xl bg-zinc-950/80 hover:bg-zinc-800 text-blue-400 text-xs font-bold flex items-center justify-center gap-1 transition"
+                >
+                  <span>{showAllCategories ? t('showLess') : `${t('viewAll')} (${categoryAnalytics.list.length})`}</span>
+                  {showAllCategories ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
+              )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
+
+        {/* Section 2: Analytics Donut Chart */}
+        <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-4">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+            {t('categoryShare')}
+          </h3>
+
+          {categoryAnalytics.totalAmount === 0 ? (
+            <p className="text-xs text-zinc-500 py-6 text-center">{t('noInsightsData')}</p>
+          ) : (
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-6 pt-2">
+              {/* SVG Donut Chart with total in center */}
+              <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
+                <svg width="170" height="170" viewBox="0 0 160 160" className="transform -rotate-90">
+                  <circle
+                    cx="80"
+                    cy="80"
+                    r="64"
+                    fill="none"
+                    stroke="#18181b"
+                    strokeWidth="24"
+                  />
+                  {donutPaths.map((slice, i) => (
+                    <path
+                      key={i}
+                      d={slice.pathData}
+                      fill="none"
+                      stroke={slice.color}
+                      strokeWidth={slice.strokeWidth}
+                      strokeLinecap="round"
+                      className="transition-all duration-500"
+                    />
+                  ))}
+                </svg>
+                {/* Total Amount in center hole */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
+                  <span className="text-[10px] text-zinc-400 font-semibold uppercase">
+                    Total
+                  </span>
+                  <span className="text-xs sm:text-sm font-black font-mono text-white tracking-tight">
+                    {formatCurrency(categoryAnalytics.totalAmount, currencySymbol)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Color-coded Legend */}
+              <div className="flex-1 w-full space-y-2 max-h-48 overflow-y-auto pr-1">
+                {categoryAnalytics.list.map((cat, idx) => (
+                  <div key={cat.id} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}
+                      />
+                      <span className="text-zinc-300 truncate max-w-[120px]">{cat.name}</span>
+                    </div>
+                    <div className="font-mono text-zinc-400 font-semibold shrink-0 pl-2">
+                      {formatCurrency(cat.amount, currencySymbol)} ({cat.percentage.toFixed(0)}%)
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Section 3: Spending vs Income Bar Chart */}

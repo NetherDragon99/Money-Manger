@@ -17,8 +17,9 @@ import {
   X,
   Calendar,
   FileText,
+  Folder,
 } from 'lucide-react';
-import { fetchShareFolderFromCloud, ShareFolder, subscribeToShareFolder } from '../utils/shareFolders';
+import { fetchShareFolderFromCloud, ShareFolder, subscribeToShareFolder, registerReceivedShareFolder } from '../utils/shareFolders';
 import {
   formatCurrency,
   formatTime12h,
@@ -78,12 +79,19 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
     if (!shareId) return;
     setIsRefreshing(true);
     try {
-      await ensureFirebaseAuth();
+      ensureFirebaseAuth().catch(() => {});
       const freshData = await fetchShareFolderFromCloud(shareId);
       if (freshData) {
         setFolder(freshData);
         setLastUpdated(Date.now());
         setError(null);
+        registerReceivedShareFolder(
+          freshData,
+          settings?.userProfile?.numericId,
+          settings?.userProfile?.name,
+          settings?.userProfile?.avatarEmoji,
+          settings?.userProfile?.customAvatarUrl
+        );
         showToast?.(isArabic ? 'تم تحديث البيانات لحظياً من السحابة!' : 'Updated with latest live data!', 'success');
       } else {
         showToast?.(isArabic ? 'أنت تشاهد أحدث نسخة متوفرة حالياً' : 'You are viewing the latest data', 'info');
@@ -93,7 +101,7 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
     } finally {
       setIsRefreshing(false);
     }
-  }, [shareId, isArabic, showToast]);
+  }, [shareId, isArabic, showToast, settings]);
 
   useEffect(() => {
     if (!shareId && !sharedDataSnapshot) {
@@ -119,18 +127,24 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
     let isMounted = true;
     if (!sharedDataSnapshot) setIsLoading(true);
 
-    // 1. Ensure Firebase Auth session (anonymous if not signed in)
-    ensureFirebaseAuth()
-      .then(() => {
-        if (!isMounted) return;
-        return fetchShareFolderFromCloud(shareId);
-      })
+    // 1. Trigger background non-blocking auth attempt
+    ensureFirebaseAuth().catch(() => {});
+
+    // 2. Immediate cloud fetch
+    fetchShareFolderFromCloud(shareId)
       .then((data) => {
         if (!isMounted) return;
         if (data) {
           setFolder(data);
           setLastUpdated(Date.now());
           setError(null);
+          registerReceivedShareFolder(
+            data,
+            settings?.userProfile?.numericId,
+            settings?.userProfile?.name,
+            settings?.userProfile?.avatarEmoji,
+            settings?.userProfile?.customAvatarUrl
+          );
         } else if (!sharedDataSnapshot) {
           setError(
             isArabic
@@ -160,6 +174,13 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
         setFolder(liveData);
         setLastUpdated(Date.now());
         setError(null);
+        registerReceivedShareFolder(
+          liveData,
+          settings?.userProfile?.numericId,
+          settings?.userProfile?.name,
+          settings?.userProfile?.avatarEmoji,
+          settings?.userProfile?.customAvatarUrl
+        );
       }
     });
 
@@ -417,11 +438,57 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
               {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-blue-400" />}
               <span>{isCopied ? (isArabic ? 'تم النسخ!' : 'Copied!') : (isArabic ? 'نسخ الرابط' : 'Copy Link')}</span>
             </button>
+
+            {onExploreApp && (
+              <button
+                type="button"
+                onClick={() => {
+                  onExploreApp();
+                  window.dispatchEvent(
+                    new CustomEvent('open_shared_accounts_hub', {
+                      detail: { tab: 'shared_with_me', folderId: folder?.id },
+                    })
+                  );
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition active:scale-95 cursor-pointer shadow-md"
+                title={isArabic ? 'فتح في تبويب المشارَك معي داخل التطبيق' : 'Open in Shared with Me'}
+              >
+                <Folder className="w-3.5 h-3.5" />
+                <span>{isArabic ? 'تطبيقي' : 'My App'}</span>
+              </button>
+            )}
           </div>
         </header>
 
         {/* Content Body */}
-        <main className="flex-1 p-4 sm:p-6 space-y-6 pb-24">
+        <main className="flex-1 p-4 sm:p-6 space-y-4 pb-24">
+          {/* Automatic Saved-To-App Notice */}
+          <div className="p-3 rounded-2xl bg-purple-950/30 border border-purple-500/30 flex items-center justify-between gap-3 text-xs shadow-md">
+            <div className="flex items-center gap-2 text-purple-300">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                {isArabic
+                  ? 'تمت إضافة هذه الصفحة تلقائياً إلى تبويب "المشارَك معي" في تطبيقك!'
+                  : 'Automatically saved to your "Shared with Me" spaces in your app!'}
+              </span>
+            </div>
+            {onExploreApp && (
+              <button
+                type="button"
+                onClick={() => {
+                  onExploreApp();
+                  window.dispatchEvent(
+                    new CustomEvent('open_shared_accounts_hub', {
+                      detail: { tab: 'shared_with_me', folderId: folder?.id },
+                    })
+                  );
+                }}
+                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold shrink-0 transition active:scale-95 cursor-pointer text-xs"
+              >
+                {isArabic ? 'عرض في التطبيق' : 'View in App'}
+              </button>
+            )}
+          </div>
           {/* 1. Global Financial Net Metrics Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="p-4 rounded-3xl bg-zinc-900 border border-zinc-800 shadow-md">

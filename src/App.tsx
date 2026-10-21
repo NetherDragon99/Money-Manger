@@ -627,7 +627,7 @@ const MainAppContent: React.FC = () => {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        className="w-full max-w-full md:max-w-5xl lg:max-w-6xl min-h-screen bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
+        className="w-full max-w-full md:max-w-5xl lg:max-w-6xl xl:max-w-7xl min-h-screen bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
       >
         <OfflineBanner />
         <ToastContainer />
@@ -641,7 +641,7 @@ const MainAppContent: React.FC = () => {
         <div className="flex-1 flex flex-col relative overflow-hidden">
           {selectedAccountId && (
             <div className="fixed inset-0 z-40 bg-black animate-in slide-in-from-right rtl:slide-in-from-left duration-250 flex flex-col overflow-y-auto overscroll-contain">
-              <div className="w-full max-w-full md:max-w-5xl lg:max-w-6xl mx-auto min-h-screen flex flex-col bg-black">
+              <div className="w-full max-w-full md:max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto min-h-screen flex flex-col bg-black">
                 <AccountDetailsView />
               </div>
             </div>

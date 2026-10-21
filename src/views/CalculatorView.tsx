@@ -471,7 +471,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
   };
 
   return (
-    <div className="h-[calc(100dvh-4.25rem)] sm:h-[calc(100dvh-4.75rem)] w-full max-w-lg md:max-w-2xl mx-auto flex flex-col justify-between overflow-hidden bg-black text-white px-3.5 pt-1 pb-2 select-none animate-in fade-in">
+    <div className="min-h-[calc(100dvh-4.25rem)] sm:min-h-[calc(100dvh-4.75rem)] w-full max-w-lg md:max-w-2xl mx-auto flex flex-col justify-between overflow-y-auto bg-black text-white px-3.5 pt-1 pb-2 select-none animate-in fade-in">
       {/* 1. Unified Header Bar Across All 5 Tabs (Standardized h-16) */}
       <header
         style={{

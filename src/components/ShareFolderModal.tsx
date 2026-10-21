@@ -12,14 +12,17 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
+import { UserSearchPicker } from './UserSearchPicker';
 import {
   createNewShareFolder,
   appendToExistingShareFolder,
   sendShareFolderToRecipient,
+  syncFolderToCloud,
   loadMyShareFolders,
   deduceFolderMetadata,
   generateShareUrl,
   ShareFolder,
+  UserProfileCard,
 } from '../utils/shareFolders';
 
 export const ShareFolderModal: React.FC = () => {
@@ -90,6 +93,7 @@ export const ShareFolderModal: React.FC = () => {
   // Direct Send via 16-digit ID
   const [recipient16DigitId, setRecipient16DigitId] = useState('');
   const [recipientName, setRecipientName] = useState('');
+  const [selectedRecipientUser, setSelectedRecipientUser] = useState<UserProfileCard | null>(null);
   const [isSending, setIsSending] = useState(false);
 
   const myNumericId = settings.userProfile?.numericId || '0000000000000000';
@@ -103,6 +107,7 @@ export const ShareFolderModal: React.FC = () => {
       setFolderMode('new'); // ALWAYS default to clean, brand-new share!
       setRecipient16DigitId('');
       setRecipientName('');
+      setSelectedRecipientUser(null);
       setCustomFolderName(autoMeta.name);
       setCustomFolderIcon(autoMeta.icon);
       setSelectedExistingId(folders[0]?.id || '');
@@ -145,12 +150,12 @@ export const ShareFolderModal: React.FC = () => {
   // 1. Direct Send via 16-digit ID
   const handleSendDirect = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanId = cleanNumericId(recipient16DigitId);
+    const cleanId = cleanNumericId(selectedRecipientUser?.numericId || recipient16DigitId);
     if (cleanId.length !== 16) {
       showToast(
         isArabic
-          ? 'يرجى إدخال معرّف رقمي صحيح مكون من 16 رقماً'
-          : 'Please enter a valid 16-digit Numeric ID',
+          ? 'يرجى اختيار مستخدم صالح أولاً'
+          : 'Please select a valid user first',
         'error'
       );
       return;
@@ -164,7 +169,13 @@ export const ShareFolderModal: React.FC = () => {
 
     setIsSending(true);
     try {
-      const res = await sendShareFolderToRecipient(folder, cleanId, recipientName.trim());
+      const res = await sendShareFolderToRecipient(
+        folder,
+        cleanId,
+        recipientName.trim() || selectedRecipientUser?.name,
+        selectedRecipientUser?.avatar,
+        selectedRecipientUser?.photoURL
+      );
       if (res.success) {
         showToast(
           isArabic
@@ -194,6 +205,8 @@ export const ShareFolderModal: React.FC = () => {
     if (!folder) return;
 
     try {
+      // Ensure folder is synced to cloud immediately before copying
+      await syncFolderToCloud(folder);
       const shareUrl = generateShareUrl(folder);
       await navigator.clipboard.writeText(shareUrl);
       showToast(
@@ -389,39 +402,44 @@ export const ShareFolderModal: React.FC = () => {
         {/* Send to 16-Digit ID */}
         <div className="pt-2 border-t border-zinc-800/80 space-y-3">
           <form onSubmit={handleSendDirect} className="space-y-2.5">
-            <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
-              {isArabic ? 'إرسال فوري لشخص بالـ 16 رقماً:' : 'Send to Person via 16-Digit ID:'}
-            </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              maxLength={19}
-              value={format16DigitId(recipient16DigitId)}
-              onChange={(e) => {
-                const { clean } = format16DigitInput(e.target.value, recipient16DigitId);
-                setRecipient16DigitId(clean);
+            <UserSearchPicker
+              selectedUser={selectedRecipientUser}
+              onSelectUser={(u) => {
+                setSelectedRecipientUser(u);
+                if (u) {
+                  setRecipient16DigitId(u.numericId);
+                  setRecipientName(u.name);
+                } else {
+                  setRecipient16DigitId('');
+                  setRecipientName('');
+                }
               }}
-              placeholder="1234 5678 9012 3456"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-mono tracking-wider text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition text-center"
+              currentUserId={myNumericId}
+              accentColor="blue"
+              isArabic={isArabic}
+              label={isArabic ? 'إرسال فوري لمستخدم بالمعرّف الرقمي:' : 'Send to User via 16-Digit ID:'}
             />
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={recipientName}
-                onChange={(e) => setRecipientName(e.target.value)}
-                placeholder={isArabic ? 'اسم أو لقب المستلم (اختياري)' : 'Recipient Name/Nickname (optional)'}
-                maxLength={40}
-                className="flex-1 px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
-              />
-              <button
-                type="submit"
-                disabled={isSending || cleanNumericId(recipient16DigitId).length !== 16}
-                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold transition shadow cursor-pointer shrink-0 flex items-center gap-1.5 active:scale-95"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>{isSending ? '...' : isArabic ? 'إرسال' : 'Send'}</span>
-              </button>
-            </div>
+
+            {selectedRecipientUser && (
+              <div className="flex gap-2 animate-in fade-in">
+                <input
+                  type="text"
+                  value={recipientName}
+                  onChange={(e) => setRecipientName(e.target.value)}
+                  placeholder={selectedRecipientUser.name || (isArabic ? 'اسم أو لقب المستلم (اختياري)' : 'Recipient Name/Nickname (optional)')}
+                  maxLength={40}
+                  className="flex-1 px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
+                />
+                <button
+                  type="submit"
+                  disabled={isSending || !selectedRecipientUser}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold transition shadow cursor-pointer shrink-0 flex items-center gap-1.5 active:scale-95"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{isSending ? '...' : isArabic ? 'إرسال الشير' : 'Send Share'}</span>
+                </button>
+              </div>
+            )}
           </form>
 
           {/* Action Buttons: Copy Web Link & Save */}

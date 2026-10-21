@@ -333,43 +333,43 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
       </header>
 
       {/* Scrollable View Content Container */}
-      <div className="pt-20 px-3.5 space-y-4">
+      <div className="pt-20 px-3.5 space-y-4 max-w-md md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto w-full">
         {/* Global Net Worth Dashboard Card */}
-        <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/90 border border-zinc-800 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-              {t('netWorth')}
-            </span>
-            <span className="text-[11px] font-mono text-zinc-500">
-              {accounts.length} {settings.language === 'ar' ? 'حسابات مسجلة' : 'Total Accounts'}
-            </span>
-          </div>
-
-          <div className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-white">
-            {formatCurrency(totalGlobalBalance, currencySymbol, settings.language)}
-          </div>
-
-          {/* Current Month Cycle Income & Expense Summary */}
-          <div className="grid grid-cols-2 gap-2 pt-3 border-t border-zinc-800/80">
-            {/* Bottom Left: Total Income */}
-            <div className="text-left">
-              <div className="flex items-center gap-1 text-xs font-bold text-emerald-400">
-                <ArrowDown className="w-3.5 h-3.5" />
-                <span>{t('totalIncome')}</span>
+        <div className="p-4 sm:p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 shadow-xl space-y-4">
+          <div className="md:grid md:grid-cols-3 md:items-center md:gap-6">
+            <div className="space-y-1 text-center md:text-start md:col-span-1">
+              <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                {t('netWorth')}
+              </span>
+              <div className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-white">
+                {formatCurrency(totalGlobalBalance, currencySymbol, settings.language)}
               </div>
-              <div className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-1">
-                {formatCurrency(totalGlobalIncome, currencySymbol, settings.language)}
-              </div>
+              <span className="text-[11px] font-mono text-zinc-500 block">
+                {accounts.length} {settings.language === 'ar' ? 'حسابات مسجلة' : 'Total Accounts'}
+              </span>
             </div>
 
-            {/* Bottom Right: Total Expense */}
-            <div className="text-right">
-              <div className="flex items-center justify-end gap-1 text-xs font-bold text-red-400">
-                <span>{t('totalExpense')}</span>
-                <ArrowUp className="w-3.5 h-3.5" />
+            <div className="grid grid-cols-2 gap-4 mt-4 md:mt-0 pt-4 md:pt-0 border-t md:border-t-0 md:border-s md:border-zinc-800/80 md:ps-6 md:col-span-2">
+              {/* Total Income */}
+              <div className="text-left rtl:text-right">
+                <div className="flex items-center gap-1 text-xs font-bold text-emerald-400">
+                  <ArrowDown className="w-3.5 h-3.5" />
+                  <span>{t('totalIncome')}</span>
+                </div>
+                <div className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-1">
+                  {formatCurrency(totalGlobalIncome, currencySymbol, settings.language)}
+                </div>
               </div>
-              <div className="text-base sm:text-lg font-black font-mono text-red-400 mt-1">
-                {formatCurrency(totalGlobalExpense, currencySymbol, settings.language)}
+
+              {/* Total Expense */}
+              <div className="text-right rtl:text-left">
+                <div className="flex items-center justify-end rtl:justify-start gap-1 text-xs font-bold text-red-400">
+                  <span>{t('totalExpense')}</span>
+                  <ArrowUp className="w-3.5 h-3.5" />
+                </div>
+                <div className="text-base sm:text-lg font-black font-mono text-red-400 mt-1">
+                  {formatCurrency(totalGlobalExpense, currencySymbol, settings.language)}
+                </div>
               </div>
             </div>
           </div>
@@ -410,7 +410,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
             {accounts.map((acc, index) => {
               const metrics = accountMonthMetricsMap.get(acc.id) || { income: 0, expense: 0 };
               const isPrimary = index === 0;

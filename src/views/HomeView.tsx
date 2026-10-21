@@ -473,7 +473,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
       </div>
 
       {/* View Content: Responsive Tablet & Desktop Container (Item 2) */}
-      <div className="flex-1 px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto w-full space-y-4">
+      <div className="flex-1 px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto w-full space-y-4">
         {/* Smart Budget Alert Banner */}
         <SmartBudgetAlertBanner />
 
@@ -483,35 +483,37 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
             {/* Public Summary Block: INCOME (Green), EXPENSE (Red), BALANCE (Gold/White).
                 Crucial: Calculated ONLY from Public accounts (isPrivate === false)! */}
             <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden">
-              <div className="text-center space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                  {t('totalBalance')} ({t('publicAccounts')})
-                </span>
-                <div className="text-3xl sm:text-4xl font-black font-mono text-white tracking-tight">
-                  {formatCurrency(publicBalance, currencySymbol)}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mt-6 pt-5 border-t border-zinc-800/80">
-                {/* Total Income */}
-                <div className="text-left">
-                  <div className="flex items-center gap-1 text-xs font-bold text-emerald-400">
-                    <ArrowDown className="w-3.5 h-3.5" />
-                    <span>{t('totalIncome')}</span>
-                  </div>
-                  <div className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-1">
-                    {formatCurrency(publicIncome, currencySymbol)}
+              <div className="md:grid md:grid-cols-3 md:items-center md:gap-6">
+                <div className="text-center md:text-start md:col-span-1 space-y-1">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                    {t('totalBalance')} ({t('publicAccounts')})
+                  </span>
+                  <div className="text-3xl sm:text-4xl font-black font-mono text-white tracking-tight">
+                    {formatCurrency(publicBalance, currencySymbol)}
                   </div>
                 </div>
 
-                {/* Total Expense */}
-                <div className="text-right">
-                  <div className="flex items-center justify-end gap-1 text-xs font-bold text-red-400">
-                    <span>{t('totalExpense')}</span>
-                    <ArrowUp className="w-3.5 h-3.5" />
+                <div className="grid grid-cols-2 gap-4 mt-6 md:mt-0 pt-5 md:pt-0 border-t md:border-t-0 md:border-s md:border-zinc-800/80 md:ps-6 md:col-span-2">
+                  {/* Total Income */}
+                  <div className="text-left rtl:text-right">
+                    <div className="flex items-center gap-1 text-xs font-bold text-emerald-400">
+                      <ArrowDown className="w-3.5 h-3.5" />
+                      <span>{t('totalIncome')}</span>
+                    </div>
+                    <div className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-1">
+                      {formatCurrency(publicIncome, currencySymbol)}
+                    </div>
                   </div>
-                  <div className="text-base sm:text-lg font-black font-mono text-red-400 mt-1">
-                    {formatCurrency(publicExpense, currencySymbol)}
+
+                  {/* Total Expense */}
+                  <div className="text-right rtl:text-left">
+                    <div className="flex items-center justify-end rtl:justify-start gap-1 text-xs font-bold text-red-400">
+                      <span>{t('totalExpense')}</span>
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="text-base sm:text-lg font-black font-mono text-red-400 mt-1">
+                      {formatCurrency(publicExpense, currencySymbol)}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -527,9 +529,9 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
 
         {/* VIEW B: CALENDAR */}
         {homeSubView === 'calendar' && (
-          <div className="space-y-4">
+          <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-6 items-start">
             {/* Monthly Calendar Grid Card */}
-            <div className="p-4 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl">
+            <div className="lg:col-span-7 p-4 sm:p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl">
               {/* Month Navigation */}
               <div className="flex items-center justify-between mb-4 px-2">
                 <button
@@ -633,8 +635,8 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
               </div>
             </div>
 
-            {/* Selected Day Transactions Block below calendar */}
-            <div className="space-y-2 pt-2">
+            {/* Selected Day Transactions Block below calendar in portrait, beside it in landscape/desktop */}
+            <div className="lg:col-span-5 space-y-2 lg:sticky lg:top-20">
               <div className="flex items-center justify-between px-1">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                   <CalendarIcon className="w-3.5 h-3.5 text-blue-400" />

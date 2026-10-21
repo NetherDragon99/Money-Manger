@@ -561,14 +561,14 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
         </div>
       </header>
 
-      <div className="px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto w-full space-y-5">
+      <div className="px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto w-full space-y-5">
 
       {/* Smart Budget Alert Banner */}
       <SmartBudgetAlertBanner />
 
       {/* Top Summary Block */}
       <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="md:grid md:grid-cols-2 md:items-center md:gap-6">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
               {t('totalBudget')}
@@ -580,7 +580,7 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
               </span>
             </div>
           </div>
-          <div className="text-right">
+          <div className="text-left md:text-right rtl:text-right rtl:md:text-left mt-3 md:mt-0">
             <span
               className={`text-xs font-bold uppercase tracking-wider ${
                 isOverBudget ? 'text-red-400' : 'text-emerald-400'
@@ -725,7 +725,7 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {displayExpenseCategories.map((cat) => {
               const spent = categorySpentMap.get(cat.id) || 0;
               const originalIdx = expenseCategories.findIndex((c) => c.id === cat.id);
@@ -808,7 +808,7 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {displayIncomeCategories.map((cat) => {
                 const received = categoryIncomeMap.get(cat.id) || 0;
                 const originalIdx = incomeCategories.findIndex((c) => c.id === cat.id);

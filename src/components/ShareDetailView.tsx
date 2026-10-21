@@ -20,10 +20,12 @@ import {
   X,
   Shield,
   Edit3,
+  LogOut,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
 import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
+import { UserSearchPicker } from './UserSearchPicker';
 import {
   ShareFolder,
   ShareMember,
@@ -33,8 +35,10 @@ import {
   addMemberToShareFolder,
   removeMemberFromShareFolder,
   removeAllMembersFromShareFolder,
+  leaveShareFolder,
   updateMemberRoleInShareFolder,
   updateMemberDetailsInShareFolder,
+  syncFolderToCloud,
   generateShareUrl,
   fetchUserProfileCard,
   getAvatarColorGradient,
@@ -79,6 +83,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   const [isManageMembersOpen, setIsManageMembersOpen] = useState(false);
   const [newMemberId, setNewMemberId] = useState('');
   const [newMemberName, setNewMemberName] = useState('');
+  const [selectedMemberUser, setSelectedMemberUser] = useState<any>(null);
   const [isSubmittingMember, setIsSubmittingMember] = useState(false);
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editingMemberName, setEditingMemberName] = useState('');
@@ -126,6 +131,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
 
   const handleCopyLink = async () => {
     try {
+      await syncFolderToCloud(folder);
       const url = generateShareUrl(folder);
       await navigator.clipboard.writeText(url);
       setIsCopied(true);
@@ -224,20 +230,28 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanId = cleanNumericId(newMemberId);
+    const cleanId = cleanNumericId(selectedMemberUser?.numericId || newMemberId);
     if (cleanId.length !== 16) {
-      showToast(isArabic ? 'المعرف الرقمي يجب أن يتكون من 16 رقماً' : 'ID must be 16 digits', 'error');
+      showToast(isArabic ? 'يرجى اختيار مستخدم صالح أولاً' : 'Please select a valid user first', 'error');
       return;
     }
 
     setIsSubmittingMember(true);
-    const res = await addMemberToShareFolder(folder.id, cleanId, newMemberName.trim());
+    const res = await addMemberToShareFolder(
+      folder.id,
+      cleanId,
+      newMemberName.trim() || selectedMemberUser?.name,
+      'viewer',
+      selectedMemberUser?.avatar,
+      selectedMemberUser?.photoURL
+    );
     setIsSubmittingMember(false);
 
     if (res.success && res.folder) {
       setFolder(res.folder);
       setNewMemberId('');
       setNewMemberName('');
+      setSelectedMemberUser(null);
       setIsAddMemberOpen(false);
       showToast(
         res.cloudSynced === false
@@ -266,6 +280,23 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
         : `Imported all share items to your personal feed (${res.accountsCount} accounts, ${res.categoriesCount} categories, ${res.txsCount} transactions)!`,
       'success'
     );
+  };
+
+  const handleLeaveShare = async () => {
+    const ok = await showConfirm({
+      title: isArabic ? 'مغادرة صفحة المشاركة' : 'Leave Share Space',
+      message: isArabic
+        ? `هل أنت متأكد من مغادرة شير "${folder.name}"؟ ستفقد إمكانية الوصول إلى هذه العناصر إلا إذا تمت دعوتك مجدداً.`
+        : `Are you sure you want to leave "${folder.name}"? You will lose access unless invited again.`,
+      confirmLabel: isArabic ? 'نعم، مغادرة' : 'Yes, Leave',
+      cancelLabel: isArabic ? 'إلغاء' : 'Cancel',
+      isDanger: true,
+    });
+    if (!ok) return;
+
+    await leaveShareFolder(folder.id, myCleanNumericId);
+    showToast(isArabic ? 'تمت مغادرة المشاركة بنجاح' : 'Left share successfully', 'info');
+    onExit();
   };
 
   return (
@@ -318,14 +349,25 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             </button>
 
             {!isOwner && (
-              <button
-                type="button"
-                onClick={handleImportAll}
-                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>{isArabic ? 'استيراد للكل' : 'Import All'}</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleImportAll}
+                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{isArabic ? 'استيراد للكل' : 'Import All'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLeaveShare}
+                  className="px-2.5 py-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-300 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                  title={isArabic ? 'مغادرة المشاركة' : 'Leave Share'}
+                >
+                  <LogOut className="w-3.5 h-3.5 text-red-400" />
+                  <span>{isArabic ? 'مغادرة' : 'Leave'}</span>
+                </button>
+              </>
             )}
           </div>
         </header>
@@ -803,71 +845,101 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
         <div
           role="dialog"
           className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
-          onClick={() => setIsAddMemberOpen(false)}
+          onClick={() => {
+            setIsAddMemberOpen(false);
+            setSelectedMemberUser(null);
+            setNewMemberId('');
+            setNewMemberName('');
+          }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4"
           >
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Users className="w-5 h-5 text-purple-400" />
-              <span>{isArabic ? 'إضافة عضو بالمعرّف الرقمي (16 رقم)' : 'Add Member by 16-Digit ID'}</span>
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Users className="w-5 h-5 text-purple-400" />
+                <span>{isArabic ? 'إضافة عضو بالمعرّف الرقمي' : 'Add Member by User ID'}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddMemberOpen(false);
+                  setSelectedMemberUser(null);
+                  setNewMemberId('');
+                  setNewMemberName('');
+                }}
+                className="p-1.5 rounded-xl hover:bg-zinc-900 text-zinc-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
             <p className="text-xs text-zinc-400">
               {isArabic
-                ? 'سيتم جلب اسم وصورة العضو تلقائياً بمجرد إدخال معرّفه الرقمي وإرسال الدعوة لحظياً.'
-                : 'Member name and profile photo are fetched automatically upon entering their 16-digit ID.'}
+                ? 'أدخل المعرّف المكوّن من 16 رقماً للبحث والتحقق من المستخدم، وسيظهر اسمه وصورته لتأكيد اختياره قبل الإرسال.'
+                : 'Enter the 16-digit ID to search and verify the user. Their verified name and photo will appear for confirmation before inviting.'}
             </p>
 
             <form onSubmit={handleAddMember} className="space-y-3.5">
-              <div className="space-y-1.5">
-                <label className="text-xs text-zinc-300 font-bold block">
-                  {isArabic ? 'المعرّف الرقمي (16 رقم):' : '16-Digit Numeric ID:'}
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  required
-                  maxLength={19}
-                  placeholder="4829 1038 4756 1928"
-                  value={format16DigitId(newMemberId)}
-                  onChange={(e) => {
-                    const { clean } = format16DigitInput(e.target.value, newMemberId);
-                    setNewMemberId(clean);
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-center text-base focus:outline-none focus:border-purple-500 tracking-wider"
-                />
-              </div>
+              <UserSearchPicker
+                selectedUser={selectedMemberUser}
+                onSelectUser={(u) => {
+                  setSelectedMemberUser(u);
+                  if (u) {
+                    setNewMemberId(u.numericId);
+                    setNewMemberName(u.name);
+                  } else {
+                    setNewMemberId('');
+                    setNewMemberName('');
+                  }
+                }}
+                currentUserId={myCleanNumericId}
+                accentColor="purple"
+                isArabic={isArabic}
+                autoFocus
+              />
 
-              <div className="space-y-1.5">
-                <label className="text-xs text-zinc-300 font-bold block">
-                  {isArabic ? 'اسم أو لقب العضو (اختياري):' : 'Member Name or Nickname (optional):'}
-                </label>
-                <input
-                  type="text"
-                  maxLength={30}
-                  placeholder={isArabic ? 'مثال: أحمد، سارة، صديق...' : 'e.g. Ahmed, Sarah, Friend...'}
-                  value={newMemberName}
-                  onChange={(e) => setNewMemberName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs focus:outline-none focus:border-purple-500"
-                />
-              </div>
+              {selectedMemberUser && (
+                <div className="space-y-1.5 animate-in fade-in">
+                  <label className="text-xs text-zinc-300 font-bold block">
+                    {isArabic ? 'اسم أو لقب العضو (اختياري):' : 'Member Name or Nickname (optional):'}
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={30}
+                    placeholder={selectedMemberUser.name || (isArabic ? 'مثال: أحمد، سارة...' : 'e.g. Ahmed, Sarah...')}
+                    value={newMemberName}
+                    onChange={(e) => setNewMemberName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              )}
 
               <div className="flex items-center gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddMemberOpen(false)}
-                  className="flex-1 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-zinc-400 text-xs font-bold transition cursor-pointer"
+                  onClick={() => {
+                    setIsAddMemberOpen(false);
+                    setSelectedMemberUser(null);
+                    setNewMemberId('');
+                    setNewMemberName('');
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-zinc-400 text-xs font-bold transition cursor-pointer"
                 >
                   {isArabic ? 'إلغاء' : 'Cancel'}
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingMember || cleanNumericId(newMemberId).length !== 16}
-                  className="flex-1 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md transition disabled:opacity-40 cursor-pointer"
+                  disabled={isSubmittingMember || !selectedMemberUser}
+                  className="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md transition disabled:opacity-40 cursor-pointer flex items-center justify-center gap-1.5"
                 >
-                  {isSubmittingMember ? (isArabic ? 'جارٍ الإرسال...' : 'Sending...') : (isArabic ? 'إرسال الدعوة' : 'Send Invite')}
+                  <Users className="w-3.5 h-3.5" />
+                  <span>
+                    {isSubmittingMember
+                      ? (isArabic ? 'جارٍ الإرسال...' : 'Sending...')
+                      : (isArabic ? 'إرسال الدعوة' : 'Send Invite')}
+                  </span>
                 </button>
               </div>
             </form>
@@ -968,7 +1040,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                 </div>
               ) : (
                 folder.members.map((m) => {
-                  const isPending = m.status === 'pending';
+                  const isCurrentMember = cleanNumericId(m.numericId) === myCleanNumericId;
                   return (
                     <div
                       key={m.numericId}
@@ -1045,15 +1117,14 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                                 )}
                               </>
                             )}
-                            <span
-                              className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono ${
-                                isPending
-                                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                              }`}
-                            >
-                              {isPending ? (isArabic ? 'طلب معلق' : 'Pending') : (isArabic ? 'نشط' : 'Active')}
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                              {isArabic ? 'نشط' : 'Active'}
                             </span>
+                            {isCurrentMember && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30 font-semibold">
+                                {isArabic ? 'أنت' : 'You'}
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-zinc-400 font-mono mt-0.5">
                             {format16DigitId(m.numericId)}
@@ -1062,7 +1133,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
-                        {/* Role Selector / Toggle */}
+                        {/* Role Selector / Toggle for Owner */}
                         {isOwner && (
                           <button
                             type="button"
@@ -1091,23 +1162,44 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                           </button>
                         )}
 
-                        {/* Cancel Request / Remove Member with 5s Undo */}
+                        {/* Read-only Role Badge for Non-Owner */}
+                        {!isOwner && (
+                          <span
+                            className={`px-2 py-1 rounded-xl text-xs font-semibold border flex items-center gap-1 ${
+                              m.role === 'editor'
+                                ? 'bg-purple-950/40 border-purple-500/40 text-purple-300'
+                                : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+                            }`}
+                          >
+                            <Shield className="w-3 h-3" />
+                            <span>{m.role === 'editor' ? (isArabic ? 'محرر' : 'Editor') : (isArabic ? 'مشاهد' : 'Viewer')}</span>
+                          </span>
+                        )}
+
+                        {/* Leave Button for Current Member */}
+                        {!isOwner && isCurrentMember && (
+                          <button
+                            type="button"
+                            onClick={handleLeaveShare}
+                            className="px-2.5 py-1 rounded-xl bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-300 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                            title={isArabic ? 'مغادرة المشاركة' : 'Leave Share'}
+                          >
+                            <LogOut className="w-3 h-3 text-red-400" />
+                            <span>{isArabic ? 'مغادرة' : 'Leave'}</span>
+                          </button>
+                        )}
+
+                        {/* Remove Member for Owner with 5s Undo */}
                         {isOwner && (
                           <button
                             type="button"
                             onClick={async () => {
                               const confirmed = await showConfirm({
-                                title: isArabic
-                                  ? isPending ? 'إلغاء طلب المشاركة' : 'استبعاد العضو'
-                                  : isPending ? 'Cancel Share Request' : 'Remove Member',
+                                title: isArabic ? 'استبعاد العضو' : 'Remove Member',
                                 message: isArabic
-                                  ? isPending
-                                    ? `هل تريد بالتأكيد إلغاء طلب المشاركة المرسل إلى "${m.name}"؟`
-                                    : `هل تريد بالتأكيد استبعاد العضو "${m.name}" من هذه المشاركة؟`
-                                  : isPending
-                                  ? `Are you sure you want to cancel the invitation sent to "${m.name}"?`
+                                  ? `هل تريد بالتأكيد استبعاد العضو "${m.name}" من هذه المشاركة؟`
                                   : `Are you sure you want to remove member "${m.name}" from this share?`,
-                                confirmLabel: isArabic ? 'تأكيد الإلغاء' : 'Confirm',
+                                confirmLabel: isArabic ? 'تأكيد الاستبعاد' : 'Confirm',
                                 cancelLabel: isArabic ? 'تراجع' : 'Cancel',
                                 isDanger: true,
                               });
@@ -1118,9 +1210,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                               if (res.success && res.folder) {
                                 setFolder(res.folder);
                                 showToast(
-                                  isArabic
-                                    ? isPending ? `تم إلغاء طلب "${m.name}" بنجاح` : `تم استبعاد "${m.name}" بنجاح`
-                                    : isPending ? `Invitation for "${m.name}" cancelled` : `Member "${m.name}" removed`,
+                                  isArabic ? `تم استبعاد "${m.name}" بنجاح` : `Member "${m.name}" removed`,
                                   'info',
                                   {
                                     label: isArabic ? 'تراجع' : 'Undo',
@@ -1134,7 +1224,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                               }
                             }}
                             className="p-1.5 rounded-xl bg-red-950/30 hover:bg-red-900/40 text-red-400 border border-red-500/30 transition cursor-pointer"
-                            title={isPending ? (isArabic ? 'إلغاء الطلب' : 'Cancel Request') : (isArabic ? 'استبعاد العضو' : 'Remove Member')}
+                            title={isArabic ? 'استبعاد العضو' : 'Remove Member'}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

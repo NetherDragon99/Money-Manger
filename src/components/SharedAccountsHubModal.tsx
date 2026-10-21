@@ -17,10 +17,12 @@ import {
   UserCheck,
   Clock,
   Sparkles,
+  LogOut,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
 import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
+import { UserSearchPicker } from './UserSearchPicker';
 import {
   loadMyShareFolders,
   loadReceivedShareFolders,
@@ -31,13 +33,18 @@ import {
   removeMemberFromShareFolder,
   acceptShareInvitation,
   rejectShareInvitation,
+  leaveShareFolder,
   generateShareUrl,
   subscribeToMyInbox,
   subscribeToShareFolder,
+  fetchShareFolderFromCloud,
+  extractShareIdFromUrl,
+  registerReceivedShareFolder,
   ShareFolder,
   publishUserProfileCard,
   getAvatarColorGradient,
   getMemberInitials,
+  UserProfileCard,
 } from '../utils/shareFolders';
 import { ShareDetailView } from './ShareDetailView';
 
@@ -72,7 +79,12 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   const [invitingFolderId, setInvitingFolderId] = useState<string | null>(null);
   const [invite16Id, setInvite16Id] = useState('');
   const [inviteName, setInviteName] = useState('');
+  const [inviteSelectedUser, setInviteSelectedUser] = useState<UserProfileCard | null>(null);
   const [isSendingInvite, setIsSendingInvite] = useState(false);
+
+  // Join via link state
+  const [joinLinkInput, setJoinLinkInput] = useState('');
+  const [isJoiningByLink, setIsJoiningByLink] = useState(false);
 
   // Automatically publish user's public lookup card on open
   useEffect(() => {
@@ -183,20 +195,28 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
 
   const handleAddMember = async (folderId: string, e: React.FormEvent) => {
     e.preventDefault();
-    const cleanId = cleanNumericId(invite16Id);
+    const cleanId = cleanNumericId(inviteSelectedUser?.numericId || invite16Id);
     if (cleanId.length !== 16) {
-      showToast(isArabic ? 'المعرف الرقمي يجب أن يتكون من 16 رقماً' : 'ID must be 16 digits', 'error');
+      showToast(isArabic ? 'يرجى اختيار مستخدم صالح أولاً' : 'Please select a valid user first', 'error');
       return;
     }
 
     setIsSendingInvite(true);
-    const res = await addMemberToShareFolder(folderId, cleanId, inviteName.trim());
+    const res = await addMemberToShareFolder(
+      folderId,
+      cleanId,
+      inviteName.trim() || inviteSelectedUser?.name,
+      'viewer',
+      inviteSelectedUser?.avatar,
+      inviteSelectedUser?.photoURL
+    );
     setIsSendingInvite(false);
 
     if (res.success && res.folder) {
       setMyFolders(loadMyShareFolders());
       setInvite16Id('');
       setInviteName('');
+      setInviteSelectedUser(null);
       setInvitingFolderId(null);
       showToast(
         res.cloudSynced === false
@@ -210,6 +230,68 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
       );
     } else {
       showToast(res.error || (isArabic ? 'فشلت إضافة العضو' : 'Failed to add member'), 'error');
+    }
+  };
+
+  const handleLeaveSharedFolder = async (folder: ShareFolder, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const ok = await showConfirm({
+      title: isArabic ? 'مغادرة صفحة المشاركة' : 'Leave Share Space',
+      message: isArabic
+        ? `هل أنت متأكد من مغادرة شير "${folder.name}"؟ ستفقد الوصول إلى هذه العناصر إلا إذا تمت دعوتك مجدداً.`
+        : `Are you sure you want to leave "${folder.name}"? You will lose access unless invited again.`,
+      confirmText: isArabic ? 'نعم، مغادرة' : 'Leave',
+      isDanger: true,
+    });
+    if (!ok) return;
+
+    await leaveShareFolder(folder.id, myCleanNumericId);
+    const updated = loadReceivedShareFolders().filter((f) => f.id !== folder.id);
+    setReceivedFolders(updated);
+    showToast(isArabic ? 'تمت مغادرة المشاركة بنجاح' : 'Left share successfully', 'info');
+  };
+
+  const handleJoinByLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const shareId = extractShareIdFromUrl(joinLinkInput);
+    if (!shareId) {
+      showToast(isArabic ? 'يرجى إدخال رابط أو كود شير صحيح' : 'Please enter a valid share link or ID', 'error');
+      return;
+    }
+
+    setIsJoiningByLink(true);
+    try {
+      const folder = await fetchShareFolderFromCloud(shareId);
+      if (folder) {
+        const registered = await registerReceivedShareFolder(
+          folder,
+          myCleanNumericId,
+          myName,
+          settings.userProfile?.avatarEmoji,
+          settings.userProfile?.customAvatarUrl
+        );
+        const updated = loadReceivedShareFolders();
+        setReceivedFolders(updated);
+        setJoinLinkInput('');
+        setActiveShareDetailFolder(registered);
+        showToast(
+          isArabic
+            ? `تم الانضمام إلى شير "${folder.name}" بنجاح!`
+            : `Joined "${folder.name}" successfully!`,
+          'success'
+        );
+      } else {
+        showToast(
+          isArabic
+            ? 'لم يتم العثور على هذا الشير، يرجى التأكد من صحة الرابط أو الكود'
+            : 'Share space not found, please verify link or ID',
+          'error'
+        );
+      }
+    } catch {
+      showToast(isArabic ? 'حدث خطأ أثناء الانضمام' : 'Error joining share', 'error');
+    } finally {
+      setIsJoiningByLink(false);
     }
   };
 
@@ -436,27 +518,20 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                                       : 'bg-amber-500/20 text-amber-400'
                                   }`}
                                 >
-                                  {m.status === 'accepted' ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'معلق' : 'Pending')}
+                                  {isArabic ? 'نشط' : 'Active'}
                                 </span>
 
-                                {/* Quick Cancel Invitation / Remove Member with Undo */}
+                                {/* Quick Remove Member with Undo */}
                                 <button
                                   type="button"
                                   onClick={async (e) => {
                                     e.stopPropagation();
-                                    const isPending = m.status === 'pending';
                                     const confirmed = await showConfirm({
-                                      title: isArabic
-                                        ? isPending ? 'إلغاء طلب المشاركة' : 'استبعاد العضو'
-                                        : isPending ? 'Cancel Share Request' : 'Remove Member',
+                                      title: isArabic ? 'استبعاد العضو' : 'Remove Member',
                                       message: isArabic
-                                        ? isPending
-                                          ? `هل تريد بالتأكيد إلغاء طلب المشاركة المرسل إلى "${m.name}"؟`
-                                          : `هل تريد بالتأكيد استبعاد العضو "${m.name}" من هذه المشاركة؟`
-                                        : isPending
-                                        ? `Are you sure you want to cancel the invitation sent to "${m.name}"?`
+                                        ? `هل تريد بالتأكيد استبعاد العضو "${m.name}" من هذه المشاركة؟`
                                         : `Are you sure you want to remove member "${m.name}" from this share?`,
-                                      confirmLabel: isArabic ? 'تأكيد الإلغاء' : 'Confirm',
+                                      confirmLabel: isArabic ? 'تأكيد الاستبعاد' : 'Confirm',
                                       cancelLabel: isArabic ? 'تراجع' : 'Cancel',
                                       isDanger: true,
                                     });
@@ -467,9 +542,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                                     if (res.success && res.folder) {
                                       setMyFolders((prev) => prev.map((f) => (f.id === folder.id ? res.folder! : f)));
                                       showToast(
-                                        isArabic
-                                          ? isPending ? `تم إلغاء طلب "${m.name}" بنجاح` : `تم استبعاد "${m.name}" بنجاح`
-                                          : isPending ? `Invitation for "${m.name}" cancelled` : `Member "${m.name}" removed`,
+                                        isArabic ? `تم استبعاد "${m.name}" بنجاح` : `Member "${m.name}" removed`,
                                         'info',
                                         {
                                           label: isArabic ? 'تراجع' : 'Undo',
@@ -484,7 +557,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                                     }
                                   }}
                                   className="p-0.5 rounded-md hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer shrink-0"
-                                  title={m.status === 'pending' ? (isArabic ? 'إلغاء الطلب' : 'Cancel Request') : (isArabic ? 'استبعاد العضو' : 'Remove Member')}
+                                  title={isArabic ? 'استبعاد العضو' : 'Remove Member'}
                                 >
                                   <X className="w-3 h-3" />
                                 </button>
@@ -498,36 +571,45 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                           <form
                             onSubmit={(e) => handleAddMember(folder.id, e)}
                             onClick={(e) => e.stopPropagation()}
-                            className="pt-2 border-t border-zinc-800 space-y-2 animate-in fade-in"
+                            className="pt-2 border-t border-zinc-800 space-y-2.5 animate-in fade-in"
                           >
-                            <input
-                              type="text"
-                              autoFocus
-                              maxLength={19}
-                              placeholder={isArabic ? 'أدخل المعرّف الرقمي (16 رقم)' : 'Enter 16-Digit Numeric ID'}
-                              value={format16DigitId(invite16Id)}
-                              onChange={(e) => {
-                                const { clean } = format16DigitInput(e.target.value, invite16Id);
-                                setInvite16Id(clean);
+                            <UserSearchPicker
+                              selectedUser={inviteSelectedUser}
+                              onSelectUser={(u) => {
+                                setInviteSelectedUser(u);
+                                if (u) {
+                                  setInvite16Id(u.numericId);
+                                  setInviteName(u.name);
+                                } else {
+                                  setInvite16Id('');
+                                  setInviteName('');
+                                }
                               }}
-                              className="w-full px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-750 text-xs font-mono text-white focus:outline-none focus:border-purple-500 tracking-wider"
+                              currentUserId={myCleanNumericId}
+                              accentColor="purple"
+                              isArabic={isArabic}
+                              autoFocus
                             />
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                placeholder={isArabic ? 'اسم أو لقب العضو (اختياري)' : 'Name or Nickname (optional)'}
-                                value={inviteName}
-                                onChange={(e) => setInviteName(e.target.value)}
-                                className="flex-1 px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-750 text-xs text-white focus:outline-none focus:border-purple-500"
-                              />
-                              <button
-                                type="submit"
-                                disabled={isSendingInvite || cleanNumericId(invite16Id).length !== 16}
-                                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition disabled:opacity-40 cursor-pointer"
-                              >
-                                {isSendingInvite ? (isArabic ? 'إرسال...' : 'Sending...') : (isArabic ? 'دعوة' : 'Invite')}
-                              </button>
-                            </div>
+
+                            {inviteSelectedUser && (
+                              <div className="flex items-center gap-2 animate-in fade-in">
+                                <input
+                                  type="text"
+                                  placeholder={inviteSelectedUser.name || (isArabic ? 'اسم أو لقب العضو (اختياري)' : 'Name or Nickname (optional)')}
+                                  value={inviteName}
+                                  onChange={(e) => setInviteName(e.target.value)}
+                                  className="flex-1 px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-750 text-xs text-white focus:outline-none focus:border-purple-500"
+                                />
+                                <button
+                                  type="submit"
+                                  disabled={isSendingInvite || !inviteSelectedUser}
+                                  className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                                >
+                                  <Users className="w-3 h-3" />
+                                  <span>{isSendingInvite ? (isArabic ? 'إرسال...' : 'Sending...') : (isArabic ? 'دعوة' : 'Invite')}</span>
+                                </button>
+                              </div>
+                            )}
                           </form>
                         )}
                       </div>
@@ -547,6 +629,25 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                 </span>
               </div>
 
+              {/* Join via Share Link / Code Input Bar */}
+              <form onSubmit={handleJoinByLink} className="flex gap-2">
+                <input
+                  type="text"
+                  value={joinLinkInput}
+                  onChange={(e) => setJoinLinkInput(e.target.value)}
+                  placeholder={isArabic ? 'ألصق رابط شير أو كود للانضمام الفوري...' : 'Paste share link or ID to join...'}
+                  className="flex-1 px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500 transition"
+                />
+                <button
+                  type="submit"
+                  disabled={isJoiningByLink || !joinLinkInput.trim()}
+                  className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 shadow-md active:scale-95"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{isJoiningByLink ? '...' : isArabic ? 'انضمام' : 'Join'}</span>
+                </button>
+              </form>
+
               {receivedFolders.length === 0 ? (
                 <div className="py-12 text-center space-y-3">
                   <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-xl">
@@ -561,8 +662,8 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
               ) : (
                 <div className="space-y-2.5">
                   {receivedFolders.map((folder) => {
-                    const myEntry = folder.members?.find((m) => m.numericId === myCleanNumericId);
-                    const isPending = !myEntry || myEntry.status === 'pending';
+                    const myEntry = folder.members?.find((m) => cleanNumericId(m.numericId) === myCleanNumericId);
+                    const isEditor = myEntry?.role === 'editor';
 
                     return (
                       <div
@@ -576,44 +677,41 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                               {folder.icon || '📁'}
                             </div>
                             <div className="min-w-0">
-                              <span className="text-sm font-bold text-white block truncate group-hover:text-purple-300 transition">
-                                {folder.name}
-                              </span>
-                              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                                <span>{isArabic ? 'من:' : 'From:'} {folder.ownerName}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-white truncate group-hover:text-purple-300 transition">
+                                  {folder.name}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[10px] font-semibold">
+                                  {isEditor ? (isArabic ? 'محرر' : 'Editor') : (isArabic ? 'مشاهد' : 'Viewer')}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-xs text-zinc-400 mt-0.5">
+                                <span>{isArabic ? 'المالك:' : 'Owner:'} {folder.ownerName}</span>
                                 <span>·</span>
                                 <span>{folder.itemCount} {isArabic ? 'عنصر' : 'items'}</span>
                               </div>
                             </div>
                           </div>
 
-                          {/* Accept / Decline or View */}
+                          {/* Action Buttons: Leave & Open */}
                           <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                            {isPending ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleAcceptInvite(folder, e)}
-                                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 transition active:scale-95 cursor-pointer shadow-md"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                  <span>{isArabic ? 'قبول' : 'Accept'}</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleDeclineInvite(folder, e)}
-                                  className="p-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-red-400 transition cursor-pointer"
-                                  title="Decline"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </>
-                            ) : (
-                              <span className="px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center gap-1">
-                                <UserCheck className="w-3.5 h-3.5" />
-                                <span>{isArabic ? 'مقبول' : 'Accepted'}</span>
-                              </span>
-                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => handleLeaveSharedFolder(folder, e)}
+                              className="px-2.5 py-1.5 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 hover:border-red-500/30 text-zinc-400 hover:text-red-400 text-xs font-semibold flex items-center gap-1 transition cursor-pointer active:scale-95"
+                              title={isArabic ? 'مغادرة المشاركة' : 'Leave Share'}
+                            >
+                              <LogOut className="w-3.5 h-3.5 text-red-400" />
+                              <span>{isArabic ? 'مغادرة' : 'Leave'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveShareDetailFolder(folder)}
+                              className="p-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                              title={isArabic ? 'فتح وعرض' : 'Open & View'}
+                            >
+                              <ChevronRight className="w-4 h-4 rtl:rotate-180" />
+                            </button>
                           </div>
                         </div>
                       </div>

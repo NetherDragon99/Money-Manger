@@ -73,6 +73,8 @@ import {
   subscribeToMyInbox,
   loadReceivedShareFolders,
   saveReceivedShareFolders,
+  fetchShareFolderFromCloud,
+  registerReceivedShareFolder,
   ShareFolder,
 } from '../utils/shareFolders';
 
@@ -1530,6 +1532,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     u.searchParams.delete('share');
     window.history.replaceState({}, '', u.pathname + (u.search ? u.search : ''));
   };
+
+  // When an invitation link is opened (?share=...), automatically register it into "Shared with Me"
+  useEffect(() => {
+    if (!activeSharedId) return;
+    fetchShareFolderFromCloud(activeSharedId).then((folder) => {
+      if (folder) {
+        registerReceivedShareFolder(
+          folder,
+          settings.userProfile?.numericId,
+          settings.userProfile?.name,
+          settings.userProfile?.avatarEmoji,
+          settings.userProfile?.customAvatarUrl
+        );
+      }
+    });
+  }, [activeSharedId, settings.userProfile?.numericId, settings.userProfile?.name]);
 
   // Auto-populate profile name & resolve the PERMANENT 16-digit numeric ID for signed-in users
   useEffect(() => {

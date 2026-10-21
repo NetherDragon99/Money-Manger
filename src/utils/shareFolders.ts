@@ -196,6 +196,7 @@ export async function publishUserProfileCard(profile: {
 
 /**
  * Fetch a user profile card from shared_accounts/profile_${cleanId}
+ * with fallback to numericIds/${cleanId}
  */
 export async function fetchUserProfileCard(numericId: string): Promise<UserProfileCard | null> {
   const cleanId = normalize16DigitId(numericId);
@@ -210,6 +211,38 @@ export async function fetchUserProfileCard(numericId: string): Promise<UserProfi
   } catch (err) {
     console.warn('[ShareFolders] Failed to fetch profile card:', err);
   }
+
+  // Fallback 1: check numericIds/${cleanId} in RTDB
+  try {
+    const numSnap = await get(ref(rtdb, `numericIds/${cleanId}`));
+    if (numSnap.exists()) {
+      const data = numSnap.val();
+      let photoURL = '';
+      let avatar = '👤';
+      if (data.uid) {
+        try {
+          const userSnap = await get(ref(rtdb, `users/${data.uid}`));
+          if (userSnap.exists()) {
+            const u = userSnap.val();
+            if (u.customAvatarUrl || u.photoURL) photoURL = u.customAvatarUrl || u.photoURL;
+            if (u.avatarEmoji) avatar = u.avatarEmoji;
+          }
+        } catch {}
+      }
+      const card: UserProfileCard = {
+        numericId: cleanId,
+        name: data.displayName || data.email?.split('@')[0] || `User ${cleanId.slice(0, 4)}`,
+        avatar,
+        photoURL,
+        updatedAt: data.updatedAt || Date.now(),
+      };
+      saveKnownContact(card);
+      return card;
+    }
+  } catch (err) {
+    console.warn('[ShareFolders] Failed to fallback search numericIds:', err);
+  }
+
   return getKnownContact(cleanId);
 }
 
@@ -306,6 +339,99 @@ export function saveReceivedShareFolders(folders: ShareFolder[]): void {
 }
 
 /**
+ * Extract share ID from raw input, handle full URL or query params or plain share ID
+ */
+export function extractShareIdFromUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+  try {
+    if (trimmed.includes('?')) {
+      const parsed = new URL(trimmed.startsWith('http') ? trimmed : `https://dummy.com/${trimmed}`);
+      const share = parsed.searchParams.get('share') || parsed.searchParams.get('sharedAccountId');
+      if (share) return share.trim();
+    }
+  } catch {}
+  return trimmed;
+}
+
+/**
+ * Register and save a received share folder (from an invitation link or cloud lookup)
+ * into the local "Shared with Me" list, and join as an active member in RTDB.
+ */
+export async function registerReceivedShareFolder(
+  folder: ShareFolder,
+  myNumericId?: string,
+  myName?: string,
+  myAvatar?: string,
+  myPhotoURL?: string
+): Promise<ShareFolder> {
+  const cleanId = myNumericId ? normalize16DigitId(myNumericId) : '';
+  const isOwner = cleanId && cleanId.length === 16 && normalize16DigitId(folder.ownerNumericId) === cleanId;
+
+  let updatedMembers = Array.isArray(folder.members) ? [...folder.members] : [];
+
+  // If user is not the owner and has a 16-digit ID, ensure they are registered as an accepted member
+  if (!isOwner && cleanId.length === 16) {
+    const existingMemberIdx = updatedMembers.findIndex((m) => normalize16DigitId(m.numericId) === cleanId);
+    if (existingMemberIdx === -1) {
+      updatedMembers.push({
+        numericId: cleanId,
+        name: myName || 'User',
+        avatar: myAvatar || '👤',
+        photoURL: myPhotoURL || '',
+        role: 'viewer',
+        status: 'accepted',
+        addedAt: Date.now(),
+      });
+    } else {
+      updatedMembers[existingMemberIdx] = {
+        ...updatedMembers[existingMemberIdx],
+        status: 'accepted',
+      };
+    }
+  }
+
+  const finalFolder: ShareFolder = {
+    ...folder,
+    members: updatedMembers.map((m) => ({ ...m, status: 'accepted' as const })),
+  };
+
+  // 1. Save to local received share folders
+  const currentReceived = loadReceivedShareFolders();
+  const idx = currentReceived.findIndex((f) => f.id === finalFolder.id);
+  let nextReceived: ShareFolder[];
+  if (idx !== -1) {
+    nextReceived = [...currentReceived];
+    nextReceived[idx] = finalFolder;
+  } else {
+    nextReceived = [finalFolder, ...currentReceived];
+  }
+  saveReceivedShareFolders(nextReceived);
+
+  // 2. Dispatch event to update any open modal or views immediately
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: nextReceived }));
+  }
+
+  // 3. Sync member addition to Firebase RTDB cloud if recipient has 16-digit ID and is not owner
+  if (!isOwner && cleanId.length === 16) {
+    try {
+      const cleanFolder = JSON.parse(JSON.stringify(finalFolder));
+      // Put in user's inbox
+      await set(ref(rtdb, `shared_accounts/inbox_${cleanId}/${finalFolder.id}`), cleanFolder);
+      await set(ref(rtdb, `inboxByNumericId/${cleanId}/${finalFolder.id}`), cleanFolder);
+      // Update cloud share folder members
+      await set(ref(rtdb, `shared_accounts/share_${finalFolder.id}/members`), updatedMembers);
+      await set(ref(rtdb, `sharedBundles/${finalFolder.id}/members`), updatedMembers);
+    } catch (err) {
+      console.warn('[ShareFolders] Failed to sync member join to cloud RTDB:', err);
+    }
+  }
+
+  return finalFolder;
+}
+
+/**
  * Auto-deduce Folder Name and Icon from selected item(s)
  */
 export function deduceFolderMetadata(
@@ -348,7 +474,7 @@ export function deduceFolderMetadata(
 }
 
 /**
- * Sync Share Page to Firebase RTDB at shared_accounts/share_${folder.id} and delivery to members
+ * Sync Share Page to Firebase RTDB at shared_accounts/${folder.id} and delivery to members
  */
 export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
   try {
@@ -357,12 +483,15 @@ export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
 
     await withTimeout(
       (async () => {
-        // 1. Modern unified path
+        // 1. Direct path
+        await set(ref(rtdb, `shared_accounts/${cleanFolder.id}`), cleanFolder);
+        // 2. Prefixed path
         await set(ref(rtdb, `shared_accounts/share_${cleanFolder.id}`), cleanFolder);
-        // 2. Legacy fallback bundle path
+        // 3. Legacy fallback bundle paths
         await set(ref(rtdb, `sharedBundles/${cleanFolder.id}`), cleanFolder);
+        await set(ref(rtdb, `sharedBundles/share_${cleanFolder.id}`), cleanFolder);
 
-        // 3. Deliver to member inboxes
+        // 4. Deliver to member inboxes
         for (const member of cleanFolder.members || []) {
           const cleanMemberId = normalize16DigitId(member.numericId);
           if (cleanMemberId.length === 16) {
@@ -760,7 +889,9 @@ export async function addMemberToShareFolder(
   folderId: string,
   member16DigitId: string,
   memberName?: string,
-  role: 'viewer' | 'editor' = 'viewer'
+  role: 'viewer' | 'editor' = 'viewer',
+  memberAvatar?: string,
+  memberPhotoURL?: string
 ): Promise<{ success: boolean; folder?: ShareFolder; error?: string; cloudSynced?: boolean }> {
   const cleanId = normalize16DigitId(member16DigitId);
   if (cleanId.length !== 16) {
@@ -778,8 +909,8 @@ export async function addMemberToShareFolder(
     (localContact?.name && localContact.name !== 'User' ? localContact.name : '') ||
     `User ${format16DigitId(cleanId).slice(0, 4)}`;
 
-  const resolvedAvatar = profileCard?.avatar || localContact?.avatar || '👤';
-  const resolvedPhotoURL = profileCard?.photoURL || localContact?.photoURL || '';
+  const resolvedAvatar = memberAvatar || profileCard?.avatar || localContact?.avatar || '👤';
+  const resolvedPhotoURL = memberPhotoURL || profileCard?.photoURL || localContact?.photoURL || '';
 
   // Cache resolved contact locally
   saveKnownContact({
@@ -807,7 +938,7 @@ export async function addMemberToShareFolder(
     avatar: resolvedAvatar,
     photoURL: resolvedPhotoURL,
     role,
-    status: 'pending',
+    status: 'accepted',
     addedAt: Date.now(),
   };
 
@@ -1092,12 +1223,48 @@ export async function rejectShareInvitation(
 
 /**
  * Leave a shared folder from "Shared With Me"
+ * Cleans up local inbox, RTDB inbox, and removes user from cloud share members
  */
 export async function leaveShareFolder(
   folderId: string,
   my16DigitId: string
 ): Promise<void> {
-  await rejectShareInvitation(folderId, my16DigitId);
+  const cleanId = normalize16DigitId(my16DigitId);
+
+  // 1. Remove from local received folders
+  const received = loadReceivedShareFolders().filter((f) => f.id !== folderId);
+  saveReceivedShareFolders(received);
+
+  // 2. Remove from recipient's inbox in Firebase RTDB
+  try {
+    await remove(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folderId}`));
+    await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}`));
+  } catch (err) {
+    console.warn('[ShareFolders] Failed to remove share from inbox on leave:', err);
+  }
+
+  // 3. Remove user from cloud share folder's members list
+  try {
+    const cloudFolderRef = ref(rtdb, `shared_accounts/share_${folderId}`);
+    const snap = await get(cloudFolderRef);
+    if (snap.exists()) {
+      const cloudFolder = snap.val() as ShareFolder;
+      if (cloudFolder && Array.isArray(cloudFolder.members)) {
+        const nextMembers = cloudFolder.members.filter(
+          (m) => normalize16DigitId(m.numericId) !== cleanId
+        );
+        const updatedCloudFolder: ShareFolder = {
+          ...cloudFolder,
+          members: nextMembers,
+          updatedAt: Date.now(),
+        };
+        await set(cloudFolderRef, updatedCloudFolder);
+        await set(ref(rtdb, `sharedBundles/${folderId}`), updatedCloudFolder);
+      }
+    }
+  } catch (err) {
+    console.warn('[ShareFolders] Failed to update cloud folder members on leave:', err);
+  }
 }
 
 /**
@@ -1106,26 +1273,45 @@ export async function leaveShareFolder(
 export async function sendShareFolderToRecipient(
   folder: ShareFolder,
   recipient16DigitId: string,
-  recipientName?: string
+  recipientName?: string,
+  recipientAvatar?: string,
+  recipientPhotoURL?: string
 ): Promise<{ success: boolean; error?: string }> {
-  return addMemberToShareFolder(folder.id, recipient16DigitId, recipientName);
+  return addMemberToShareFolder(
+    folder.id,
+    recipient16DigitId,
+    recipientName,
+    'viewer',
+    recipientAvatar,
+    recipientPhotoURL
+  );
 }
 
 /**
  * Fetch a share folder from Firebase cloud by ID
  */
 export async function fetchShareFolderFromCloud(folderId: string): Promise<ShareFolder | null> {
+  const cleanId = (folderId || '').trim();
+  if (!cleanId) return null;
+
   try {
     return await withTimeout(
       (async () => {
-        const snap = await get(ref(rtdb, `shared_accounts/share_${folderId}`));
-        if (snap.exists()) {
-          return snap.val() as ShareFolder;
-        }
-        // Fallback check legacy path
-        const legSnap = await get(ref(rtdb, `sharedBundles/${folderId}`));
-        if (legSnap.exists()) {
-          return legSnap.val() as ShareFolder;
+        // Check candidate paths in order:
+        const pathsToTry = [
+          `shared_accounts/${cleanId}`,
+          `shared_accounts/share_${cleanId}`,
+          `sharedBundles/${cleanId}`,
+          `sharedBundles/share_${cleanId}`,
+        ];
+
+        for (const p of pathsToTry) {
+          try {
+            const snap = await get(ref(rtdb, p));
+            if (snap.exists() && snap.val()) {
+              return snap.val() as ShareFolder;
+            }
+          } catch {}
         }
         return null;
       })(),
@@ -1139,39 +1325,32 @@ export async function fetchShareFolderFromCloud(folderId: string): Promise<Share
 }
 
 /**
- * Real-time listener on a specific Share Folder (shared_accounts/share_${folderId})
+ * Real-time listener on a specific Share Folder (shared_accounts/${folderId})
  */
 export function subscribeToShareFolder(
   folderId: string,
   callback: (folder: ShareFolder | null) => void
 ): () => void {
-  if (!folderId) return () => {};
-  const shareRef = ref(rtdb, `shared_accounts/share_${folderId}`);
+  const cleanId = (folderId || '').trim();
+  if (!cleanId) return () => {};
+
+  const ref1 = ref(rtdb, `shared_accounts/${cleanId}`);
+  const ref2 = ref(rtdb, `shared_accounts/share_${cleanId}`);
+
+  let hasFound = false;
   const listener = (snap: any) => {
-    if (snap.exists()) {
+    if (snap.exists() && snap.val()) {
+      hasFound = true;
       callback(snap.val() as ShareFolder);
-    } else {
-      // Check fallback bundle path
-      get(ref(rtdb, `sharedBundles/${folderId}`))
-        .then((bSnap) => {
-          if (bSnap.exists()) {
-            callback(bSnap.val() as ShareFolder);
-          } else {
-            callback(null);
-          }
-        })
-        .catch(() => callback(null));
     }
   };
-  onValue(
-    shareRef,
-    listener,
-    (err) => {
-      console.warn('[ShareFolders] Real-time subscription error:', err);
-    }
-  );
+
+  onValue(ref1, listener);
+  onValue(ref2, listener);
+
   return () => {
-    off(shareRef, 'value', listener);
+    off(ref1, 'value', listener);
+    off(ref2, 'value', listener);
   };
 }
 
@@ -1194,7 +1373,10 @@ export function subscribeToMyInbox(
 
   const emitCombined = () => {
     const combined = { ...fallbackData, ...primaryData };
-    const folders: ShareFolder[] = Object.values(combined);
+    const folders: ShareFolder[] = Object.values(combined).map((f) => ({
+      ...f,
+      members: (f.members || []).map((m) => ({ ...m, status: 'accepted' as const })),
+    }));
     // Sort newest first
     folders.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
     callback(folders);
@@ -1229,12 +1411,16 @@ export function subscribeToMyInbox(
 export const listenToMyNumericIdInbox = subscribeToMyInbox;
 
 /**
- * Generate clean, live, dynamic public web share URL: ?share=share_...
- * Never embeds stale data snapshots in query params, ensuring the URL stays identical
- * while its content updates live from Firebase Realtime Database.
+ * Generate clean, live, dynamic public web share URL with fallback data snapshot
+ * Includes encoded data snapshot for 0ms instant offline rendering & reliability,
+ * and share ID for live real-time cloud sync.
  */
 export function generateShareUrl(folder: ShareFolder): string {
   if (typeof window === 'undefined') return '';
   const base = `${window.location.origin}${window.location.pathname}`;
+  const snapshotB64 = encodeShareSnapshot(folder);
+  if (snapshotB64) {
+    return `${base}?share=${encodeURIComponent(folder.id)}&data=${snapshotB64}`;
+  }
   return `${base}?share=${encodeURIComponent(folder.id)}`;
 }

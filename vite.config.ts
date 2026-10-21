@@ -25,7 +25,7 @@ export default defineConfig(({ command }) => {
           background_color: '#000000',
           display: 'standalone',
           display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
-          orientation: 'portrait-primary',
+          orientation: 'any',
           start_url: base,
           scope: base,
           categories: ['finance', 'productivity', 'utilities'],

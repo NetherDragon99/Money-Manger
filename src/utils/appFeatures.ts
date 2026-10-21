@@ -21,6 +21,32 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.15',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'Landscape Mode, Big-Screen UI, Verified User ID Search, Direct Share Delivery & Leave Anytime',
+      ar: 'دعم الوضع الأفقي والشاشات الكبيرة، البحث التفاعلي عن المستخدم، تسليم الشير المباشر وإمكانية المغادرة في أي وقت',
+    },
+    highlights: {
+      en: [
+        'Full Landscape & Big-Screen Compatibility: Removed portrait-lock constraints (orientation: "any"), making the app freely rotatable and beautifully responsive on tablets, Chromebooks, laptops, and desktop screens with side-by-side calendar views and 4-column grids.',
+        'Interactive User ID Search & Profile Discovery: Entering a 16-digit ID automatically verifies and displays the user profile card with their avatar photo and full name, allowing instant selection before sharing.',
+        'Zero-Pending Instant Share Delivery: Sharing and invitations now activate immediately with accepted status, appearing directly in "Shared with Me" without requiring pending acceptance.',
+        'Leave Share Anytime: Non-owners can leave any shared space anytime with a single tap from the header, member list, or shared spaces hub.',
+        'Instant Fallback Snapshot & Auto-Save for Links: External web share links open in 0ms using embedded base64 fallback snapshots with parallel cloud sync, and automatically save into the user\'s "Shared with Me" tab.',
+        'Join via Link or Share ID: Added a dedicated input bar in the Shared Spaces Hub allowing users to paste any share URL or ID to join instantly.',
+      ],
+      ar: [
+        'دعم كامل للوضع الأفقي والشاشات الكبيرة: إلغاء القفل الرأسي (orientation: "any") وتكييف كافة الواجهات بذكاء للشاشات العريضة والتابلت (عرض التقويم مع المعاملات جنباً إلى جنب، وشبكة حسابات وميزانية من 4 أعمدة).',
+        'بحث تفاعلي بالمعرّف الرقمي واكتشاف الملف الشخصي: عند إدخال المعرّف (16 رقماً) يتم البحث والتحقق التلقائي وعرض بطاقة المستخدم مع صورته واسمه لاختياره بثقة قبل إرسال الشير.',
+        'تسليم فوري للشير بدون انتظار (إلغاء وضع المعلق): إرسال الشير يفعله مباشرة كشير نشط ومقبول فوراً ويظهر في تبويب "المشارَك معي" دون الحاجة لخطوات قبول أو انتظار.',
+        'إمكانية مغادرة الشير في أي وقت: يمكن للأعضاء مغادرة أي شير بضغطة زر وتأكيد سريع من شريط العنوان العلوي أو قائمة الأعضاء أو مركز الشير.',
+        'روابط مشاركة فورية بلقطة بيانات احتياطية: تفتح روابط الويب الخارجية في 0ms دون أي خطأ في الاتصال، مع حفظها تلقائياً في قائمة "المشارَك معي" للمستلم.',
+        'الانضمام عبر رابط أو كود شير: شريط جديد في مركز الشير يتيح للمستخدم لصق أي رابط مشاركة أو كود والانضمام إليه وفتحه في لحظتها.',
+      ],
+    },
+  },
+  {
     version: '1.1.14',
     releaseDate: 'October 21, 2026',
     title: {
