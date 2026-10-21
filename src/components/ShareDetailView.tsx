@@ -21,6 +21,7 @@ import {
   Shield,
   Edit3,
   LogOut,
+  Loader2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
@@ -84,6 +85,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   const [newMemberId, setNewMemberId] = useState('');
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedMemberUser, setSelectedMemberUser] = useState<any>(null);
+  const [isVerifyingMember, setIsVerifyingMember] = useState(false);
   const [isSubmittingMember, setIsSubmittingMember] = useState(false);
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editingMemberName, setEditingMemberName] = useState('');
@@ -894,6 +896,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                     setNewMemberName('');
                   }
                 }}
+                onVerifyingChange={setIsVerifyingMember}
                 currentUserId={myCleanNumericId}
                 accentColor="purple"
                 isArabic={isArabic}
@@ -931,15 +934,33 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingMember || !selectedMemberUser}
-                  className="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md transition disabled:opacity-40 cursor-pointer flex items-center justify-center gap-1.5"
+                  disabled={isSubmittingMember || isVerifyingMember || !selectedMemberUser}
+                  className={`flex-1 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition flex items-center justify-center gap-1.5 ${
+                    selectedMemberUser && !isVerifyingMember && !isSubmittingMember
+                      ? 'bg-purple-600 hover:bg-purple-500 cursor-pointer shadow-purple-900/30 active:scale-95'
+                      : 'bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-60'
+                  }`}
                 >
-                  <Users className="w-3.5 h-3.5" />
-                  <span>
-                    {isSubmittingMember
-                      ? (isArabic ? 'جارٍ الإرسال...' : 'Sending...')
-                      : (isArabic ? 'إرسال الدعوة' : 'Send Invite')}
-                  </span>
+                  {isSubmittingMember ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>{isArabic ? 'جارٍ الإرسال...' : 'Sending...'}</span>
+                    </>
+                  ) : isVerifyingMember ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-300" />
+                      <span>{isArabic ? 'جارٍ التحقق...' : 'Verifying...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Users className="w-3.5 h-3.5" />
+                      <span>
+                        {selectedMemberUser
+                          ? (isArabic ? `تأكيد وإضافة ${selectedMemberUser.name || 'العضو'}` : `Confirm & Add ${selectedMemberUser.name || 'Member'}`)
+                          : (isArabic ? 'إرسال الدعوة' : 'Send Invite')}
+                      </span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

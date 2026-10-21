@@ -21,6 +21,28 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.18',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'Live 16-Digit User Lookup & Verification Preview Before Adding to Share',
+      ar: 'تحقق ومعاينة تفاعلية فورية للمستخدم بالمعرّف الرقمي قبل إضافته للشير',
+    },
+    highlights: {
+      en: [
+        'Live 16-Digit User Lookup: The instant 16 numeric digits are entered, a real-time verification query checks Firebase RTDB at shared_accounts/profile_${clean16Id} with an animated spinner, keeping Add/Invite buttons disabled until verification succeeds.',
+        'Verified User Preview Card: Displays the verified user\'s photo/avatar, full name, formatted 16-digit ID, and verified status badge, enabling the Add/Invite button for explicit confirmation.',
+        'Clear User Not Found Handling: Unregistered IDs display an instant, clear "User not found" alert while keeping the action button safely disabled.',
+        'Automatic Identity Publishing & Sync: All signed-in users automatically sync and publish their real full name and avatar photo to shared_accounts/profile_${myClean16Id} so senders and recipients always see each other\'s real identity.',
+      ],
+      ar: [
+        'تحقق مباشر وفوري بالمعرّف الرقمي: بمجرد إدخال 16 رقماً، يتم الاستعلام اللحظي من خوادم Firebase RTDB على مسار shared_accounts/profile_${clean16Id} مع مؤشر فحص متحرك، مع إبقاء زر الإضافة معطلاً لحين إتمام التحقق.',
+        'بطاقة معاينة المستخدم المعتمد: عرض صورة/أيقونة المستخدم واسمه الكامل وحالته المعتمدة فور العثور عليه، وتفعيل زر الإضافة/الدعوة لتمكين التأكيد بثقة.',
+        'تنبيه واضح عند عدم وجود المستخدم: في حال إدخال معرّف غير مسجل، يظهر تنبيه صريح "لم يتم العثور على المستخدم" مع إبقاء الزر معطلاً منعاً للأخطاء.',
+        'مزامنة ونشر الهوية تلقائياً: كل مستخدم مسجل يتم نشر وتحديث اسمه الحقيقي وصورة حسابه تلقائياً في خوادم الفايربيس ليظهر الاسم والصورة الحقيقية لدى الطرفين دائماً.',
+      ],
+    },
+  },
+  {
     version: '1.1.17',
     releaseDate: 'October 21, 2026',
     title: {

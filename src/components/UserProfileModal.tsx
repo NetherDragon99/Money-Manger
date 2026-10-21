@@ -32,7 +32,8 @@ import {
   setupRecaptcha,
   sendPhoneOtp,
 } from '../utils/firebase';
-import { format16DigitId } from '../utils/userId';
+import { format16DigitId, cleanNumericId } from '../utils/userId';
+import { publishUserProfileCard } from '../utils/shareFolders';
 import { User, ConfirmationResult } from 'firebase/auth';
 
 const CURATED_DEFAULT_AVATARS = [
@@ -399,15 +400,29 @@ export const UserProfileModal: React.FC = () => {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanName = name.trim() || 'My Profile';
+    const my16 = cleanNumericId(settings.userProfile?.numericId || '');
+
     updateSettings({
       userProfile: {
-        name: name.trim() || 'My Profile',
+        ...settings.userProfile,
+        name: cleanName,
         avatarEmoji: avatarEmoji || '👤',
         customAvatarUrl,
       },
     });
+
+    if (my16 && my16.length === 16) {
+      publishUserProfileCard({
+        numericId: my16,
+        name: cleanName,
+        avatar: avatarEmoji || '👤',
+        photoURL: customAvatarUrl || '',
+      });
+    }
+
     showToast(
-      settings.language === 'ar' ? 'تم حفظ الملف الشخصي بنجاح' : 'Profile saved successfully',
+      settings.language === 'ar' ? 'تم حفظ وتحديث الهوية بنجاح' : 'Profile saved and identity synced successfully',
       'success'
     );
     setIsUserProfileModalOpen(false);

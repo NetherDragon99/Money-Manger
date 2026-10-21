@@ -26,6 +26,7 @@ import {
 export interface UserSearchPickerProps {
   selectedUser: UserProfileCard | null;
   onSelectUser: (user: UserProfileCard | null) => void;
+  onVerifyingChange?: (isVerifying: boolean) => void;
   currentUserId?: string;
   accentColor?: 'blue' | 'purple';
   isArabic?: boolean;
@@ -37,6 +38,7 @@ export interface UserSearchPickerProps {
 export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
   selectedUser,
   onSelectUser,
+  onVerifyingChange,
   currentUserId,
   accentColor = 'purple',
   isArabic = false,
@@ -75,38 +77,48 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
     if (clean.length !== 16) {
       setSearchStatus('idle');
       setFoundUser(null);
+      onSelectUser(null);
+      onVerifyingChange?.(false);
       return;
     }
 
     if (cleanMyId && clean === cleanMyId) {
       setSearchStatus('self_id');
       setFoundUser(null);
+      onSelectUser(null);
       setIsSearching(false);
+      onVerifyingChange?.(false);
       return;
     }
 
     setIsSearching(true);
+    onVerifyingChange?.(true);
     setSearchStatus('searching');
     setFoundUser(null);
+    onSelectUser(null);
 
     try {
       const user = await fetchUserProfileCard(clean);
       if (user && user.numericId) {
         setFoundUser(user);
         setSearchStatus('found');
+        onSelectUser(user);
       } else {
         setFoundUser(null);
         setSearchStatus('not_found');
+        onSelectUser(null);
       }
     } catch {
       setFoundUser(null);
       setSearchStatus('not_found');
+      onSelectUser(null);
     } finally {
       setIsSearching(false);
+      onVerifyingChange?.(false);
     }
   };
 
-  // Debounced auto-search when 16 digits are entered
+  // Instant auto-search when 16 digits are entered (normalized via .replace(/\D/g, ''))
   const handleInputChange = (rawVal: string) => {
     const { clean } = format16DigitInput(rawVal, typedId);
     setTypedId(clean);
@@ -116,12 +128,13 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
     }
 
     if (clean.length === 16) {
-      searchTimeoutRef.current = setTimeout(() => {
-        performSearch(clean);
-      }, 250);
+      performSearch(clean);
     } else {
       setSearchStatus('idle');
       setFoundUser(null);
+      onSelectUser(null);
+      setIsSearching(false);
+      onVerifyingChange?.(false);
     }
   };
 
@@ -133,15 +146,14 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
         setTypedId(clean);
         if (clean.length === 16) {
           performSearch(clean);
+        } else {
+          setSearchStatus('idle');
+          setFoundUser(null);
+          onSelectUser(null);
+          onVerifyingChange?.(false);
         }
       }
     } catch {}
-  };
-
-  const handleChooseFoundUser = () => {
-    if (foundUser) {
-      onSelectUser(foundUser);
-    }
   };
 
   const handleClearSelection = () => {
@@ -149,6 +161,7 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
     setFoundUser(null);
     setSearchStatus('idle');
     setTypedId('');
+    onVerifyingChange?.(false);
   };
 
   const isPurple = accentColor === 'purple';
@@ -281,23 +294,24 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
 
       {/* SEARCHING IN PROGRESS */}
       {isSearching && (
-        <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 flex items-center justify-center gap-2 text-xs text-zinc-400 animate-in fade-in">
+        <div className="p-3 rounded-2xl bg-zinc-900/90 border border-blue-500/40 flex items-center justify-center gap-2.5 text-xs text-blue-300 animate-in fade-in">
           <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
-          <span>
+          <span className="font-semibold">
             {isArabic
-              ? 'جارٍ التحقق والبحث عن المستخدم...'
-              : 'Verifying & searching for user...'}
+              ? 'جارٍ التحقق... يتم البحث في خوادم Firebase'
+              : 'Verifying... Querying user profile in Firebase'}
           </span>
         </div>
       )}
 
-      {/* DISCOVERED USER CARD (Available to Choose) */}
+      {/* DISCOVERED USER PREVIEW CARD */}
       {!isSearching && searchStatus === 'found' && foundUser && (
-        <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-emerald-500/40 shadow-lg space-y-3 animate-in fade-in">
+        <div className="p-3.5 rounded-2xl bg-zinc-900/95 border border-emerald-500/50 shadow-lg space-y-2.5 animate-in fade-in">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
-              <Check className="w-3.5 h-3.5" />
-              <span>{isArabic ? 'تم العثور على المستخدم!' : 'User Found!'}</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <Check className="w-3.5 h-3.5 stroke-[3]" />
+              <span>{isArabic ? 'تم التحقق من المستخدم بنجاح!' : 'User Verified!'}</span>
             </span>
             <span className="text-[10px] text-zinc-400 font-mono">
               {format16DigitId(foundUser.numericId)}
@@ -307,7 +321,7 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
               <div
-                className={`w-11 h-11 rounded-2xl overflow-hidden shrink-0 flex items-center justify-center font-bold text-white shadow bg-gradient-to-tr ${getAvatarColorGradient(
+                className={`w-12 h-12 rounded-2xl overflow-hidden shrink-0 flex items-center justify-center font-bold text-white shadow bg-gradient-to-tr ${getAvatarColorGradient(
                   foundUser.numericId || foundUser.name
                 )}`}
               >
@@ -318,32 +332,38 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
                     className="w-full h-full object-cover"
                   />
                 ) : foundUser.avatar && foundUser.avatar !== '👤' ? (
-                  <span className="text-xl">{foundUser.avatar}</span>
+                  <span className="text-2xl">{foundUser.avatar}</span>
                 ) : (
-                  <span className="text-sm font-black">
+                  <span className="text-base font-black">
                     {getMemberInitials(foundUser.name, foundUser.numericId)}
                   </span>
                 )}
               </div>
 
               <div className="min-w-0">
-                <div className="text-sm font-bold text-white truncate">
-                  {foundUser.name || 'User'}
+                <div className="text-sm font-bold text-white truncate flex items-center gap-1.5">
+                  <span>{foundUser.name || 'User'}</span>
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 stroke-[3]" />
                 </div>
-                <div className="text-[11px] text-zinc-400">
-                  {isArabic ? 'جاهز للإضافة والتواصل' : 'Ready to add and collaborate'}
+                <div className="text-[11px] text-emerald-400/90 font-medium">
+                  {isArabic ? 'تم التحقق من الحساب — اضغط الزر أدناه للإضافة' : 'Verified & ready — click Add below to confirm'}
                 </div>
               </div>
             </div>
 
-            {/* Choose Button */}
             <button
               type="button"
-              onClick={handleChooseFoundUser}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 shadow-md active:scale-95 ${btnAccentClass}`}
+              onClick={() => {
+                setTypedId('');
+                setFoundUser(null);
+                setSearchStatus('idle');
+                onSelectUser(null);
+                onVerifyingChange?.(false);
+              }}
+              className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white text-[11px] transition cursor-pointer shrink-0"
+              title={isArabic ? 'تغيير المستخدم' : 'Change User'}
             >
-              <Check className="w-3.5 h-3.5" />
-              <span>{isArabic ? 'اختيار هذا المستخدم' : 'Select User'}</span>
+              {isArabic ? 'مسح' : 'Change'}
             </button>
           </div>
         </div>

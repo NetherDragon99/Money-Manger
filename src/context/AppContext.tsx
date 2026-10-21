@@ -934,11 +934,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       // Publish public lookup card so recipients and searchers can discover the profile
       if (finalNumId && finalNumId.length === 16) {
+        const publishedName =
+          settings.userProfile?.name && settings.userProfile.name !== 'My Profile'
+            ? settings.userProfile.name
+            : user?.displayName || settings.userProfile?.name || 'User';
+        const publishedPhoto = settings.userProfile?.customAvatarUrl || user?.photoURL || '';
+
+        // Auto-sync real name and avatar photo to local profile if placeholder
+        if (user?.displayName && (!settings.userProfile?.name || settings.userProfile.name === 'My Profile') && isMounted) {
+          setSettings((prev) => ({
+            ...prev,
+            userProfile: {
+              ...prev.userProfile,
+              name: user.displayName,
+              customAvatarUrl: user.photoURL || prev.userProfile?.customAvatarUrl,
+            },
+          }));
+        }
+
         publishUserProfileCard({
           numericId: finalNumId,
-          name: settings.userProfile?.name || (user?.displayName) || 'User',
+          name: publishedName,
           avatar: settings.userProfile?.avatarEmoji || '👤',
-          photoURL: settings.userProfile?.customAvatarUrl || user?.photoURL || '',
+          photoURL: publishedPhoto,
         });
       }
     };

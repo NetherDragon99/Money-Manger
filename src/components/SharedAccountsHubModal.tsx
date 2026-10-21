@@ -18,6 +18,7 @@ import {
   Clock,
   Sparkles,
   LogOut,
+  Loader2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
@@ -80,6 +81,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   const [invite16Id, setInvite16Id] = useState('');
   const [inviteName, setInviteName] = useState('');
   const [inviteSelectedUser, setInviteSelectedUser] = useState<UserProfileCard | null>(null);
+  const [isVerifyingInvite, setIsVerifyingInvite] = useState(false);
   const [isSendingInvite, setIsSendingInvite] = useState(false);
 
   // Join via link state
@@ -585,31 +587,44 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                                   setInviteName('');
                                 }
                               }}
+                              onVerifyingChange={setIsVerifyingInvite}
                               currentUserId={myCleanNumericId}
                               accentColor="purple"
                               isArabic={isArabic}
                               autoFocus
                             />
 
-                            {inviteSelectedUser && (
-                              <div className="flex items-center gap-2 animate-in fade-in">
-                                <input
-                                  type="text"
-                                  placeholder={inviteSelectedUser.name || (isArabic ? 'اسم أو لقب العضو (اختياري)' : 'Name or Nickname (optional)')}
-                                  value={inviteName}
-                                  onChange={(e) => setInviteName(e.target.value)}
-                                  className="flex-1 px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-750 text-xs text-white focus:outline-none focus:border-purple-500"
-                                />
-                                <button
-                                  type="submit"
-                                  disabled={isSendingInvite || !inviteSelectedUser}
-                                  className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                                >
-                                  <Users className="w-3 h-3" />
-                                  <span>{isSendingInvite ? (isArabic ? 'إرسال...' : 'Sending...') : (isArabic ? 'دعوة' : 'Invite')}</span>
-                                </button>
-                              </div>
-                            )}
+                            {/* Always visible Add / Invite button */}
+                            <button
+                              type="submit"
+                              disabled={isSendingInvite || isVerifyingInvite || !inviteSelectedUser}
+                              className={`w-full py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                                inviteSelectedUser && !isVerifyingInvite && !isSendingInvite
+                                  ? 'bg-purple-600 hover:bg-purple-500 text-white cursor-pointer shadow-purple-900/30 active:scale-95'
+                                  : 'bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-60'
+                              }`}
+                            >
+                              {isSendingInvite ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  <span>{isArabic ? 'جارٍ الإرسال...' : 'Sending...'}</span>
+                                </>
+                              ) : isVerifyingInvite ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-300" />
+                                  <span>{isArabic ? 'جارٍ التحقق...' : 'Verifying...'}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Users className="w-3.5 h-3.5" />
+                                  <span>
+                                    {inviteSelectedUser
+                                      ? (isArabic ? `تأكيد وإضافة ${inviteSelectedUser.name || 'المستخدم'} للشير` : `Confirm & Add ${inviteSelectedUser.name || 'User'}`)
+                                      : (isArabic ? 'إضافة / دعوة' : 'Add / Invite')}
+                                  </span>
+                                </>
+                              )}
+                            </button>
                           </form>
                         )}
                       </div>

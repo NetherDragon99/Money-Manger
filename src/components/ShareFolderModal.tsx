@@ -10,6 +10,7 @@ import {
   Check,
   PlusCircle,
   Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
@@ -94,6 +95,7 @@ export const ShareFolderModal: React.FC = () => {
   const [recipient16DigitId, setRecipient16DigitId] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [selectedRecipientUser, setSelectedRecipientUser] = useState<UserProfileCard | null>(null);
+  const [isVerifyingRecipient, setIsVerifyingRecipient] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
   const myNumericId = settings.userProfile?.numericId || '0000000000000000';
@@ -401,7 +403,7 @@ export const ShareFolderModal: React.FC = () => {
 
         {/* Send to 16-Digit ID */}
         <div className="pt-2 border-t border-zinc-800/80 space-y-3">
-          <form onSubmit={handleSendDirect} className="space-y-2.5">
+          <form onSubmit={handleSendDirect} className="space-y-3">
             <UserSearchPicker
               selectedUser={selectedRecipientUser}
               onSelectUser={(u) => {
@@ -414,32 +416,44 @@ export const ShareFolderModal: React.FC = () => {
                   setRecipientName('');
                 }
               }}
+              onVerifyingChange={setIsVerifyingRecipient}
               currentUserId={myNumericId}
               accentColor="blue"
               isArabic={isArabic}
               label={isArabic ? 'إرسال فوري لمستخدم بالمعرّف الرقمي:' : 'Send to User via 16-Digit ID:'}
             />
 
-            {selectedRecipientUser && (
-              <div className="flex gap-2 animate-in fade-in">
-                <input
-                  type="text"
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                  placeholder={selectedRecipientUser.name || (isArabic ? 'اسم أو لقب المستلم (اختياري)' : 'Recipient Name/Nickname (optional)')}
-                  maxLength={40}
-                  className="flex-1 px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
-                />
-                <button
-                  type="submit"
-                  disabled={isSending || !selectedRecipientUser}
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold transition shadow cursor-pointer shrink-0 flex items-center gap-1.5 active:scale-95"
-                >
+            {/* Always visible Add / Send Share button: disabled while typing/verifying/not found */}
+            <button
+              type="submit"
+              disabled={isSending || isVerifyingRecipient || !selectedRecipientUser}
+              className={`w-full py-2.5 rounded-xl font-bold text-xs transition shadow flex items-center justify-center gap-2 ${
+                selectedRecipientUser && !isVerifyingRecipient && !isSending
+                  ? 'bg-blue-600 hover:bg-blue-500 active:scale-95 text-white cursor-pointer shadow-blue-900/30'
+                  : 'bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-60'
+              }`}
+            >
+              {isSending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>{isArabic ? 'جارٍ الإرسال والتسليم...' : 'Sending Share...'}</span>
+                </>
+              ) : isVerifyingRecipient ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-300" />
+                  <span>{isArabic ? 'جارٍ التحقق...' : 'Verifying...'}</span>
+                </>
+              ) : (
+                <>
                   <Send className="w-3.5 h-3.5" />
-                  <span>{isSending ? '...' : isArabic ? 'إرسال الشير' : 'Send Share'}</span>
-                </button>
-              </div>
-            )}
+                  <span>
+                    {selectedRecipientUser
+                      ? (isArabic ? `تأكيد وإرسال الشير إلى ${selectedRecipientUser.name || 'المستخدم'}` : `Confirm & Send Share to ${selectedRecipientUser.name || 'User'}`)
+                      : (isArabic ? 'إرسال الشير للمستخدم' : 'Send Share to User')}
+                  </span>
+                </>
+              )}
+            </button>
           </form>
 
           {/* Action Buttons: Copy Web Link & Save */}
