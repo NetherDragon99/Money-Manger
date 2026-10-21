@@ -424,7 +424,7 @@ export const UserProfileModal: React.FC = () => {
   return (
     <div
       onClick={handleAnimatedClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 transition-all duration-200 ${
+      className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >

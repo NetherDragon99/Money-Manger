@@ -21,6 +21,36 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.12',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'Cross-Tab Multi-Select Overhaul, Comprehensive Scroll-Lock Discipline, Real-Time Request Revocation, and Resilient 16-Digit Cloud Synchronization',
+      ar: 'إصلاح التحديد المتعدد عبر التبويبات، انضباط قفل التمرير التام خلف النوافذ، إلغاء فوري لطلبات المشاركة، ومزامنة سحابية فائقة للأرقام التعريفية',
+    },
+    highlights: {
+      en: [
+        'Seamless Cross-Tab Multi-Select: Directly toggle account selection in AccountsView without card click conflicts while multi-select mode is active.',
+        'Bulletproof Background Scroll Lock: Body and underlying views remain completely locked during all open modals, sheets, and review overlays.',
+        'Visual Operation Progress Bar: Real-time dynamic stage and percentage indicators (0% to 100%) with 10-second timeout fallbacks.',
+        'Strict 8-Layer Z-Index Hierarchy: Cohesive layer distribution ensuring toasts and modals never render underneath parent containers.',
+        'Hardware Back-Button LIFO Traversal: Predictable layer-by-layer dismissal of nested dialogs without dismissing parent views prematurely.',
+        'Immutable 16-Digit ID Preservation: Guarantees your generated 16-digit financial code persists seamlessly across local and authenticated cloud sessions.',
+        'Real-Time Member & Invitation Cancellation: Instantly revoke pending share invites or alter member permissions with live feedback.',
+        'Standalone External Share Dashboard: Interactive external sharing link with collapsible account breakdown and zero mandatory sign-in friction.',
+      ],
+      ar: [
+        'تحديد متعدد سلس عبر كافة التبويبات: تحديد الحسابات بلمسة واحدة مباشرة من شاشة الحسابات دون تداخل مع فتح تفاصيل الحساب أثناء وضع التحديد.',
+        'قفل تمرير صارم خلف النوافذ: ثبات الصفحة الخلفية بالكامل ومنع التمرير غير المقصود عند فتح أي نافذة منبثقة أو لوحة مراجعة.',
+        'شريط تقدم مرئي للعمليات: مؤشر مرئي لمراحل العمليات والنسب المئوية (من 0% إلى 100%) مع حماية مهلة 10 ثوانٍ لعمليات المزامنة.',
+        'ترتيب طبقات Z-Index الصارم من 8 مستويات: توزيع محكم يضمن عدم اختفاء النوافذ أو الإشعارات تحت القوائم أو الحاويات الأخرى.',
+        'إغلاق متسلسل ومنطقي بزر الرجوع (LIFO): إغلاق النوافذ الفرعية طبقة تلو الأخرى دون إغلاق النوافذ الرئيسية مسبقاً.',
+        'ثبات المعرّف الرقمي المكون من 16 رقماً: ضمان بقاء الكود المالي ثابتاً وموثوقاً بين الاستخدام المحلي والمزامنة السحابية.',
+        'إلغاء فوري للطلبات وإدارة الأعضاء: إمكانية سحب الدعوات المرسلة أو تعديل صلاحيات المشاركين مع استجابة وتحديث فوري.',
+        'لوحة مشاركة خارجية مستقلة: واجهة ويب أنيقة ومستقلة لعرض المشاركات مع إمكانية طي وتوسيع الأقسام دون إجبار الزائر على التسجيل.',
+      ],
+    },
+  },
+  {
     version: '1.1.11',
     releaseDate: 'October 21, 2026',
     title: {

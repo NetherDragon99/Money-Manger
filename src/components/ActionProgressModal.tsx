@@ -35,7 +35,7 @@ export const ActionProgressModal: React.FC<ActionProgressModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain select-none"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain select-none"
       dir={isArabic ? 'rtl' : 'ltr'}
     >
       <div

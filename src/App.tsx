@@ -29,6 +29,7 @@ import { PinSetupModal } from './components/PinSetupModal';
 import { RecurringTransactionsModal } from './components/RecurringTransactionsModal';
 import { SharedAccountsHubModal } from './components/SharedAccountsHubModal';
 import { SharedAccountLiveView } from './components/SharedAccountLiveView';
+import { StandaloneShareView } from './components/StandaloneShareView';
 import { MultiSelectActionBar } from './components/MultiSelectActionBar';
 import { ToastContainer } from './components/Toast';
 import { CustomDialogModal } from './components/CustomDialogModal';
@@ -220,6 +221,7 @@ const MainAppContent: React.FC = () => {
     isCategoryMultiSelect,
     isAccountMultiSelect,
     activeSharedId,
+    activeSharedSnapshot,
     shareModalState,
     remainingBalanceModalState,
   });
@@ -248,6 +250,7 @@ const MainAppContent: React.FC = () => {
     isCategoryMultiSelect,
     isAccountMultiSelect,
     activeSharedId,
+    activeSharedSnapshot,
     shareModalState,
     remainingBalanceModalState,
   };
@@ -269,7 +272,7 @@ const MainAppContent: React.FC = () => {
         return;
       }
 
-      // Step 1: Modals & Sheets (top-most modal closes first; keep sub-page and activeTab untouched)
+      // Layer 7: High-Priority Dialogs & Confirmations
       if (s.customDialogState) {
         closeCustomDialog();
         window.history.pushState({ exitGuard: true }, '');
@@ -277,11 +280,6 @@ const MainAppContent: React.FC = () => {
       }
       if (s.isExitModalOpen) {
         setIsExitModalOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.shareModalState?.isOpen) {
-        closeShareModal();
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
@@ -295,33 +293,15 @@ const MainAppContent: React.FC = () => {
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      if (s.isRecurringModalOpen) {
-        setIsRecurringModalOpen(false);
+
+      // Layer 6: Feature & Action Modals
+      if (s.shareModalState?.isOpen) {
+        closeShareModal();
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
       if (s.isEmojiPickerOpen) {
         closeEmojiPicker();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isFeaturesModalOpen) {
-        setIsFeaturesModalOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isFilterModalOpen) {
-        setIsFilterModalOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isResetPeriodModalOpen) {
-        setIsResetPeriodModalOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isUserProfileModalOpen) {
-        setIsUserProfileModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
@@ -346,46 +326,71 @@ const MainAppContent: React.FC = () => {
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      if (s.isSharedHubModalOpen) {
-        setIsSharedHubModalOpen(false);
+      if (s.isRecurringModalOpen) {
+        setIsRecurringModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
 
-      // Step 2: Full-screen sub-pages (Account Details or Share Live View) -> Close ONLY the sub-page without touching activeTab!
-      if (s.selectedAccountId) {
-        setSelectedAccountId(null);
+      // Layer 4: Sidebars & Sheet Overlays (Dismiss BEFORE underlying sub-pages!)
+      if (s.isFeaturesModalOpen) {
+        setIsFeaturesModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      if (s.activeSharedId) {
-        closeSharedLiveView();
+      if (s.isFilterModalOpen) {
+        setIsFilterModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-
-      // Step 3: Multi-Select Mode active -> Clear selection and return (keep active tab untouched)
-      if (s.isTxMultiSelect || s.isCategoryMultiSelect || s.isAccountMultiSelect) {
-        clearGlobalSelection();
+      if (s.isResetPeriodModalOpen) {
+        setIsResetPeriodModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-
-      // Step 4: Sidebar open -> close it
+      if (s.isUserProfileModalOpen) {
+        setIsUserProfileModalOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
       if (s.isSidebarOpen) {
         setIsSidebarOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
 
-      // Step 5: Active tab !== 'home' -> Reset active tab to 'home'
+      // Layer 2: Full-Screen Sub-pages
+      if (s.isSharedHubModalOpen) {
+        setIsSharedHubModalOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      if (s.selectedAccountId) {
+        setSelectedAccountId(null);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      if (s.activeSharedId || s.activeSharedSnapshot) {
+        closeSharedLiveView();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+
+      // Layer 1: Multi-Select Mode active -> Clear selection and return (keep active tab untouched)
+      if (s.isTxMultiSelect || s.isCategoryMultiSelect || s.isAccountMultiSelect) {
+        clearGlobalSelection();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+
+      // Active tab !== 'home' -> Reset active tab to 'home'
       if (s.currentTab !== 'home') {
         setCurrentTab('home');
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
 
-      // Step 6: On root Home tab with zero modals/sub-views open -> Show Sleek Exit Confirmation!
+      // On root Home tab with zero modals/sub-views open -> Show Sleek Exit Confirmation!
       setIsExitModalOpen(true);
       window.history.pushState({ exitGuard: true }, '');
     };
@@ -571,7 +576,8 @@ const MainAppContent: React.FC = () => {
     isExitModalOpen ||
     !!customDialogState ||
     shareModalState.isOpen ||
-    !!remainingBalanceModalState?.isOpen;
+    !!remainingBalanceModalState?.isOpen ||
+    !!selectedAccountId;
 
   // Background Scroll Lock (Bug Fix): Locks scrolling on underlying page container when ANY modal/drawer is open
   useEffect(() => {
@@ -599,10 +605,10 @@ const MainAppContent: React.FC = () => {
 
   if (activeSharedId || activeSharedSnapshot) {
     return (
-      <SharedAccountLiveView
-        sharedAccountId={activeSharedId || undefined}
+      <StandaloneShareView
+        shareId={activeSharedId || undefined}
         sharedDataSnapshot={activeSharedSnapshot || undefined}
-        onExit={closeSharedLiveView}
+        onExploreApp={closeSharedLiveView}
       />
     );
   }
@@ -616,7 +622,9 @@ const MainAppContent: React.FC = () => {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        className="w-full max-w-full md:max-w-5xl lg:max-w-6xl min-h-screen bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
+        className={`w-full max-w-full md:max-w-5xl lg:max-w-6xl min-h-screen bg-black relative shadow-2xl flex flex-col overflow-x-hidden ${
+          isAnyModalOpen ? 'overflow-hidden max-h-screen pointer-events-none sm:pointer-events-auto' : ''
+        }`}
       >
         <OfflineBanner />
         <ToastContainer />
@@ -629,7 +637,7 @@ const MainAppContent: React.FC = () => {
         {/* Main View Display with Isolated Per-Tab Heights */}
         <div className="flex-1 flex flex-col relative overflow-hidden">
           {selectedAccountId && (
-            <div className="fixed inset-0 z-50 bg-black animate-in slide-in-from-right rtl:slide-in-from-left duration-250 flex flex-col overflow-y-auto">
+            <div className="fixed inset-0 z-40 bg-black animate-in slide-in-from-right rtl:slide-in-from-left duration-250 flex flex-col overflow-y-auto overscroll-contain">
               <div className="w-full max-w-full md:max-w-5xl lg:max-w-6xl mx-auto min-h-screen flex flex-col bg-black">
                 <AccountDetailsView />
               </div>

@@ -172,7 +172,7 @@ export const ShareFolderModal: React.FC = () => {
   return (
     <div
       onClick={closeShareModal}
-      className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain"
     >
       <div
         onClick={(e) => e.stopPropagation()}

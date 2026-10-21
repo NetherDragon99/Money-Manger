@@ -373,9 +373,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [isGlobalMultiSelect, setIsGlobalMultiSelect] = useState<boolean>(false);
 
-  const isTxMultiSelect = isGlobalMultiSelect || selectedTxIds.length > 0;
-  const isAccountMultiSelect = isGlobalMultiSelect || selectedAccountIds.length > 0;
-  const isCategoryMultiSelect = isGlobalMultiSelect || selectedCategoryIds.length > 0;
+  const isAnyMultiSelectActive =
+    isGlobalMultiSelect ||
+    selectedTxIds.length > 0 ||
+    selectedAccountIds.length > 0 ||
+    selectedCategoryIds.length > 0;
+
+  const isTxMultiSelect = isAnyMultiSelectActive;
+  const isAccountMultiSelect = isAnyMultiSelectActive;
+  const isCategoryMultiSelect = isAnyMultiSelectActive;
 
   const startTxMultiSelect = (initialId?: string) => {
     setIsGlobalMultiSelect(true);
@@ -1420,7 +1426,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [activeSharedSnapshot, setActiveSharedSnapshot] = useState<any | null>(() => {
     if (typeof window !== 'undefined') {
-      const s = new URLSearchParams(window.location.search).get('sharedData');
+      const search = new URLSearchParams(window.location.search);
+      const s = search.get('data') || search.get('sharedData');
       if (s && s.trim()) {
         try {
           return decodeShareSnapshot(s.trim());

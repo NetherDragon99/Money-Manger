@@ -17,17 +17,22 @@ import {
   Check,
   Clock,
   Sparkles,
+  X,
+  Shield,
+  Edit3,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
 import { format16DigitId, cleanNumericId } from '../utils/userId';
 import {
   ShareFolder,
+  ShareMember,
   subscribeToShareFolder,
   addTransactionToShareFolder,
   removeItemFromShareFolder,
   addMemberToShareFolder,
   removeMemberFromShareFolder,
+  updateMemberRoleInShareFolder,
   generateShareUrl,
   fetchUserProfileCard,
 } from '../utils/shareFolders';
@@ -700,7 +705,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       {isAddTxOpen && (
         <div
           role="dialog"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in"
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
           onClick={() => setIsAddTxOpen(false)}
         >
           <div
@@ -788,7 +793,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       {isAddMemberOpen && (
         <div
           role="dialog"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in"
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
           onClick={() => setIsAddMemberOpen(false)}
         >
           <div
@@ -835,6 +840,207 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Full Member Management (Item 7) */}
+      {isManageMembersOpen && (
+        <div
+          role="dialog"
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
+          onClick={() => setIsManageMembersOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col overflow-hidden"
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-purple-600/20 text-purple-400 border border-purple-500/30 flex items-center justify-center">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    {isArabic ? 'إدارة الأعضاء والطلبات' : 'Manage Members & Requests'}
+                  </h3>
+                  <p className="text-xs text-zinc-400">
+                    {folder.members.length} {isArabic ? 'أعضاء في هذه المشاركة' : 'members in this share'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsManageMembersOpen(false)}
+                className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 overscroll-contain">
+              {/* Owner Display */}
+              <div className="p-3 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-blue-600/30 border border-blue-500/50 flex items-center justify-center text-sm font-bold text-blue-300 shrink-0 overflow-hidden">
+                    {folder.ownerPhotoURL ? (
+                      <img src={folder.ownerPhotoURL} alt={folder.ownerName} className="w-full h-full object-cover" />
+                    ) : (
+                      <span>{folder.ownerAvatar || '👑'}</span>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold text-white truncate flex items-center gap-2">
+                      <span>{folder.ownerName}</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 font-semibold">
+                        {isArabic ? 'المالك' : 'Owner'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-zinc-400 font-mono mt-0.5">
+                      {format16DigitId(folder.ownerNumericId)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Members List */}
+              {folder.members.length === 0 ? (
+                <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 text-center text-xs text-zinc-400">
+                  {isArabic ? 'لا يوجد أعضاء مضافون حتى الآن. اضغط على "إضافة عضو" لمشاركة الصفحة.' : 'No members added yet. Click "Add Member" to share.'}
+                </div>
+              ) : (
+                folder.members.map((m) => {
+                  const isPending = m.status === 'pending';
+                  return (
+                    <div
+                      key={m.numericId}
+                      className="p-3 rounded-2xl bg-zinc-900 border border-zinc-800/90 flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-full bg-purple-600/20 border border-purple-500/40 flex items-center justify-center text-sm font-bold text-purple-300 shrink-0 overflow-hidden">
+                          {m.photoURL ? (
+                            <img src={m.photoURL} alt={m.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{m.avatar || '👤'}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-white truncate flex items-center gap-1.5">
+                            <span>{m.name}</span>
+                            <span
+                              className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono ${
+                                isPending
+                                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              }`}
+                            >
+                              {isPending ? (isArabic ? 'طلب معلق' : 'Pending') : (isArabic ? 'نشط' : 'Active')}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                            {format16DigitId(m.numericId)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* Role Selector / Toggle */}
+                        {isOwner && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const nextRole = m.role === 'editor' ? 'viewer' : 'editor';
+                              const res = await updateMemberRoleInShareFolder(folder.id, m.numericId, nextRole);
+                              if (res.success && res.folder) {
+                                setFolder(res.folder);
+                                showToast(
+                                  isArabic
+                                    ? `تم تغيير صلاحية "${m.name}" إلى: ${nextRole === 'editor' ? 'محرر (تعديل)' : 'مشاهد (قراءة فقط)'}`
+                                    : `Changed role for "${m.name}" to: ${nextRole === 'editor' ? 'Editor' : 'Viewer'}`,
+                                  'info'
+                                );
+                              }
+                            }}
+                            className={`px-2 py-1 rounded-xl text-xs font-semibold border transition cursor-pointer flex items-center gap-1 ${
+                              m.role === 'editor'
+                                ? 'bg-blue-950/40 border-blue-500/40 text-blue-300'
+                                : 'bg-zinc-800 border-zinc-700 text-zinc-300'
+                            }`}
+                            title={isArabic ? 'تبديل الصلاحية بين محرر ومشاهد' : 'Toggle between Editor and Viewer'}
+                          >
+                            <Shield className="w-3 h-3" />
+                            <span>{m.role === 'editor' ? (isArabic ? 'محرر' : 'Editor') : (isArabic ? 'مشاهد' : 'Viewer')}</span>
+                          </button>
+                        )}
+
+                        {/* Cancel Request / Remove Member with 5s Undo */}
+                        {isOwner && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const confirmed = await showConfirm({
+                                title: isArabic
+                                  ? isPending ? 'إلغاء طلب المشاركة' : 'استبعاد العضو'
+                                  : isPending ? 'Cancel Share Request' : 'Remove Member',
+                                message: isArabic
+                                  ? isPending
+                                    ? `هل تريد بالتأكيد إلغاء طلب المشاركة المرسل إلى "${m.name}"؟`
+                                    : `هل تريد بالتأكيد استبعاد العضو "${m.name}" من هذه المشاركة؟`
+                                  : isPending
+                                  ? `Are you sure you want to cancel the invitation sent to "${m.name}"?`
+                                  : `Are you sure you want to remove member "${m.name}" from this share?`,
+                                confirmLabel: isArabic ? 'تأكيد الإلغاء' : 'Confirm',
+                                cancelLabel: isArabic ? 'تراجع' : 'Cancel',
+                                isDanger: true,
+                              });
+                              if (!confirmed) return;
+
+                              const backupMember = { ...m };
+                              const res = await removeMemberFromShareFolder(folder.id, m.numericId);
+                              if (res.success && res.folder) {
+                                setFolder(res.folder);
+                                showToast(
+                                  isArabic
+                                    ? isPending ? `تم إلغاء طلب "${m.name}" بنجاح` : `تم استبعاد "${m.name}" بنجاح`
+                                    : isPending ? `Invitation for "${m.name}" cancelled` : `Member "${m.name}" removed`,
+                                  'info',
+                                  {
+                                    label: isArabic ? 'تراجع' : 'Undo',
+                                    onClick: async () => {
+                                      await addMemberToShareFolder(folder.id, backupMember.numericId, backupMember.name, backupMember.role);
+                                      showToast(isArabic ? 'تمت استعادة العضو بنجاح' : 'Member restored', 'success');
+                                    },
+                                  },
+                                  5000
+                                );
+                              }
+                            }}
+                            className="p-1.5 rounded-xl bg-red-950/30 hover:bg-red-900/40 text-red-400 border border-red-500/30 transition cursor-pointer"
+                            title={isPending ? (isArabic ? 'إلغاء الطلب' : 'Cancel Request') : (isArabic ? 'استبعاد العضو' : 'Remove Member')}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsManageMembersOpen(false);
+                  setIsAddMemberOpen(true);
+                }}
+                className="w-full py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{isArabic ? 'إضافة عضو جديد بالمعرّف الرقمي' : 'Add New Member by ID'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

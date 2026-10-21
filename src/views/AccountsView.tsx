@@ -56,8 +56,9 @@ const AccountCard: React.FC<AccountCardProps> = ({
     onLongPress: () => {
       onStartMultiSelect();
     },
-    onClick: () => {
+    onClick: (e) => {
       if (isAccountMultiSelect) {
+        e?.stopPropagation?.();
         onToggleSelection();
       } else {
         onOpenDetails();
@@ -68,14 +69,6 @@ const AccountCard: React.FC<AccountCardProps> = ({
   return (
     <div
       {...handlers}
-      onClick={(e) => {
-        if (isAccountMultiSelect) {
-          e.preventDefault();
-          onToggleSelection();
-        } else {
-          handlers.onClick?.(e);
-        }
-      }}
       data-no-swipe="true"
       onContextMenu={(e) => {
         e.preventDefault();

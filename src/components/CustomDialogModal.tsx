@@ -5,7 +5,9 @@ export interface ConfirmDialogOptions {
   title?: string;
   message: string;
   confirmText?: string;
+  confirmLabel?: string;
   cancelText?: string;
+  cancelLabel?: string;
   isDanger?: boolean;
 }
 
@@ -15,7 +17,9 @@ export interface PromptDialogOptions {
   placeholder?: string;
   defaultValue?: string;
   confirmText?: string;
+  confirmLabel?: string;
   cancelText?: string;
+  cancelLabel?: string;
   inputType?: string;
 }
 
@@ -111,7 +115,7 @@ export const CustomDialogModal: React.FC<CustomDialogModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 overscroll-contain"
       onKeyDown={handleKeyDown}
       tabIndex={-1}
       role="dialog"
@@ -171,7 +175,7 @@ export const CustomDialogModal: React.FC<CustomDialogModalProps> = ({
             className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-semibold transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
           >
             <X className="w-3.5 h-3.5 text-zinc-500" />
-            <span>{options.cancelText || defaultCancelText}</span>
+            <span>{options.cancelText || options.cancelLabel || defaultCancelText}</span>
           </button>
 
           <button
@@ -184,7 +188,7 @@ export const CustomDialogModal: React.FC<CustomDialogModalProps> = ({
             }`}
           >
             <Check className="w-3.5 h-3.5" />
-            <span>{options.confirmText || defaultConfirmText}</span>
+            <span>{options.confirmText || options.confirmLabel || defaultConfirmText}</span>
           </button>
         </div>
       </div>

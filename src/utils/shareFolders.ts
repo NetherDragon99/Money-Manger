@@ -2,6 +2,28 @@ import { rtdb } from './firebase';
 import { ref, set, get, remove, onValue, off } from 'firebase/database';
 import { cleanNumericId, format16DigitId } from './userId';
 import { Account, Category, Transaction } from '../types';
+import { encodeShareSnapshot } from './sharing';
+
+/**
+ * 10-second timeout guard on Firebase RTDB calls
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number = 10000,
+  errorMsg?: string
+): Promise<T> {
+  let timer: any;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(errorMsg || `Operation timed out after ${timeoutMs / 1000}s`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export interface ShareMember {
   numericId: string;
@@ -238,19 +260,25 @@ export function deduceFolderMetadata(
  */
 export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
   try {
-    // 1. Modern unified path
-    await set(ref(rtdb, `shared_accounts/share_${folder.id}`), folder);
-    // 2. Legacy fallback bundle path
-    await set(ref(rtdb, `sharedBundles/${folder.id}`), folder);
+    await withTimeout(
+      (async () => {
+        // 1. Modern unified path
+        await set(ref(rtdb, `shared_accounts/share_${folder.id}`), folder);
+        // 2. Legacy fallback bundle path
+        await set(ref(rtdb, `sharedBundles/${folder.id}`), folder);
 
-    // 3. Deliver to member inboxes
-    for (const member of folder.members) {
-      const cleanMemberId = normalize16DigitId(member.numericId);
-      if (cleanMemberId.length === 16) {
-        await set(ref(rtdb, `shared_accounts/inbox_${cleanMemberId}/${folder.id}`), folder);
-        await set(ref(rtdb, `inboxByNumericId/${cleanMemberId}/${folder.id}`), folder);
-      }
-    }
+        // 3. Deliver to member inboxes
+        for (const member of folder.members) {
+          const cleanMemberId = normalize16DigitId(member.numericId);
+          if (cleanMemberId.length === 16) {
+            await set(ref(rtdb, `shared_accounts/inbox_${cleanMemberId}/${folder.id}`), folder);
+            await set(ref(rtdb, `inboxByNumericId/${cleanMemberId}/${folder.id}`), folder);
+          }
+        }
+      })(),
+      10000,
+      'Failed to sync share folder to cloud within 10s'
+    );
   } catch (err) {
     console.warn('[ShareFolders] Failed to sync folder to cloud:', err);
   }
@@ -599,6 +627,32 @@ export async function addMemberToShareFolder(
   }
 }
 
+export async function updateMemberRoleInShareFolder(
+  folderId: string,
+  member16DigitId: string,
+  role: 'viewer' | 'editor'
+): Promise<{ success: boolean; folder?: ShareFolder }> {
+  const cleanId = normalize16DigitId(member16DigitId);
+  const existing = loadMyShareFolders();
+  const idx = existing.findIndex((f) => f.id === folderId);
+  if (idx === -1) return { success: false };
+
+  const folder = existing[idx];
+  const updatedMembers = folder.members.map((m) =>
+    normalize16DigitId(m.numericId) === cleanId ? { ...m, role } : m
+  );
+  const updatedFolder: ShareFolder = {
+    ...folder,
+    members: updatedMembers,
+    updatedAt: Date.now(),
+  };
+
+  existing[idx] = updatedFolder;
+  saveMyShareFolders(existing);
+  await syncFolderToCloud(updatedFolder);
+  return { success: true, folder: updatedFolder };
+}
+
 /**
  * Remove / Revoke a member from a Share Page
  */
@@ -728,15 +782,22 @@ export async function sendShareFolderToRecipient(
  */
 export async function fetchShareFolderFromCloud(folderId: string): Promise<ShareFolder | null> {
   try {
-    const snap = await get(ref(rtdb, `shared_accounts/share_${folderId}`));
-    if (snap.exists()) {
-      return snap.val() as ShareFolder;
-    }
-    // Fallback check legacy path
-    const legSnap = await get(ref(rtdb, `sharedBundles/${folderId}`));
-    if (legSnap.exists()) {
-      return legSnap.val() as ShareFolder;
-    }
+    return await withTimeout(
+      (async () => {
+        const snap = await get(ref(rtdb, `shared_accounts/share_${folderId}`));
+        if (snap.exists()) {
+          return snap.val() as ShareFolder;
+        }
+        // Fallback check legacy path
+        const legSnap = await get(ref(rtdb, `sharedBundles/${folderId}`));
+        if (legSnap.exists()) {
+          return legSnap.val() as ShareFolder;
+        }
+        return null;
+      })(),
+      10000,
+      'Share fetch timed out'
+    );
   } catch (err) {
     console.warn('[ShareFolders] Failed to fetch share folder from cloud:', err);
   }
@@ -803,10 +864,16 @@ export function subscribeToMyInbox(
 export const listenToMyNumericIdInbox = subscribeToMyInbox;
 
 /**
- * Generate clean public web share URL for non-app users
+ * Generate clean public web share URL with embedded data snapshot fallback
  */
 export function generateShareUrl(folder: ShareFolder): string {
   if (typeof window === 'undefined') return '';
   const base = `${window.location.origin}${window.location.pathname}`;
+  try {
+    const encoded = encodeShareSnapshot(folder);
+    if (encoded) {
+      return `${base}?share=${encodeURIComponent(folder.id)}&data=${encodeURIComponent(encoded)}`;
+    }
+  } catch {}
   return `${base}?share=${encodeURIComponent(folder.id)}`;
 }

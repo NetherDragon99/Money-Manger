@@ -78,17 +78,36 @@ export function getOrCreateNumericId(existing?: string): string {
  * UID hash and save it, so the user keeps the exact same 16-digit ID across devices & resets.
  */
 export async function resolvePermanent16DigitId(uid: string): Promise<string> {
-  const derived = derive16DigitIdFromUid(uid);
-  let finalId = derived;
+  let existingLocal: string | null = null;
   try {
-    const snap = await get(ref(rtdb, `users/${uid}/numeric16Id`));
-    if (snap.exists() && isValid16DigitId(String(snap.val()))) {
+    const saved = localStorage.getItem(PERMANENT_ID_STORAGE_KEY);
+    if (isValid16DigitId(saved)) existingLocal = cleanNumericId(saved!);
+  } catch {}
+
+  let finalId = '';
+  try {
+    // 10-second timeout guard on Firebase RTDB
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('RTDB lookup timeout')), 10000)
+    );
+    const snap: any = await Promise.race([
+      get(ref(rtdb, `users/${uid}/numeric16Id`)),
+      timeoutPromise,
+    ]);
+
+    if (snap && snap.exists() && isValid16DigitId(String(snap.val()))) {
       finalId = cleanNumericId(String(snap.val()));
     } else {
-      await set(ref(rtdb, `users/${uid}/numeric16Id`), derived);
+      // Never overwrite an existing local ID on sign-in unless users/{uid}/numeric16Id was already stored in RTDB
+      finalId = existingLocal || derive16DigitIdFromUid(uid);
+      await Promise.race([
+        set(ref(rtdb, `users/${uid}/numeric16Id`), finalId),
+        new Promise<void>((resolve) => setTimeout(resolve, 10000)),
+      ]);
     }
   } catch (err) {
-    console.warn('[NumericId] Could not reach Firebase, using deterministic UID-derived ID:', err);
+    console.warn('[NumericId] Could not reach Firebase within timeout, preserving existing ID:', err);
+    finalId = existingLocal || derive16DigitIdFromUid(uid);
   }
   try {
     localStorage.setItem(PERMANENT_ID_STORAGE_KEY, finalId);

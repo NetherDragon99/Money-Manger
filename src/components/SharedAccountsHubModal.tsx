@@ -193,7 +193,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
+      className="fixed inset-0 z-40 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
       onClick={onClose}
     >
       <div

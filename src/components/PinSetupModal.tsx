@@ -152,7 +152,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain"
       style={{ overscrollBehavior: 'contain' }}
     >
       <div
