@@ -12,11 +12,13 @@ import {
 interface GroupedTransactionListProps {
   transactions: Transaction[];
   emptyMessage?: string;
+  hideAccountBadge?: boolean;
 }
 
 export const GroupedTransactionList: React.FC<GroupedTransactionListProps> = ({
   transactions,
   emptyMessage,
+  hideAccountBadge = false,
 }) => {
   const { openTxDetailsModal, settings, t } = useApp();
 
@@ -177,6 +179,7 @@ export const GroupedTransactionList: React.FC<GroupedTransactionListProps> = ({
                               key={tx.id}
                               transaction={tx}
                               onClick={() => openTxDetailsModal(tx)}
+                              hideAccountBadge={hideAccountBadge}
                             />
                           ))}
                         </div>

@@ -3,7 +3,7 @@
  * Checks for newest versions on every launch and triggers instant updates.
  */
 
-export const CURRENT_APP_VERSION = '1.1.16';
+export const CURRENT_APP_VERSION = '1.1.17';
 const GITHUB_REPO = 'NetherDragon99/Money-Manger';
 
 export interface UpdateCheckResult {

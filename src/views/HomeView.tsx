@@ -10,6 +10,8 @@ import {
   ArrowDown,
   ArrowUp,
   Calendar as CalendarIcon,
+  Search,
+  X,
 } from 'lucide-react';
 import { PeriodFilterType, DateRange, Transaction } from '../types';
 import {
@@ -48,6 +50,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
   const [showCustomRangePicker, setShowCustomRangePicker] = useState(false);
   const [customTarget, setCustomTarget] = useState<'start' | 'end'>('start');
+  const [searchQuery, setSearchQuery] = useState('');
   const isHeaderVisible = propBarsVisible !== undefined ? propBarsVisible : true;
 
   // Calendar view specific state
@@ -99,9 +102,19 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
       if (advancedFilter.minAmount !== undefined && tx.amount < advancedFilter.minAmount) return false;
       if (advancedFilter.maxAmount !== undefined && tx.amount > advancedFilter.maxAmount) return false;
 
+      // 6. Search Query (note/description, category name, date, or amount)
+      const q = searchQuery.toLowerCase().trim() || advancedFilter.searchQuery?.toLowerCase().trim();
+      if (q) {
+        const matchesDesc = tx.description?.toLowerCase().includes(q);
+        const matchesCat = tx.categoryName?.toLowerCase().includes(q);
+        const matchesAmount = tx.amount.toString().includes(q);
+        const matchesDate = tx.date.includes(q);
+        if (!matchesDesc && !matchesCat && !matchesAmount && !matchesDate) return false;
+      }
+
       return true;
     });
-  }, [transactions, activeDateRange, advancedFilter]);
+  }, [transactions, activeDateRange, advancedFilter, searchQuery]);
 
   // Public Summary Calculation: INCOME, EXPENSE, BALANCE
   // Crucial: Calculated ONLY from Public accounts (isPrivate === false)!
@@ -243,7 +256,8 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
     advancedFilter.categoryIds.length > 0 ||
     advancedFilter.minAmount !== undefined ||
     advancedFilter.maxAmount !== undefined ||
-    advancedFilter.type !== 'all';
+    advancedFilter.type !== 'all' ||
+    Boolean(advancedFilter.searchQuery && advancedFilter.searchQuery.trim() !== '');
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
@@ -477,6 +491,49 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
         {/* Smart Budget Alert Banner */}
         <SmartBudgetAlertBanner />
 
+        {/* Real-time Search Input Bar */}
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3.5 rtl:left-auto rtl:right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={
+              settings.language === 'ar'
+                ? 'بحث في المعاملات (الملاحظة، الفئة، التاريخ، المبلغ)...'
+                : 'Search transactions by note, category, date, amount...'
+            }
+            className="w-full pl-10 pr-10 rtl:pl-10 rtl:pr-10 py-2.5 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500/80 transition shadow-inner"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 rtl:right-auto rtl:left-3 top-1/2 -translate-y-1/2 p-1 rounded-full text-zinc-400 hover:text-white transition cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Search Results Summary Banner when Searching */}
+        {searchQuery.trim() && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-950/40 border border-blue-900/50 text-xs text-blue-300">
+            <span>
+              {settings.language === 'ar'
+                ? `نتائج البحث عن "${searchQuery}": ${filteredTransactions.length} معاملة`
+                : `Search results for "${searchQuery}": ${filteredTransactions.length} transaction(s)`}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="text-xs text-blue-400 hover:text-white underline cursor-pointer"
+            >
+              {settings.language === 'ar' ? 'إلغاء البحث' : 'Clear search'}
+            </button>
+          </div>
+        )}
+
         {/* VIEW A: DAILY */}
         {homeSubView === 'daily' && (
           <div className="space-y-4">
@@ -519,10 +576,11 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
               </div>
             </div>
 
-            {/* Collapsible Month & Day Transaction Blocks */}
+            {/* Collapsible Month & Day Transaction Blocks with Account Badge Hidden */}
             <GroupedTransactionList
               transactions={filteredTransactions}
-              emptyMessage={t('noTransactions')}
+              emptyMessage={searchQuery ? (settings.language === 'ar' ? 'لا توجد نتائج بحث مطابقة' : 'No matching search results') : t('noTransactions')}
+              hideAccountBadge={true}
             />
           </div>
         )}
@@ -650,6 +708,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
               <GroupedTransactionList
                 transactions={selectedCalendarDayTxs}
                 emptyMessage={t('noTransactionsDay')}
+                hideAccountBadge={true}
               />
             </div>
           </div>

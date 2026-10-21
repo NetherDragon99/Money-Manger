@@ -8,9 +8,14 @@ import { useLongPress } from '../hooks/useLongPress';
 interface TransactionItemProps {
   transaction: Transaction;
   onClick: () => void;
+  hideAccountBadge?: boolean;
 }
 
-const TransactionItemBase: React.FC<TransactionItemProps> = ({ transaction, onClick }) => {
+const TransactionItemBase: React.FC<TransactionItemProps> = ({
+  transaction,
+  onClick,
+  hideAccountBadge = false,
+}) => {
   const {
     accounts,
     settings,
@@ -42,7 +47,13 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({ transaction, onCl
 
   let title = '';
   if (isTransfer) {
-    title = `${fromAccount?.name || 'Account'} > ${toAccount?.name || 'Account'}`;
+    if (hideAccountBadge) {
+      title = transaction.description && transaction.description.trim() !== ''
+        ? transaction.description
+        : (settings.language === 'ar' ? 'تحويل' : 'Transfer');
+    } else {
+      title = `${fromAccount?.name || 'Account'} > ${toAccount?.name || 'Account'}`;
+    }
   } else if (transaction.description && transaction.description.trim() !== '') {
     title = transaction.description;
   } else {
@@ -53,15 +64,27 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({ transaction, onCl
   let subtitle = '';
 
   if (isTransfer) {
-    subtitle = timeFormatted ? `${timeFormatted} • Transfer` : 'Transfer';
+    const transferLabel = settings.language === 'ar' ? 'تحويل' : 'Transfer';
+    const hasCustomDescription = Boolean(transaction.description && transaction.description.trim() !== '');
+    if (hideAccountBadge) {
+      if (hasCustomDescription) {
+        subtitle = `${timeFormatted ? `${timeFormatted} • ` : ''}${transferLabel} • ${transaction.date}`;
+      } else {
+        subtitle = timeFormatted ? `${timeFormatted} • ${transaction.date}` : transaction.date;
+      }
+    } else {
+      subtitle = timeFormatted ? `${timeFormatted} • ${transferLabel}` : transferLabel;
+    }
   } else {
     const hasCustomDescription = Boolean(transaction.description && transaction.description.trim() !== '');
     if (hasCustomDescription) {
-      subtitle = timeFormatted
-        ? `${timeFormatted} • ${transaction.categoryName || ''}`
-        : transaction.categoryName || '';
+      subtitle = hideAccountBadge
+        ? `${timeFormatted ? `${timeFormatted} • ` : ''}${transaction.categoryName || ''} • ${transaction.date}`
+        : (timeFormatted ? `${timeFormatted} • ${transaction.categoryName || ''}` : transaction.categoryName || '');
     } else {
-      subtitle = timeFormatted || transaction.date;
+      subtitle = hideAccountBadge
+        ? (timeFormatted ? `${timeFormatted} • ${transaction.date}` : transaction.date)
+        : (timeFormatted || transaction.date);
     }
   }
 

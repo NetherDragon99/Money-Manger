@@ -21,6 +21,28 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.17',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'Clean Search Results, Real-Time Transaction Search & Account Badge Removal',
+      ar: 'نتائج بحث نقية، شريط بحث فوري في المعاملات، وإزالة شارة اسم الحساب',
+    },
+    highlights: {
+      en: [
+        'Clean Search & Filtered Rows: Fully hid and removed Account Name badges and labels from transaction rows in search results and filtered lists, displaying cleanly only the category icon/name, note, date, and amount.',
+        'Real-time Transaction Search Bar: Added an instant, responsive search bar to HomeView allowing users to search transactions live by note/description, category name, date, or amount with quick clear actions.',
+        'Advanced Filter Keyword Search: Integrated keyword and note search capability into AdvancedFilterModal and AppContext for deep multi-criteria transaction queries.',
+        'Transfer Title Cleaning: Transfers in search and filtered results now display clean notes and transfer labels instead of showing account names in the title.',
+      ],
+      ar: [
+        'نتائج بحث وتصفية نقية: إخفاء وإزالة شارة واسم الحساب بالكامل من صفوف المعاملات في نتائج البحث وقوائم التصفية، لتعرض المعاملة بنقاء أيقونة واسم الفئة، الملاحظة، التاريخ، والمبلغ فقط.',
+        'شريط بحث فوري في المعاملات: إضافة شريط بحث سريع في الصفحة الرئيسية للبحث اللحظي في المعاملات بالملاحظة أو الفئة أو التاريخ أو المبلغ مع زر مسح سريع وعداد للنتائج.',
+        'البحث بالكلمات في الفلتر المتقدم: إضافة حقل بحث بالملاحظات والكلمات المفتاحية داخل نافذة الفلتر المتقدم لتصفية مخصصة وعميقة.',
+        'تنقية عناوين التحويلات: معاملات التحويل في البحث والتصفية تعرض الآن تصنيف وملاحظة التحويل بدلاً من إظهار أسماء الحسابات في العنوان.',
+      ],
+    },
+  },
+  {
     version: '1.1.16',
     releaseDate: 'October 21, 2026',
     title: {

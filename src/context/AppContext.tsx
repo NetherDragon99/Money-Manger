@@ -335,6 +335,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     minAmount: undefined,
     maxAmount: undefined,
     type: 'all',
+    searchQuery: undefined,
   });
 
   // Modals
@@ -1051,6 +1052,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       minAmount: undefined,
       maxAmount: undefined,
       type: 'all',
+      searchQuery: undefined,
     });
   };
 

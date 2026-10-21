@@ -61,6 +61,7 @@ export interface AdvancedFilter {
   minAmount?: number;
   maxAmount?: number;
   type: 'all' | 'expense' | 'income' | 'transfer';
+  searchQuery?: string;
 }
 
 export interface UserProfile {
