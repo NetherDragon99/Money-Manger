@@ -6,9 +6,19 @@ import { Account, Category, Transaction } from '../types';
 export interface ShareMember {
   numericId: string;
   name: string;
+  avatar?: string;
+  photoURL?: string;
   role: 'viewer' | 'editor';
   status: 'pending' | 'accepted';
   addedAt: number;
+}
+
+export interface UserProfileCard {
+  numericId: string;
+  name: string;
+  avatar?: string;
+  photoURL?: string;
+  updatedAt: number;
 }
 
 export interface ShareFolderPayload {
@@ -26,6 +36,8 @@ export interface ShareFolder {
   updatedAt: number;
   ownerNumericId: string;
   ownerName: string;
+  ownerAvatar?: string;
+  ownerPhotoURL?: string;
   permission: 'view_only' | 'allow_import_edit';
   members: ShareMember[];
   itemType: 'single_account' | 'single_category' | 'single_tx' | 'mixed';
@@ -36,6 +48,80 @@ export interface ShareFolder {
 
 const STORAGE_MY_FOLDERS_KEY = 'pwa_finance_share_folders_v3';
 const STORAGE_RECEIVED_FOLDERS_KEY = 'pwa_finance_received_share_folders_v3';
+
+/**
+ * Strict 16-digit ID sanitization (strips all non-digit characters)
+ */
+export function normalize16DigitId(rawId: string | null | undefined): string {
+  if (!rawId) return '';
+  return String(rawId).replace(/\D/g, '');
+}
+
+/**
+ * Automatically publish user's public lookup card to Firebase RTDB at shared_accounts/profile_${cleanMy16DigitId}
+ */
+export async function publishUserProfileCard(profile: {
+  numericId: string;
+  name: string;
+  avatar?: string;
+  photoURL?: string;
+}): Promise<void> {
+  const cleanId = normalize16DigitId(profile.numericId);
+  if (cleanId.length !== 16) return;
+  try {
+    const card: UserProfileCard = {
+      numericId: cleanId,
+      name: profile.name || 'User',
+      avatar: profile.avatar || '👤',
+      photoURL: profile.photoURL || '',
+      updatedAt: Date.now(),
+    };
+    await set(ref(rtdb, `shared_accounts/profile_${cleanId}`), card);
+  } catch (err) {
+    console.warn('[ShareFolders] Failed to publish user profile card to RTDB:', err);
+  }
+}
+
+/**
+ * Fetch a user profile card from shared_accounts/profile_${cleanId}
+ */
+export async function fetchUserProfileCard(numericId: string): Promise<UserProfileCard | null> {
+  const cleanId = normalize16DigitId(numericId);
+  if (cleanId.length !== 16) return null;
+  try {
+    const snap = await get(ref(rtdb, `shared_accounts/profile_${cleanId}`));
+    if (snap.exists()) {
+      return snap.val() as UserProfileCard;
+    }
+  } catch (err) {
+    console.warn('[ShareFolders] Failed to fetch profile card:', err);
+  }
+  return null;
+}
+
+/**
+ * Real-time listener on shared_accounts/profile_${cleanId}
+ */
+export function subscribeToUserProfileCard(
+  numericId: string,
+  callback: (profile: UserProfileCard | null) => void
+): () => void {
+  const cleanId = normalize16DigitId(numericId);
+  if (cleanId.length !== 16) return () => {};
+
+  const profileRef = ref(rtdb, `shared_accounts/profile_${cleanId}`);
+  const listener = (snap: any) => {
+    if (snap.exists()) {
+      callback(snap.val() as UserProfileCard);
+    } else {
+      callback(null);
+    }
+  };
+  onValue(profileRef, listener);
+  return () => {
+    off(profileRef, 'value', listener);
+  };
+}
 
 /**
  * Load user's created Share Pages from LocalStorage
@@ -107,10 +193,6 @@ export function saveReceivedShareFolders(folders: ShareFolder[]): void {
 
 /**
  * Auto-deduce Folder Name and Icon from selected item(s)
- * - Single Account: inherits Account Name + Icon
- * - Single Category: inherits Category Name + Icon
- * - Single Transaction: inherits Transaction Description/Category + Icon
- * - Multiple or empty: default name ("شير جديد #N" / "Shared Page #N") and folder icon (📁)
  */
 export function deduceFolderMetadata(
   accounts: Account[],
@@ -118,7 +200,6 @@ export function deduceFolderMetadata(
   transactions: Transaction[],
   isArabic: boolean
 ): { name: string; icon: string; itemType: ShareFolder['itemType'] } {
-  // Case 1: Exactly 1 account
   if (accounts.length === 1 && categories.length === 0 && transactions.length === 0) {
     return {
       name: accounts[0].name,
@@ -127,7 +208,6 @@ export function deduceFolderMetadata(
     };
   }
 
-  // Case 2: Exactly 1 category
   if (categories.length === 1 && accounts.length === 0 && transactions.length === 0) {
     return {
       name: categories[0].name,
@@ -136,39 +216,40 @@ export function deduceFolderMetadata(
     };
   }
 
-  // Case 3: Exactly 1 transaction
   if (transactions.length === 1 && accounts.length === 0 && categories.length === 0) {
     const tx = transactions[0];
-    const desc = tx.description?.trim();
     return {
-      name: desc || tx.categoryName || (isArabic ? 'معاملة مالية' : 'Transaction Item'),
-      icon: tx.type === 'income' ? '💵' : tx.type === 'transfer' ? '🔁' : '💳',
+      name: tx.description?.trim() || tx.categoryName || (isArabic ? 'معاملة مالية' : 'Transaction'),
+      icon: tx.categoryIcon || '💸',
       itemType: 'single_tx',
     };
   }
 
-  // Case 4: Multiple or mixed items -> default template name & folder icon
-  const total = accounts.length + categories.length + transactions.length;
-  const count = loadMyShareFolders().length + 1;
+  const existingCount = loadMyShareFolders().length;
   return {
-    name: isArabic ? `شير جديد #${count}` : `Shared Page #${count}`,
+    name: isArabic ? `شير مالي #${existingCount + 1}` : `Shared Space #${existingCount + 1}`,
     icon: '📁',
-    itemType: total > 0 ? 'mixed' : 'mixed',
+    itemType: 'mixed',
   };
 }
 
 /**
- * Sync folder to Firebase RTDB for universal web viewing and member real-time syncing
+ * Sync Share Page to Firebase RTDB at shared_accounts/share_${folder.id} and delivery to members
  */
 export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
   try {
-    const cloudRef = ref(rtdb, `sharedBundles/${folder.id}`);
-    await set(cloudRef, folder);
+    // 1. Modern unified path
+    await set(ref(rtdb, `shared_accounts/share_${folder.id}`), folder);
+    // 2. Legacy fallback bundle path
+    await set(ref(rtdb, `sharedBundles/${folder.id}`), folder);
 
-    // Also update member inboxes
+    // 3. Deliver to member inboxes
     for (const member of folder.members) {
-      const inboxRef = ref(rtdb, `inboxByNumericId/${member.numericId}/${folder.id}`);
-      await set(inboxRef, folder);
+      const cleanMemberId = normalize16DigitId(member.numericId);
+      if (cleanMemberId.length === 16) {
+        await set(ref(rtdb, `shared_accounts/inbox_${cleanMemberId}/${folder.id}`), folder);
+        await set(ref(rtdb, `inboxByNumericId/${cleanMemberId}/${folder.id}`), folder);
+      }
     }
   } catch (err) {
     console.warn('[ShareFolders] Failed to sync folder to cloud:', err);
@@ -187,6 +268,8 @@ export function createNewShareFolder(params: {
   transactions?: Transaction[];
   ownerNumericId: string;
   ownerName: string;
+  ownerAvatar?: string;
+  ownerPhotoURL?: string;
   permission?: 'view_only' | 'allow_import_edit';
   isArabic: boolean;
 }): ShareFolder {
@@ -206,8 +289,10 @@ export function createNewShareFolder(params: {
     description: params.customDescription?.trim() || '',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    ownerNumericId: cleanNumericId(params.ownerNumericId),
+    ownerNumericId: normalize16DigitId(params.ownerNumericId),
     ownerName: params.ownerName || 'User',
+    ownerAvatar: params.ownerAvatar || '👤',
+    ownerPhotoURL: params.ownerPhotoURL || '',
     permission: params.permission || 'allow_import_edit',
     members: [],
     itemType: autoMeta.itemType,
@@ -274,6 +359,60 @@ export function appendToExistingShareFolder(
 }
 
 /**
+ * Add or update transaction inside a Share Folder
+ */
+export function addTransactionToShareFolder(
+  folderId: string,
+  tx: Transaction
+): ShareFolder | null {
+  const existing = loadMyShareFolders();
+  const myIdx = existing.findIndex((f) => f.id === folderId);
+  const received = loadReceivedShareFolders();
+  const recvIdx = received.findIndex((f) => f.id === folderId);
+
+  let targetFolder: ShareFolder | null = null;
+  let isOwner = false;
+
+  if (myIdx !== -1) {
+    targetFolder = existing[myIdx];
+    isOwner = true;
+  } else if (recvIdx !== -1) {
+    targetFolder = received[recvIdx];
+  }
+
+  if (!targetFolder) return null;
+
+  const txs = [...targetFolder.payload.transactions];
+  const existingTxIdx = txs.findIndex((t) => t.id === tx.id);
+  if (existingTxIdx !== -1) {
+    txs[existingTxIdx] = tx;
+  } else {
+    txs.unshift(tx);
+  }
+
+  const updatedFolder: ShareFolder = {
+    ...targetFolder,
+    updatedAt: Date.now(),
+    itemCount: targetFolder.payload.accounts.length + targetFolder.payload.categories.length + txs.length,
+    payload: {
+      ...targetFolder.payload,
+      transactions: txs,
+    },
+  };
+
+  if (isOwner) {
+    existing[myIdx] = updatedFolder;
+    saveMyShareFolders(existing);
+  } else {
+    received[recvIdx] = updatedFolder;
+    saveReceivedShareFolders(received);
+  }
+
+  syncFolderToCloud(updatedFolder);
+  return updatedFolder;
+}
+
+/**
  * Remove a specific item from a Share Page
  */
 export function removeItemFromShareFolder(
@@ -282,10 +421,22 @@ export function removeItemFromShareFolder(
   itemId: string
 ): ShareFolder | null {
   const existing = loadMyShareFolders();
-  const idx = existing.findIndex((f) => f.id === folderId);
-  if (idx === -1) return null;
+  const myIdx = existing.findIndex((f) => f.id === folderId);
+  const received = loadReceivedShareFolders();
+  const recvIdx = received.findIndex((f) => f.id === folderId);
 
-  const folder = existing[idx];
+  let folder: ShareFolder | null = null;
+  let isOwner = false;
+
+  if (myIdx !== -1) {
+    folder = existing[myIdx];
+    isOwner = true;
+  } else if (recvIdx !== -1) {
+    folder = received[recvIdx];
+  }
+
+  if (!folder) return null;
+
   let nextAccounts = folder.payload.accounts;
   let nextCategories = folder.payload.categories;
   let nextTransactions = folder.payload.transactions;
@@ -309,10 +460,15 @@ export function removeItemFromShareFolder(
     },
   };
 
-  existing[idx] = updatedFolder;
-  saveMyShareFolders(existing);
-  syncFolderToCloud(updatedFolder);
+  if (isOwner) {
+    existing[myIdx] = updatedFolder;
+    saveMyShareFolders(existing);
+  } else {
+    received[recvIdx] = updatedFolder;
+    saveReceivedShareFolders(received);
+  }
 
+  syncFolderToCloud(updatedFolder);
   return updatedFolder;
 }
 
@@ -360,14 +516,17 @@ export async function deleteShareFolder(folderId: string): Promise<void> {
 
   try {
     // Remove from cloud
-    const cloudRef = ref(rtdb, `sharedBundles/${folderId}`);
-    await remove(cloudRef);
+    await remove(ref(rtdb, `shared_accounts/share_${folderId}`));
+    await remove(ref(rtdb, `sharedBundles/${folderId}`));
 
     // Remove from member inboxes
     if (folder) {
       for (const member of folder.members) {
-        const inboxRef = ref(rtdb, `inboxByNumericId/${member.numericId}/${folderId}`);
-        await remove(inboxRef);
+        const cleanId = normalize16DigitId(member.numericId);
+        if (cleanId.length === 16) {
+          await remove(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folderId}`));
+          await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}`));
+        }
       }
     }
   } catch (err) {
@@ -384,10 +543,16 @@ export async function addMemberToShareFolder(
   memberName?: string,
   role: 'viewer' | 'editor' = 'viewer'
 ): Promise<{ success: boolean; folder?: ShareFolder; error?: string }> {
-  const cleanId = cleanNumericId(member16DigitId);
+  const cleanId = normalize16DigitId(member16DigitId);
   if (cleanId.length !== 16) {
     return { success: false, error: 'Invalid ID. Must be 16 digits.' };
   }
+
+  // Fetch target user's public profile card to show avatar photo and name
+  const profileCard = await fetchUserProfileCard(cleanId);
+  const resolvedName = profileCard?.name || memberName || `User ${format16DigitId(cleanId).slice(0, 4)}`;
+  const resolvedAvatar = profileCard?.avatar || '👤';
+  const resolvedPhotoURL = profileCard?.photoURL || '';
 
   const existing = loadMyShareFolders();
   const idx = existing.findIndex((f) => f.id === folderId);
@@ -402,7 +567,9 @@ export async function addMemberToShareFolder(
 
   const newMember: ShareMember = {
     numericId: cleanId,
-    name: memberName || `User ${format16DigitId(cleanId).slice(0, 4)}`,
+    name: resolvedName,
+    avatar: resolvedAvatar,
+    photoURL: resolvedPhotoURL,
     role,
     status: 'pending',
     addedAt: Date.now(),
@@ -419,12 +586,12 @@ export async function addMemberToShareFolder(
 
   try {
     // Deliver to recipient's inbox in Firebase RTDB
-    const inboxRef = ref(rtdb, `inboxByNumericId/${cleanId}/${folder.id}`);
-    await set(inboxRef, updatedFolder);
+    await set(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folder.id}`), updatedFolder);
+    await set(ref(rtdb, `inboxByNumericId/${cleanId}/${folder.id}`), updatedFolder);
 
     // Update cloud bundle
-    const cloudRef = ref(rtdb, `sharedBundles/${folder.id}`);
-    await set(cloudRef, updatedFolder);
+    await set(ref(rtdb, `shared_accounts/share_${folder.id}`), updatedFolder);
+    await set(ref(rtdb, `sharedBundles/${folder.id}`), updatedFolder);
 
     return { success: true, folder: updatedFolder };
   } catch (err: any) {
@@ -439,7 +606,7 @@ export async function removeMemberFromShareFolder(
   folderId: string,
   member16DigitId: string
 ): Promise<{ success: boolean; folder?: ShareFolder }> {
-  const cleanId = cleanNumericId(member16DigitId);
+  const cleanId = normalize16DigitId(member16DigitId);
   const existing = loadMyShareFolders();
   const idx = existing.findIndex((f) => f.id === folderId);
   if (idx === -1) return { success: false };
@@ -456,12 +623,12 @@ export async function removeMemberFromShareFolder(
 
   try {
     // Delete from recipient's inbox
-    const inboxRef = ref(rtdb, `inboxByNumericId/${cleanId}/${folder.id}`);
-    await remove(inboxRef);
+    await remove(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folder.id}`));
+    await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${folder.id}`));
 
     // Update cloud bundle
-    const cloudRef = ref(rtdb, `sharedBundles/${folder.id}`);
-    await set(cloudRef, updatedFolder);
+    await set(ref(rtdb, `shared_accounts/share_${folder.id}`), updatedFolder);
+    await set(ref(rtdb, `sharedBundles/${folder.id}`), updatedFolder);
   } catch (err) {
     console.warn('[ShareFolders] Failed to remove member from cloud inbox:', err);
   }
@@ -477,7 +644,7 @@ export async function acceptShareInvitation(
   my16DigitId: string
 ): Promise<void> {
   const received = loadReceivedShareFolders();
-  const cleanId = cleanNumericId(my16DigitId);
+  const cleanId = normalize16DigitId(my16DigitId);
 
   const updated = received.map((f) => {
     if (f.id === folderId) {
@@ -492,13 +659,24 @@ export async function acceptShareInvitation(
   saveReceivedShareFolders(updated);
 
   try {
-    const inboxRef = ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}/members`);
+    const inboxRef = ref(rtdb, `shared_accounts/inbox_${cleanId}/${folderId}/members`);
     const snap = await get(inboxRef);
     if (snap.exists()) {
       const members = snap.val() as ShareMember[];
       if (Array.isArray(members)) {
         const nextMembers = members.map((m) => (m.numericId === cleanId ? { ...m, status: 'accepted' } : m));
         await set(inboxRef, nextMembers);
+      }
+    }
+
+    // Also update in cloud share
+    const cloudMemberRef = ref(rtdb, `shared_accounts/share_${folderId}/members`);
+    const cloudSnap = await get(cloudMemberRef);
+    if (cloudSnap.exists()) {
+      const cMembers = cloudSnap.val() as ShareMember[];
+      if (Array.isArray(cMembers)) {
+        const nextCMembers = cMembers.map((m) => (m.numericId === cleanId ? { ...m, status: 'accepted' } : m));
+        await set(cloudMemberRef, nextCMembers);
       }
     }
   } catch (err) {
@@ -516,17 +694,17 @@ export async function rejectShareInvitation(
   const received = loadReceivedShareFolders().filter((f) => f.id !== folderId);
   saveReceivedShareFolders(received);
 
-  const cleanId = cleanNumericId(my16DigitId);
+  const cleanId = normalize16DigitId(my16DigitId);
   try {
-    const inboxRef = ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}`);
-    await remove(inboxRef);
+    await remove(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folderId}`));
+    await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}`));
   } catch (err) {
     console.warn('[ShareFolders] Failed to remove rejected share from cloud:', err);
   }
 }
 
 /**
- * Leave / Remove a shared folder from "Shared With Me"
+ * Leave a shared folder from "Shared With Me"
  */
 export async function leaveShareFolder(
   folderId: string,
@@ -550,10 +728,14 @@ export async function sendShareFolderToRecipient(
  */
 export async function fetchShareFolderFromCloud(folderId: string): Promise<ShareFolder | null> {
   try {
-    const cloudRef = ref(rtdb, `sharedBundles/${folderId}`);
-    const snap = await get(cloudRef);
+    const snap = await get(ref(rtdb, `shared_accounts/share_${folderId}`));
     if (snap.exists()) {
       return snap.val() as ShareFolder;
+    }
+    // Fallback check legacy path
+    const legSnap = await get(ref(rtdb, `sharedBundles/${folderId}`));
+    if (legSnap.exists()) {
+      return legSnap.val() as ShareFolder;
     }
   } catch (err) {
     console.warn('[ShareFolders] Failed to fetch share folder from cloud:', err);
@@ -562,47 +744,69 @@ export async function fetchShareFolderFromCloud(folderId: string): Promise<Share
 }
 
 /**
+ * Real-time listener on a specific Share Folder (shared_accounts/share_${folderId})
+ */
+export function subscribeToShareFolder(
+  folderId: string,
+  callback: (folder: ShareFolder | null) => void
+): () => void {
+  if (!folderId) return () => {};
+  const shareRef = ref(rtdb, `shared_accounts/share_${folderId}`);
+  const listener = (snap: any) => {
+    if (snap.exists()) {
+      callback(snap.val() as ShareFolder);
+    } else {
+      callback(null);
+    }
+  };
+  onValue(shareRef, listener);
+  return () => {
+    off(shareRef, 'value', listener);
+  };
+}
+
+/**
+ * Real-time listener for incoming share folders in user's 16-digit inbox
+ */
+export function subscribeToMyInbox(
+  my16DigitId: string,
+  callback: (folders: ShareFolder[]) => void
+): () => void {
+  const cleanId = normalize16DigitId(my16DigitId);
+  if (cleanId.length !== 16) return () => {};
+
+  const inboxRef = ref(rtdb, `shared_accounts/inbox_${cleanId}`);
+  const listener = (snapshot: any) => {
+    if (!snapshot.exists()) {
+      callback([]);
+      return;
+    }
+    const data = snapshot.val();
+    if (!data) {
+      callback([]);
+      return;
+    }
+
+    const folders: ShareFolder[] = Object.keys(data).map((key) => data[key]);
+    callback(folders);
+  };
+
+  onValue(inboxRef, listener);
+  return () => {
+    off(inboxRef, 'value', listener);
+  };
+}
+
+/**
+ * Legacy compatibility alias
+ */
+export const listenToMyNumericIdInbox = subscribeToMyInbox;
+
+/**
  * Generate clean public web share URL for non-app users
  */
 export function generateShareUrl(folder: ShareFolder): string {
   if (typeof window === 'undefined') return '';
   const base = `${window.location.origin}${window.location.pathname}`;
   return `${base}?share=${encodeURIComponent(folder.id)}`;
-}
-
-/**
- * Real-time listener for incoming share folders into user's 16-digit inbox
- */
-export function listenToMyNumericIdInbox(
-  my16DigitId: string,
-  onNewFolderReceived: (folder: ShareFolder) => void
-): () => void {
-  const cleanId = cleanNumericId(my16DigitId);
-  if (cleanId.length !== 16) return () => {};
-
-  const inboxRef = ref(rtdb, `inboxByNumericId/${cleanId}`);
-  const seenIds = new Set(loadReceivedShareFolders().map((f) => f.id));
-
-  const callback = (snapshot: any) => {
-    if (!snapshot.exists()) return;
-    const data = snapshot.val();
-    if (!data) return;
-
-    Object.keys(data).forEach((key) => {
-      const item = data[key] as ShareFolder;
-      if (item && item.id && !seenIds.has(item.id)) {
-        seenIds.add(item.id);
-        const received = loadReceivedShareFolders();
-        if (!received.some((r) => r.id === item.id)) {
-          saveReceivedShareFolders([item, ...received]);
-        }
-        onNewFolderReceived(item);
-      }
-    });
-  };
-
-  onValue(inboxRef, callback);
-  return () => {
-    off(inboxRef, 'value', callback);
-  };
 }

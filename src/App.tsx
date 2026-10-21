@@ -127,9 +127,15 @@ const MainAppContent: React.FC = () => {
     isHeaderVisible,
     setIsHeaderVisible,
     shareModalState,
+    closeShareModal,
     remainingBalanceModalState,
+    closeRemainingBalanceModal,
+    isAccountMultiSelect,
+    clearAccountSelection,
+    clearGlobalSelection,
   } = useApp();
 
+  const [isBarsVisible, setIsBarsVisible] = useState<boolean>(true);
   const [updating, setUpdating] = useState(false);
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
   const tabHistoryRef = useRef<TabType[]>(['home']);
@@ -174,13 +180,16 @@ const MainAppContent: React.FC = () => {
     const myNumericId = settings.userProfile?.numericId;
     if (!myNumericId) return;
 
-    const unsub = listenToMyNumericIdInbox(myNumericId, (folder) => {
-      showToast(
-        settings.language === 'ar'
-          ? `وصلك مجلد مشاركة جديد من ${folder.ownerName}: "${folder.name}"!`
-          : `New share folder received from ${folder.ownerName}: "${folder.name}"!`,
-        'success'
-      );
+    const unsub = listenToMyNumericIdInbox(myNumericId, (folders) => {
+      if (Array.isArray(folders) && folders.length > 0) {
+        const latest = folders[folders.length - 1];
+        showToast(
+          settings.language === 'ar'
+            ? `وصلك مجلد مشاركة جديد من ${latest.ownerName}: "${latest.name}"!`
+            : `New share folder received from ${latest.ownerName}: "${latest.name}"!`,
+          'success'
+        );
+      }
     });
 
     return () => unsub();
@@ -209,6 +218,10 @@ const MainAppContent: React.FC = () => {
     currentTab,
     isTxMultiSelect,
     isCategoryMultiSelect,
+    isAccountMultiSelect,
+    activeSharedId,
+    shareModalState,
+    remainingBalanceModalState,
   });
 
   navStateRef.current = {
@@ -233,9 +246,13 @@ const MainAppContent: React.FC = () => {
     currentTab,
     isTxMultiSelect,
     isCategoryMultiSelect,
+    isAccountMultiSelect,
+    activeSharedId,
+    shareModalState,
+    remainingBalanceModalState,
   };
 
-  // Android Hardware Back Button navigation & exit interceptor
+  // Android Hardware Back Button navigation & exit interceptor: Strict Priority Chain
   useEffect(() => {
     if (!window.history.state || !window.history.state.exitGuard) {
       window.history.pushState({ exitGuard: true }, '');
@@ -252,130 +269,123 @@ const MainAppContent: React.FC = () => {
         return;
       }
 
-      // 0.1. Custom Dialog modal open -> close it
+      // Step 1: Modals & Sheets (top-most modal closes first; keep sub-page and activeTab untouched)
       if (s.customDialogState) {
         closeCustomDialog();
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-
-      // 1. Multi-select mode active -> exit multi-select first
-      if (s.isTxMultiSelect) {
-        clearTxSelection();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isCategoryMultiSelect) {
-        clearCategorySelection();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-
-      // 2. Exit modal open -> close it
       if (s.isExitModalOpen) {
         setIsExitModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 3. PIN setup modal open -> close it
+      if (s.shareModalState?.isOpen) {
+        closeShareModal();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+      if (s.remainingBalanceModalState?.isOpen) {
+        closeRemainingBalanceModal();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
       if (s.isPinModalOpen) {
         setIsPinModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 4. Recurring transactions modal open -> close it
       if (s.isRecurringModalOpen) {
         setIsRecurringModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 5. Emoji Picker open -> close it
       if (s.isEmojiPickerOpen) {
         closeEmojiPicker();
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 6. Features modal open -> close it
       if (s.isFeaturesModalOpen) {
         setIsFeaturesModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 7. Advanced Filter modal open -> close it
       if (s.isFilterModalOpen) {
         setIsFilterModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 8. Reset Period modal open -> close it
       if (s.isResetPeriodModalOpen) {
         setIsResetPeriodModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 9. User Profile modal open -> close it
       if (s.isUserProfileModalOpen) {
         setIsUserProfileModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 10. Category modal open -> close it
       if (s.isCategoryModalOpen) {
         closeCategoryModal();
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 11. Account modal open -> close it
       if (s.isAccountModalOpen) {
         closeAccountModal();
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 12. Viewing Tx details -> close it
       if (s.viewingTx) {
         closeTxDetailsModal();
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 13. Add/Edit Tx modal open -> close it
       if (s.isAddTxModalOpen || s.editingTx) {
         closeAddTxModal();
         closeEditTxModal();
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 14. Sidebar open -> close it
-      if (s.isSidebarOpen) {
-        setIsSidebarOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      // 14.1. Shared Hub Modal open -> close it
       if (s.isSharedHubModalOpen) {
         setIsSharedHubModalOpen(false);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 15. Account Details page active -> back to accounts list
+
+      // Step 2: Full-screen sub-pages (Account Details or Share Live View) -> Close ONLY the sub-page without touching activeTab!
       if (s.selectedAccountId) {
         setSelectedAccountId(null);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 16. Navigate through tab history stack back to 'home' (Item 19)
-      if (tabHistoryRef.current.length > 1) {
-        tabHistoryRef.current.pop();
-        const prevTab = tabHistoryRef.current[tabHistoryRef.current.length - 1] || 'home';
-        setCurrentTab(prevTab);
+      if (s.activeSharedId) {
+        closeSharedLiveView();
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
+
+      // Step 3: Multi-Select Mode active -> Clear selection and return (keep active tab untouched)
+      if (s.isTxMultiSelect || s.isCategoryMultiSelect || s.isAccountMultiSelect) {
+        clearGlobalSelection();
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+
+      // Step 4: Sidebar open -> close it
+      if (s.isSidebarOpen) {
+        setIsSidebarOpen(false);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+
+      // Step 5: Active tab !== 'home' -> Reset active tab to 'home'
       if (s.currentTab !== 'home') {
         setCurrentTab('home');
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
-      // 17. On root Home tab with zero modals/sub-views open -> Show Sleek Exit Confirmation!
+
+      // Step 6: On root Home tab with zero modals/sub-views open -> Show Sleek Exit Confirmation!
       setIsExitModalOpen(true);
       window.history.pushState({ exitGuard: true }, '');
     };
@@ -393,9 +403,11 @@ const MainAppContent: React.FC = () => {
       const deltaY = currentScrollTop - lastScrollTopRef.current;
       lastScrollTopRef.current = currentScrollTop;
 
-      if (currentScrollTop <= 30 || deltaY < -2) {
+      if (currentScrollTop <= 25 || deltaY < -2) {
+        setIsBarsVisible(true);
         setIsHeaderVisible(true);
-      } else if (deltaY > 5 && currentScrollTop > 40) {
+      } else if (deltaY > 6 && currentScrollTop > 40) {
+        setIsBarsVisible(false);
         setIsHeaderVisible(false);
       }
     };
@@ -417,17 +429,20 @@ const MainAppContent: React.FC = () => {
     lastScrollTopRef.current = currentScrollTop;
 
     // Synchronized Header & Navigation Visibility
-    // Immediate Show on Slight Scroll Up (currentScrollTop <= 30 OR deltaY < -2)
-    if (currentScrollTop <= 30 || deltaY < -2) {
+    // Immediate Show on Slight Scroll Up (currentScrollTop <= 25 OR deltaY < -2)
+    if (currentScrollTop <= 25 || deltaY < -2) {
+      setIsBarsVisible(true);
       setIsHeaderVisible(true);
-    } else if (deltaY > 5 && currentScrollTop > 40) {
-      // Hide on Scroll Down (deltaY > 5 AND currentScrollTop > 40)
+    } else if (deltaY > 6 && currentScrollTop > 40) {
+      // Hide on Scroll Down (deltaY > 6 AND currentScrollTop > 40)
+      setIsBarsVisible(false);
       setIsHeaderVisible(false);
     }
   };
 
   useEffect(() => {
     lastScrollTopRef.current = 0;
+    setIsBarsVisible(true);
     setIsHeaderVisible(true);
   }, [currentTab]);
 
@@ -638,27 +653,27 @@ const MainAppContent: React.FC = () => {
                 <>
                   {shouldMount('home') && (
                     <div className={currentTab === 'home' ? 'block' : 'hidden'}>
-                      <HomeView />
+                      <HomeView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('budget') && (
                     <div className={currentTab === 'budget' ? 'block' : 'hidden'}>
-                      <BudgetView />
+                      <BudgetView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('insights') && (
                     <div className={currentTab === 'insights' ? 'block' : 'hidden'}>
-                      <InsightsView />
+                      <InsightsView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('accounts') && (
                     <div className={currentTab === 'accounts' ? 'block' : 'hidden'}>
-                      <AccountsView />
+                      <AccountsView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('calculator') && (
                     <div className={currentTab === 'calculator' ? 'h-full flex-1 flex flex-col overflow-hidden' : 'hidden'}>
-                      <CalculatorView />
+                      <CalculatorView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                 </>
@@ -666,7 +681,7 @@ const MainAppContent: React.FC = () => {
             })()}
           </div>
           <MultiSelectActionBar />
-          <Navigation />
+          <Navigation isBarsVisible={isBarsVisible} />
         </div>
 
         {/* Slide-over & Popups */}

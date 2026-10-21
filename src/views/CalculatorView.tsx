@@ -21,9 +21,9 @@ interface HistoryItem {
   timestamp: string;
 }
 
-export const CalculatorView: React.FC = React.memo(() => {
+export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
   const { settings, openAddTxModal, setIsSidebarOpen, showToast, t } = useApp();
-  const isHeaderVisible = useHeaderScroll();
+  const isHeaderVisible = propBarsVisible !== undefined ? propBarsVisible : true;
   const [expression, setExpression] = useState('');
   const [result, setResult] = useState<number>(0);
   const [cursorPos, setCursorPos] = useState<number | null>(null);
@@ -332,25 +332,36 @@ export const CalculatorView: React.FC = React.memo(() => {
       return (
         <span className="inline-flex items-center">
           <span className="text-zinc-600 calc-display-zero">0</span>
-          <span className="inline-block w-[2.5px] h-5 bg-blue-500 animate-pulse align-middle ml-1 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
+          <span className="calc-caret inline-block w-[2.5px] h-5 bg-blue-500 animate-pulse align-middle ml-1 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
         </span>
       );
     }
 
-    const cursorElem = (
-      <span
-        key="calc-active-cursor"
-        className="inline-block w-[2.5px] h-5 bg-blue-500 animate-pulse align-middle mx-0.5 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]"
-      />
-    );
+    let cursorRendered = false;
+
+    const renderCursor = () => {
+      if (cursorRendered) return null;
+      cursorRendered = true;
+      return (
+        <span
+          key="calc-active-cursor"
+          className="calc-caret inline-block w-[2.5px] h-5 bg-blue-500 animate-pulse align-middle mx-0.5 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]"
+        />
+      );
+    };
 
     const renderRange = (start: number, end: number): React.ReactNode[] => {
       const elements: React.ReactNode[] = [];
       let i = start;
 
+      // When the sub-range is empty (e.g. inside an empty radical √( )), render the caret here if cursor points here
+      if (start === end && start === activeCursor && !cursorRendered) {
+        elements.push(renderCursor());
+      }
+
       while (i < end) {
-        if (i === activeCursor) {
-          elements.push(cursorElem);
+        if (i === activeCursor && !cursorRendered) {
+          elements.push(renderCursor());
         }
 
         if (expression[i] === '√') {
@@ -439,11 +450,17 @@ export const CalculatorView: React.FC = React.memo(() => {
         }
       }
 
-      if (end === expression.length && activeCursor === expression.length) {
-        elements.push(cursorElem);
+      // When cursor is at the end of this range (inside √ or root) and not yet rendered
+      if (activeCursor === end && !cursorRendered) {
+        elements.push(renderCursor());
       }
 
-      return elements;
+      // Root level fallback caret only if cursor is at or beyond expression length
+      if (start === 0 && end === expression.length && activeCursor >= expression.length && !cursorRendered) {
+        elements.push(renderCursor());
+      }
+
+      return elements.filter(Boolean);
     };
 
     return (
@@ -456,9 +473,15 @@ export const CalculatorView: React.FC = React.memo(() => {
   return (
     <div className="h-[calc(100dvh-4.25rem)] sm:h-[calc(100dvh-4.75rem)] w-full max-w-lg md:max-w-2xl mx-auto flex flex-col justify-between overflow-hidden bg-black text-white px-3.5 pt-1 pb-2 select-none animate-in fade-in">
       {/* 1. Unified Header Bar Across All 5 Tabs (Standardized h-16) */}
-      <header className={`sticky top-0 z-20 h-16 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2 transition-all duration-200 ease-in-out ${
-        isHeaderVisible ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
-      }`}>
+      <header
+        style={{
+          transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
+          transition: 'transform 260ms cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
+        className={`sticky top-0 z-20 h-16 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2 ${
+          isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+      >
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -778,4 +801,4 @@ export const CalculatorView: React.FC = React.memo(() => {
       </div>
     </div>
   );
-});
+};

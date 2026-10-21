@@ -21,6 +21,32 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.10',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'Header & Navigation Transform Sync, Global Multi-Select & Review, Reactive Account Select, Calculator Caret Fix, Back-Stack Safety & Live Firebase Sharing Overhaul',
+      ar: 'مزامنة انسيابية للشريط العلوي والسفلي، تحديد متعدد شامل لجميع الصفحات مع نافذة مراجعة، تفاعل فوري للحسابات، إصلاح مؤشر الحاسبة، تصحيح زر الرجوع، وترقية شاملة لنظام المشاركة الحي',
+    },
+    highlights: {
+      en: [
+        'Unblockable Header & Navigation Auto-Hide: Synchronized inline transform on root scroll capture (deltaY > 6 hides, deltaY < -2 returns) across all 5 views with guaranteed 60fps responsiveness.',
+        'Zero-Lag Accounts Long-Press: Instant 450ms long-press selection reactivity without UI freezing or stale closure memo blocks.',
+        'Global Cross-Tab Multi-Select: Freely switch between Home, Budget, and Accounts with unified item selection and sleek Pre-Action Selection Review Sheet.',
+        'Calculator Single Caret Architecture: Radical expressions (√) render strictly one cursor without ghost outer carets.',
+        'Hardware Back Navigation Guard: Hierarchical popstate stack closes modals and sub-pages without erroneously resetting active tab to Home.',
+        'Real-Time Firebase Sharing Overhaul: Task-style share cards, full native Share Detail View with collapsible accordion accounts/categories, and instantaneous profile and inbox sync via RTDB streams.',
+      ],
+      ar: [
+        'إخفاء وظهور انسيابي ومضمون للهيدر والفوتر: تحريك فوري عبر Inline Transforms عند التمرير لأسفل وظهور فوري عند أي تمرير لأعلى في كافة الواجهات الخمس.',
+        'تحديد الحسابات الفوري بدون تجميد: استجابة فورية للضغط المطول 450ms بدون حظر إعادة التصيير وحذف وتحديث فوري للحسابات.',
+        'تحديد متعدد شامل لجميع الصفحات: التنقل بحرية بين الرئيسية والميزانية والحسابات مع تحديد مجمع ونافذة مراجعة ذكية للعناصر قبل الحذف أو المشاركة.',
+        'إصلاح مؤشر الآلة الحاسبة المزدوج: مؤشر كتابة واحد فقط بدقة داخل وخارج الجذور الرياضية دون أي تكرار.',
+        'حماية زر الرجوع الفعلي: إغلاق الصفحات الفرعية والنوافذ خطوة بخطوة مع البقاء في نفس التبويب بدقة متناهية دون القفز للرئيسية.',
+        'إعادة بناء شاملة لنظام المشاركة الحي: كروت مشاركة أنيقة، صفحة تفاصيل مخصصة مع أكورديون للحسابات والتصنيفات، وتحديث حي فوري لبيانات الأعضاء عبر Firebase RTDB.',
+      ],
+    },
+  },
+  {
     version: '1.1.9',
     releaseDate: 'October 21, 2026',
     title: {

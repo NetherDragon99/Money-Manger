@@ -329,7 +329,7 @@ const IncomeCategoryRow: React.FC<IncomeCategoryRowProps> = ({
   );
 };
 
-export const BudgetView: React.FC = React.memo(() => {
+export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
   const {
     categories,
     transactions,
@@ -345,7 +345,7 @@ export const BudgetView: React.FC = React.memo(() => {
     t,
   } = useApp();
 
-  const isHeaderVisible = useHeaderScroll();
+  const isHeaderVisible = propBarsVisible !== undefined ? propBarsVisible : true;
 
   const [categoryTab, setCategoryTab] = useState<'expense' | 'income'>('expense');
   const [searchQuery, setSearchQuery] = useState('');
@@ -533,9 +533,15 @@ export const BudgetView: React.FC = React.memo(() => {
   return (
     <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
       {/* 1. Standardized Top Header Across All Views (Item 2) */}
-      <header className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-all duration-200 ease-in-out ${
-        isHeaderVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
-      }`}>
+      <header
+        style={{
+          transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
+          transition: 'transform 260ms cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
+        className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
+          isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+      >
         <div className="flex items-center gap-2">
           {/* Universal Sidebar Menu Button (☰) */}
           <button
@@ -833,4 +839,4 @@ export const BudgetView: React.FC = React.memo(() => {
     </div>
   </div>
   );
-});
+};

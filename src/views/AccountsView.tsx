@@ -188,7 +188,7 @@ const AccountCard: React.FC<AccountCardProps> = ({
   );
 };
 
-export const AccountsView: React.FC = React.memo(() => {
+export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
   const {
     accounts,
     transactions,
@@ -207,7 +207,7 @@ export const AccountsView: React.FC = React.memo(() => {
     t,
   } = useApp();
 
-  const isHeaderVisible = useHeaderScroll();
+  const isHeaderVisible = propBarsVisible !== undefined ? propBarsVisible : true;
 
   const handleMoveAccount = (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
@@ -276,9 +276,15 @@ export const AccountsView: React.FC = React.memo(() => {
   return (
     <div className="w-full flex flex-col flex-1 pb-24 select-none">
       {/* 1. Unified Standard Top Header Bar Across All 5 Tabs */}
-      <header className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-all duration-200 ease-in-out ${
-        isHeaderVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
-      }`}>
+      <header
+        style={{
+          transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
+          transition: 'transform 260ms cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
+        className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
+          isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+      >
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -417,4 +423,4 @@ export const AccountsView: React.FC = React.memo(() => {
       </div>
     </div>
   );
-});
+};

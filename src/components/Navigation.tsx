@@ -2,7 +2,7 @@ import React from 'react';
 import { useApp } from '../context/AppContext';
 import { Home, Target, PieChart, Landmark, Calculator, Plus } from 'lucide-react';
 
-export const Navigation: React.FC = () => {
+export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
   const {
     currentTab,
     setCurrentTab,
@@ -49,7 +49,7 @@ export const Navigation: React.FC = () => {
     activeSharedId
   );
 
-  const isNavVisible = isHeaderVisible && !isAnySubPageOrModalOpen;
+  const isNavVisible = (propBarsVisible !== undefined ? propBarsVisible : isHeaderVisible) && !isAnySubPageOrModalOpen;
 
   // Floating Action Button (+):
   // Hide on calculator tab or subpages
@@ -79,8 +79,12 @@ export const Navigation: React.FC = () => {
       {/* Floating Action Button (+) - Hidden on calculator tab or subpages */}
       {showFab && (
         <div
-          className={`fixed bottom-20 left-0 right-0 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto pointer-events-none z-20 px-5 flex justify-end transition-all duration-300 ease-in-out ${
-            isNavVisible ? 'translate-y-0 opacity-100' : 'translate-y-24 opacity-0 pointer-events-none'
+          style={{
+            transform: isNavVisible ? 'translateY(0%)' : 'translateY(115%)',
+            transition: 'transform 260ms cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+          className={`fixed bottom-20 left-0 right-0 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto pointer-events-none z-20 px-5 flex justify-end ${
+            isNavVisible ? 'opacity-100' : 'opacity-0'
           }`}
         >
           <button
@@ -96,8 +100,12 @@ export const Navigation: React.FC = () => {
 
       {/* Bottom Nav Bar with 5 tabs and fluid sliding indicator */}
       <nav
-        className={`fixed bottom-0 left-0 right-0 z-20 bg-black/95 backdrop-blur-lg border-t border-zinc-800/80 px-2 py-2 safe-area-bottom transition-all duration-300 ease-in-out ${
-          isNavVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-full opacity-0 pointer-events-none'
+        style={{
+          transform: isNavVisible ? 'translateY(0%)' : 'translateY(115%)',
+          transition: 'transform 260ms cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
+        className={`fixed bottom-0 left-0 right-0 z-20 bg-black/95 backdrop-blur-lg border-t border-zinc-800/80 px-2 py-2 safe-area-bottom ${
+          isNavVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
         <div className="max-w-md md:max-w-4xl lg:max-w-6xl mx-auto grid grid-cols-5 items-center relative">

@@ -25,7 +25,7 @@ import { MiniDateTimePicker } from '../components/MiniDateTimePicker';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
 
-export const HomeView: React.FC = React.memo(() => {
+export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
   const {
     accounts,
     transactions,
@@ -48,7 +48,7 @@ export const HomeView: React.FC = React.memo(() => {
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
   const [showCustomRangePicker, setShowCustomRangePicker] = useState(false);
   const [customTarget, setCustomTarget] = useState<'start' | 'end'>('start');
-  const isHeaderVisible = useHeaderScroll();
+  const isHeaderVisible = propBarsVisible !== undefined ? propBarsVisible : true;
 
   // Calendar view specific state
   const [calendarMonthOffset, setCalendarMonthOffset] = useState(0);
@@ -248,9 +248,15 @@ export const HomeView: React.FC = React.memo(() => {
   return (
     <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
       {/* 1. Top Header Bar with Smart Auto-Hide on Scroll (Standardized h-16) */}
-      <header className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between transition-all duration-200 ease-in-out ${
-        isHeaderVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
-      }`}>
+      <header
+        style={{
+          transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
+          transition: 'transform 260ms cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
+        className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
+          isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+      >
         {/* Left: Hamburger Menu Button (☰) */}
         <button
           type="button"
@@ -649,4 +655,4 @@ export const HomeView: React.FC = React.memo(() => {
       </div>
     </div>
   );
-});
+};

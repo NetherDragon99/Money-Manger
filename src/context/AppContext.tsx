@@ -185,7 +185,9 @@ interface AppContextType {
   deleteCategory: (id: string) => void;
   reorderCategories: (orderedIds: string[]) => void;
 
-  // Multi-Select for Transactions
+  // Unified Multi-Select Across All Tabs
+  isGlobalMultiSelect: boolean;
+  clearGlobalSelection: () => void;
   selectedTxIds: string[];
   isTxMultiSelect: boolean;
   startTxMultiSelect: (initialId?: string) => void;
@@ -355,22 +357,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [emojiCallback, setEmojiCallback] = useState<((emoji: string) => void) | null>(null);
 
-  // Multi-Select States
+  // Unified Multi-Select States across all tabs
   const [selectedTxIds, setSelectedTxIds] = useState<string[]>([]);
-  const [isTxMultiSelect, setIsTxMultiSelect] = useState<boolean>(false);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [isGlobalMultiSelect, setIsGlobalMultiSelect] = useState<boolean>(false);
+
+  const isTxMultiSelect = isGlobalMultiSelect || selectedTxIds.length > 0;
+  const isAccountMultiSelect = isGlobalMultiSelect || selectedAccountIds.length > 0;
+  const isCategoryMultiSelect = isGlobalMultiSelect || selectedCategoryIds.length > 0;
 
   const startTxMultiSelect = (initialId?: string) => {
-    setIsTxMultiSelect(true);
-    if (initialId) setSelectedTxIds([initialId]);
+    setIsGlobalMultiSelect(true);
+    if (initialId) setSelectedTxIds((prev) => (prev.includes(initialId) ? prev : [...prev, initialId]));
   };
 
   const toggleTxSelection = (id: string) => {
+    setIsGlobalMultiSelect(true);
     setSelectedTxIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
   const selectAllTxs = (ids: string[]) => {
+    setIsGlobalMultiSelect(true);
     setSelectedTxIds(ids);
   };
 
@@ -386,11 +396,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const clearTxSelection = () => {
+  const clearGlobalSelection = () => {
     setSelectedTxIds([]);
-    setIsTxMultiSelect(false);
+    setSelectedAccountIds([]);
+    setSelectedCategoryIds([]);
+    setIsGlobalMultiSelect(false);
     releaseScrollLocks();
   };
+
+  const clearTxSelection = clearGlobalSelection;
 
   const deleteSelectedTxs = () => {
     if (selectedTxIds.length === 0) return;
@@ -399,7 +413,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setTransactions(updatedList);
     const synced = syncAllAccountBalances(accounts, updatedList);
     setAccounts(synced);
-    clearTxSelection();
+    setSelectedTxIds([]);
     showToast(
       settings.language === 'ar' ? `تم حذف ${count} معاملة بنجاح` : `Deleted ${count} transactions successfully!`,
       'success'
@@ -431,29 +445,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Account Multi-Select (Item 7)
-  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
-  const [isAccountMultiSelect, setIsAccountMultiSelect] = useState<boolean>(false);
-
   const startAccountMultiSelect = (initialId?: string) => {
-    setIsAccountMultiSelect(true);
-    if (initialId) setSelectedAccountIds([initialId]);
+    setIsGlobalMultiSelect(true);
+    if (initialId) setSelectedAccountIds((prev) => (prev.includes(initialId) ? prev : [...prev, initialId]));
   };
 
   const toggleAccountSelection = (id: string) => {
+    setIsGlobalMultiSelect(true);
     setSelectedAccountIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
   const selectAllAccounts = (ids: string[]) => {
+    setIsGlobalMultiSelect(true);
     setSelectedAccountIds(ids);
   };
 
-  const clearAccountSelection = () => {
-    setSelectedAccountIds([]);
-    setIsAccountMultiSelect(false);
-    releaseScrollLocks();
-  };
+  const clearAccountSelection = clearGlobalSelection;
 
   // Unified Share Modal (Item 6)
   const [shareModalState, setShareModalState] = useState<{
@@ -596,29 +605,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return true;
   };
 
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
-  const [isCategoryMultiSelect, setIsCategoryMultiSelect] = useState<boolean>(false);
-
   const startCategoryMultiSelect = (initialId?: string) => {
-    setIsCategoryMultiSelect(true);
-    if (initialId) setSelectedCategoryIds([initialId]);
+    setIsGlobalMultiSelect(true);
+    if (initialId) setSelectedCategoryIds((prev) => (prev.includes(initialId) ? prev : [...prev, initialId]));
   };
 
   const toggleCategorySelection = (id: string) => {
+    setIsGlobalMultiSelect(true);
     setSelectedCategoryIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
   const selectAllCategories = (ids: string[]) => {
+    setIsGlobalMultiSelect(true);
     setSelectedCategoryIds(ids);
   };
 
-  const clearCategorySelection = () => {
-    setSelectedCategoryIds([]);
-    setIsCategoryMultiSelect(false);
-    releaseScrollLocks();
-  };
+  const clearCategorySelection = clearGlobalSelection;
 
   const deleteSelectedCategories = () => {
     if (selectedCategoryIds.length === 0) return;
@@ -1461,6 +1465,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     toggleAccountSelection,
     selectAllAccounts,
     clearAccountSelection,
+    clearGlobalSelection,
     deleteAccountWithBalanceTransfer,
     deleteMultipleAccounts,
     openShareModal,
@@ -1534,6 +1539,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isEmojiPickerOpen,
       selectedAccountIds,
       isAccountMultiSelect,
+      isGlobalMultiSelect,
       shareModalState,
       remainingBalanceModalState,
       selectedTxIds,

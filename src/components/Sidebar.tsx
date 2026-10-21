@@ -203,7 +203,7 @@ export const Sidebar: React.FC = () => {
     setBackupStatusLabel(isArabic ? 'جارٍ جمع البيانات...' : 'Gathering financial data...');
     try {
       const data = {
-        version: '1.1.9',
+        version: '1.1.10',
         exportDate: new Date().toISOString(),
         accounts,
         categories,
@@ -259,7 +259,7 @@ export const Sidebar: React.FC = () => {
 
   const handleEmailBackup = () => {
     const data = {
-      version: '1.1.9',
+      version: '1.1.10',
       exportDate: new Date().toISOString(),
       accounts,
       categories,
@@ -288,7 +288,7 @@ export const Sidebar: React.FC = () => {
       setBackupStatusLabel(isArabic ? 'جارٍ تشفير ومزامنة البيانات مع السحابة...' : 'Encrypting and syncing backup...');
       const backupRef = ref(rtdb, `users/${user.uid}/backup`);
       await set(backupRef, {
-        version: '1.1.9',
+        version: '1.1.10',
         backupDate: new Date().toISOString(),
         accounts,
         categories,
@@ -847,7 +847,7 @@ export const Sidebar: React.FC = () => {
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
                 <span>{isArabic ? 'النسخ الاحتياطي والاستعادة' : 'Backup & Restore'}</span>
               </h4>
-              <span className="text-[10px] font-mono text-zinc-500">v1.1.9</span>
+              <span className="text-[10px] font-mono text-zinc-500">v1.1.10</span>
             </div>
 
             {/* Mandatory Visual Progress Bar (0% to 100%) */}
@@ -1124,7 +1124,7 @@ export const Sidebar: React.FC = () => {
         {/* Sidebar Footer: Version & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-zinc-300">Version: Beta v1.1.9</span>
+            <span className="font-bold text-zinc-300">Version: Beta v1.1.10</span>
           </div>
 
           {/* Refresh App Button */}
