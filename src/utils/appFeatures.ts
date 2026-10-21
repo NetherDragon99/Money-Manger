@@ -21,6 +21,28 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.20',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Real-Time External Share Streaming & 5-Second Cloud Polling Fallback',
+      ar: 'بث سحابي فوري لصفحات المشاركة الخارجية وتحديث دوري كل 5 ثوانٍ',
+    },
+    highlights: {
+      en: [
+        'Live Real-Time Streaming: Standalone external share pages (?share=...) always prioritize real-time streaming directly from Firebase RTDB at shared_accounts/share_${shareId} via onValue().',
+        'Automatic 5-Second Periodic Polling: Continually checks and synchronizes live share updates every 5000ms in the background, keeping mobile and background browser tabs updated without manual refresh.',
+        'Offline Fallback Snapshot: The URL &data= snapshot parameter is strictly preserved as an offline fallback when internet or cloud servers are unreachable, and stripped from the address bar to prevent stale browser cache.',
+        'Instant Cloud Push on Any Modification: Every transaction add/edit, item removal, or share setting modification immediately broadcasts the updated snapshot to shared_accounts/share_${shareId}.',
+      ],
+      ar: [
+        'بث سحابي فوري ومباشر: صفحات المشاركة الخارجية المفتوحة عبر الروابط المباشرة تعتمد دائماً على البث اللحظي من خوادم فايربيس على مسار shared_accounts/share_${shareId} باستخدام onValue().',
+        'تحديث خلفي دوري كل 5 ثوانٍ: فحص ومزامنة تلقائية كل 5000ms لضمان وصول التعديلات والإضافات للمتصفحات الخارجية والهواتف دون الحاجة لأي تحديث يدوي.',
+        'نسخة احتياطية ذكية بدون إنترنت: استخدام معامل الرابط &data= كخيار احتياطي فقط عند انقطاع الاتصال بالسيرفر، مع تنظيف الرابط من شريط المتصفح لمنع تجميد البيانات القديمة.',
+        'مزامنة سحابية فورية لكافة التعديلات: إضافة أو تعديل أو حذف أي معاملة أو عنصر داخل الشير يرسل التحديث لحظياً إلى خوادم السحابة ليظهر فوراً لجميع المشاهدين.',
+      ],
+    },
+  },
+  {
     version: '1.1.19',
     releaseDate: 'October 22, 2026',
     title: {

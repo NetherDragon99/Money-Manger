@@ -29,6 +29,7 @@ import {
   loadReceivedShareFolders,
   saveMyShareFolders,
   saveReceivedShareFolders,
+  syncFolderToCloud,
   deleteShareFolder,
   addMemberToShareFolder,
   removeMemberFromShareFolder,
@@ -201,6 +202,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   const handleCopyLink = async (folder: ShareFolder, e?: React.MouseEvent) => {
     e?.stopPropagation();
     try {
+      await syncFolderToCloud(folder);
       const url = generateShareUrl(folder);
       await navigator.clipboard.writeText(url);
       showToast(

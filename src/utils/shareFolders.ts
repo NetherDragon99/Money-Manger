@@ -950,6 +950,78 @@ export function addTransactionToShareFolder(
 }
 
 /**
+ * Alias for adding or editing a transaction inside a Share Folder
+ */
+export const updateTransactionInShareFolder = addTransactionToShareFolder;
+
+/**
+ * Update any item (account, category, transaction) in a share folder
+ * and immediately push the updated snapshot to shared_accounts/share_${shareId} in Firebase RTDB
+ */
+export function updateItemInShareFolder(
+  folderId: string,
+  itemType: 'account' | 'category' | 'transaction',
+  updatedItem: Account | Category | Transaction
+): ShareFolder | null {
+  const existing = loadMyShareFolders();
+  const myIdx = existing.findIndex((f) => f.id === folderId);
+  const received = loadReceivedShareFolders();
+  const recvIdx = received.findIndex((f) => f.id === folderId);
+
+  let targetFolder: ShareFolder | null = null;
+  let isOwner = false;
+
+  if (myIdx !== -1) {
+    targetFolder = existing[myIdx];
+    isOwner = true;
+  } else if (recvIdx !== -1) {
+    targetFolder = received[recvIdx];
+  }
+
+  if (!targetFolder) return null;
+
+  let nextAccounts = [...targetFolder.payload.accounts];
+  let nextCategories = [...targetFolder.payload.categories];
+  let nextTransactions = [...targetFolder.payload.transactions];
+
+  if (itemType === 'account') {
+    const idx = nextAccounts.findIndex((a) => a.id === updatedItem.id);
+    if (idx !== -1) nextAccounts[idx] = updatedItem as Account;
+    else nextAccounts.push(updatedItem as Account);
+  } else if (itemType === 'category') {
+    const idx = nextCategories.findIndex((c) => c.id === updatedItem.id);
+    if (idx !== -1) nextCategories[idx] = updatedItem as Category;
+    else nextCategories.push(updatedItem as Category);
+  } else {
+    const idx = nextTransactions.findIndex((t) => t.id === updatedItem.id);
+    if (idx !== -1) nextTransactions[idx] = updatedItem as Transaction;
+    else nextTransactions.unshift(updatedItem as Transaction);
+  }
+
+  const updatedFolder: ShareFolder = {
+    ...targetFolder,
+    updatedAt: Date.now(),
+    itemCount: nextAccounts.length + nextCategories.length + nextTransactions.length,
+    payload: {
+      accounts: nextAccounts,
+      categories: nextCategories,
+      transactions: nextTransactions,
+    },
+  };
+
+  if (isOwner) {
+    existing[myIdx] = updatedFolder;
+    saveMyShareFolders(existing);
+  } else {
+    received[recvIdx] = updatedFolder;
+    saveReceivedShareFolders(received);
+  }
+
+  syncFolderToCloud(updatedFolder);
+  return updatedFolder;
+}
+
+/**
  * Remove a specific item from a Share Page
  */
 export function removeItemFromShareFolder(
@@ -1574,20 +1646,33 @@ export function subscribeToShareFolder(
 
   const ref1 = ref(rtdb, `shared_accounts/share_${rawShareId}`);
   const ref2 = ref(rtdb, `shared_accounts/${cleanId}`);
+  const ref3 = ref(rtdb, `sharedBundles/${cleanId}`);
+  const ref4 = ref(rtdb, `sharedBundles/share_${rawShareId}`);
 
+  let lastEmittedSig = '';
   const listener = (snap: any) => {
     if (snap.exists() && snap.val()) {
       const parsed = normalizeParsedShareFolder(snap.val(), cleanId);
-      if (parsed) callback(parsed);
+      if (parsed) {
+        const sig = `${parsed.updatedAt}_${parsed.payload.transactions.length}_${parsed.payload.accounts.length}_${parsed.payload.categories.length}_${JSON.stringify(parsed.payload)}`;
+        if (sig !== lastEmittedSig) {
+          lastEmittedSig = sig;
+          callback(parsed);
+        }
+      }
     }
   };
 
-  onValue(ref1, listener);
-  onValue(ref2, listener);
+  onValue(ref1, listener, (err) => console.warn('[ShareFolders] onValue ref1 error:', err));
+  onValue(ref2, listener, (err) => console.warn('[ShareFolders] onValue ref2 error:', err));
+  onValue(ref3, listener, (err) => console.warn('[ShareFolders] onValue ref3 error:', err));
+  onValue(ref4, listener, (err) => console.warn('[ShareFolders] onValue ref4 error:', err));
 
   return () => {
     off(ref1, 'value', listener);
     off(ref2, 'value', listener);
+    off(ref3, 'value', listener);
+    off(ref4, 'value', listener);
   };
 }
 

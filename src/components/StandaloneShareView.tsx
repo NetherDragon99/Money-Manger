@@ -46,14 +46,20 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
   const isArabic = settings?.language ? settings.language === 'ar' : true;
   const currencySymbol = settings?.currencySymbol || '£';
 
-  const [folder, setFolder] = useState<ShareFolder | null>(() => {
+  // Offline fallback snapshot provided via URL parameter (&data=)
+  const offlineFallbackSnapshot = useMemo<ShareFolder | null>(() => {
     if (sharedDataSnapshot && sharedDataSnapshot.payload) {
       return sharedDataSnapshot as ShareFolder;
     }
     return null;
-  });
+  }, [sharedDataSnapshot]);
 
-  const [isLoading, setIsLoading] = useState<boolean>(!sharedDataSnapshot && !!shareId);
+  // Folder state starts with offline fallback if available, but ALWAYS marked as pending live cloud sync
+  const [folder, setFolder] = useState<ShareFolder | null>(offlineFallbackSnapshot);
+  const [isLiveConnected, setIsLiveConnected] = useState<boolean>(false);
+  const [isUsingOfflineFallback, setIsUsingOfflineFallback] = useState<boolean>(false);
+  // Show full loading spinner only if we have no offline snapshot and are waiting for cloud
+  const [isLoading, setIsLoading] = useState<boolean>(!offlineFallbackSnapshot && !!shareId);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +80,7 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
     setCollapsedDays((prev) => ({ ...prev, [dayKey]: !prev[dayKey] }));
   };
 
-  // Manual Refresh Handler
+  // Manual Refresh Handler - fetches live data directly from Firebase cloud
   const handleManualRefresh = useCallback(async () => {
     if (!shareId) return;
     setIsRefreshing(true);
@@ -83,6 +89,8 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
       const freshData = await fetchShareFolderFromCloud(shareId);
       if (freshData) {
         setFolder(freshData);
+        setIsLiveConnected(true);
+        setIsUsingOfflineFallback(false);
         setLastUpdated(Date.now());
         setError(null);
         registerReceivedShareFolder(
@@ -104,108 +112,132 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
   }, [shareId, isArabic, showToast, settings]);
 
   useEffect(() => {
-    if (!shareId && !sharedDataSnapshot) {
+    if (!shareId && !offlineFallbackSnapshot) {
       setError(isArabic ? 'رابط المشاركة غير صالح أو انتهت صلاحيته.' : 'Invalid or expired share link.');
       setIsLoading(false);
       return;
     }
 
-    // If an initial snapshot was embedded in the URL (from legacy links), use it as immediate placeholder
-    if (sharedDataSnapshot && sharedDataSnapshot.payload) {
-      setFolder(sharedDataSnapshot as ShareFolder);
-      setIsLoading(false);
-
-      // Clean URL: Strip &data= so browser reload fetches the live version
-      if (typeof window !== 'undefined' && shareId) {
-        const cleanUrl = `${window.location.origin}${window.location.pathname}?share=${encodeURIComponent(shareId)}`;
-        window.history.replaceState({}, '', cleanUrl);
-      }
+    // Clean URL: Strip &data= snapshot parameter from address bar
+    // so any browser reload fetches the live version directly from Firebase RTDB
+    if (typeof window !== 'undefined' && shareId && window.location.search.includes('data=')) {
+      const cleanUrl = `${window.location.origin}${window.location.pathname}?share=${encodeURIComponent(shareId)}`;
+      window.history.replaceState({}, '', cleanUrl);
     }
 
-    if (!shareId) return;
+    if (!shareId) {
+      if (offlineFallbackSnapshot) {
+        setFolder(offlineFallbackSnapshot);
+        setIsUsingOfflineFallback(true);
+        setIsLoading(false);
+      }
+      return;
+    }
 
     let isMounted = true;
-    if (!sharedDataSnapshot) setIsLoading(true);
+    let hasReceivedLiveCloudData = false;
 
-    // 1. Trigger background non-blocking auth attempt
+    // Trigger non-blocking anonymous/authenticated Firebase session
     ensureFirebaseAuth().catch(() => {});
 
-    // 2. Immediate cloud fetch
+    // Helper to safely apply live streaming data from Firebase RTDB
+    const applyLiveData = (liveData: ShareFolder) => {
+      if (!isMounted) return;
+      hasReceivedLiveCloudData = true;
+      setIsLiveConnected(true);
+      setIsUsingOfflineFallback(false);
+      setIsLoading(false);
+      setError(null);
+      setLastUpdated(Date.now());
+
+      setFolder((prev) => {
+        if (!prev) return liveData;
+        const prevSig = `${prev.updatedAt}_${prev.payload.transactions.length}_${prev.payload.accounts.length}_${prev.payload.categories.length}_${JSON.stringify(prev.payload)}`;
+        const liveSig = `${liveData.updatedAt}_${liveData.payload.transactions.length}_${liveData.payload.accounts.length}_${liveData.payload.categories.length}_${JSON.stringify(liveData.payload)}`;
+        if (prevSig !== liveSig) {
+          return liveData;
+        }
+        return prev;
+      });
+
+      // Register or update received folder in local storage
+      registerReceivedShareFolder(
+        liveData,
+        settings?.userProfile?.numericId,
+        settings?.userProfile?.name,
+        settings?.userProfile?.avatarEmoji,
+        settings?.userProfile?.customAvatarUrl
+      );
+    };
+
+    // 1. Immediate cloud fetch priority
     fetchShareFolderFromCloud(shareId)
       .then((data) => {
         if (!isMounted) return;
         if (data) {
-          setFolder(data);
-          setLastUpdated(Date.now());
-          setError(null);
-          registerReceivedShareFolder(
-            data,
-            settings?.userProfile?.numericId,
-            settings?.userProfile?.name,
-            settings?.userProfile?.avatarEmoji,
-            settings?.userProfile?.customAvatarUrl
-          );
-        } else if (!sharedDataSnapshot) {
-          setError(
-            isArabic
-              ? 'لم يتم العثور على صفحة المشاركة المطلوبة، أو ربما قام المالك بإلغائها.'
-              : 'Shared space not found or was removed by owner.'
-          );
+          applyLiveData(data);
+        } else if (!hasReceivedLiveCloudData) {
+          // If cloud has no record yet, strictly fallback to offline snapshot if available
+          if (offlineFallbackSnapshot) {
+            setFolder(offlineFallbackSnapshot);
+            setIsUsingOfflineFallback(true);
+            setIsLoading(false);
+          } else {
+            setError(
+              isArabic
+                ? 'لم يتم العثور على صفحة المشاركة المطلوبة، أو ربما قام المالك بإلغائها.'
+                : 'Shared space not found or was removed by owner.'
+            );
+            setIsLoading(false);
+          }
         }
-        setIsLoading(false);
       })
       .catch((err) => {
         if (!isMounted) return;
-        console.warn('[StandaloneShareView] Fetch error:', err);
-        if (!sharedDataSnapshot) {
-          setError(
-            isArabic
-              ? 'تعذر تحميل بيانات المشاركة. يرجى التحقق من اتصالك بالإنترنت.'
-              : 'Could not load share data. Check your connection.'
-          );
+        console.warn('[StandaloneShareView] Immediate fetch error:', err);
+        if (!hasReceivedLiveCloudData) {
+          if (offlineFallbackSnapshot) {
+            setFolder(offlineFallbackSnapshot);
+            setIsUsingOfflineFallback(true);
+            setIsLoading(false);
+          } else {
+            setError(
+              isArabic
+                ? 'تعذر تحميل بيانات المشاركة. يرجى التحقق من اتصالك بالإنترنت.'
+                : 'Could not load share data. Check your connection.'
+            );
+            setIsLoading(false);
+          }
         }
-        setIsLoading(false);
       });
 
-    // 2. Real-time Subscription on Firebase RTDB
+    // 2. Continuous Real-time Streaming Subscription on Firebase RTDB via onValue()
     const unsub = subscribeToShareFolder(shareId, (liveData) => {
-      if (!isMounted) return;
       if (liveData) {
-        setFolder(liveData);
-        setLastUpdated(Date.now());
-        setError(null);
-        registerReceivedShareFolder(
-          liveData,
-          settings?.userProfile?.numericId,
-          settings?.userProfile?.name,
-          settings?.userProfile?.avatarEmoji,
-          settings?.userProfile?.customAvatarUrl
-        );
+        applyLiveData(liveData);
       }
     });
 
-    // 3. Polling fallback every 12s in case mobile browser sleeps WebSocket
-    const pollTimer = setInterval(() => {
+    // 3. Automatic 5-second periodic background polling fallback
+    // Guarantees continuous live sync even if mobile sleep or network glitch pauses WebSocket
+    const pollTimer = setInterval(async () => {
       if (!isMounted || !shareId) return;
-      fetchShareFolderFromCloud(shareId).then((data) => {
-        if (isMounted && data) {
-          setFolder((prev) => {
-            if (!prev || (data.updatedAt && data.updatedAt > (prev.updatedAt || 0))) {
-              setLastUpdated(Date.now());
-              return data;
-            }
-            return prev;
-          });
+      try {
+        const fresh = await fetchShareFolderFromCloud(shareId);
+        if (isMounted && fresh) {
+          applyLiveData(fresh);
         }
-      }).catch(() => {});
-    }, 12000);
+      } catch (err) {
+        // Quiet poll
+      }
+    }, 5000);
 
     return () => {
       isMounted = false;
       unsub();
       clearInterval(pollTimer);
     };
-  }, [shareId, sharedDataSnapshot, isArabic]);
+  }, [shareId, offlineFallbackSnapshot, isArabic, settings]);
 
   const handleCopyLink = () => {
     try {
@@ -387,10 +419,17 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h1 className="text-base sm:text-lg font-bold text-white truncate">{folder.name}</h1>
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>{isArabic ? 'مباشر · للقراءة فقط' : 'Live · Read Only'}</span>
-                </span>
+                {isUsingOfflineFallback ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-semibold shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    <span>{isArabic ? 'نسخة غير متصلة' : 'Offline Snapshot'}</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>{isArabic ? 'مباشر · لحظي' : 'Live · Streaming'}</span>
+                  </span>
+                )}
               </div>
               <div className="text-xs text-zinc-400 mt-0.5 truncate flex items-center gap-2">
                 <span>
