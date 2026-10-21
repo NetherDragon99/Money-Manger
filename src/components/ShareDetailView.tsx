@@ -22,11 +22,13 @@ import {
   Edit3,
   LogOut,
   Loader2,
+  Settings,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
 import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
+import { ShareSpaceSettingsModal } from './ShareSpaceSettingsModal';
 import {
   ShareFolder,
   ShareMember,
@@ -83,6 +85,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   // Add Member State
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [isManageMembersOpen, setIsManageMembersOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [newMemberId, setNewMemberId] = useState('');
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedMemberUser, setSelectedMemberUser] = useState<any>(null);
@@ -384,6 +387,19 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               <span>{isCopied ? (isArabic ? 'تم النسخ' : 'Copied') : (isArabic ? 'رابط' : 'Link')}</span>
             </button>
 
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(true)}
+                className="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition active:scale-95 cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
+                title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
+                aria-label={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
+              >
+                <Settings className="w-3.5 h-3.5 text-zinc-400" />
+                <span className="hidden sm:inline">{isArabic ? 'الإعدادات' : 'Settings'}</span>
+              </button>
+            )}
+
             {!isOwner && (
               <>
                 <button
@@ -477,6 +493,15 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
 
             {isOwner && (
               <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-800"
+                  title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
+                >
+                  <Settings className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>{isArabic ? 'الإعدادات' : 'Settings'}</span>
+                </button>
                 {folder.members.length > 0 && (
                   <button
                     type="button"
@@ -1421,6 +1446,21 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             </div>
           </div>
         </div>
+      )}
+
+      {/* Dedicated Share Space Settings Modal */}
+      {isSettingsOpen && (
+        <ShareSpaceSettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          folder={folder}
+          onUpdated={(updated) => {
+            setFolder(updated);
+          }}
+          onDeleted={() => {
+            onExit();
+          }}
+        />
       )}
     </div>
   );

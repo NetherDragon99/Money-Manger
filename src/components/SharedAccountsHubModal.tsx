@@ -19,11 +19,13 @@ import {
   Sparkles,
   LogOut,
   Loader2,
+  Settings,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
 import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
+import { ShareSpaceSettingsModal } from './ShareSpaceSettingsModal';
 import {
   loadMyShareFolders,
   loadReceivedShareFolders,
@@ -77,6 +79,9 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
 
   // Full-screen native detail page view state
   const [activeShareDetailFolder, setActiveShareDetailFolder] = useState<ShareFolder | null>(null);
+
+  // Dedicated Share Space Settings Modal state
+  const [settingsFolder, setSettingsFolder] = useState<ShareFolder | null>(null);
 
   // Quick invite inside modal state
   const [invitingFolderId, setInvitingFolderId] = useState<string | null>(null);
@@ -503,7 +508,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                               type="button"
                               onClick={(e) => handleCopyLink(folder, e)}
                               className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
-                              title="Copy Link"
+                              title={isArabic ? 'نسخ الرابط' : 'Copy Link'}
                             >
                               <Copy className="w-3.5 h-3.5" />
                             </button>
@@ -511,15 +516,24 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                               type="button"
                               onClick={() => setInvitingFolderId(isInviting ? null : folder.id)}
                               className="p-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 transition cursor-pointer"
-                              title="Invite Member"
+                              title={isArabic ? 'دعوة عضو' : 'Invite Member'}
                             >
                               <Users className="w-3.5 h-3.5" />
                             </button>
                             <button
                               type="button"
+                              onClick={() => setSettingsFolder(folder)}
+                              className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                              title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
+                              aria-label={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
+                            >
+                              <Settings className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
                               onClick={(e) => handleDeleteFolder(folder, e)}
                               className="p-2 rounded-xl bg-zinc-950 hover:bg-red-500/20 border border-zinc-800 text-zinc-500 hover:text-red-400 transition cursor-pointer"
-                              title="Delete Share"
+                              title={isArabic ? 'حذف المساحة' : 'Delete Share'}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -775,6 +789,25 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Dedicated Share Space Settings Modal */}
+      {settingsFolder && (
+        <ShareSpaceSettingsModal
+          isOpen={!!settingsFolder}
+          onClose={() => setSettingsFolder(null)}
+          folder={settingsFolder}
+          onUpdated={(updated) => {
+            const next = loadMyShareFolders();
+            setMyFolders(next);
+            setSettingsFolder(null);
+          }}
+          onDeleted={() => {
+            const next = loadMyShareFolders();
+            setMyFolders(next);
+            setSettingsFolder(null);
+          }}
+        />
+      )}
     </div>
   );
 };

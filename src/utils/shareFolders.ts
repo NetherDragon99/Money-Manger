@@ -1117,11 +1117,19 @@ export function updateShareFolderSettings(
 /**
  * Delete a Share Page permanently
  */
-export async function deleteShareFolder(folderId: string): Promise<void> {
+export async function deleteShareFolder(folderId: string, folderData?: ShareFolder): Promise<void> {
   const existing = loadMyShareFolders();
-  const folder = existing.find((f) => f.id === folderId);
+  const folder = folderData || existing.find((f) => f.id === folderId);
   const updated = existing.filter((f) => f.id !== folderId);
   saveMyShareFolders(updated);
+
+  const received = loadReceivedShareFolders();
+  const updatedReceived = received.filter((f) => f.id !== folderId);
+  saveReceivedShareFolders(updatedReceived);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: updatedReceived }));
+  }
 
   try {
     const rawShareId = folderId.replace(/^share_/, '');
@@ -1132,7 +1140,7 @@ export async function deleteShareFolder(folderId: string): Promise<void> {
     await remove(ref(rtdb, `sharedBundles/share_${rawShareId}`));
 
     // Remove from member inboxes
-    if (folder) {
+    if (folder && folder.members) {
       for (const member of folder.members) {
         const cleanId = normalize16DigitId(member.numericId);
         if (cleanId.length === 16) {

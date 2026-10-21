@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.21',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Share Space Settings Modal (Rename, Icon Selector & Full Deletion)',
+      ar: 'نافذة إعدادات مساحة المشاركة (تعديل الاسم، اختيار الأيقونة، والحذف الشامل)',
+    },
+    highlights: {
+      en: [
+        'Dedicated Share Space Settings (⚙️): Easily accessible in both Share Detail View and Shared Accounts Hub for share owners.',
+        'Rename & Icon Customization: Rename any share space and choose from curated popular icons or the complete emoji picker with real-time cloud sync.',
+        'Full Permanent Deletion: Safely remove the space from local storage, delete shared_accounts/share_${shareId} from Firebase RTDB, and clear all invite records from invited members\' inboxes.',
+      ],
+      ar: [
+        'نافذة مخصصة لإعدادات المساحة (⚙️): متوفرة لمالك الشير من صفحة التفاصيل ومن مركز الحسابات المشتركة.',
+        'تعديل الاسم وتغيير الأيقونة: إمكانية تغيير اسم المساحة واختيار أيقونة من قائمة الأيقونات الشائعة أو من نافذة الرموز الكاملة مع مزامنة سحابية لحظية.',
+        'حذف شامل ونهائي: حذف مساحة المشاركة من التطبيق، ومسحها من خوادم فايربيس السحابية، وإلغاء وصول جميع الأعضاء ومسح السجل من صناديقهم نهائياً.',
+      ],
+    },
+  },
+  {
     version: '1.1.20',
     releaseDate: 'October 22, 2026',
     title: {
