@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.8',
+    releaseDate: 'October 21, 2026',
+    title: {
+      en: 'React Hook Error #310 Fix, Synchronized Header & Navigation Slide, Robust Error Boundary',
+      ar: 'إصلاح خطأ الهوكس 310 في القائمة والبروفايل، تزامن إخفاء وظهور الهيدر وشريط التنقل، وحماية استقرار التطبيق',
+    },
+    highlights: {
+      en: [
+        'React Error #310 Elimination: All hooks in Sidebar, UserProfileModal, and MiniDateTimePicker are declared unconditionally at top level, completely fixing the crash when opening the sidebar or profile.',
+        'Synchronized Header & Navigation Slide: Both the top header and bottom navigation bar slide out on downward scroll (deltaY > 6, scrollTop > 40) and return instantly on upward scroll (deltaY < -2, scrollTop <= 20) with synchronized 300ms transitions.',
+        'Zero Silent Failures & Error Boundary: Wrapped sidebar and modal triggers in try/catch handlers and integrated a top-level React Error Boundary with user-friendly recovery.',
+      ],
+      ar: [
+        'القضاء على خطأ الهوكس 310: نقل كافة الـ Hooks إلى أعلى المكونات بشكل غير مشروط في القائمة الجانبية والبروفايل ومحدد التاريخ، لمنع انهيار التطبيق تماماً.',
+        'تزامن اختفاء وظهور الهيدر والنافيجيشن: اختفاء متزامن للشريط العلوي وشريط التنقل السفلي عند التمرير لأسفل وظهورهما فوراً عند أي تمرير خفيف لأعلى بسلاسة 300ms.',
+        'حماية كاملة من الانهيارات المفاجئة: معالجة شاملة للأخطاء بحواجز حماية (Error Boundary) وإشعارات توست واضحة تضمن تجربة مستخدم مستقرة 100%.',
+      ],
+    },
+  },
+  {
     version: '1.1.7',
     releaseDate: 'October 21, 2026',
     title: {

@@ -11,6 +11,7 @@ export const Navigation: React.FC = () => {
     selectedAccountId,
     budgetAlerts,
     settings,
+    isHeaderVisible,
     t,
   } = useApp();
 
@@ -50,7 +51,11 @@ export const Navigation: React.FC = () => {
     <>
       {/* Floating Action Button (+) - Hidden on calculator tab to prevent blocking = button */}
       {showFab && (
-        <div className="fixed bottom-20 left-0 right-0 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto pointer-events-none z-40 px-5 flex justify-end">
+        <div
+          className={`fixed bottom-20 left-0 right-0 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto pointer-events-none z-40 px-5 flex justify-end transition-all duration-300 ease-in-out ${
+            isHeaderVisible ? 'translate-y-0 opacity-100' : 'translate-y-24 opacity-0 pointer-events-none'
+          }`}
+        >
           <button
             type="button"
             onClick={handleFabClick}
@@ -63,7 +68,11 @@ export const Navigation: React.FC = () => {
       )}
 
       {/* Bottom Nav Bar with 5 tabs and fluid sliding indicator */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 bg-black/95 backdrop-blur-lg border-t border-zinc-800/80 px-2 py-2 safe-area-bottom">
+      <nav
+        className={`fixed bottom-0 left-0 right-0 z-30 bg-black/95 backdrop-blur-lg border-t border-zinc-800/80 px-2 py-2 safe-area-bottom transition-all duration-300 ease-in-out ${
+          isHeaderVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-full opacity-0 pointer-events-none'
+        }`}
+      >
         <div className="max-w-md md:max-w-4xl lg:max-w-6xl mx-auto grid grid-cols-5 items-center relative">
           {/* Fluid Sliding Active Indicator (Inversion fixed for RTL Arabic) */}
           {activeIndex !== -1 && (

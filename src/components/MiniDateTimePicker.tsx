@@ -54,8 +54,6 @@ export const MiniDateTimePicker: React.FC<MiniDateTimePickerProps> = ({
   const [viewYear, setViewYear] = useState(parsedDate.getFullYear());
   const [viewMonth, setViewMonth] = useState(parsedDate.getMonth()); // 0-indexed
 
-  if (!isOpen) return null;
-
   const monthNamesEn = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
@@ -232,6 +230,8 @@ export const MiniDateTimePicker: React.FC<MiniDateTimePickerProps> = ({
     e.stopPropagation();
     updateTime24h(hour12, m, isPM);
   };
+
+  if (!isOpen) return null;
 
   const content = (
     <div

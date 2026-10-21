@@ -40,6 +40,7 @@ import { decodeShareSnapshot } from './utils/sharing';
 import { listenToMyNumericIdInbox } from './utils/shareFolders';
 import { ShareFolderModal } from './components/ShareFolderModal';
 import { RemainingBalanceModal } from './components/RemainingBalanceModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const OfflineBanner: React.FC = () => {
   const [isOnline, setIsOnline] = useState(
@@ -398,11 +399,12 @@ const MainAppContent: React.FC = () => {
     const deltaY = scrollTop - lastScrollTopRef.current;
     lastScrollTopRef.current = scrollTop;
 
-    // Immediate Show on Slight Scroll Up (scrollTop <= 25 OR deltaY < -2)
-    if (scrollTop <= 25 || deltaY < -2) {
+    // Synchronized Header & Navigation Visibility
+    // Immediate Show on Slight Scroll Up (scrollTop <= 20 OR deltaY < -2)
+    if (scrollTop <= 20 || deltaY < -2) {
       setIsHeaderVisible(true);
-    } else if (deltaY > 8 && scrollTop > 50) {
-      // Hide on Scroll Down (deltaY > 10 AND scrollTop > 60)
+    } else if (deltaY > 6 && scrollTop > 40) {
+      // Hide on Scroll Down (deltaY > 6 AND scrollTop > 40)
       setIsHeaderVisible(false);
     }
   };
@@ -732,8 +734,10 @@ const MainAppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <AppProvider>
-      <MainAppContent />
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <MainAppContent />
+      </AppProvider>
+    </ErrorBoundary>
   );
 }

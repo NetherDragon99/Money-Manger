@@ -77,6 +77,7 @@ export const Sidebar: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const currencyMenuRef = useRef<HTMLDivElement | null>(null);
+  const sidebarTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState('');
   const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false);
@@ -147,8 +148,6 @@ export const Sidebar: React.FC = () => {
     }, 180);
   };
 
-  if (!isSidebarOpen) return null;
-
   const handleSelectCurrency = (cur: CurrencyOption) => {
     updateSettings({ currencySymbol: cur.symbol });
     setCurrencyDropdownOpen(false);
@@ -204,7 +203,7 @@ export const Sidebar: React.FC = () => {
     setBackupStatusLabel(isArabic ? 'جارٍ جمع البيانات...' : 'Gathering financial data...');
     try {
       const data = {
-        version: '1.1.7',
+        version: '1.1.8',
         exportDate: new Date().toISOString(),
         accounts,
         categories,
@@ -260,7 +259,7 @@ export const Sidebar: React.FC = () => {
 
   const handleEmailBackup = () => {
     const data = {
-      version: '1.1.7',
+      version: '1.1.8',
       exportDate: new Date().toISOString(),
       accounts,
       categories,
@@ -289,7 +288,7 @@ export const Sidebar: React.FC = () => {
       setBackupStatusLabel(isArabic ? 'جارٍ تشفير ومزامنة البيانات مع السحابة...' : 'Encrypting and syncing backup...');
       const backupRef = ref(rtdb, `users/${user.uid}/backup`);
       await set(backupRef, {
-        version: '1.1.7',
+        version: '1.1.8',
         backupDate: new Date().toISOString(),
         accounts,
         categories,
@@ -389,8 +388,6 @@ export const Sidebar: React.FC = () => {
   };
 
   // Swipe in opposite direction to close sidebar (Item 2)
-  const sidebarTouchStartRef = useRef<{ x: number; y: number } | null>(null);
-
   const handleSidebarTouchStart = (e: React.TouchEvent) => {
     const touch = e.touches[0];
     sidebarTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
@@ -418,6 +415,8 @@ export const Sidebar: React.FC = () => {
     setIsSidebarOpen(false);
     window.location.reload();
   };
+
+  if (!isSidebarOpen) return null;
 
   return (
     <div
@@ -848,7 +847,7 @@ export const Sidebar: React.FC = () => {
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
                 <span>{isArabic ? 'النسخ الاحتياطي والاستعادة' : 'Backup & Restore'}</span>
               </h4>
-              <span className="text-[10px] font-mono text-zinc-500">v1.1.7</span>
+              <span className="text-[10px] font-mono text-zinc-500">v1.1.8</span>
             </div>
 
             {/* Mandatory Visual Progress Bar (0% to 100%) */}
@@ -1125,7 +1124,7 @@ export const Sidebar: React.FC = () => {
         {/* Sidebar Footer: Version & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-zinc-300">Version: Beta v1.1.7</span>
+            <span className="font-bold text-zinc-300">Version: Beta v1.1.8</span>
           </div>
 
           {/* Refresh App Button */}
