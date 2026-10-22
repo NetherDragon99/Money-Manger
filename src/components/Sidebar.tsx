@@ -28,7 +28,6 @@ import {
   Users,
   Share2,
   Trash2,
-  Copy,
   Loader2,
   LogOut,
 } from 'lucide-react';
@@ -340,10 +339,7 @@ export const Sidebar: React.FC = () => {
                 )}
               </div>
               {currentUser && settings.userProfile?.numericId ? (
-                <div className="flex items-center gap-1.5 mt-0.5 text-xs text-zinc-400">
-                  <span className="font-mono text-[11px] text-zinc-400">
-                    {format16DigitId(settings.userProfile?.numericId || '0000000000000000')}
-                  </span>
+                <div className="mt-1">
                   <button
                     type="button"
                     onClick={(e) => {
@@ -352,15 +348,15 @@ export const Sidebar: React.FC = () => {
                       navigator.clipboard.writeText(numId);
                       showToast(
                         isArabic
-                          ? `تم نسخ معرّفك الرقمي (${format16DigitId(numId)}) للحافظة!`
-                          : `16-Digit ID (${format16DigitId(numId)}) copied to clipboard!`,
+                          ? `تم نسخ المعرف (${format16DigitId(numId)})!`
+                          : `Copied ID (${format16DigitId(numId)})!`,
                         'success'
                       );
                     }}
-                    className="p-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
-                    title="Copy 16-digit ID"
+                    title={isArabic ? 'انقر مباشرة لنسخ المعرف 16 رقماً' : 'Tap to copy 16-digit ID'}
+                    className="inline-flex items-center font-mono text-[11px] text-zinc-300 hover:text-white bg-zinc-950/80 hover:bg-zinc-800/90 border border-zinc-800 hover:border-zinc-700 px-2 py-0.5 rounded-lg transition active:scale-95 cursor-pointer"
                   >
-                    <Copy className="w-3 h-3" />
+                    <span>{format16DigitId(settings.userProfile?.numericId || '0000000000000000')}</span>
                   </button>
                 </div>
               ) : (
