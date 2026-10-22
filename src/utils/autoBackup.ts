@@ -510,6 +510,15 @@ export async function fetchDualCloudBackup(
  * Debounced Auto-Backup Dispatcher
  */
 let debouncedBackupTimeout: any = null;
+let isCloudBackupBlocked = false;
+
+export function setCloudBackupBlocked(blocked: boolean): void {
+  isCloudBackupBlocked = blocked;
+}
+
+export function isCloudBackupBlockedStatus(): boolean {
+  return isCloudBackupBlocked;
+}
 
 export function scheduleDualCloudBackup(
   uid: string,
@@ -517,6 +526,10 @@ export function scheduleDualCloudBackup(
   debounceMs = 2500
 ): void {
   if (!uid) return;
+  if (isCloudBackupBlocked) {
+    console.log('[DualCloudBackup] Auto backup scheduled write blocked: waiting for cloud inspection/hydration');
+    return;
+  }
 
   // If offline, queue payload immediately so it flushes as soon as connection is restored
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -534,6 +547,10 @@ export function scheduleDualCloudBackup(
   }
 
   debouncedBackupTimeout = setTimeout(async () => {
+    if (isCloudBackupBlocked) {
+      console.log('[DualCloudBackup] Auto backup timeout write blocked: waiting for cloud inspection/hydration');
+      return;
+    }
     try {
       const payload = getPayload();
       if (typeof navigator !== 'undefined' && !navigator.onLine) {

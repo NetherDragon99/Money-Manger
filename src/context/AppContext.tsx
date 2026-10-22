@@ -71,7 +71,17 @@ import {
   executeDualCloudBackup,
   fetchDualCloudBackup,
   scheduleDualCloudBackup,
+  setCloudBackupBlocked,
 } from '../utils/autoBackup';
+
+export interface SyncConflictData {
+  uid: string;
+  cloudBackup: any;
+  cloudProvider: 'google_drive' | 'firebase';
+  localCount: number;
+  cloudCount: number;
+  cloudAccountsCount: number;
+}
 import { decodeShareSnapshot } from '../utils/sharing';
 import {
   publishUserProfileCard,
@@ -277,6 +287,8 @@ interface AppContextType {
   }) => { accountsCount: number; categoriesCount: number; txsCount: number };
   triggerCloudBackupNow: () => Promise<{ provider: 'google_drive' | 'firebase'; success: boolean }>;
   triggerCloudRestoreNow: () => Promise<boolean>;
+  pendingSyncConflict: SyncConflictData | null;
+  resolveSyncConflict: (choice: 'replace' | 'merge') => Promise<void>;
 
   // Toasts
   toasts: ToastItem[];
@@ -392,8 +404,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   });
 
   // Cloud Sync & Dual-Layer Hydration Engine
+  const isCloudHydratedRef = useRef(false);
   const isHydratingCloudRef = useRef(false);
   const lastRestoredUidRef = useRef<string | null>(null);
+  const [pendingSyncConflict, setPendingSyncConflict] = useState<SyncConflictData | null>(null);
+
+  // References to keep data accessible synchronously in async auth callbacks
+  const transactionsRef = useRef(transactions);
+  transactionsRef.current = transactions;
+  const accountsRef = useRef(accounts);
+  accountsRef.current = accounts;
+  const categoriesRef = useRef(categories);
+  categoriesRef.current = categories;
+  const recurringTransactionsRef = useRef(recurringTransactions);
+  recurringTransactionsRef.current = recurringTransactions;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   // Smart Budget Alerts dismissed state
   const [dismissedAlertIds, setDismissedAlertIds] = useState<string[]>([]);
@@ -957,14 +983,47 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Debounced Automatic Cloud Backup whenever data changes
   useEffect(() => {
-    if (!auth.currentUser || isHydratingCloudRef.current) return;
+    if (!auth.currentUser || !isCloudHydratedRef.current) return;
     scheduleDualCloudBackup(auth.currentUser.uid, () => buildCurrentBackupPayload(), 2500);
   }, [accounts, categories, transactions, recurringTransactions, settings]);
 
+  const applyCloudData = (d: any) => {
+    if (!d || typeof d !== 'object') return;
+    if (Array.isArray(d.accounts) && d.accounts.length > 0) {
+      setAccounts(syncAllAccountBalances(d.accounts, d.transactions || []));
+    }
+    if (Array.isArray(d.categories) && d.categories.length > 0) {
+      setCategories(d.categories);
+    }
+    if (Array.isArray(d.transactions)) {
+      setTransactions(d.transactions);
+    }
+    if (Array.isArray(d.recurringTransactions)) {
+      setRecurringTransactions(d.recurringTransactions);
+    }
+    if (d.settings && typeof d.settings === 'object') {
+      setSettings((prev) => ({
+        ...prev,
+        ...d.settings,
+        userProfile: d.settings.userProfile
+          ? { ...prev.userProfile, ...d.settings.userProfile }
+          : prev.userProfile,
+      }));
+    }
+    if (d.sharedSpaces) {
+      if (Array.isArray(d.sharedSpaces.myFolders)) {
+        saveMyShareFolders(d.sharedSpaces.myFolders);
+      }
+      if (Array.isArray(d.sharedSpaces.receivedFolders)) {
+        saveReceivedShareFolders(d.sharedSpaces.receivedFolders);
+      }
+    }
+  };
+
   // Strictly ensure that EVERY time a user signs in, the app:
-  // 1. Checks Google Drive first (and Firebase users/${uid}/cloud_backup as fallback) to auto-restore & hydrate data.
-  // 2. Writes/updates public profile to Firebase RTDB at shared_accounts/profile_${cleanMy16Id}.
-  // 3. Immediately triggers an initial cloud backup to confirm synchronization.
+  // 1. Blocks cloud backup writes (isCloudHydratedRef.current = false) until cloud inspection completes.
+  // 2. Checks Google Drive first (and Firebase users/${uid}/cloud_backup as fallback) for existing data.
+  // 3. Resolves replace vs. merge if conflicts exist, or auto-restores if local device has 0 transactions.
   useEffect(() => {
     let isMounted = true;
 
@@ -976,6 +1035,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           // Do NOT sign out when offline or if token refresh fails!
           return;
         }
+        lastRestoredUidRef.current = null;
+        isCloudHydratedRef.current = false;
+        setCloudBackupBlocked(false);
+        setPendingSyncConflict(null);
+
         // Guest user: strictly ensure 16-digit ID is not generated, stored, or published
         try {
           localStorage.removeItem('app_permanent_16digit_id');
@@ -1001,53 +1065,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           photoURL: user.photoURL || null,
           phoneNumber: user.phoneNumber || null,
         });
-        // 1. Dual-Layer Cloud Auto-Restore upon Sign-In (Google Drive first, then Firebase Server Fallback)
+
+        // Strictly block all cloud backup writes until cloud inspection completes
+        isCloudHydratedRef.current = false;
+        setCloudBackupBlocked(true);
+
         if (lastRestoredUidRef.current !== user.uid) {
           lastRestoredUidRef.current = user.uid;
-          isHydratingCloudRef.current = true;
 
           try {
             const cloudBackup = await fetchDualCloudBackup(user.uid);
-            if (cloudBackup && cloudBackup.data) {
-              const d = cloudBackup.data;
-              let restoredSomething = false;
+            const cloudData = cloudBackup?.data;
+            const hasCloudData = Boolean(
+              cloudData &&
+              typeof cloudData === 'object' &&
+              ((Array.isArray(cloudData.transactions) && cloudData.transactions.length > 0) ||
+               (Array.isArray(cloudData.accounts) && cloudData.accounts.length > 0))
+            );
 
-              if (Array.isArray(d.accounts) && d.accounts.length > 0) {
-                setAccounts(syncAllAccountBalances(d.accounts, d.transactions || []));
-                restoredSomething = true;
-              }
-              if (Array.isArray(d.categories) && d.categories.length > 0) {
-                setCategories(d.categories);
-                restoredSomething = true;
-              }
-              if (Array.isArray(d.transactions)) {
-                setTransactions(d.transactions);
-                restoredSomething = true;
-              }
-              if (Array.isArray(d.recurringTransactions)) {
-                setRecurringTransactions(d.recurringTransactions);
-              }
-              if (d.settings && typeof d.settings === 'object') {
-                setSettings((prev) => ({
-                  ...prev,
-                  ...d.settings,
-                  userProfile: d.settings.userProfile
-                    ? { ...prev.userProfile, ...d.settings.userProfile }
-                    : prev.userProfile,
-                }));
-                restoredSomething = true;
-              }
-              if (d.sharedSpaces) {
-                if (Array.isArray(d.sharedSpaces.myFolders)) {
-                  saveMyShareFolders(d.sharedSpaces.myFolders);
-                }
-                if (Array.isArray(d.sharedSpaces.receivedFolders)) {
-                  saveReceivedShareFolders(d.sharedSpaces.receivedFolders);
-                }
-              }
+            const localTxCount = transactionsRef.current.length;
 
-              if (restoredSomething) {
-                const isDrive = cloudBackup.provider === 'google_drive';
+            if (hasCloudData) {
+              if (localTxCount === 0) {
+                // If local device has 0 custom transactions, automatically restore cloud account data immediately!
+                console.log('[AppContext] Local device has 0 transactions: Auto-restoring cloud account data immediately');
+                applyCloudData(cloudData);
+                isCloudHydratedRef.current = true;
+                setCloudBackupBlocked(false);
+
+                const isDrive = cloudBackup?.provider === 'google_drive';
                 showToast(
                   isArabic
                     ? (isDrive
@@ -1058,11 +1104,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                         : 'All accounts & data automatically restored from Cloud Backup!'),
                   'success'
                 );
+              } else {
+                // Cloud data exists AND local device has custom transactions/accounts:
+                // Open mandatory high-priority modal ("Account Data Sync / مزامنة بيانات الحساب" at z-[95])
+                console.log('[AppContext] Cloud sync conflict: local device has', localTxCount, 'transactions and cloud data exists');
+                setPendingSyncConflict({
+                  uid: user.uid,
+                  cloudBackup: cloudData,
+                  cloudProvider: cloudBackup?.provider || 'firebase',
+                  localCount: localTxCount,
+                  cloudCount: Array.isArray(cloudData.transactions) ? cloudData.transactions.length : 0,
+                  cloudAccountsCount: Array.isArray(cloudData.accounts) ? cloudData.accounts.length : 0,
+                });
+                // Cloud backup writes remain strictly locked (isCloudHydratedRef.current = false)
               }
+            } else {
+              // No cloud data exists on this account yet: Local device data is source of truth
+              console.log('[AppContext] No existing cloud backup found. Using local device data and saving initial backup.');
+              isCloudHydratedRef.current = true;
+              setCloudBackupBlocked(false);
+              setTimeout(() => {
+                if (auth.currentUser && isCloudHydratedRef.current) {
+                  executeDualCloudBackup(auth.currentUser.uid, buildCurrentBackupPayload());
+                }
+              }, 1500);
             }
           } catch (restoreErr) {
             console.warn('[AppContext] Dual cloud restore on login failed:', restoreErr);
           }
+        } else {
+          isCloudHydratedRef.current = true;
+          setCloudBackupBlocked(false);
         }
 
         const resolvedId = await resolvePermanent16DigitId(user.uid);
@@ -1113,14 +1185,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             user.email || ''
           ).catch((err) => console.warn('[AppContext] Numeric ID sync note:', err));
         }
-
-        // Initial confirmation backup to Google Drive & Firebase server
-        setTimeout(() => {
-          isHydratingCloudRef.current = false;
-          if (auth.currentUser) {
-            executeDualCloudBackup(auth.currentUser.uid, buildCurrentBackupPayload());
-          }
-        }, 1500);
       } catch (e) {
         console.warn('[AppContext] Error syncing profile on auth state change:', e);
       }
@@ -1741,6 +1805,126 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return true;
   };
 
+  const resolveSyncConflict = async (choice: 'replace' | 'merge') => {
+    if (!pendingSyncConflict) return;
+    const { cloudBackup: d, uid } = pendingSyncConflict;
+
+    if (choice === 'replace') {
+      applyCloudData(d);
+      isCloudHydratedRef.current = true;
+      setCloudBackupBlocked(false);
+      setPendingSyncConflict(null);
+      showToast(
+        isArabic
+          ? 'تم استبدال بيانات الجهاز ببيانات الحساب السحابي بنجاح!'
+          : 'Device data replaced with cloud account data successfully!',
+        'success'
+      );
+    } else {
+      // Merge Current Device Data with Account Data
+      // 1. Categories
+      const localCats = categoriesRef.current;
+      const cloudCats: Category[] = Array.isArray(d.categories) ? d.categories : [];
+      const catMap = new Map<string, Category>();
+      cloudCats.forEach((c) => { if (c && c.id) catMap.set(c.id, c); });
+      localCats.forEach((c) => { if (c && c.id && !catMap.has(c.id)) catMap.set(c.id, c); });
+      const mergedCategories = Array.from(catMap.values());
+
+      // 2. Transactions
+      const localTxs = transactionsRef.current;
+      const cloudTxs: Transaction[] = Array.isArray(d.transactions) ? d.transactions : [];
+      const txMap = new Map<string, Transaction>();
+      cloudTxs.forEach((t) => { if (t && t.id) txMap.set(t.id, t); });
+      localTxs.forEach((t) => { if (t && t.id && !txMap.has(t.id)) txMap.set(t.id, t); });
+      const mergedTransactions = Array.from(txMap.values());
+      mergedTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      // 3. Accounts
+      const localAccs = accountsRef.current;
+      const cloudAccs: Account[] = Array.isArray(d.accounts) ? d.accounts : [];
+      const accMap = new Map<string, Account>();
+      cloudAccs.forEach((a) => { if (a && a.id) accMap.set(a.id, a); });
+      localAccs.forEach((a) => { if (a && a.id && !accMap.has(a.id)) accMap.set(a.id, a); });
+      let mergedAccounts = Array.from(accMap.values());
+      mergedAccounts = syncAllAccountBalances(mergedAccounts, mergedTransactions);
+
+      // 4. Recurring Transactions
+      const localRecs = recurringTransactionsRef.current;
+      const cloudRecs: RecurringTransaction[] = Array.isArray(d.recurringTransactions) ? d.recurringTransactions : [];
+      const recMap = new Map<string, RecurringTransaction>();
+      cloudRecs.forEach((r) => { if (r && r.id) recMap.set(r.id, r); });
+      localRecs.forEach((r) => { if (r && r.id && !recMap.has(r.id)) recMap.set(r.id, r); });
+      const mergedRecurring = Array.from(recMap.values());
+
+      // Apply merged state
+      setCategories(mergedCategories);
+      setAccounts(mergedAccounts);
+      setTransactions(mergedTransactions);
+      setRecurringTransactions(mergedRecurring);
+
+      // Merge shared spaces if any
+      if (d.sharedSpaces) {
+        if (Array.isArray(d.sharedSpaces.myFolders)) {
+          const existing = loadMyShareFolders();
+          const map = new Map<string, ShareFolder>();
+          d.sharedSpaces.myFolders.forEach((f: ShareFolder) => { if (f && f.id) map.set(f.id, f); });
+          existing.forEach((f: ShareFolder) => { if (f && f.id && !map.has(f.id)) map.set(f.id, f); });
+          saveMyShareFolders(Array.from(map.values()));
+        }
+        if (Array.isArray(d.sharedSpaces.receivedFolders)) {
+          const existing = loadReceivedShareFolders();
+          const map = new Map<string, ShareFolder>();
+          d.sharedSpaces.receivedFolders.forEach((f: ShareFolder) => { if (f && f.id) map.set(f.id, f); });
+          existing.forEach((f: ShareFolder) => { if (f && f.id && !map.has(f.id)) map.set(f.id, f); });
+          saveReceivedShareFolders(Array.from(map.values()));
+        }
+      }
+
+      // Unlock cloud backup writes
+      isCloudHydratedRef.current = true;
+      setCloudBackupBlocked(false);
+      setPendingSyncConflict(null);
+
+      // Sync merged state to cloud
+      const effectiveSettings = settingsRef.current;
+      const mergedPayload: FullAppBackupPayload = {
+        version: '1.1.33',
+        backupDate: new Date().toISOString(),
+        timestamp: Date.now(),
+        accounts: mergedAccounts,
+        categories: mergedCategories,
+        transactions: mergedTransactions,
+        recurringTransactions: mergedRecurring,
+        settings: effectiveSettings,
+        sharedSpaces: {
+          myFolders: loadMyShareFolders(),
+          receivedFolders: loadReceivedShareFolders(),
+        },
+        userProfile: {
+          name: effectiveSettings.userProfile?.name || 'User',
+          numericId: effectiveSettings.userProfile?.numericId || '',
+          avatarEmoji: effectiveSettings.userProfile?.avatarEmoji || '👤',
+          customAvatarUrl: effectiveSettings.userProfile?.customAvatarUrl || auth.currentUser?.photoURL || '',
+          email: auth.currentUser?.email || '',
+          uid: uid,
+        },
+      };
+
+      try {
+        await executeDualCloudBackup(uid, mergedPayload);
+      } catch (e) {
+        console.warn('[AppContext] Merged cloud backup write error:', e);
+      }
+
+      showToast(
+        isArabic
+          ? 'تم دمج البيانات ومزامنتها سحابياً بنجاح!'
+          : 'Data merged and synced with cloud successfully!',
+        'success'
+      );
+    }
+  };
+
   // Custom In-App Confirm and Prompt System (Item 6)
   const [customDialogState, setCustomDialogState] = useState<{
     type: 'confirm' | 'prompt';
@@ -1927,12 +2111,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setActiveSharedSnapshot,
     openSharedLiveView,
     closeSharedLiveView,
+    resolveSyncConflict,
   });
 
   // Context value only changes when actual STATE changes (mutators are stable)
   const contextValue = useMemo<AppContextType>(
     () => ({
       ...stable,
+      pendingSyncConflict,
+      resolveSyncConflict,
       accounts,
       categories,
       transactions,
