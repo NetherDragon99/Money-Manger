@@ -672,92 +672,134 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             </div>
           </div>
 
-          {/* Members Bar */}
-          <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Users className="w-4 h-4 text-purple-400 shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs font-bold text-zinc-200 block">
+          {/* Members Bar - Two-Row Layout */}
+          <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex flex-col gap-3">
+            {/* Row 1: Title on left, Action buttons on right */}
+            <div className="flex items-center justify-between gap-3 w-full">
+              <div className="flex items-center gap-2 min-w-0">
+                <Users className="w-4 h-4 text-purple-400 shrink-0" />
+                <span className="text-xs font-bold text-zinc-200 truncate">
                   {isArabic ? 'الأعضاء المشاركون' : 'Share Members'} ({folder.members.length + 1})
                 </span>
-                <div className="flex items-center gap-1.5 mt-1 overflow-x-auto py-0.5">
-                  {/* Owner avatar */}
-                  <div
-                    title={folder.ownerName}
-                    className="w-7 h-7 rounded-full bg-blue-600/30 border border-blue-500/50 flex items-center justify-center text-xs font-bold text-blue-300 shrink-0 overflow-hidden"
-                  >
-                    {folder.ownerPhotoURL ? (
-                      <img src={folder.ownerPhotoURL} alt={folder.ownerName} className="w-full h-full object-cover" />
-                    ) : (
-                      <span>{folder.ownerAvatar || getMemberInitials(folder.ownerName, folder.ownerNumericId)}</span>
-                    )}
-                  </div>
-
-                  {/* Members avatars */}
-                  <div
-                    onClick={() => isOwner && setIsManageMembersOpen(true)}
-                    className={`flex items-center -space-x-1.5 rtl:space-x-reverse ${isOwner ? 'cursor-pointer hover:opacity-85 transition' : ''}`}
-                    title={isOwner ? (isArabic ? 'إدارة الأعضاء' : 'Manage Members') : undefined}
-                  >
-                    {folder.members.map((m) => (
-                      <div
-                        key={m.numericId}
-                        title={`${m.name} (${m.status})`}
-                        className={`relative w-7 h-7 rounded-full border border-purple-500/50 flex items-center justify-center text-[10px] font-bold text-white shrink-0 overflow-hidden bg-gradient-to-tr ${getAvatarColorGradient(m.numericId || m.name)}`}
-                      >
-                        {m.photoURL ? (
-                          <img src={m.photoURL} alt={m.name} className="w-full h-full object-cover" />
-                        ) : m.avatar && m.avatar !== '👤' ? (
-                          <span>{m.avatar}</span>
-                        ) : (
-                          <span>{getMemberInitials(m.name, m.numericId)}</span>
-                        )}
-                        <span
-                          className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border border-black ${
-                            m.status === 'accepted' ? 'bg-emerald-500' : 'bg-amber-500'
-                          }`}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </div>
-            </div>
 
-            {isOwner && (
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenEditSpace(e);
-                  }}
-                  className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-800"
-                  title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
-                >
-                  <Settings className="w-3.5 h-3.5 text-zinc-400" />
-                  <span>{isArabic ? 'الإعدادات' : 'Settings'}</span>
-                </button>
-                {folder.members.length > 0 && (
+              {isOwner && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {folder.members.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsManageMembersOpen(true)}
+                      className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-800"
+                    >
+                      <Users className="w-3.5 h-3.5 text-purple-400" />
+                      <span>{isArabic ? 'إدارة' : 'Manage'}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setIsManageMembersOpen(true)}
-                    className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-800"
+                    onClick={() => setIsAddMemberOpen(true)}
+                    className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-xs font-semibold text-zinc-200 flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-700/60"
                   >
-                    <Users className="w-3.5 h-3.5 text-purple-400" />
-                    <span>{isArabic ? 'إدارة الأعضاء' : 'Manage'}</span>
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{isArabic ? 'إضافة عضو' : 'Add Member'}</span>
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setIsAddMemberOpen(true)}
-                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-xs font-semibold text-zinc-200 flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-700/60"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>{isArabic ? 'إضافة عضو' : 'Add Member'}</span>
-                </button>
+                </div>
+              )}
+            </div>
+
+            {/* Row 2: Full-width horizontal list of member chips/avatars */}
+            <div className="w-full overflow-x-auto pt-3 pb-1 flex items-center gap-2.5 no-scrollbar">
+              {/* Owner Chip */}
+              <div
+                className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-zinc-950/70 border border-blue-500/30 shrink-0"
+                title={`${folder.ownerName || 'Owner'} (${isArabic ? 'المالك' : 'Owner'})`}
+              >
+                <div className="shrink-0 w-10 h-10 rounded-full overflow-visible relative bg-blue-600/30 border border-blue-500/60 flex items-center justify-center text-xs font-bold text-blue-300">
+                  {folder.ownerPhotoURL ? (
+                    <img
+                      src={folder.ownerPhotoURL}
+                      alt={folder.ownerName}
+                      className="w-full h-full object-cover rounded-full"
+                    />
+                  ) : (
+                    <span>{folder.ownerAvatar || getMemberInitials(folder.ownerName, folder.ownerNumericId)}</span>
+                  )}
+                  <span
+                    className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-blue-500 border-2 border-zinc-900"
+                    title={isArabic ? 'المالك' : 'Owner'}
+                  />
+                </div>
+                <div className="flex flex-col min-w-0 pr-1 rtl:pr-0 rtl:pl-1">
+                  <span className="text-xs font-bold text-white max-w-[120px] truncate leading-tight">
+                    {folder.ownerName || 'Owner'}
+                  </span>
+                  <span className="text-[10px] font-semibold text-blue-400 leading-tight mt-0.5">
+                    {isArabic ? 'المالك' : 'Owner'}
+                  </span>
+                </div>
               </div>
-            )}
+
+              {/* Members Chips */}
+              {folder.members.map((m) => {
+                const isCurrent = cleanNumericId(m.numericId) === myCleanNumericId;
+                const isAccepted = m.status === 'accepted' || (m.status as string) === 'active';
+                return (
+                  <div
+                    key={m.numericId}
+                    onClick={() => isOwner && setIsManageMembersOpen(true)}
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-xl bg-zinc-950/70 border border-zinc-800 shrink-0 ${
+                      isOwner ? 'cursor-pointer hover:border-purple-500/50 transition' : ''
+                    }`}
+                    title={`${m.name} (${m.role})`}
+                  >
+                    <div
+                      className={`shrink-0 w-10 h-10 rounded-full overflow-visible relative flex items-center justify-center text-xs font-bold text-white border ${
+                        isAccepted ? 'border-purple-500/60' : 'border-amber-500/60'
+                      } bg-gradient-to-tr ${getAvatarColorGradient(m.numericId || m.name)}`}
+                    >
+                      {m.photoURL ? (
+                        <img
+                          src={m.photoURL}
+                          alt={m.name}
+                          className="w-full h-full object-cover rounded-full"
+                        />
+                      ) : m.avatar && m.avatar !== '👤' ? (
+                        <span className="text-base">{m.avatar}</span>
+                      ) : (
+                        <span>{getMemberInitials(m.name, m.numericId)}</span>
+                      )}
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-zinc-900 ${
+                          isAccepted ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}
+                        title={isAccepted ? 'Active' : 'Pending'}
+                      />
+                    </div>
+                    <div className="flex flex-col min-w-0 pr-1 rtl:pr-0 rtl:pl-1">
+                      <span className="text-xs font-bold text-white max-w-[120px] truncate leading-tight">
+                        {m.name || 'Member'}
+                      </span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] font-semibold text-zinc-400 capitalize leading-tight">
+                          {m.role === 'editor'
+                            ? isArabic
+                              ? 'محرر'
+                              : 'Editor'
+                            : isArabic
+                            ? 'مشاهد'
+                            : 'Viewer'}
+                        </span>
+                        {isCurrent && (
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-purple-500/20 text-purple-300 font-bold leading-tight">
+                            {isArabic ? 'أنت' : 'You'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Quick Action Toolbar if Editor */}
