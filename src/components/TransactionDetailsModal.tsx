@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { X, Trash2, Edit3, ArrowRight, Share2 } from 'lucide-react';
-import { getHistoricalBalance } from '../utils/balanceEngine';
+import { getHistoricalBalance, getTransferHistoricalBalances } from '../utils/balanceEngine';
 import { formatCurrency, formatFullDateTime } from '../utils/dateCycle';
 
 export const TransactionDetailsModal: React.FC = () => {
@@ -42,6 +42,11 @@ export const TransactionDetailsModal: React.FC = () => {
     if (!viewingTx || !account) return null;
     return getHistoricalBalance(viewingTx.id, account, transactions);
   }, [viewingTx, account, transactions]);
+
+  const transferBalances = useMemo(() => {
+    if (!viewingTx || viewingTx.type !== 'transfer' || !account || !toAccount) return null;
+    return getTransferHistoricalBalances(viewingTx, accounts, transactions);
+  }, [viewingTx, account, toAccount, accounts, transactions]);
 
   if (!viewingTx) return null;
 
@@ -143,48 +148,126 @@ export const TransactionDetailsModal: React.FC = () => {
           </div>
         </div>
 
-        {/* 3 Historical Balance Cards (CRITICAL MATH) */}
-        {historicalBalances && (
-          <div className="grid grid-cols-3 gap-2">
-            {/* Balance Before */}
-            <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
-              <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
-                {t('balanceBefore')}
-              </span>
-              <span className="text-xs font-mono font-bold text-zinc-200 mt-1 truncate">
-                {formatCurrency(historicalBalances.balanceBefore, currencySymbol)}
-              </span>
+        {/* Balance Breakdown: Dual-Account Breakdown for Transfers, Single-Account 3-Box for Income/Expense */}
+        {isTransfer && transferBalances ? (
+          <div className="space-y-3">
+            {/* Source Account (From) Card */}
+            <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-base">{transferBalances.fromAccountIcon}</span>
+                  <span className="text-xs font-bold text-white truncate max-w-[150px]">
+                    {transferBalances.fromAccountName}
+                  </span>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300">
+                    {settings.language === 'ar' ? 'المحول منه' : 'Source'}
+                  </span>
+                </div>
+                <span className="text-xs font-mono font-bold text-red-400">
+                  -{formatCurrency(transferBalances.amount, currencySymbol, settings.language)}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <div className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800/60 text-center">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">
+                    {t('balanceBefore')}
+                  </span>
+                  <span className="text-xs font-mono font-bold text-zinc-200 mt-0.5 block truncate">
+                    {formatCurrency(transferBalances.fromBalanceBefore, currencySymbol, settings.language)}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800/60 text-center">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">
+                    {t('balanceAfter')}
+                  </span>
+                  <span className="text-xs font-mono font-bold text-red-400 mt-0.5 block truncate">
+                    {formatCurrency(transferBalances.fromBalanceAfter, currencySymbol, settings.language)}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            {/* Transaction Amount */}
-            <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
-              <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
-                Amount
-              </span>
-              <span
-                className={`text-xs font-mono font-black mt-1 truncate ${
-                  viewingTx.type === 'income'
-                    ? 'text-emerald-400'
-                    : viewingTx.type === 'expense'
-                    ? 'text-red-400'
-                    : 'text-blue-400'
-                }`}
-              >
-                {viewingTx.type === 'income' ? '+' : viewingTx.type === 'expense' ? '-' : ''}
-                {formatCurrency(viewingTx.amount, currencySymbol)}
-              </span>
-            </div>
+            {/* Destination Account (To) Card */}
+            <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-base">{transferBalances.toAccountIcon}</span>
+                  <span className="text-xs font-bold text-white truncate max-w-[150px]">
+                    {transferBalances.toAccountName}
+                  </span>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300">
+                    {settings.language === 'ar' ? 'المحول إليه' : 'Destination'}
+                  </span>
+                </div>
+                <span className="text-xs font-mono font-bold text-emerald-400">
+                  +{formatCurrency(transferBalances.amount, currencySymbol, settings.language)}
+                </span>
+              </div>
 
-            {/* Balance After */}
-            <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
-              <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
-                {t('balanceAfter')}
-              </span>
-              <span className="text-xs font-mono font-bold text-white mt-1 truncate">
-                {formatCurrency(historicalBalances.balanceAfter, currencySymbol)}
-              </span>
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <div className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800/60 text-center">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">
+                    {t('balanceBefore')}
+                  </span>
+                  <span className="text-xs font-mono font-bold text-zinc-200 mt-0.5 block truncate">
+                    {formatCurrency(transferBalances.toBalanceBefore, currencySymbol, settings.language)}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800/60 text-center">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">
+                    {t('balanceAfter')}
+                  </span>
+                  <span className="text-xs font-mono font-bold text-emerald-400 mt-0.5 block truncate">
+                    {formatCurrency(transferBalances.toBalanceAfter, currencySymbol, settings.language)}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
+        ) : (
+          historicalBalances && (
+            <div className="grid grid-cols-3 gap-2">
+              {/* Balance Before */}
+              <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
+                <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                  {t('balanceBefore')}
+                </span>
+                <span className="text-xs font-mono font-bold text-zinc-200 mt-1 truncate">
+                  {formatCurrency(historicalBalances.balanceBefore, currencySymbol, settings.language)}
+                </span>
+              </div>
+
+              {/* Transaction Amount */}
+              <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
+                <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                  Amount
+                </span>
+                <span
+                  className={`text-xs font-mono font-black mt-1 truncate ${
+                    viewingTx.type === 'income'
+                      ? 'text-emerald-400'
+                      : viewingTx.type === 'expense'
+                      ? 'text-red-400'
+                      : 'text-blue-400'
+                  }`}
+                >
+                  {viewingTx.type === 'income' ? '+' : viewingTx.type === 'expense' ? '-' : ''}
+                  {formatCurrency(viewingTx.amount, currencySymbol, settings.language)}
+                </span>
+              </div>
+
+              {/* Balance After */}
+              <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
+                <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                  {t('balanceAfter')}
+                </span>
+                <span className="text-xs font-mono font-bold text-white mt-1 truncate">
+                  {formatCurrency(historicalBalances.balanceAfter, currencySymbol, settings.language)}
+                </span>
+              </div>
+            </div>
+          )
         )}
 
         {/* Action Buttons at Bottom */}

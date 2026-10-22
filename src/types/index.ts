@@ -34,6 +34,12 @@ export interface Transaction {
   description: string;
   isUneditable?: boolean; // For automatic manual balance adjustments
   createdAt: number;
+  fromBalanceBefore?: number;
+  fromBalanceAfter?: number;
+  toBalanceBefore?: number;
+  toBalanceAfter?: number;
+  balanceBefore?: number;
+  balanceAfter?: number;
 }
 
 export type WeekStartDay = 'saturday' | 'sunday' | 'monday';
@@ -126,5 +132,17 @@ export interface HistoricalBalanceResult {
   balanceBefore: number;
   transactionAmount: number; // signed
   balanceAfter: number;
+}
+
+export interface TransferBalancesResult {
+  fromAccountName: string;
+  fromAccountIcon?: string;
+  fromBalanceBefore: number;
+  fromBalanceAfter: number;
+  toAccountName: string;
+  toAccountIcon?: string;
+  toBalanceBefore: number;
+  toBalanceAfter: number;
+  amount: number;
 }
 

@@ -61,7 +61,7 @@ import {
   executeCustomDataImport,
 } from '../utils/storage';
 import { requestPersistentStorage, loadFullDataFromIndexedDB } from '../utils/indexedDB';
-import { syncAllAccountBalances } from '../utils/balanceEngine';
+import { syncAllAccountBalances, getHistoricalBalance } from '../utils/balanceEngine';
 import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
 import { translations } from '../utils/translations';
 import { DEFAULT_SETTINGS } from '../utils/constants';
@@ -1449,13 +1449,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // CRUD TRANSACTIONS
   const addTransaction = (txData: Omit<Transaction, 'id' | 'createdAt'>) => {
-    const newTx: Transaction = {
+    let newTx: Transaction = {
       ...txData,
       id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       createdAt: Date.now(),
     };
 
-    const updatedTransactions = [...transactions, newTx];
+    let updatedTransactions = [...transactions, newTx];
+
+    // If transfer transaction, compute and record before & after balances for BOTH accounts
+    if (newTx.type === 'transfer' && newTx.toAccountId) {
+      const fromAcc = accounts.find((a) => a.id === newTx.accountId);
+      const toAcc = accounts.find((a) => a.id === newTx.toAccountId);
+      if (fromAcc && toAcc) {
+        const fromHist = getHistoricalBalance(newTx.id, fromAcc, updatedTransactions);
+        const toHist = getHistoricalBalance(newTx.id, toAcc, updatedTransactions);
+        newTx = {
+          ...newTx,
+          fromBalanceBefore: fromHist.balanceBefore,
+          fromBalanceAfter: fromHist.balanceAfter,
+          toBalanceBefore: toHist.balanceBefore,
+          toBalanceAfter: toHist.balanceAfter,
+        };
+        updatedTransactions = [...transactions, newTx];
+      }
+    }
+
     setTransactions(updatedTransactions);
 
     // Sync account balances
@@ -1466,15 +1485,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updateTransaction = (updatedTx: Transaction) => {
-    const updatedList = transactions.map((t) => (t.id === updatedTx.id ? updatedTx : t));
+    let finalTx = updatedTx;
+    let updatedList = transactions.map((t) => (t.id === finalTx.id ? finalTx : t));
+
+    // If transfer transaction, recalculate and record before & after balances for BOTH accounts
+    if (finalTx.type === 'transfer' && finalTx.toAccountId) {
+      const fromAcc = accounts.find((a) => a.id === finalTx.accountId);
+      const toAcc = accounts.find((a) => a.id === finalTx.toAccountId);
+      if (fromAcc && toAcc) {
+        const fromHist = getHistoricalBalance(finalTx.id, fromAcc, updatedList);
+        const toHist = getHistoricalBalance(finalTx.id, toAcc, updatedList);
+        finalTx = {
+          ...finalTx,
+          fromBalanceBefore: fromHist.balanceBefore,
+          fromBalanceAfter: fromHist.balanceAfter,
+          toBalanceBefore: toHist.balanceBefore,
+          toBalanceAfter: toHist.balanceAfter,
+        };
+        updatedList = transactions.map((t) => (t.id === finalTx.id ? finalTx : t));
+      }
+    }
+
     setTransactions(updatedList);
 
     const syncedAccounts = syncAllAccountBalances(accounts, updatedList);
     setAccounts(syncedAccounts);
 
     // If currently viewing this transaction details, update it
-    if (viewingTx && viewingTx.id === updatedTx.id) {
-      setViewingTx(updatedTx);
+    if (viewingTx && viewingTx.id === finalTx.id) {
+      setViewingTx(finalTx);
     }
 
     showToast(t('updatedSuccess'), 'success');

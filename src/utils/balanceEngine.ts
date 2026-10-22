@@ -1,4 +1,4 @@
-import { Account, Transaction, HistoricalBalanceResult } from '../types';
+import { Account, Transaction, HistoricalBalanceResult, TransferBalancesResult } from '../types';
 
 /**
  * Comparator to sort transactions in strict chronological order
@@ -78,6 +78,49 @@ export function getHistoricalBalance(
     balanceBefore,
     transactionAmount: transactionDelta,
     balanceAfter,
+  };
+}
+
+/**
+ * Calculates historical balances (before & after) for BOTH accounts involved in a transfer transaction
+ */
+export function getTransferHistoricalBalances(
+  tx: Transaction,
+  accounts: Account[],
+  allTransactions: Transaction[]
+): TransferBalancesResult | null {
+  if (tx.type !== 'transfer' || !tx.toAccountId) return null;
+  const fromAcc = accounts.find((a) => a.id === tx.accountId);
+  const toAcc = accounts.find((a) => a.id === tx.toAccountId);
+  if (!fromAcc || !toAcc) return null;
+
+  let fromBefore = tx.fromBalanceBefore;
+  let fromAfter = tx.fromBalanceAfter;
+  let toBefore = tx.toBalanceBefore;
+  let toAfter = tx.toBalanceAfter;
+
+  if (fromBefore === undefined || fromAfter === undefined) {
+    const fromHist = getHistoricalBalance(tx.id, fromAcc, allTransactions);
+    fromBefore = fromHist.balanceBefore;
+    fromAfter = fromHist.balanceAfter;
+  }
+
+  if (toBefore === undefined || toAfter === undefined) {
+    const toHist = getHistoricalBalance(tx.id, toAcc, allTransactions);
+    toBefore = toHist.balanceBefore;
+    toAfter = toHist.balanceAfter;
+  }
+
+  return {
+    fromAccountName: fromAcc.name,
+    fromAccountIcon: fromAcc.icon,
+    fromBalanceBefore: fromBefore,
+    fromBalanceAfter: fromAfter,
+    toAccountName: toAcc.name,
+    toAccountIcon: toAcc.icon,
+    toBalanceBefore: toBefore,
+    toBalanceAfter: toAfter,
+    amount: tx.amount,
   };
 }
 
