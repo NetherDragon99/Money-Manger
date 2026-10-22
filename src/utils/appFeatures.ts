@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.35',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Real-Time 16-Digit Share Delivery, Streamlined Hub, and Member Avatar Layout Fixes',
+      ar: 'تسليم المشاركات الفوري بالمعرف الرقمي، تبسيط نافذة المشاركة، وتحسين مظهر الأعضاء',
+    },
+    highlights: {
+      en: [
+        'Instant Real-Time 16-Digit Share Delivery: Resolved Firebase RTDB ownerUid collision by delivering share spaces through dedicated sender-owned invite nodes (shared_accounts/invite_${targetClean16Id}_${shareId}) and an active shared_accounts root listener with 3-second polling, ensuring instant delivery into "Shared with Me".',
+        'Streamlined In-App Sharing: Removed manual "Paste Share Link / Join via Link" input boxes from the Shared Accounts Hub, establishing automated 16-digit real-time sharing for in-app collaboration while reserving Copy Link strictly for external browsers.',
+        'Redesigned Share Members Card in Detail View: Fixed crushed layout and clipped avatar icons by introducing a clean two-row layout. Row 1 features the unclipped member counter alongside Manage and Add Member buttons (removing the duplicate Settings button), while Row 2 provides a full-width horizontal scroll with 40x40px unclipped avatars, names, and role badges.',
+      ],
+      ar: [
+        'تسليم فوري للمشاركات عبر المعرف المكون من 16 رقماً: تجاوز تعارض قواعد فايربيس (ownerUid) عبر كتابة دعوات مخصصة يملكها المرسل (shared_accounts/invite_${targetClean16Id}_${shareId}) وربط مستمع فوري لـ shared_accounts مع دورة تحديث كل 3 ثوانٍ للظهور الفوري في "تمت مشاركتها معي".',
+        'تبسيط واجهة المشاركة الداخلية: إزالة خانة وأزرار "لصق الرابط / الانضمام عبر الرابط" يدوياً داخل التطبيق، والاعتماد بالكامل على المعرف الرقمي الفوري لمشاركة الحسابات داخلياً، مع حصر زر نسخ الرابط للاستعراض الخارجي.',
+        'إعادة تصميم بطاقة أعضاء المشاركة في صفحة التفاصيل: حل مشكلة انضغاط العناصر واقتطاع صور الأعضاء عبر اعتماد تصميم من صفين: الصف الأول يعرض العنوان وأزرار إدارة وإضافة الأعضاء (مع إزالة زر الإعدادات المكرر)، والصف الثاني يعرض شريطاً أفقياً كاملاً لبطاقات الأعضاء بصور دائرية غير مقتطعة بمقاس 40x40 مع الأسماء وشارات الأدوار.',
+      ],
+    },
+  },
+  {
     version: '1.1.34',
     releaseDate: 'October 22, 2026',
     title: {
