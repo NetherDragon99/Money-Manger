@@ -106,13 +106,15 @@ export const ShareSpaceSettingsModal: React.FC<ShareSpaceSettingsModalProps> = (
   return (
     <>
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in"
+        className="fixed inset-0 z-[95] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in"
         dir={isArabic ? 'rtl' : 'ltr'}
+        onClick={onClose}
       >
         <div
           role="dialog"
           aria-modal="true"
           className="relative w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-3xl p-6 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
@@ -190,7 +192,11 @@ export const ShareSpaceSettingsModal: React.FC<ShareSpaceSettingsModalProps> = (
                     <button
                       key={icon}
                       type="button"
-                      onClick={() => setSelectedIcon(icon)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSelectedIcon(icon);
+                      }}
                       className={`h-10 rounded-xl flex items-center justify-center text-xl transition cursor-pointer active:scale-95 ${
                         isSelected
                           ? 'bg-purple-600/30 border-2 border-purple-500 scale-105 shadow-md shadow-purple-500/20'
@@ -204,12 +210,20 @@ export const ShareSpaceSettingsModal: React.FC<ShareSpaceSettingsModalProps> = (
               </div>
             </div>
 
-            {/* Save Button */}
-            <div className="pt-2">
+            {/* Save & Cancel Buttons */}
+            <div className="pt-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isSaving || isDeleting}
+                className="flex-1 py-3.5 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-zinc-300 font-bold text-sm transition cursor-pointer active:scale-98"
+              >
+                {isArabic ? 'إلغاء' : 'Cancel'}
+              </button>
               <button
                 type="submit"
                 disabled={isSaving || isDeleting || !name.trim()}
-                className="w-full py-3.5 rounded-2xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-sm transition cursor-pointer shadow-lg shadow-purple-600/25 flex items-center justify-center gap-2 active:scale-98"
+                className="flex-1 py-3.5 rounded-2xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-sm transition cursor-pointer shadow-lg shadow-purple-600/25 flex items-center justify-center gap-2 active:scale-98"
               >
                 {isSaving ? (
                   <Loader2 className="w-4 h-4 animate-spin" />

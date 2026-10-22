@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ArrowLeft,
   Share2,
@@ -107,42 +107,44 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   // Add Member State
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [isManageMembersOpen, setIsManageMembersOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isEditingSpace, setIsEditingSpace] = useState<boolean>(false);
-  const [editingShareId, setEditingShareId] = useState<string | null>(null);
+  // Dedicated Share Space Settings / Edit Space Modal state without premature render resets
+  const [activeSettingsSpace, setActiveSettingsSpace] = useState<ShareFolder | null>(null);
+  const activeSettingsSpaceRef = useRef<ShareFolder | null>(null);
+  activeSettingsSpaceRef.current = activeSettingsSpace;
 
   const handleOpenEditSpace = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setIsSettingsOpen(true);
-    setIsEditingSpace(true);
-    setEditingShareId(folder.id);
+    setActiveSettingsSpace(folder);
     setGlobalIsEditingSpace?.(true);
     setGlobalEditingShareId?.(folder.id);
   };
 
   const handleCloseEditSpace = () => {
-    setIsSettingsOpen(false);
-    setIsEditingSpace(false);
-    setEditingShareId(null);
+    setActiveSettingsSpace(null);
     setGlobalIsEditingSpace?.(false);
     setGlobalEditingShareId?.(null);
   };
 
-  // Explicit popstate & unmount cleanup for edit space states
+  // Hardware Back button / Popstate handling: closes edit space when active without wiping on render
   useEffect(() => {
     const handlePop = () => {
-      if (isSettingsOpen || isEditingSpace || editingShareId) {
+      if (activeSettingsSpaceRef.current) {
         handleCloseEditSpace();
       }
     };
 
     window.addEventListener('popstate', handlePop);
-
     return () => {
       window.removeEventListener('popstate', handlePop);
+    };
+  }, []);
+
+  // When unmounting ShareDetailView, safely clean up
+  useEffect(() => {
+    return () => {
       handleCloseEditSpace();
     };
-  }, [isSettingsOpen, isEditingSpace, editingShareId]);
+  }, []);
   const [newMemberId, setNewMemberId] = useState('');
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedMemberUser, setSelectedMemberUser] = useState<any>(null);
@@ -598,7 +600,10 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             {isOwner && (
               <button
                 type="button"
-                onClick={handleOpenEditSpace}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenEditSpace(e);
+                }}
                 className="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition active:scale-95 cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
                 title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
                 aria-label={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
@@ -703,7 +708,10 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
-                  onClick={handleOpenEditSpace}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenEditSpace(e);
+                  }}
                   className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-800"
                   title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
                 >
@@ -1863,12 +1871,12 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
         </div>
       )}
 
-      {/* Dedicated Share Space Settings Modal */}
-      {isSettingsOpen && (
+      {/* Dedicated Share Space Settings Modal - High Priority Layer */}
+      {activeSettingsSpace && (
         <ShareSpaceSettingsModal
-          isOpen={isSettingsOpen}
+          isOpen={!!activeSettingsSpace}
           onClose={handleCloseEditSpace}
-          folder={folder}
+          folder={activeSettingsSpace}
           onUpdated={(updated) => {
             setFolder(updated);
             handleCloseEditSpace();

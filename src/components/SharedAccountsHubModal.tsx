@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Users,
@@ -95,45 +95,39 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   // Full-screen native detail page view state
   const [activeShareDetailFolder, setActiveShareDetailFolder] = useState<ShareFolder | null>(null);
 
-  // Dedicated Share Space Settings / Edit Space Modal state
-  const [settingsFolder, setSettingsFolder] = useState<ShareFolder | null>(null);
-  const [isEditingSpace, setIsEditingSpace] = useState<boolean>(false);
-  const [editingShareId, setEditingShareId] = useState<string | null>(null);
+  // Dedicated Share Space Settings / Edit Space Modal state without premature render resets
+  const [activeSettingsSpace, setActiveSettingsSpace] = useState<ShareFolder | null>(null);
+  const activeSettingsSpaceRef = useRef<ShareFolder | null>(null);
+  activeSettingsSpaceRef.current = activeSettingsSpace;
 
   const handleOpenEditSpace = (folder: ShareFolder, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setSettingsFolder(folder);
-    setIsEditingSpace(true);
-    setEditingShareId(folder.id);
+    setActiveSettingsSpace(folder);
     setGlobalIsEditingSpace?.(true);
     setGlobalEditingShareId?.(folder.id);
   };
 
   const handleCloseEditSpace = () => {
-    setSettingsFolder(null);
-    setIsEditingSpace(false);
-    setEditingShareId(null);
+    setActiveSettingsSpace(null);
     setGlobalIsEditingSpace?.(false);
     setGlobalEditingShareId?.(null);
   };
 
-  // Explicit popstate & unmount cleanup for edit space states
+  // Hardware Back button / Popstate handling: closes edit space when active without wiping on render
   useEffect(() => {
     const handlePop = () => {
-      if (settingsFolder || isEditingSpace || editingShareId) {
+      if (activeSettingsSpaceRef.current) {
         handleCloseEditSpace();
       }
     };
 
     window.addEventListener('popstate', handlePop);
-
     return () => {
       window.removeEventListener('popstate', handlePop);
-      handleCloseEditSpace();
     };
-  }, [settingsFolder, isEditingSpace, editingShareId]);
+  }, []);
 
-  // When hub closes, explicitly clear edit space and detail view states
+  // When hub closes or unmounts, safely clear edit space and detail view states
   useEffect(() => {
     if (!isOpen) {
       handleCloseEditSpace();
@@ -630,7 +624,10 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={(e) => handleOpenEditSpace(folder, e)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenEditSpace(folder, e);
+                              }}
                               className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
                               title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
                               aria-label={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
@@ -900,12 +897,12 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
         )}
       </div>
 
-      {/* Dedicated Share Space Settings Modal */}
-      {settingsFolder && (
+      {/* Dedicated Share Space Settings Modal - High Priority Layer */}
+      {activeSettingsSpace && (
         <ShareSpaceSettingsModal
-          isOpen={!!settingsFolder}
+          isOpen={!!activeSettingsSpace}
           onClose={handleCloseEditSpace}
-          folder={settingsFolder}
+          folder={activeSettingsSpace}
           onUpdated={(updated) => {
             const next = loadMyShareFolders();
             setMyFolders(next);

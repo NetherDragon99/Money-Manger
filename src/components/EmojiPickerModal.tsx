@@ -295,7 +295,7 @@ export const EmojiPickerModal: React.FC<EmojiPickerModalProps> = ({
   return (
     <div
       onClick={handleAnimatedClose}
-      className={`fixed inset-0 z-50 flex items-end sm:items-center landscape:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 landscape:p-2 overflow-y-auto overscroll-contain transition-all duration-200 ${
+      className={`fixed inset-0 z-[105] flex items-end sm:items-center landscape:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 landscape:p-2 overflow-y-auto overscroll-contain transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
