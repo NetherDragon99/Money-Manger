@@ -21,6 +21,34 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.31',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Consolidated Release: External Share Web UI, Space Edit Loop Fix, Guest ID Restriction & Sidebar Highlight',
+      ar: 'إصدار تجميعي شامل: تحسين صفحة المشاركة الخارجية، إصلاح حلقة تعديل المساحات، حماية حسابات الضيوف وإبراز زر المشاركة',
+    },
+    highlights: {
+      en: [
+        'Tablet Landscape & Viewport Mode: Configured universal device orientation ("any") and removed width constraints for smooth landscape viewing.',
+        'External Share Header Flexbox Rebuild: Replaced overlapping elements with a structured flexbox header featuring prominent space title and clean refresh actions.',
+        'Icon Selector Crash Fix: Added explicit type="button" and event propagation guards to prevent modal dismissals and unexpected form submissions.',
+        'Guest User ID Restriction: Prevented 16-digit ID generation and cloud share access for unauthenticated users with a prominent sign-in gate.',
+        'Immediate Public Profile Sync: Enforced real-time publishing of user profile cards (numericId, name, avatar, uid) upon authentication to ensure 100% 16-digit discoverability.',
+        'Edit Space Popstate Loop Fix: Synchronized and cleared isEditingSpace, editingShareId, and settingsFolder on Back button, Cancel/Save, and component unmount.',
+        'Highlighted Sidebar Share Entry: Redesigned the Shared Accounts & Spaces button with distinct primary outline, gradient backdrop, bold icon, and pulsating Live badge.',
+      ],
+      ar: [
+        'دعم الوضع الأفقي والأجهزة اللوحية: ضبط اتجاه العرض الشامل وإزالة القيود العرضية لتوسيع الشاشة بالكامل عند التدوير.',
+        'ترويسة مرنة لصفحة المشاركة الخارجية: إعادة بناء ترويسة صفحة الويب بنظام flexbox مع إبراز عنوان المساحة وتثبيت زر التحديث دون أي تداخل.',
+        'معالجة تعليق منتقي الأيقونات: إضافة نوع type="button" صراحة وإيقاف انتشار الحدث لمنع إغلاق النوافذ أو إرسال النماذج بالخطأ.',
+        'تقييد المعرف الرقمي لحسابات الضيوف: حظر توليد أو عرض المعرف المالي للمستخدمين غير المسجلين وحجب المشاركة السحابية ببطاقة تسجيل دخول بارزة.',
+        'مزامنة فورية للهوية عند تسجيل الدخول: نشر وتحديث بطاقة المستخدم العامة فوراً على Firebase RTDB عند تسجيل الدخول لضمان الظهور الفوري في البحث.',
+        'إصلاح حلقة تعديل المساحة في زر الرجوع: إعادة تعيين متغيرات isEditingSpace و editingShareId صراحة عند الضغط على زر الرجوع أو الإلغاء/الحفظ.',
+        'إبراز زر المشاركة في القائمة الجانبية: تصميم مميز لزر مساحات الحسابات المشتركة بإطار أساسي جذاب وتدرج لوني وشارة بث مباشر.',
+      ],
+    },
+  },
+  {
     version: '1.1.30',
     releaseDate: 'October 22, 2026',
     title: {
