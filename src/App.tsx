@@ -36,7 +36,12 @@ import { MultiSelectActionBar } from './components/MultiSelectActionBar';
 import { ToastContainer } from './components/Toast';
 import { CustomDialogModal } from './components/CustomDialogModal';
 import { WifiOff } from 'lucide-react';
-import { checkForAppUpdates, applyLatestAppUpdate, CURRENT_APP_VERSION } from './utils/versionChecker';
+import {
+  checkForAppUpdates,
+  applyLatestAppUpdate,
+  CURRENT_APP_VERSION,
+  isAutoUpdateEnabled,
+} from './utils/versionChecker';
 import { TabType } from './types';
 import { loadAutoBackupConfig, isBackupDue, executeAutoBackup } from './utils/autoBackup';
 import { decodeShareSnapshot } from './utils/sharing';
@@ -589,7 +594,7 @@ const MainAppContent: React.FC = () => {
     }
   };
 
-  // Auto-check GitHub for newest updates on every app open and resume
+  // Auto-check for newest updates on every app open and resume
   useEffect(() => {
     let checkInProgress = false;
 
@@ -599,16 +604,33 @@ const MainAppContent: React.FC = () => {
       try {
         const res = await checkForAppUpdates();
         if (res.hasUpdate) {
-          setUpdating(true);
-          showToast(
-            settings.language === 'ar'
-              ? `تم العثور على إصدار جديد (v${res.latestVersion}) في GitHub! جارٍ التحديث التلقائي...`
-              : `New version (v${res.latestVersion}) detected on GitHub! Updating automatically...`,
-            'info'
-          );
-          setTimeout(() => {
-            applyLatestAppUpdate();
-          }, 1200);
+          if (isAutoUpdateEnabled()) {
+            setUpdating(true);
+            showToast(
+              settings.language === 'ar'
+                ? `تم توفر إصدار أحدث (v${res.latestVersion})! جاري التحديث التلقائي...`
+                : `New version (v${res.latestVersion}) available! Updating automatically...`,
+              'info'
+            );
+            setTimeout(() => {
+              applyLatestAppUpdate();
+            }, 1200);
+          } else {
+            showToast(
+              settings.language === 'ar'
+                ? `يتوفر إصدار جديد للتطبيق (v${res.latestVersion})`
+                : `A new version (v${res.latestVersion}) is available`,
+              'info',
+              {
+                label: settings.language === 'ar' ? 'تحديث الآن' : 'Update Now',
+                onClick: () => {
+                  setUpdating(true);
+                  applyLatestAppUpdate();
+                },
+              },
+              10000
+            );
+          }
         }
       } catch (e) {
         console.warn('Update check failed:', e);

@@ -50,7 +50,7 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
         showToast(
           settings.language === 'ar'
             ? 'تطبيقك مُحدّث بالكامل إلى أحدث إصدار!'
-            : 'Your app is up to date with the latest GitHub version!',
+            : 'Your app is up to date with the latest version!',
           'success'
         );
       }

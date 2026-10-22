@@ -1,16 +1,40 @@
 /**
- * GitHub & PWA Version Checker and Auto-Updater
- * Checks for newest versions on every launch and triggers instant updates.
+ * In-App Version Checker and Automatic Update Engine
+ * Performs background version checks and coordinates seamless client-side updates.
  */
 
 export const CURRENT_APP_VERSION = '1.1.36';
-const GITHUB_REPO = 'NetherDragon99/Money-Manger';
+const BACKUP_VERSION_ENDPOINT = 'NetherDragon99/Money-Manger';
+const AUTO_UPDATE_STORAGE_KEY = 'mm_auto_update_enabled';
 
 export interface UpdateCheckResult {
   hasUpdate: boolean;
   currentVersion: string;
   latestVersion: string;
-  source: 'version-file' | 'github-api' | 'none';
+  source: 'version-file' | 'cloud-api' | 'none';
+}
+
+/**
+ * Checks whether automatic background updates are enabled by the user.
+ * Defaults to true for a seamless, hands-free experience.
+ */
+export function isAutoUpdateEnabled(): boolean {
+  try {
+    const saved = localStorage.getItem(AUTO_UPDATE_STORAGE_KEY);
+    return saved === null ? true : saved === 'true';
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Persists the user's preference for automatic background updates.
+ */
+export function setAutoUpdateEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(AUTO_UPDATE_STORAGE_KEY, String(enabled));
+    window.dispatchEvent(new CustomEvent('mm_auto_update_changed', { detail: enabled }));
+  } catch {}
 }
 
 function compareVersions(current: string, latest: string): boolean {
@@ -72,9 +96,9 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
     console.warn('[VersionChecker] Could not fetch live version.json:', err);
   }
 
-  // 2. Fallback: check GitHub API for newest commit message or release
+  // 2. Secondary fallback: query cloud repository endpoint
   try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/commits/main?_t=${Date.now()}`, {
+    const res = await fetch(`https://api.github.com/repos/${BACKUP_VERSION_ENDPOINT}/commits/main?_t=${Date.now()}`, {
       cache: 'no-store',
       headers: { Accept: 'application/vnd.github.v3+json' },
     });
@@ -93,7 +117,7 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
                 hasUpdate: true,
                 currentVersion: CURRENT_APP_VERSION,
                 latestVersion: foundVersion,
-                source: 'github-api',
+                source: 'cloud-api',
               };
             }
           }
@@ -103,7 +127,7 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
       }
     }
   } catch (err) {
-    console.warn('[VersionChecker] Could not check GitHub API:', err);
+    console.warn('[VersionChecker] Could not check cloud endpoint:', err);
   }
 
   return {
@@ -115,25 +139,35 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
 }
 
 /**
- * Forces Service Worker and caches to update and reloads the application
+ * Clears outdated Service Worker caches, updates worker registrations,
+ * reports progress steps, and seamlessly reloads the application.
  */
-export async function applyLatestAppUpdate(): Promise<void> {
+export async function applyLatestAppUpdate(onProgress?: (step: string) => void): Promise<void> {
   try {
+    onProgress?.('service_worker');
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
       for (const reg of registrations) {
-        await reg.update();
+        try {
+          await reg.update();
+        } catch {}
       }
     }
+
+    onProgress?.('cache_cleanup');
     // Delete old application runtime caches to fetch fresh assets
     if ('caches' in window) {
       const cacheNames = await caches.keys();
       for (const name of cacheNames) {
         if (!name.includes('offline-permanent-user-data')) {
-          await caches.delete(name);
+          try {
+            await caches.delete(name);
+          } catch {}
         }
       }
     }
+
+    onProgress?.('reloading');
   } catch (err) {
     console.error('[VersionChecker] Error while refreshing caches:', err);
   } finally {

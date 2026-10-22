@@ -29,12 +29,20 @@ import {
   Share2,
   Trash2,
   Copy,
+  Loader2,
 } from 'lucide-react';
 import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from '../utils/security';
 import { format16DigitId } from '../utils/userId';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ExportCustomizeModal } from './ExportCustomizeModal';
 import { ImportCustomizeModal } from './ImportCustomizeModal';
+import {
+  checkForAppUpdates,
+  applyLatestAppUpdate,
+  CURRENT_APP_VERSION,
+  isAutoUpdateEnabled,
+  setAutoUpdateEnabled,
+} from '../utils/versionChecker';
 import { auth } from '../utils/firebase';
 import { signOut } from 'firebase/auth';
 import { WeekStartDay } from '../types';
@@ -74,6 +82,89 @@ export const Sidebar: React.FC = () => {
   const [currencySearch, setCurrencySearch] = useState('');
   const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false);
   const [securitySettings, setSecuritySettings] = useState(() => loadSecuritySettings());
+  const [autoUpdateEnabled, setAutoUpdateState] = useState(() => isAutoUpdateEnabled());
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateStep, setUpdateStep] = useState<string | null>(null);
+
+  // Sync auto-update state across components
+  useEffect(() => {
+    const handleAutoUpdateChange = (e: any) => {
+      if (typeof e?.detail === 'boolean') {
+        setAutoUpdateState(e.detail);
+      } else {
+        setAutoUpdateState(isAutoUpdateEnabled());
+      }
+    };
+    window.addEventListener('mm_auto_update_changed', handleAutoUpdateChange);
+    return () => window.removeEventListener('mm_auto_update_changed', handleAutoUpdateChange);
+  }, []);
+
+  const handleToggleAutoUpdate = () => {
+    const nextVal = !autoUpdateEnabled;
+    setAutoUpdateState(nextVal);
+    setAutoUpdateEnabled(nextVal);
+    showToast(
+      isArabic
+        ? nextVal
+          ? 'تم تفعيل التحديث التلقائي في الخلفية'
+          : 'تم تعطيل التحديث التلقائي'
+        : nextVal
+        ? 'Automatic background updates enabled'
+        : 'Automatic background updates disabled',
+      'info'
+    );
+  };
+
+  const handleManualCheckAndUpdate = async () => {
+    if (isCheckingUpdate) return;
+    setIsCheckingUpdate(true);
+    setUpdateStep(isArabic ? 'جاري فحص التحديثات...' : 'Checking for updates...');
+
+    try {
+      const res = await checkForAppUpdates();
+      if (res.hasUpdate) {
+        setUpdateStep(
+          isArabic
+            ? `تم العثور على إصدار جديد (v${res.latestVersion})! جاري مسح الذاكرة والتثبيت...`
+            : `New version (v${res.latestVersion}) found! Clearing caches & installing...`
+        );
+        showToast(
+          isArabic
+            ? `تم توفر إصدار جديد (v${res.latestVersion})! جاري تحديث التطبيق الآن...`
+            : `New version available (v${res.latestVersion})! Updating app now...`,
+          'info'
+        );
+        setTimeout(() => {
+          applyLatestAppUpdate((step) => {
+            if (step === 'service_worker') {
+              setUpdateStep(isArabic ? 'تحديث مشغل الخدمة...' : 'Updating Service Worker...');
+            } else if (step === 'cache_cleanup') {
+              setUpdateStep(isArabic ? 'مسح الذاكرة المؤقتة القديمة...' : 'Clearing outdated caches...');
+            } else if (step === 'reloading') {
+              setUpdateStep(isArabic ? 'إعادة تشغيل التطبيق بالنسخة الجديدة...' : 'Reloading into new version...');
+            }
+          });
+        }, 500);
+      } else {
+        setUpdateStep(null);
+        setIsCheckingUpdate(false);
+        showToast(
+          isArabic
+            ? 'تطبيقك مُحدّث بالكامل إلى أحدث إصدار!'
+            : 'Your app is up to date with the latest version!',
+          'success'
+        );
+      }
+    } catch (err) {
+      console.warn('[Sidebar] Manual update check error:', err);
+      setUpdateStep(null);
+      setIsCheckingUpdate(false);
+      showToast(
+        isArabic ? 'تعذر فحص التحديثات في الوقت الحالي' : 'Could not check for updates right now',
+        'error'
+      );
+    }
+  };
 
   // Keep securitySettings live and synchronized
   useEffect(() => {
@@ -660,6 +751,78 @@ export const Sidebar: React.FC = () => {
             </button>
           </div>
 
+          {/* App Updates & Version Controls (Auto-Update Switch & Check & Update Now) */}
+          <div className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
+                  <RefreshCw className={`w-4 h-4 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                </div>
+                <div className="min-w-0">
+                  <h4 className="text-xs font-bold text-white truncate">
+                    {isArabic ? 'تحديثات التطبيق' : 'App Updates'}
+                  </h4>
+                  <p className="text-[10px] text-zinc-400 truncate mt-0.5 font-mono">
+                    {isArabic ? `الإصدار الحالي: v${CURRENT_APP_VERSION}` : `Current: v${CURRENT_APP_VERSION}`}
+                  </p>
+                </div>
+              </div>
+
+              {/* Auto-Update Toggle Switch */}
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[10px] font-semibold text-zinc-300">
+                  {isArabic ? 'تلقائي' : 'Auto'}
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoUpdateEnabled}
+                  onClick={handleToggleAutoUpdate}
+                  className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
+                    autoUpdateEnabled ? 'bg-emerald-600' : 'bg-zinc-750 border border-zinc-700'
+                  }`}
+                  title={isArabic ? 'تفعيل/تعطيل التحديث التلقائي' : 'Toggle background auto-update'}
+                >
+                  <span
+                    className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform absolute top-0.75 ${
+                      autoUpdateEnabled
+                        ? (isArabic ? 'right-1' : 'left-4.5')
+                        : (isArabic ? 'right-4.5' : 'left-1')
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* In-App Progress Indicator during Update Checking & Applying */}
+            {updateStep && (
+              <div className="p-2.5 rounded-xl bg-purple-950/40 border border-purple-500/30 flex items-center gap-2 text-purple-300 text-[11px] animate-in fade-in">
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0 text-purple-400" />
+                <span className="truncate">{updateStep}</span>
+              </div>
+            )}
+
+            {/* Manual Check & Update Now Button */}
+            <button
+              type="button"
+              disabled={isCheckingUpdate}
+              onClick={handleManualCheckAndUpdate}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-750 active:scale-98 border border-zinc-700 text-zinc-200 hover:text-white text-xs font-bold transition cursor-pointer disabled:opacity-50 shadow-sm"
+            >
+              {isCheckingUpdate ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
+                  <span>{isArabic ? 'جارٍ الفحص والتحديث...' : 'Checking & Updating...'}</span>
+                </>
+              ) : (
+                <>
+                  <RotateCw className="w-3.5 h-3.5 text-purple-400" />
+                  <span>{isArabic ? 'فحص وتحديث الآن' : 'Check & Update Now'}</span>
+                </>
+              )}
+            </button>
+          </div>
+
           {/* Standalone PWA Installation Card (Outside Backup) */}
           <div className="space-y-2">
             <PWAInstallButton />
@@ -734,7 +897,7 @@ export const Sidebar: React.FC = () => {
         {/* Sidebar Footer: Version & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-zinc-300">Version: Beta v1.1.36</span>
+            <span className="font-bold text-zinc-300">Version: Beta v{CURRENT_APP_VERSION}</span>
           </div>
 
           {/* Refresh App Button */}
