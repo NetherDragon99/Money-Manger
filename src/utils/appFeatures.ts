@@ -21,6 +21,28 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.32',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Space Settings Modal Activation & Multi-Tier 16-Digit User ID Cloud Discovery',
+      ar: 'تفعيل نافذة إعدادات المساحة ومحرك البحث السحابي المتقدم للمعرف الرقمي المكون من 16 رقماً',
+    },
+    highlights: {
+      en: [
+        'Space Settings Modal Activation (⚙️): Fixed popstate listener conflicts and elevated the settings modal to high-priority z-[95] and emoji picker to z-[105], allowing smooth editing of space name, icons, and deletion without accidental closures.',
+        'Mandatory Firebase Rule Fields: Ensured all profile publications include { ownerUid, accountName, updatedAt, numericId, name, photoURL } to completely prevent Firebase RTDB PERMISSION_DENIED errors, and persisted numeric16Id under users/${uid}/profile.',
+        'Instant Startup & Modal Cloud Registration: Automatically registers authenticated user profiles to Firebase RTDB on app startup, as well as on opening UserProfileModal, SharedAccountsHubModal, or ShareFolderModal without requiring re-login.',
+        'Multi-Tier 16-Digit ID Discovery: Enhanced the lookup engine to query shared_accounts/profile_${clean16Id} first with graceful fallbacks to numericIds, shared_accounts entries, and users records, ensuring all 16-digit IDs are found with real-time self-healing.',
+      ],
+      ar: [
+        'تفعيل نافذة إعدادات المساحة (⚙️): حل مشكلة تعارض استماع زر الرجوع ورفع طبقة نافذة الإعدادات إلى z-[95] ومنتقي الإيموجي إلى z-[105]، مما يتيح تعديل اسم المساحة وتغيير أيقونتها أو حذفها بسلاسة.',
+        'حقول قواعد أمان فايربيس الإلزامية: تضمين كامل الحقول المطلوبة (ownerUid و accountName و updatedAt و numericId و name و photoURL) لمنع رفض الكتابة بخطأ PERMISSION_DENIED وحفظ المعرف الرقمي في ملف المستخدم.',
+        'تسجيل سحابي تلقائي عند البدء والنوافذ: تسجيل بطاقة المستخدم العامة فوراً عند بدء التطبيق وعند فتح نوافذ الملف الشخصي، مساحات المشاركة، أو نافذة المشاركة دون الحاجة لإعادة تسجيل الدخول.',
+        'محرك بحث متعدد الطبقات للمعرف الرقمي: فحص مسار shared_accounts/profile أولاً ثم الانتقال تلقائياً إلى numericIds وسجلات المساحات والمستخدمين لضمان العثور على أي حساب مسجل مع استرجاع الصورة والاسم والشفاء الذاتي الفوري.',
+      ],
+    },
+  },
+  {
     version: '1.1.31',
     releaseDate: 'October 22, 2026',
     title: {
