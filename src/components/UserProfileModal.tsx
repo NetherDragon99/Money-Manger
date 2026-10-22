@@ -20,7 +20,10 @@ import {
   Sparkles,
   Lock,
   HardDrive,
+  Download,
 } from 'lucide-react';
+import { ExportCustomizeModal } from './ExportCustomizeModal';
+import { ImportCustomizeModal } from './ImportCustomizeModal';
 import {
   auth,
   loginWithGoogle,
@@ -85,6 +88,8 @@ export const UserProfileModal: React.FC = () => {
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string | undefined>(
     settings.userProfile?.customAvatarUrl
   );
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   // Authentication & Cloud Sync State
   const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
@@ -861,6 +866,44 @@ export const UserProfileModal: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* Custom Import & Export Feature */}
+            <div className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-2.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <Upload className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white block">
+                    {isArabic ? 'النسخ الاحتياطي والاستيراد المخصص' : 'Custom Backup & Import'}
+                  </h4>
+                  <p className="text-[10px] text-zinc-400 block mt-0.5">
+                    {isArabic
+                      ? 'استيراد أو تصدير مخصص مع معاينة الأقسام والدمج أو الاستبدال'
+                      : 'Granular export or import with section preview, merge, or replace'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsExportModalOpen(true)}
+                  className="py-2.5 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-750 border border-zinc-700/80 text-zinc-200 hover:text-white font-semibold text-xs transition flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  <span>{isArabic ? 'تصدير مخصص' : 'Custom Export'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsImportModalOpen(true)}
+                  className="py-2.5 px-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 hover:text-white font-semibold text-xs transition flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{isArabic ? 'استيراد مخصص' : 'Custom Import'}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -882,6 +925,18 @@ export const UserProfileModal: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Persistent Customize Export Modal */}
+      <ExportCustomizeModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+      />
+
+      {/* Persistent Customize Import Modal */}
+      <ImportCustomizeModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+      />
     </div>
   );
 };

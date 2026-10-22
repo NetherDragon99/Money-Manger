@@ -34,6 +34,7 @@ import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from
 import { format16DigitId } from '../utils/userId';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ExportCustomizeModal } from './ExportCustomizeModal';
+import { ImportCustomizeModal } from './ImportCustomizeModal';
 import { auth } from '../utils/firebase';
 import { signOut } from 'firebase/auth';
 import { WeekStartDay } from '../types';
@@ -69,6 +70,7 @@ export const Sidebar: React.FC = () => {
   const currencyMenuRef = useRef<HTMLDivElement | null>(null);
   const sidebarTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState('');
   const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false);
   const [securitySettings, setSecuritySettings] = useState(() => loadSecuritySettings());
@@ -634,6 +636,30 @@ export const Sidebar: React.FC = () => {
             </button>
           </div>
 
+          {/* Custom Data Import */}
+          <div className="p-3.5 rounded-2xl bg-zinc-900/70 border border-zinc-800 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                <Upload className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-xs font-bold text-white truncate">
+                  {isArabic ? 'استيراد البيانات المخصص' : 'Custom Data Import'}
+                </h4>
+                <p className="text-[10px] text-zinc-400 truncate mt-0.5">
+                  {isArabic ? 'معاينة ودمج أو استبدال الأقسام' : 'Preview, merge, or replace'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsImportModalOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs font-semibold transition cursor-pointer active:scale-95 shrink-0"
+            >
+              {isArabic ? 'استيراد' : 'Import'}
+            </button>
+          </div>
+
           {/* Standalone PWA Installation Card (Outside Backup) */}
           <div className="space-y-2">
             <PWAInstallButton />
@@ -728,6 +754,12 @@ export const Sidebar: React.FC = () => {
       <ExportCustomizeModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
+      />
+
+      {/* Persistent Customize Import Modal */}
+      <ImportCustomizeModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
       />
     </div>
   );

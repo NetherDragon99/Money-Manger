@@ -57,6 +57,8 @@ import {
   saveCategories,
   saveTransactions,
   saveSettings,
+  CustomImportConfig,
+  executeCustomDataImport,
 } from '../utils/storage';
 import { requestPersistentStorage, loadFullDataFromIndexedDB } from '../utils/indexedDB';
 import { syncAllAccountBalances } from '../utils/balanceEngine';
@@ -281,6 +283,7 @@ interface AppContextType {
   // Backup & Restore
   importFullData: (data: AppData) => boolean;
   importSingleAccountData: (importedAccount: Account, importedTxs: Transaction[]) => boolean;
+  importCustomData: (payload: any, config: CustomImportConfig) => Promise<boolean>;
   importSharedItems: (payload: {
     accounts?: Account[];
     categories?: Category[];
@@ -1714,6 +1717,62 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  const importCustomData = async (
+    payload: any,
+    config: CustomImportConfig
+  ): Promise<boolean> => {
+    try {
+      const result = executeCustomDataImport(
+        {
+          accounts,
+          categories,
+          transactions,
+          settings,
+          recurringTransactions,
+        },
+        payload,
+        config
+      );
+
+      if (config.importAccounts || config.importTransactions) {
+        setAccounts(result.updatedAccounts);
+      }
+      if (config.importCategories || config.importBudgets) {
+        setCategories(result.updatedCategories);
+      }
+      if (config.importTransactions) {
+        setTransactions(result.updatedTransactions);
+        if (result.updatedRecurring) {
+          setRecurringTransactions(result.updatedRecurring);
+        }
+      }
+
+      // Automatically trigger cloud backup sync immediately
+      try {
+        await triggerCloudBackupNow();
+      } catch (cloudErr) {
+        console.warn('[CustomImport] Automatic cloud sync trigger error:', cloudErr);
+      }
+
+      showToast(
+        settings.language === 'ar'
+          ? 'تم استيراد وحفظ البيانات المحددة بنجاح ومزامنتها سحابياً!'
+          : 'Selected data imported, saved, and synced to cloud successfully!',
+        'success'
+      );
+      return true;
+    } catch (err: any) {
+      console.error('[CustomImport] Execution error:', err);
+      showToast(
+        settings.language === 'ar'
+          ? 'حدث خطأ أثناء استيراد البيانات: ' + (err?.message || 'خطأ غير معروف')
+          : 'Failed to import custom data: ' + (err?.message || 'Unknown error'),
+        'error'
+      );
+      return false;
+    }
+  };
+
   const importSingleAccountData = (
     importedAccount: Account,
     importedTxs: Transaction[]
@@ -2229,6 +2288,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     applyPeriodReset,
     importFullData,
     importSingleAccountData,
+    importCustomData,
     importSharedItems,
     triggerCloudBackupNow,
     triggerCloudRestoreNow,
