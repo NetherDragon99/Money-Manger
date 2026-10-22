@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.25',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'External Share Flexbox Header with Centered Space Title & Clean Refresh Placement',
+      ar: 'شريط ترويسة مرن لصفحة المشاركة الخارجية بعنوان مركزي وتثبيت أنيق لزر التحديث',
+    },
+    highlights: {
+      en: [
+        'Clean Flexbox Header: Rebuilt StandaloneShareView header as a structured flexbox container without absolute positioning conflicts.',
+        'Prominent Space Name Heading: Centered the actual Share Space title and icon prominently with subtle owner & sync timestamps.',
+        'Zero-Overlap Refresh Action: Neatly positioned the live Refresh button on the far right alongside quick export and action controls.',
+      ],
+      ar: [
+        'ترويسة مرنة ومنظمة: إعادة بناء شريط الترويسة في StandaloneShareView بنظام flexbox دون أي تداخل أو تموضع مطلق.',
+        'إبراز عنوان مساحة المشاركة: توسيط اسم مساحة المشاركة وأيقونتها بشكل بارز مع معلومات المالك وتوقيت المزامنة.',
+        'زر تحديث مرتب بدون تداخل: وضع زر التحديث الحي في أقصى اليمين بشكل أنيق ومستقل إلى جانب أدوات المشاركة والتصدير.',
+      ],
+    },
+  },
+  {
     version: '1.1.24',
     releaseDate: 'October 22, 2026',
     title: {

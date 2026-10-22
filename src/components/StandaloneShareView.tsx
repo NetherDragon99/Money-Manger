@@ -412,72 +412,10 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
   return (
     <div className="min-h-screen bg-zinc-950 text-white flex flex-col items-center selection:bg-blue-600 selection:text-white" dir={isArabic ? 'rtl' : 'ltr'}>
       <div className="w-full max-w-none md:max-w-7xl landscape:max-w-none min-h-screen bg-black flex flex-col shadow-2xl relative">
-        {/* Top Header Bar */}
-        <header className="sticky top-0 z-30 px-4 sm:px-6 py-3 bg-black/90 backdrop-blur-xl border-b border-zinc-800/80 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="text-3xl shrink-0">{folder.icon || '📁'}</span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-bold text-white truncate">{folder.name}</h1>
-                {isUsingOfflineFallback ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-semibold shrink-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                    <span>{isArabic ? 'نسخة غير متصلة' : 'Offline Snapshot'}</span>
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold shrink-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span>{isArabic ? 'مباشر · لحظي' : 'Live · Streaming'}</span>
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-zinc-400 mt-0.5 truncate flex items-center gap-2">
-                <span>
-                  {isArabic ? 'مشاركة من:' : 'Shared by:'}{' '}
-                  <span className="text-zinc-200 font-semibold">{folder.ownerName}</span>
-                  {folder.ownerNumericId && <span className="font-mono text-zinc-500 ml-1">({format16DigitId(folder.ownerNumericId)})</span>}
-                </span>
-                <span className="text-zinc-600">•</span>
-                <span className="text-[11px] text-zinc-500 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-zinc-500" />
-                  <span>{isArabic ? 'آخر مزامنة:' : 'Synced:'} {new Date(lastUpdated).toLocaleTimeString(isArabic ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                </span>
-              </div>
-            </div>
-          </div>
-
+        {/* Top Header Bar: Clean Flexbox Container (No Absolute Positioning, Prominent Space Name Center, Refresh Far Right) */}
+        <header className="sticky top-0 z-30 px-3 sm:px-6 py-3 bg-black/95 backdrop-blur-xl border-b border-zinc-800/80 flex items-center justify-between gap-3 w-full">
+          {/* Left Actions: Open in App / Copy Link */}
           <div className="flex items-center gap-2 shrink-0">
-            {/* Quick Refresh Button */}
-            <button
-              type="button"
-              onClick={handleManualRefresh}
-              disabled={isRefreshing}
-              className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-zinc-300 hover:text-white transition active:scale-95 cursor-pointer disabled:opacity-50"
-              title={isArabic ? 'تحديث البيانات الآن' : 'Refresh live data'}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-400' : ''}`} />
-            </button>
-
-            <button
-              type="button"
-              onClick={handleImportToApp}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 text-xs font-semibold transition active:scale-95 cursor-pointer"
-              title={isArabic ? 'استيراد نسخة إلى تطبيقي' : 'Import snapshot to my app'}
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>{isArabic ? 'استيراد نسخة' : 'Import Copy'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleCopyLink}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 text-xs font-semibold transition active:scale-95 cursor-pointer shadow"
-              title={isArabic ? 'نسخ رابط هذه الصفحة المباشرة' : 'Copy live link'}
-            >
-              {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-blue-400" />}
-              <span>{isCopied ? (isArabic ? 'تم النسخ!' : 'Copied!') : (isArabic ? 'نسخ الرابط' : 'Copy Link')}</span>
-            </button>
-
             {onExploreApp && (
               <button
                 type="button"
@@ -489,13 +427,73 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                     })
                   );
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition active:scale-95 cursor-pointer shadow-md"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm"
                 title={isArabic ? 'فتح في تبويب المشارَك معي داخل التطبيق' : 'Open in Shared with Me'}
               >
                 <Folder className="w-3.5 h-3.5" />
-                <span>{isArabic ? 'تطبيقي' : 'My App'}</span>
+                <span className="hidden sm:inline">{isArabic ? 'تطبيقي' : 'My App'}</span>
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={handleCopyLink}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold transition active:scale-95 cursor-pointer"
+              title={isArabic ? 'نسخ رابط هذه الصفحة المباشرة' : 'Copy live link'}
+            >
+              {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-blue-400" />}
+              <span className="hidden sm:inline">{isCopied ? (isArabic ? 'تم النسخ!' : 'Copied!') : (isArabic ? 'نسخ الرابط' : 'Copy Link')}</span>
+            </button>
+          </div>
+
+          {/* Center Prominent Heading: Actual Share Space Name */}
+          <div className="flex-1 flex flex-col items-center justify-center text-center min-w-0 px-2 sm:px-4">
+            <div className="flex items-center justify-center gap-2 min-w-0 max-w-full">
+              <span className="text-xl sm:text-2xl shrink-0 leading-none">{folder.icon || '📁'}</span>
+              <h1 className="text-sm sm:text-lg md:text-xl font-black text-white truncate tracking-tight">
+                {folder.name}
+              </h1>
+            </div>
+            <div className="text-[11px] text-zinc-400 truncate max-w-full flex items-center justify-center gap-1.5 mt-0.5">
+              <span className="truncate">
+                {isArabic ? 'مشاركة من:' : 'Shared by:'}{' '}
+                <span className="text-zinc-200 font-semibold">{folder.ownerName}</span>
+              </span>
+              <span className="text-zinc-600">•</span>
+              <span className="text-zinc-500 font-mono text-[10px]">
+                {new Date(lastUpdated).toLocaleTimeString(isArabic ? 'ar-EG' : 'en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                })}
+              </span>
+            </div>
+          </div>
+
+          {/* Right Actions: Import Copy & Refresh Button neatly on the far right without overlap */}
+          <div className="flex items-center justify-end gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleImportToApp}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 text-xs font-semibold transition active:scale-95 cursor-pointer"
+              title={isArabic ? 'استيراد نسخة إلى تطبيقي' : 'Import snapshot to my app'}
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{isArabic ? 'استيراد' : 'Import'}</span>
+            </button>
+
+            {/* Quick Refresh Button on Far Right */}
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-zinc-200 hover:text-white transition active:scale-95 cursor-pointer disabled:opacity-50 flex items-center gap-1.5 text-xs font-semibold shadow-sm"
+              title={isArabic ? 'تحديث البيانات الآن' : 'Refresh live data'}
+              aria-label={isArabic ? 'تحديث' : 'Refresh'}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-400' : 'text-zinc-300'}`} />
+              <span className="hidden sm:inline">{isArabic ? 'تحديث' : 'Refresh'}</span>
+            </button>
           </div>
         </header>
 
