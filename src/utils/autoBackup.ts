@@ -10,7 +10,10 @@ import {
   setGoogleDriveAccessToken,
   saveFirebaseCloudBackup,
   getFirebaseCloudBackup,
+  rtdb,
 } from './firebase';
+import { ref, update } from 'firebase/database';
+import { cleanNumericId } from './userId';
 import { ShareFolder, loadMyShareFolders, loadReceivedShareFolders } from './shareFolders';
 import { queueOfflineCloudBackup } from './persistQueue';
 
@@ -37,6 +40,8 @@ export interface FullAppBackupPayload {
     customAvatarUrl?: string;
     email?: string;
     uid?: string;
+    driveAccessGranted?: boolean;
+    drivePromptResolved?: boolean;
   };
 }
 
@@ -415,6 +420,44 @@ export async function fetchFromGoogleDrive(accessToken: string): Promise<any | n
 }
 
 /**
+ * Persists the user's Google Drive permission resolution status (driveAccessGranted, drivePromptResolved: true)
+ * inside localStorage, users/${uid}/profile, and shared_accounts/profile_${clean16Id} in Firebase RTDB.
+ */
+export async function persistDriveResolutionStatus(
+  uid: string,
+  granted: boolean,
+  clean16Id?: string
+): Promise<void> {
+  if (!uid) return;
+  try {
+    localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
+    localStorage.setItem(`mm_drive_access_granted_${uid}`, String(granted));
+  } catch {}
+
+  const updates: any = {
+    driveAccessGranted: Boolean(granted),
+    drivePromptResolved: true,
+    updatedAt: Date.now(),
+  };
+
+  try {
+    await update(ref(rtdb, `users/${uid}/profile`), updates);
+  } catch (err) {
+    console.warn('[AutoBackup] Failed to persist drive status in users/profile:', err);
+  }
+
+  const candidateId = clean16Id || (typeof localStorage !== 'undefined' ? localStorage.getItem('app_permanent_16digit_id') : '');
+  const cleanId = cleanNumericId(candidateId || '');
+  if (cleanId.length === 16) {
+    try {
+      await update(ref(rtdb, `shared_accounts/profile_${cleanId}`), updates);
+    } catch (err) {
+      console.warn('[AutoBackup] Failed to persist drive status in shared_accounts/profile:', err);
+    }
+  }
+}
+
+/**
  * Dual-Layer Cloud Backup Engine:
  * 1. Automatically uploads to Google Drive.
  * 2. If Google Drive fails (missing token, expired token, API error), seamlessly
@@ -442,7 +485,10 @@ export async function executeDualCloudBackup(
       localStorage.setItem('pwa_last_cloud_backup_time', new Date().toISOString());
       localStorage.setItem('pwa_last_cloud_backup_provider', 'google_drive');
       localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
+      localStorage.setItem(`mm_drive_access_granted_${uid}`, 'true');
     } catch {}
+
+    persistDriveResolutionStatus(uid, true).catch(() => {});
 
     // Async server mirror fallback write so Firebase RTDB server is also continuously safeguarded
     saveFirebaseCloudBackup(uid, payload).catch((e) =>

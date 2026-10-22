@@ -43,6 +43,8 @@ export interface UserProfileCard {
   photoURL?: string;
   uid?: string;
   updatedAt: number;
+  driveAccessGranted?: boolean;
+  drivePromptResolved?: boolean;
 }
 
 export interface ShareFolderPayload {
@@ -178,6 +180,8 @@ export async function publishUserProfileCard(profile: {
   avatar?: string;
   photoURL?: string;
   uid?: string;
+  driveAccessGranted?: boolean;
+  drivePromptResolved?: boolean;
 }): Promise<void> {
   const clean16Id = String(profile.numericId || '').replace(/\D/g, '');
   if (clean16Id.length !== 16) return;
@@ -194,13 +198,15 @@ export async function publishUserProfileCard(profile: {
     avatar: avatarEmoji,
     photoURL: userAvatar,
     uid: currentUid,
+    driveAccessGranted: profile.driveAccessGranted,
+    drivePromptResolved: profile.drivePromptResolved,
   });
 
   if (!currentUid) return;
 
   try {
     // Write mandatory Firebase security rule fields to shared_accounts/profile_${clean16Id}
-    const cardData = {
+    const cardData: any = {
       ownerUid: auth.currentUser?.uid || currentUid,
       accountName: (userName || 'User').slice(0, 100),
       updatedAt: Date.now(),
@@ -210,21 +216,34 @@ export async function publishUserProfileCard(profile: {
       avatar: avatarEmoji,
       uid: currentUid,
     };
+    if (typeof profile.driveAccessGranted === 'boolean') {
+      cardData.driveAccessGranted = profile.driveAccessGranted;
+    }
+    if (typeof profile.drivePromptResolved === 'boolean') {
+      cardData.drivePromptResolved = profile.drivePromptResolved;
+    }
     await set(ref(rtdb, `shared_accounts/profile_${clean16Id}`), cardData);
   } catch (err) {
     console.warn('[ShareFolders] Failed to publish user profile card to RTDB:', err);
   }
 
-  // ALSO save numeric16Id under users/${auth.currentUser.uid}/profile
+  // ALSO save numeric16Id and drive resolution status under users/${auth.currentUser.uid}/profile
   try {
-    await update(ref(rtdb, `users/${currentUid}/profile`), {
+    const userProfileUpdates: any = {
       numeric16Id: clean16Id,
       numericId: clean16Id,
       name: userName,
       photoURL: userAvatar,
       avatar: avatarEmoji,
       updatedAt: Date.now(),
-    });
+    };
+    if (typeof profile.driveAccessGranted === 'boolean') {
+      userProfileUpdates.driveAccessGranted = profile.driveAccessGranted;
+    }
+    if (typeof profile.drivePromptResolved === 'boolean') {
+      userProfileUpdates.drivePromptResolved = profile.drivePromptResolved;
+    }
+    await update(ref(rtdb, `users/${currentUid}/profile`), userProfileUpdates);
     await set(ref(rtdb, `users/${currentUid}/numeric16Id`), clean16Id);
   } catch (err) {
     console.warn('[ShareFolders] Failed to save numeric16Id under users/profile in RTDB:', err);

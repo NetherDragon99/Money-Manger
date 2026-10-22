@@ -6,10 +6,12 @@ import {
   getGoogleDriveAccessToken,
   requestGoogleDriveStorageAccess,
 } from '../utils/firebase';
+import { cleanNumericId } from '../utils/userId';
+import { persistDriveResolutionStatus } from '../utils/autoBackup';
 import { useApp } from '../context/AppContext';
 
 export const DriveStoragePromptModal: React.FC = () => {
-  const { settings, showToast, triggerCloudBackupNow, isAppLocked } = useApp();
+  const { settings, updateSettings, showToast, triggerCloudBackupNow, isAppLocked } = useApp();
   const isArabic = settings.language === 'ar';
 
   const [isOpen, setIsOpen] = useState(false);
@@ -25,10 +27,13 @@ export const DriveStoragePromptModal: React.FC = () => {
     if (!uid) return;
 
     const promptedKey = `mm_drive_perm_prompted_${uid}`;
-    const alreadyPrompted = localStorage.getItem(promptedKey) === 'true';
+    const alreadyPrompted =
+      localStorage.getItem(promptedKey) === 'true' ||
+      Boolean(settings.userProfile?.drivePromptResolved) ||
+      Boolean(settings.userProfile?.driveAccessGranted);
 
-    // If user already has an active Google Drive token, permanently mark prompted and exit
-    if (getGoogleDriveAccessToken()) {
+    // If user already has an active Google Drive token or resolved flag, permanently mark prompted and exit
+    if (getGoogleDriveAccessToken() || alreadyPrompted) {
       try {
         localStorage.setItem(promptedKey, 'true');
       } catch {}
@@ -42,7 +47,12 @@ export const DriveStoragePromptModal: React.FC = () => {
       }, 700);
       return () => clearTimeout(timer);
     }
-  }, [isAppLocked, settings.userProfile?.uid]);
+  }, [
+    isAppLocked,
+    settings.userProfile?.uid,
+    settings.userProfile?.drivePromptResolved,
+    settings.userProfile?.driveAccessGranted,
+  ]);
 
   // Handle hardware Back button on Android / PopState
   useEffect(() => {
@@ -67,6 +77,14 @@ export const DriveStoragePromptModal: React.FC = () => {
       try {
         localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
       } catch {}
+      const clean16Id = cleanNumericId(settings.userProfile?.numericId || '');
+      persistDriveResolutionStatus(uid, false, clean16Id).catch(() => {});
+      updateSettings({
+        userProfile: {
+          ...settings.userProfile,
+          drivePromptResolved: true,
+        },
+      });
     }
     setIsOpen(false);
   };
@@ -77,6 +95,17 @@ export const DriveStoragePromptModal: React.FC = () => {
     setIsRequesting(true);
     try {
       const res = await requestGoogleDriveStorageAccess(uid);
+      const clean16Id = cleanNumericId(settings.userProfile?.numericId || '');
+      if (uid) {
+        await persistDriveResolutionStatus(uid, res.success, clean16Id);
+        updateSettings({
+          userProfile: {
+            ...settings.userProfile,
+            driveAccessGranted: res.success,
+            drivePromptResolved: true,
+          },
+        });
+      }
       if (res.success) {
         showToast(
           isArabic

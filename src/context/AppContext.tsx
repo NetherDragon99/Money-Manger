@@ -68,7 +68,8 @@ import { DEFAULT_SETTINGS } from '../utils/constants';
 import { CURRENT_APP_VERSION } from '../utils/versionChecker';
 import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomDialogModal';
 import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId, cleanNumericId, clearUserIdentityState } from '../utils/userId';
-import { auth, checkAndHandleGoogleRedirect, getCachedAuthUser, setCachedAuthUser, subscribeToCloudBackup, logoutUser } from '../utils/firebase';
+import { auth, checkAndHandleGoogleRedirect, getCachedAuthUser, setCachedAuthUser, subscribeToCloudBackup, logoutUser, rtdb, getGoogleDriveAccessToken } from '../utils/firebase';
+import { ref, get } from 'firebase/database';
 import {
   FullAppBackupPayload,
   executeDualCloudBackup,
@@ -76,6 +77,7 @@ import {
   scheduleDualCloudBackup,
   setCloudBackupBlocked,
   isCloudBackupBlockedStatus,
+  persistDriveResolutionStatus,
 } from '../utils/autoBackup';
 
 export interface SyncConflictData {
@@ -1003,6 +1005,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         customAvatarUrl: effectiveSettings.userProfile?.customAvatarUrl || auth.currentUser?.photoURL || '',
         email: auth.currentUser?.email || '',
         uid,
+        driveAccessGranted: Boolean(effectiveSettings.userProfile?.driveAccessGranted || getGoogleDriveAccessToken()),
+        drivePromptResolved: Boolean(
+          effectiveSettings.userProfile?.drivePromptResolved ||
+          (typeof localStorage !== 'undefined' && localStorage.getItem(`mm_drive_perm_prompted_${uid}`) === 'true')
+        ),
       },
     };
   };
@@ -1116,7 +1123,71 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         currentUser?.photoURL ||
         '';
 
-      // 3. Update local state and localStorage immediately
+      // 3. Resolve Google Drive storage permission resolution status across devices
+      let driveAccessGranted = Boolean(
+        backupProfile.driveAccessGranted ??
+        d.settings?.userProfile?.driveAccessGranted ??
+        settingsRef.current.userProfile?.driveAccessGranted
+      );
+      let drivePromptResolved = Boolean(
+        backupProfile.drivePromptResolved ??
+        d.settings?.userProfile?.drivePromptResolved ??
+        settingsRef.current.userProfile?.drivePromptResolved
+      );
+
+      // If not yet resolved from backup payload, inspect Firebase RTDB at users/${uid}/profile
+      if (!drivePromptResolved) {
+        try {
+          const profSnap = await get(ref(rtdb, `users/${uid}/profile`));
+          if (profSnap && profSnap.exists()) {
+            const p = profSnap.val();
+            if (p?.drivePromptResolved || p?.driveAccessGranted) {
+              drivePromptResolved = true;
+              if (p.driveAccessGranted) driveAccessGranted = true;
+            }
+          }
+        } catch {}
+      }
+
+      // Fallback inspect shared_accounts/profile_${clean16Id}
+      if (!drivePromptResolved && clean16Id.length === 16) {
+        try {
+          const sharedSnap = await get(ref(rtdb, `shared_accounts/profile_${clean16Id}`));
+          if (sharedSnap && sharedSnap.exists()) {
+            const sp = sharedSnap.val();
+            if (sp?.drivePromptResolved || sp?.driveAccessGranted) {
+              drivePromptResolved = true;
+              if (sp.driveAccessGranted) driveAccessGranted = true;
+            }
+          }
+        } catch {}
+      }
+
+      // Check local storage flags
+      if (typeof localStorage !== 'undefined') {
+        if (localStorage.getItem(`mm_drive_perm_prompted_${uid}`) === 'true') {
+          drivePromptResolved = true;
+        }
+        if (localStorage.getItem(`mm_drive_access_granted_${uid}`) === 'true') {
+          driveAccessGranted = true;
+        }
+      }
+      if (getGoogleDriveAccessToken()) {
+        driveAccessGranted = true;
+        drivePromptResolved = true;
+      }
+
+      // Persist locally if resolved on account so this device never prompts again!
+      if (drivePromptResolved) {
+        try {
+          localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
+          if (driveAccessGranted) {
+            localStorage.setItem(`mm_drive_access_granted_${uid}`, 'true');
+          }
+        } catch {}
+      }
+
+      // 4. Update local state and localStorage immediately
       setSettings((prev) => ({
         ...prev,
         userProfile: {
@@ -1126,6 +1197,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           name: finalName,
           avatarEmoji: finalAvatar,
           customAvatarUrl: finalPhoto,
+          driveAccessGranted: driveAccessGranted || prev.userProfile?.driveAccessGranted,
+          drivePromptResolved: drivePromptResolved || prev.userProfile?.drivePromptResolved,
         },
       }));
 
@@ -1133,7 +1206,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         localStorage.setItem('app_permanent_16digit_id', clean16Id);
       } catch {}
 
-      // 4. Publish immediately to Firebase RTDB at shared_accounts/profile_${clean16Id}
+      // 5. Publish immediately to Firebase RTDB at shared_accounts/profile_${clean16Id} and users/${uid}/profile
       if (typeof navigator !== 'undefined' && navigator.onLine && clean16Id.length === 16) {
         await publishUserProfileCard({
           numericId: clean16Id,
@@ -1141,6 +1214,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           avatar: finalAvatar,
           photoURL: finalPhoto,
           uid: uid,
+          driveAccessGranted,
+          drivePromptResolved,
         }).catch((err) => console.warn('[AppContext] Profile cloud publish note:', err));
 
         // Also publish to numericIds/${clean16Id} for reverse UID lookup
@@ -2239,6 +2314,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           customAvatarUrl: prof?.finalPhoto || effectiveSettings.userProfile?.customAvatarUrl || auth.currentUser?.photoURL || '',
           email: auth.currentUser?.email || '',
           uid: uid,
+          driveAccessGranted: Boolean(effectiveSettings.userProfile?.driveAccessGranted || getGoogleDriveAccessToken()),
+          drivePromptResolved: Boolean(
+            effectiveSettings.userProfile?.drivePromptResolved ||
+            (typeof localStorage !== 'undefined' && localStorage.getItem(`mm_drive_perm_prompted_${uid}`) === 'true')
+          ),
         },
       };
 

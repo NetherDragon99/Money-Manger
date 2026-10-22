@@ -76,6 +76,8 @@ export interface UserProfile {
   customAvatarUrl?: string;
   numericId?: string;
   uid?: string;
+  driveAccessGranted?: boolean;
+  drivePromptResolved?: boolean;
 }
 
 export type RecurringFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';

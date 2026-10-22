@@ -33,6 +33,7 @@ import {
 } from '../utils/firebase';
 import { format16DigitId, cleanNumericId, getOrCreateNumericId } from '../utils/userId';
 import { publishUserProfileCard } from '../utils/shareFolders';
+import { persistDriveResolutionStatus } from '../utils/autoBackup';
 import { User } from 'firebase/auth';
 
 const CURATED_DEFAULT_AVATARS = [
@@ -359,7 +360,21 @@ export const UserProfileModal: React.FC = () => {
     setIsGrantingDrive(true);
     try {
       const res = await requestGoogleDriveStorageAccess(currentUser.uid);
-      if (res.success) {
+      const clean16Id = cleanNumericId(settings.userProfile?.numericId || '');
+      const granted = res.success;
+
+      // Persist the user's Google Drive permission resolution status across devices
+      await persistDriveResolutionStatus(currentUser.uid, granted, clean16Id);
+
+      updateSettings({
+        userProfile: {
+          ...settings.userProfile,
+          driveAccessGranted: granted,
+          drivePromptResolved: true,
+        },
+      });
+
+      if (granted) {
         showToast(
           isArabic
             ? 'تم منح صلاحية التخزين وتفعيل النسخ على Google Drive بنجاح!'
