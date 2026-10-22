@@ -170,11 +170,16 @@ export const ShareSpaceSettingsModal: React.FC<ShareSpaceSettingsModalProps> = (
                 </label>
                 <button
                   type="button"
-                  onClick={() => setIsEmojiPickerOpen(true)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsEmojiPickerOpen(true);
+                  }}
                   className="text-xs text-purple-400 hover:text-purple-300 font-semibold flex items-center gap-1 transition cursor-pointer"
+                  title={isArabic ? 'عرض المزيد من الرموز' : 'Show more icons'}
                 >
                   <Smile className="w-3.5 h-3.5" />
-                  <span>{isArabic ? 'المزيد من الرموز...' : 'More emojis...'}</span>
+                  <span>{isArabic ? 'عرض المزيد...' : 'Show more...'}</span>
                 </button>
               </div>
 

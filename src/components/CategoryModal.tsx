@@ -180,7 +180,11 @@ export const CategoryModal: React.FC = () => {
           <div className="flex flex-col items-center">
             <button
               type="button"
-              onClick={() => openEmojiPicker((em) => setIcon(em))}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openEmojiPicker((em) => setIcon(em));
+              }}
               title="Change Emoji"
               className="w-20 h-20 rounded-full bg-zinc-900 border-2 border-blue-500/80 hover:border-blue-400 hover:scale-105 active:scale-95 flex items-center justify-center text-4xl shadow-xl transition cursor-pointer group"
             >
@@ -282,7 +286,11 @@ export const CategoryModal: React.FC = () => {
               </label>
               <button
                 type="button"
-                onClick={() => openEmojiPicker((em) => setIcon(em))}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openEmojiPicker((em) => setIcon(em));
+                }}
                 className="text-[11px] font-bold text-blue-400 hover:text-blue-300 transition cursor-pointer"
               >
                 {settings.language === 'ar' ? '🔍 180+ أيقونة والبحث' : '🔍 180+ Icons & Search'}

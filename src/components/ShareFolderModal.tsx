@@ -11,6 +11,7 @@ import {
   PlusCircle,
   Sparkles,
   Loader2,
+  Smile,
 } from 'lucide-react';
 import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
@@ -26,6 +27,8 @@ import {
   UserProfileCard,
 } from '../utils/shareFolders';
 
+const POPULAR_SHARE_ICONS = ['📁', '💼', '🏠', '👥', '🛒', '✈️', '💰', '🍽️', '🚗', '🎓', '🏥', '🎉', '🎁', '⚡', '🌟', '💎'];
+
 export const ShareFolderModal: React.FC = () => {
   const {
     shareModalState,
@@ -36,6 +39,7 @@ export const ShareFolderModal: React.FC = () => {
     clearCategorySelection,
     clearAccountSelection,
     transactions: allAppTransactions,
+    openEmojiPicker,
   } = useApp();
 
   const isArabic = settings.language === 'ar';
@@ -352,6 +356,53 @@ export const ShareFolderModal: React.FC = () => {
                 className="flex-1 bg-transparent text-xs text-white placeholder-zinc-500 focus:outline-none"
               />
             </div>
+
+            {/* Icon Selector Grid with Explicit type="button" on Show More */}
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                  {isArabic ? 'أيقونة الشير:' : 'Share Icon:'}
+                </label>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openEmojiPicker((emoji) => setCustomFolderIcon(emoji));
+                  }}
+                  className="text-[11px] text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1 transition cursor-pointer"
+                  title={isArabic ? 'عرض المزيد من الرموز' : 'Show more icons'}
+                >
+                  <Smile className="w-3.5 h-3.5" />
+                  <span>{isArabic ? 'المزيد من الرموز...' : 'Show more...'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-8 gap-1.5 p-2 bg-zinc-900/80 rounded-2xl border border-zinc-800">
+                {POPULAR_SHARE_ICONS.map((icon) => {
+                  const isSelected = (customFolderIcon || autoMeta.icon) === icon;
+                  return (
+                    <button
+                      key={icon}
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setCustomFolderIcon(icon);
+                      }}
+                      className={`h-9 rounded-xl flex items-center justify-center text-lg transition cursor-pointer active:scale-95 ${
+                        isSelected
+                          ? 'bg-blue-600/30 border-2 border-blue-500 scale-105 shadow-sm'
+                          : 'hover:bg-zinc-800 border border-transparent'
+                      }`}
+                    >
+                      {icon}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <p className="text-[11px] text-zinc-500">
               {totalItems === 1
                 ? isArabic

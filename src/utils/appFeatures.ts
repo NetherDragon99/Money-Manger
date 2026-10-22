@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.26',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Icon Selector Form Submission Fix with type="button" & Safe Emoji Selection',
+      ar: 'معالجة إغلاق النوافذ غير المقصود في منتقي الأيقونات وتثبيت نوع الزر type="button"',
+    },
+    highlights: {
+      en: [
+        'Form Submission Protection: Explicitly added type="button", preventDefault, and stopPropagation to the "Show more" button in icon selectors.',
+        'Stable Modal Interaction: Prevented accidental modal dismissals or form submissions when expanding full icon grids in Share Spaces and Categories.',
+        'Consistent Icon Grids: Standardized quick-select icon rows with safe click handling across all creation and settings dialogs.',
+      ],
+      ar: [
+        'حماية من الإرسال التلقائي للنماذج: إضافة نوع type="button" صراحة مع إيقاف انتشار الحدث لزر "عرض المزيد" في منتقي الأيقونات.',
+        'استقرار نوافذ المشاركة والفئات: منع إغلاق أو إرسال النوافذ المنبثقة بالخطأ عند طلب استعراض كافة الرموز التعبيرية.',
+        'مصفوفة أيقونات متسقة: توحيد سلوك اختيار الأيقونات السريعة عبر مساحات المشاركة والفئات والحسابات.',
+      ],
+    },
+  },
+  {
     version: '1.1.25',
     releaseDate: 'October 22, 2026',
     title: {
