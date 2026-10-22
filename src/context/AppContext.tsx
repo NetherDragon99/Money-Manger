@@ -236,6 +236,7 @@ interface AppContextType {
   isTxMultiSelect: boolean;
   startTxMultiSelect: (initialId?: string) => void;
   toggleTxSelection: (id: string) => void;
+  toggleBatchTxs: (ids: string[]) => void;
   selectAllTxs: (ids: string[]) => void;
   clearTxSelection: () => void;
   deleteSelectedTxs: () => void;
@@ -476,6 +477,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setSelectedTxIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
+  };
+
+  const toggleBatchTxs = (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    setIsGlobalMultiSelect(true);
+    setSelectedTxIds((prev) => {
+      const allSelected = ids.every((id) => prev.includes(id));
+      if (allSelected) {
+        return prev.filter((id) => !ids.includes(id));
+      } else {
+        const next = new Set(prev);
+        ids.forEach((id) => next.add(id));
+        return Array.from(next);
+      }
+    });
   };
 
   const selectAllTxs = (ids: string[]) => {
@@ -2499,6 +2515,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     closeRemainingBalanceModal,
     startTxMultiSelect,
     toggleTxSelection,
+    toggleBatchTxs,
     selectAllTxs,
     clearTxSelection,
     deleteSelectedTxs,

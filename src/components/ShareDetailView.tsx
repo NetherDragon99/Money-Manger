@@ -15,6 +15,7 @@ import {
   ExternalLink,
   ShieldCheck,
   Check,
+  Minus,
   Clock,
   Sparkles,
   X,
@@ -80,6 +81,11 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     showConfirm,
     setIsEditingSpace: setGlobalIsEditingSpace,
     setEditingShareId: setGlobalEditingShareId,
+    selectedTxIds,
+    isTxMultiSelect,
+    toggleTxSelection,
+    toggleBatchTxs,
+    startTxMultiSelect,
   } = useApp();
 
   const isArabic = settings.language === 'ar';
@@ -1055,35 +1061,85 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                   const isMonthCollapsed = Boolean(collapsedMonths[monthGroup.monthKey]);
                   const monthTitle = getMonthHeaderTitle(monthGroup.monthKey, isArabic ? 'ar' : 'en');
                   const isMonthPositive = monthGroup.monthNet >= 0;
+                  const monthTxIds = monthGroup.days.flatMap((d) => d.txs).map((t) => t.id);
+                  const isAllMonthSelected = monthTxIds.length > 0 && monthTxIds.every((id) => selectedTxIds.includes(id));
+                  const isPartialMonthSelected = !isAllMonthSelected && monthTxIds.some((id) => selectedTxIds.includes(id));
 
                   return (
                     <div
                       key={monthGroup.monthKey}
                       className="rounded-3xl bg-zinc-950 border border-zinc-800/80 overflow-hidden shadow-lg"
                     >
-                      {/* Month Header with Monthly Total */}
-                      <button
-                        type="button"
-                        onClick={() => toggleMonth(monthGroup.monthKey)}
-                        className="w-full flex items-center justify-between px-4 py-3 bg-zinc-900/90 hover:bg-zinc-850 text-start transition border-b border-zinc-800/60 cursor-pointer"
+                      {/* Month Header with Select All Checkbox */}
+                      <div
+                        onClick={() => {
+                          if (isTxMultiSelect) {
+                            toggleBatchTxs(monthTxIds);
+                          } else {
+                            toggleMonth(monthGroup.monthKey);
+                          }
+                        }}
+                        className="w-full flex items-center justify-between px-4 py-3 bg-zinc-900/90 hover:bg-zinc-850 text-start transition border-b border-zinc-800/60 cursor-pointer select-none group"
                       >
-                        <div className="flex items-center gap-2 font-bold text-white text-sm">
-                          {isMonthCollapsed ? (
-                            <ChevronDown className="w-4 h-4 text-zinc-400 rtl:rotate-90 ltr:-rotate-90" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4 text-zinc-400" />
-                          )}
-                          <span>{monthTitle}</span>
+                        <div className="flex items-center gap-2.5 font-bold text-white text-sm min-w-0">
+                          {/* Select All Checkbox for Month */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleBatchTxs(monthTxIds);
+                            }}
+                            className={`w-5 h-5 rounded-lg flex items-center justify-center transition border cursor-pointer shrink-0 ${
+                              isAllMonthSelected
+                                ? 'bg-blue-600 border-blue-500 text-white shadow-sm shadow-blue-600/50'
+                                : isPartialMonthSelected
+                                ? 'bg-blue-600/40 border-blue-500 text-white'
+                                : isTxMultiSelect
+                                ? 'bg-zinc-950 border-zinc-700 text-transparent hover:border-blue-400'
+                                : 'bg-zinc-900/80 border-zinc-700/80 text-transparent hover:border-blue-400 opacity-60 group-hover:opacity-100'
+                            }`}
+                            title={
+                              isAllMonthSelected
+                                ? (isArabic ? 'إلغاء تحديد الشهر بالكامل' : 'Deselect Entire Month')
+                                : (isArabic ? 'تحديد الشهر بالكامل' : 'Select Entire Month')
+                            }
+                          >
+                            {isPartialMonthSelected ? (
+                              <Minus className="w-3.5 h-3.5 text-white" />
+                            ) : (
+                              <Check className={`w-3.5 h-3.5 ${isAllMonthSelected ? 'text-white' : 'opacity-0'}`} />
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleMonth(monthGroup.monthKey);
+                            }}
+                            className="p-1 -m-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                          >
+                            {isMonthCollapsed ? (
+                              <ChevronDown className="w-4 h-4 text-zinc-400 rtl:rotate-90 ltr:-rotate-90" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-zinc-400" />
+                            )}
+                          </button>
+
+                          <span className="truncate">{monthTitle}</span>
+                          <span className="text-[10px] text-zinc-500 font-mono font-normal">
+                            ({monthTxIds.length})
+                          </span>
                         </div>
                         <div
-                          className={`text-xs font-mono font-bold ${
+                          className={`text-xs font-mono font-bold shrink-0 ${
                             isMonthPositive ? 'text-emerald-400' : 'text-red-400'
                           }`}
                         >
                           {isMonthPositive ? '+' : ''}
                           {formatCurrency(monthGroup.monthNet, currencySymbol, isArabic ? 'ar' : 'en')}
                         </div>
-                      </button>
+                      </div>
 
                       {/* Days list inside Month */}
                       {!isMonthCollapsed && (
@@ -1092,103 +1148,180 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                             const isDayCollapsed = Boolean(collapsedDays[dayGroup.dayKey]);
                             const dayTitle = getDayHeaderTitle(dayGroup.dayKey, isArabic ? 'ar' : 'en');
                             const isDayPositive = dayGroup.dayNet >= 0;
+                            const dayTxIds = dayGroup.txs.map((t) => t.id);
+                            const isAllDaySelected = dayTxIds.length > 0 && dayTxIds.every((id) => selectedTxIds.includes(id));
+                            const isPartialDaySelected = !isAllDaySelected && dayTxIds.some((id) => selectedTxIds.includes(id));
 
                             return (
                               <div
                                 key={dayGroup.dayKey}
                                 className="rounded-2xl bg-zinc-900/50 border border-zinc-800/60 overflow-hidden"
                               >
-                                {/* Day Header with Daily Total */}
-                                <button
-                                  type="button"
-                                  onClick={() => toggleDay(dayGroup.dayKey)}
-                                  className="w-full flex items-center justify-between px-3.5 py-2 bg-zinc-900/90 hover:bg-zinc-850 text-start transition border-b border-zinc-800/40 cursor-pointer"
+                                {/* Day Header with Select All Checkbox */}
+                                <div
+                                  onClick={() => {
+                                    if (isTxMultiSelect) {
+                                      toggleBatchTxs(dayTxIds);
+                                    } else {
+                                      toggleDay(dayGroup.dayKey);
+                                    }
+                                  }}
+                                  className="w-full flex items-center justify-between px-3.5 py-2 bg-zinc-900/90 hover:bg-zinc-850 text-start transition border-b border-zinc-800/40 cursor-pointer select-none group"
                                 >
-                                  <div className="flex items-center gap-2 font-semibold text-xs text-zinc-300">
-                                    {isDayCollapsed ? (
-                                      <ChevronDown className="w-3.5 h-3.5 text-zinc-500 rtl:rotate-90 ltr:-rotate-90" />
-                                    ) : (
-                                      <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
-                                    )}
-                                    <span>{dayTitle}</span>
+                                  <div className="flex items-center gap-2 font-semibold text-xs text-zinc-300 min-w-0">
+                                    {/* Select All Checkbox for Day */}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleBatchTxs(dayTxIds);
+                                      }}
+                                      className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition border cursor-pointer shrink-0 ${
+                                        isAllDaySelected
+                                          ? 'bg-blue-600 border-blue-500 text-white shadow-sm shadow-blue-600/50'
+                                          : isPartialDaySelected
+                                          ? 'bg-blue-600/40 border-blue-500 text-white'
+                                          : isTxMultiSelect
+                                          ? 'bg-zinc-950 border-zinc-700 text-transparent hover:border-blue-400'
+                                          : 'bg-zinc-900/80 border-zinc-700/80 text-transparent hover:border-blue-400 opacity-60 group-hover:opacity-100'
+                                      }`}
+                                      title={
+                                        isAllDaySelected
+                                          ? (isArabic ? 'إلغاء تحديد اليوم بالكامل' : 'Deselect Entire Day')
+                                          : (isArabic ? 'تحديد اليوم بالكامل' : 'Select Entire Day')
+                                      }
+                                    >
+                                      {isPartialDaySelected ? (
+                                        <Minus className="w-3 h-3 text-white" />
+                                      ) : (
+                                        <Check className={`w-3 h-3 ${isAllDaySelected ? 'text-white' : 'opacity-0'}`} />
+                                      )}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleDay(dayGroup.dayKey);
+                                      }}
+                                      className="p-0.5 -m-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white transition cursor-pointer"
+                                    >
+                                      {isDayCollapsed ? (
+                                        <ChevronDown className="w-3.5 h-3.5 text-zinc-500 rtl:rotate-90 ltr:-rotate-90" />
+                                      ) : (
+                                        <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
+                                      )}
+                                    </button>
+
+                                    <span className="truncate">{dayTitle}</span>
                                     <span className="text-[10px] text-zinc-500 font-mono">
-                                      ({dayGroup.txs.length})
+                                      ({dayTxIds.length})
                                     </span>
                                   </div>
                                   <div
-                                    className={`text-[11px] font-mono font-bold ${
+                                    className={`text-[11px] font-mono font-bold shrink-0 ${
                                       isDayPositive ? 'text-emerald-400' : 'text-red-400'
                                     }`}
                                   >
                                     {isDayPositive ? '+' : ''}
                                     {formatCurrency(dayGroup.dayNet, currencySymbol, isArabic ? 'ar' : 'en')}
                                   </div>
-                                </button>
+                                </div>
 
                                 {/* Day Transactions */}
                                 {!isDayCollapsed && (
                                   <div className="p-1.5 space-y-1">
-                                    {dayGroup.txs.map((tx) => (
-                                      <div
-                                        key={tx.id}
-                                        className="p-2.5 rounded-xl bg-zinc-900/80 hover:bg-zinc-850 border border-zinc-800/60 flex items-center justify-between transition group"
-                                      >
-                                        <div className="flex items-center gap-2.5 min-w-0">
-                                          <div className="w-8 h-8 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-sm shrink-0">
-                                            {tx.categoryIcon || '💸'}
-                                          </div>
-                                          <div className="min-w-0">
-                                            <span className="text-xs font-semibold text-white block truncate">
-                                              {tx.description || tx.categoryName}
-                                            </span>
-                                            <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-                                              <span className="truncate">{tx.categoryName}</span>
-                                              {tx.time && (
-                                                <>
-                                                  <span>·</span>
-                                                  <span className="font-mono text-zinc-500">
-                                                    {formatTime12h(tx.time, isArabic ? 'ar' : 'en')}
-                                                  </span>
-                                                </>
-                                              )}
+                                    {dayGroup.txs.map((tx) => {
+                                      const isSelected = selectedTxIds.includes(tx.id);
+
+                                      return (
+                                        <div
+                                          key={tx.id}
+                                          onClick={() => {
+                                            if (isTxMultiSelect) {
+                                              toggleTxSelection(tx.id);
+                                            }
+                                          }}
+                                          onContextMenu={(e) => {
+                                            e.preventDefault();
+                                            startTxMultiSelect(tx.id);
+                                          }}
+                                          className={`p-2.5 rounded-xl border flex items-center justify-between transition group select-none ${
+                                            isSelected
+                                              ? 'bg-blue-950/40 border-blue-500/80 shadow-md shadow-blue-950/50 cursor-pointer'
+                                              : 'bg-zinc-900/80 hover:bg-zinc-850 border-zinc-800/60'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-2.5 min-w-0">
+                                            {isTxMultiSelect && (
+                                              <div
+                                                className={`w-5 h-5 rounded-lg flex items-center justify-center transition border shrink-0 ${
+                                                  isSelected
+                                                    ? 'bg-blue-600 border-blue-500 text-white'
+                                                    : 'bg-zinc-950 border-zinc-700 text-transparent'
+                                                }`}
+                                              >
+                                                <Check className="w-3.5 h-3.5" />
+                                              </div>
+                                            )}
+
+                                            <div className="w-8 h-8 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-sm shrink-0">
+                                              {tx.categoryIcon || '💸'}
+                                            </div>
+                                            <div className="min-w-0">
+                                              <span className="text-xs font-semibold text-white block truncate">
+                                                {tx.description || tx.categoryName}
+                                              </span>
+                                              <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                                                <span className="truncate">{tx.categoryName}</span>
+                                                {tx.time && (
+                                                  <>
+                                                    <span>·</span>
+                                                    <span className="font-mono text-zinc-500">
+                                                      {formatTime12h(tx.time, isArabic ? 'ar' : 'en')}
+                                                    </span>
+                                                  </>
+                                                )}
+                                              </div>
                                             </div>
                                           </div>
-                                        </div>
 
-                                        <div className="flex items-center gap-2 shrink-0">
-                                          <span
-                                            className={`font-mono text-xs font-bold ${
-                                              tx.type === 'income'
-                                                ? 'text-emerald-400'
-                                                : tx.type === 'expense'
-                                                ? 'text-red-400'
-                                                : 'text-blue-400'
-                                            }`}
-                                          >
-                                            {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
-                                            {formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
-                                          </span>
-
-                                          {canEdit && (
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                initiatePreDeleteReview(
-                                                  'transaction',
-                                                  tx.id,
-                                                  tx.description || tx.categoryName || 'Transaction',
-                                                  tx.categoryIcon
-                                                )
-                                              }
-                                              className="p-1 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer"
-                                              title={isArabic ? 'حذف المعاملة' : 'Delete Transaction'}
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            <span
+                                              className={`font-mono text-xs font-bold ${
+                                                tx.type === 'income'
+                                                  ? 'text-emerald-400'
+                                                  : tx.type === 'expense'
+                                                  ? 'text-red-400'
+                                                  : 'text-blue-400'
+                                              }`}
                                             >
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                          )}
+                                              {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
+                                              {formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
+                                            </span>
+
+                                            {canEdit && (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  initiatePreDeleteReview(
+                                                    'transaction',
+                                                    tx.id,
+                                                    tx.description || tx.categoryName || 'Transaction',
+                                                    tx.categoryIcon
+                                                  );
+                                                }}
+                                                className="p-1 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer"
+                                                title={isArabic ? 'حذف المعاملة' : 'Delete Transaction'}
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            )}
+                                          </div>
                                         </div>
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 )}
                               </div>

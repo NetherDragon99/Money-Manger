@@ -12,6 +12,7 @@ import {
   Calendar as CalendarIcon,
   Search,
   X,
+  Check,
 } from 'lucide-react';
 import { PeriodFilterType, DateRange, Transaction } from '../types';
 import {
@@ -44,6 +45,8 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
     setIsSidebarOpen,
     setIsResetPeriodModalOpen,
     setIsFilterModalOpen,
+    selectedTxIds,
+    toggleBatchTxs,
     t,
   } = useApp();
 
@@ -702,9 +705,34 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
                   <CalendarIcon className="w-3.5 h-3.5 text-blue-400" />
                   <span>{selectedCalendarDate}</span>
                 </h4>
-                <span className="text-xs text-zinc-500 font-mono">
-                  {selectedCalendarDayTxs.length} {t('transactionsCount')}
-                </span>
+                <div className="flex items-center gap-2">
+                  {selectedCalendarDayTxs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => toggleBatchTxs(selectedCalendarDayTxs.map((t) => t.id))}
+                      className={`px-2 py-0.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition cursor-pointer ${
+                        selectedCalendarDayTxs.every((t) => selectedTxIds.includes(t.id))
+                          ? 'bg-blue-600/30 border-blue-500 text-blue-300'
+                          : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-white'
+                      }`}
+                      title={
+                        selectedCalendarDayTxs.every((t) => selectedTxIds.includes(t.id))
+                          ? (settings.language === 'ar' ? 'إلغاء تحديد معاملات اليوم' : 'Deselect Day')
+                          : (settings.language === 'ar' ? 'تحديد كافة معاملات اليوم' : 'Select Day')
+                      }
+                    >
+                      <Check className="w-3 h-3" />
+                      <span>
+                        {selectedCalendarDayTxs.every((t) => selectedTxIds.includes(t.id))
+                          ? (settings.language === 'ar' ? 'إلغاء التحديد' : 'Deselect')
+                          : (settings.language === 'ar' ? 'تحديد الكل' : 'Select All')}
+                      </span>
+                    </button>
+                  )}
+                  <span className="text-xs text-zinc-500 font-mono">
+                    {selectedCalendarDayTxs.length} {t('transactionsCount')}
+                  </span>
+                </div>
               </div>
 
               <GroupedTransactionList
