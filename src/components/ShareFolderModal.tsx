@@ -142,7 +142,6 @@ export const ShareFolderModal: React.FC = () => {
 
   // Direct Send via 16-digit ID
   const [recipient16DigitId, setRecipient16DigitId] = useState('');
-  const [recipientName, setRecipientName] = useState('');
   const [selectedRecipientUser, setSelectedRecipientUser] = useState<UserProfileCard | null>(null);
   const [isVerifyingRecipient, setIsVerifyingRecipient] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -157,7 +156,6 @@ export const ShareFolderModal: React.FC = () => {
       setExistingFolders(folders);
       setFolderMode('new'); // ALWAYS default to clean, brand-new share!
       setRecipient16DigitId('');
-      setRecipientName('');
       setSelectedRecipientUser(null);
       setCustomFolderName(autoMeta.name);
       setCustomFolderIcon(autoMeta.icon);
@@ -238,15 +236,16 @@ export const ShareFolderModal: React.FC = () => {
       const res = await sendShareFolderToRecipient(
         folder,
         cleanId,
-        recipientName.trim() || selectedRecipientUser?.name,
+        selectedRecipientUser?.name,
         selectedRecipientUser?.avatar,
         selectedRecipientUser?.photoURL
       );
       if (res.success) {
+        const displayName = selectedRecipientUser?.name || format16DigitId(cleanId);
         showToast(
           isArabic
-            ? `تم إرسال شير "${folder.name}" بنجاح إلى (${recipientName.trim() || format16DigitId(cleanId)})!`
-            : `Share "${folder.name}" successfully sent to (${recipientName.trim() || format16DigitId(cleanId)})!`,
+            ? `تم إرسال شير "${folder.name}" بنجاح إلى (${displayName})!`
+            : `Share "${folder.name}" successfully sent to (${displayName})!`,
           'success'
         );
         cleanupAndClose();
@@ -553,10 +552,8 @@ export const ShareFolderModal: React.FC = () => {
                 setSelectedRecipientUser(u);
                 if (u) {
                   setRecipient16DigitId(u.numericId);
-                  setRecipientName(u.name);
                 } else {
                   setRecipient16DigitId('');
-                  setRecipientName('');
                 }
               }}
               onVerifyingChange={setIsVerifyingRecipient}

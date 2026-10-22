@@ -19,7 +19,6 @@ import {
   Sparkles,
   X,
   Shield,
-  Edit3,
   LogOut,
   Loader2,
   Settings,
@@ -50,7 +49,6 @@ import {
   removeAllMembersFromShareFolder,
   leaveShareFolder,
   updateMemberRoleInShareFolder,
-  updateMemberDetailsInShareFolder,
   syncFolderToCloud,
   generateShareUrl,
   fetchUserProfileCard,
@@ -150,12 +148,9 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     };
   }, []);
   const [newMemberId, setNewMemberId] = useState('');
-  const [newMemberName, setNewMemberName] = useState('');
   const [selectedMemberUser, setSelectedMemberUser] = useState<any>(null);
   const [isVerifyingMember, setIsVerifyingMember] = useState(false);
   const [isSubmittingMember, setIsSubmittingMember] = useState(false);
-  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
-  const [editingMemberName, setEditingMemberName] = useState('');
 
   // Pre-Delete Review Modal State (with overlap warning & smart cleanup)
   const [preDeleteState, setPreDeleteState] = useState<{
@@ -541,7 +536,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     const res = await addMemberToShareFolder(
       folder.id,
       cleanId,
-      newMemberName.trim() || selectedMemberUser?.name,
+      selectedMemberUser?.name,
       'viewer',
       selectedMemberUser?.avatar,
       selectedMemberUser?.photoURL
@@ -551,7 +546,6 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     if (res.success && res.folder) {
       setFolder(res.folder);
       setNewMemberId('');
-      setNewMemberName('');
       setSelectedMemberUser(null);
       setIsAddMemberOpen(false);
       showToast(
@@ -1306,7 +1300,6 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             setIsAddMemberOpen(false);
             setSelectedMemberUser(null);
             setNewMemberId('');
-            setNewMemberName('');
           }}
         >
           <div
@@ -1324,7 +1317,6 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                   setIsAddMemberOpen(false);
                   setSelectedMemberUser(null);
                   setNewMemberId('');
-                  setNewMemberName('');
                 }}
                 className="p-1.5 rounded-xl hover:bg-zinc-900 text-zinc-400 hover:text-white transition cursor-pointer"
               >
@@ -1345,10 +1337,8 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                   setSelectedMemberUser(u);
                   if (u) {
                     setNewMemberId(u.numericId);
-                    setNewMemberName(u.name);
                   } else {
                     setNewMemberId('');
-                    setNewMemberName('');
                   }
                 }}
                 onVerifyingChange={setIsVerifyingMember}
@@ -1358,22 +1348,6 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                 autoFocus
               />
 
-              {selectedMemberUser && (
-                <div className="space-y-1.5 animate-in fade-in">
-                  <label className="text-xs text-zinc-300 font-bold block">
-                    {isArabic ? 'اسم أو لقب العضو (اختياري):' : 'Member Name or Nickname (optional):'}
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={30}
-                    placeholder={selectedMemberUser.name || (isArabic ? 'مثال: أحمد، سارة...' : 'e.g. Ahmed, Sarah...')}
-                    value={newMemberName}
-                    onChange={(e) => setNewMemberName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-              )}
-
               <div className="flex items-center gap-2 pt-2">
                 <button
                   type="button"
@@ -1381,7 +1355,6 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                     setIsAddMemberOpen(false);
                     setSelectedMemberUser(null);
                     setNewMemberId('');
-                    setNewMemberName('');
                   }}
                   className="flex-1 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-zinc-400 text-xs font-bold transition cursor-pointer"
                 >
@@ -1538,61 +1511,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                         </div>
                         <div className="min-w-0">
                           <div className="text-sm font-bold text-white truncate flex items-center gap-1.5">
-                            {editingMemberId === m.numericId ? (
-                              <div className="flex items-center gap-1">
-                                <input
-                                  type="text"
-                                  value={editingMemberName}
-                                  onChange={(e) => setEditingMemberName(e.target.value)}
-                                  maxLength={30}
-                                  className="px-2 py-0.5 rounded-lg bg-zinc-800 border border-purple-500 text-xs text-white focus:outline-none"
-                                  autoFocus
-                                />
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (editingMemberName.trim()) {
-                                      const res = await updateMemberDetailsInShareFolder(folder.id, m.numericId, {
-                                        name: editingMemberName.trim(),
-                                      });
-                                      if (res.success && res.folder) {
-                                        setFolder(res.folder);
-                                      }
-                                    }
-                                    setEditingMemberId(null);
-                                  }}
-                                  className="p-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
-                                  title="Save"
-                                >
-                                  <Check className="w-3 h-3" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingMemberId(null)}
-                                  className="p-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 cursor-pointer"
-                                  title="Cancel"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                            ) : (
-                              <>
-                                <span>{m.name}</span>
-                                {isOwner && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingMemberId(m.numericId);
-                                      setEditingMemberName(m.name);
-                                    }}
-                                    className="p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition cursor-pointer"
-                                    title={isArabic ? 'تعديل اسم أو لقب العضو' : 'Edit Member Name'}
-                                  >
-                                    <Edit3 className="w-3 h-3" />
-                                  </button>
-                                )}
-                              </>
-                            )}
+                            <span>{m.name}</span>
                             <span className="text-[9px] px-1.5 py-0.5 rounded-full font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                               {isArabic ? 'نشط' : 'Active'}
                             </span>

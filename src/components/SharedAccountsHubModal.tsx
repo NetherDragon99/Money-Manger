@@ -188,7 +188,6 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   // Quick invite inside modal state
   const [invitingFolderId, setInvitingFolderId] = useState<string | null>(null);
   const [invite16Id, setInvite16Id] = useState('');
-  const [inviteName, setInviteName] = useState('');
   const [inviteSelectedUser, setInviteSelectedUser] = useState<UserProfileCard | null>(null);
   const [isVerifyingInvite, setIsVerifyingInvite] = useState(false);
   const [isSendingInvite, setIsSendingInvite] = useState(false);
@@ -393,7 +392,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     const res = await addMemberToShareFolder(
       folderId,
       cleanId,
-      inviteName.trim() || inviteSelectedUser?.name,
+      inviteSelectedUser?.name,
       'viewer',
       inviteSelectedUser?.avatar,
       inviteSelectedUser?.photoURL
@@ -403,7 +402,6 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     if (res.success && res.folder) {
       setMyFolders(loadMyShareFolders());
       setInvite16Id('');
-      setInviteName('');
       setInviteSelectedUser(null);
       setInvitingFolderId(null);
       showToast(
@@ -818,10 +816,8 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                                 setInviteSelectedUser(u);
                                 if (u) {
                                   setInvite16Id(u.numericId);
-                                  setInviteName(u.name);
                                 } else {
                                   setInvite16Id('');
-                                  setInviteName('');
                                 }
                               }}
                               onVerifyingChange={setIsVerifyingInvite}
