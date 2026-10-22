@@ -3,6 +3,7 @@ import { ref, set, get, remove, onValue, off, update } from 'firebase/database';
 import { cleanNumericId, format16DigitId, getOrCreateNumericId } from './userId';
 import { Account, Category, Transaction } from '../types';
 import { encodeShareSnapshot } from './sharing';
+import { queueOfflineShareUpdate } from './persistQueue';
 
 /**
  * 10-second timeout guard on Firebase RTDB calls
@@ -934,6 +935,12 @@ export function deduceFolderMetadata(
  * Includes required Firebase rule fields: ownerUid, accountName, updatedAt: Date.now(), and invites map
  */
 export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
+  // If offline, queue for sync as soon as network is restored
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    queueOfflineShareUpdate(folder);
+    return;
+  }
+
   try {
     const fullPayload = buildFullSharePayload(folder);
     const rawShareId = folder.id.replace(/^share_/, '');

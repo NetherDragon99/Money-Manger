@@ -40,7 +40,8 @@ import { loadAutoBackupConfig, isBackupDue, executeAutoBackup } from './utils/au
 import { decodeShareSnapshot } from './utils/sharing';
 import { listenToMyNumericIdInbox, publishUserProfileCard } from './utils/shareFolders';
 import { cleanNumericId, getOrCreateNumericId } from './utils/userId';
-import { auth } from './utils/firebase';
+import { auth, getCachedAuthUser } from './utils/firebase';
+import { flushOfflineQueue } from './utils/persistQueue';
 import { ShareFolderModal } from './components/ShareFolderModal';
 import { RemainingBalanceModal } from './components/RemainingBalanceModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -187,7 +188,8 @@ const MainAppContent: React.FC = () => {
   // Trigger profile cloud-registration on startup when signed in, and every time UserProfileModal, SharedAccountsHubModal, or ShareFolderModal is opened
   useEffect(() => {
     const syncProfileToCloud = () => {
-      const user = auth.currentUser;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      const user = auth.currentUser || getCachedAuthUser();
       if (!user) return;
       const clean16 = cleanNumericId(settings.userProfile?.numericId) || getOrCreateNumericId();
       if (clean16.length === 16) {
@@ -197,15 +199,26 @@ const MainAppContent: React.FC = () => {
           avatar: settings.userProfile?.avatarEmoji || '👤',
           photoURL: settings.userProfile?.customAvatarUrl || user.photoURL || '',
           uid: user.uid,
-        });
+        }).catch((e) => console.warn('[App] Offline profile sync skipped:', e));
       }
     };
 
     syncProfileToCloud();
+
+    const handleOnline = () => {
+      flushOfflineQueue();
+      syncProfileToCloud();
+    };
+    window.addEventListener('online', handleOnline);
+
     const unsub = auth.onAuthStateChanged((user) => {
       if (user) syncProfileToCloud();
     });
-    return () => unsub();
+
+    return () => {
+      unsub();
+      window.removeEventListener('online', handleOnline);
+    };
   }, [
     isUserProfileModalOpen,
     isSharedHubModalOpen,

@@ -11,6 +11,7 @@ import {
   getFirebaseCloudBackup,
 } from './firebase';
 import { ShareFolder, loadMyShareFolders, loadReceivedShareFolders } from './shareFolders';
+import { queueOfflineCloudBackup } from './persistQueue';
 
 export interface FullAppBackupPayload {
   version: string;
@@ -463,7 +464,18 @@ export function scheduleDualCloudBackup(
   getPayload: () => FullAppBackupPayload,
   debounceMs = 2500
 ): void {
-  if (!uid || typeof navigator === 'undefined' || !navigator.onLine) return;
+  if (!uid) return;
+
+  // If offline, queue payload immediately so it flushes as soon as connection is restored
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    try {
+      const payload = getPayload();
+      queueOfflineCloudBackup(uid, payload);
+    } catch (e) {
+      console.warn('[DualCloudBackup] Failed to queue offline backup:', e);
+    }
+    return;
+  }
 
   if (debouncedBackupTimeout) {
     clearTimeout(debouncedBackupTimeout);
@@ -472,6 +484,10 @@ export function scheduleDualCloudBackup(
   debouncedBackupTimeout = setTimeout(async () => {
     try {
       const payload = getPayload();
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        queueOfflineCloudBackup(uid, payload);
+        return;
+      }
       await executeDualCloudBackup(uid, payload);
     } catch (err) {
       console.warn('[DualCloudBackup] Debounced backup execution error:', err);

@@ -65,7 +65,7 @@ import { translations } from '../utils/translations';
 import { DEFAULT_SETTINGS } from '../utils/constants';
 import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomDialogModal';
 import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId, cleanNumericId } from '../utils/userId';
-import { auth, checkAndHandleGoogleRedirect } from '../utils/firebase';
+import { auth, checkAndHandleGoogleRedirect, getCachedAuthUser, setCachedAuthUser } from '../utils/firebase';
 import {
   FullAppBackupPayload,
   executeDualCloudBackup,
@@ -970,6 +970,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const syncIdentity = async (user: any) => {
       if (!user) {
+        // Check if we have a cached user session from localStorage
+        const cached = getCachedAuthUser();
+        if (cached) {
+          // Do NOT sign out when offline or if token refresh fails!
+          return;
+        }
         // Guest user: strictly ensure 16-digit ID is not generated, stored, or published
         try {
           localStorage.removeItem('app_permanent_16digit_id');
@@ -987,6 +993,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       try {
+        // Mirror active user session to localStorage for offline resilience
+        setCachedAuthUser({
+          uid: user.uid,
+          email: user.email || null,
+          displayName: user.displayName || null,
+          photoURL: user.photoURL || null,
+          phoneNumber: user.phoneNumber || null,
+        });
         // 1. Dual-Layer Cloud Auto-Restore upon Sign-In (Google Drive first, then Firebase Server Fallback)
         if (lastRestoredUidRef.current !== user.uid) {
           lastRestoredUidRef.current = user.uid;
@@ -1080,22 +1094,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }));
         }
 
-        // IMMEDIATELY publish & update public profile to Firebase RTDB at shared_accounts/profile_${cleanMy16Id}
-        await publishUserProfileCard({
-          numericId: clean16Id,
-          name: finalName,
-          avatar: finalAvatar,
-          photoURL: finalPhoto,
-          uid: user.uid,
-        });
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          // IMMEDIATELY publish & update public profile to Firebase RTDB at shared_accounts/profile_${cleanMy16Id}
+          await publishUserProfileCard({
+            numericId: clean16Id,
+            name: finalName,
+            avatar: finalAvatar,
+            photoURL: finalPhoto,
+            uid: user.uid,
+          }).catch((err) => console.warn('[AppContext] Profile cloud publish note:', err));
 
-        // Also publish to numericIds/${cleanMy16Id} for reverse UID lookup
-        await syncNumericIdToFirebase(
-          clean16Id,
-          user.uid,
-          finalName,
-          user.email || ''
-        );
+          // Also publish to numericIds/${cleanMy16Id} for reverse UID lookup
+          await syncNumericIdToFirebase(
+            clean16Id,
+            user.uid,
+            finalName,
+            user.email || ''
+          ).catch((err) => console.warn('[AppContext] Numeric ID sync note:', err));
+        }
 
         // Initial confirmation backup to Google Drive & Firebase server
         setTimeout(() => {
@@ -1110,12 +1126,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     const unsubAuth = auth.onAuthStateChanged((user) => {
-      syncIdentity(user);
+      if (user) {
+        syncIdentity(user);
+      } else {
+        const cached = getCachedAuthUser();
+        if (cached) {
+          console.log('[AppContext] Network offline: Preserving cached user session', cached.uid);
+          syncIdentity(cached);
+        } else {
+          syncIdentity(null);
+        }
+      }
     });
 
-    // Also run immediate sync for current session if already signed in
+    // Immediate sync for current session or hydrate from offline cache
     if (auth.currentUser) {
       syncIdentity(auth.currentUser);
+    } else {
+      const cached = getCachedAuthUser();
+      if (cached) {
+        console.log('[AppContext] Cold launch: Hydrating user from offline cache', cached.uid);
+        syncIdentity(cached);
+      }
     }
 
     return () => {

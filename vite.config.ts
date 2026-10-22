@@ -56,6 +56,8 @@ export default defineConfig(({ command }) => {
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
+          navigateFallback: 'index.html',
+          navigateFallbackDenylist: [/^\/api/],
           runtimeCaching: [
             {
               urlPattern: ({ request }) =>

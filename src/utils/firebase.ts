@@ -14,6 +14,8 @@ import {
   onAuthStateChanged,
   User,
   signInAnonymously,
+  setPersistence,
+  browserLocalPersistence,
 } from 'firebase/auth';
 import {
   getDatabase,
@@ -41,6 +43,56 @@ export const firebaseConfig = {
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const rtdb = getDatabase(app);
+
+// Explicitly set Firebase Auth persistence to browserLocalPersistence
+setPersistence(auth, browserLocalPersistence).catch((err) => {
+  console.warn('[Firebase] Failed to set browserLocalPersistence:', err);
+});
+
+export const CACHED_AUTH_USER_KEY = 'mm_cached_authenticated_user';
+
+export interface CachedAuthUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  phoneNumber?: string | null;
+  numeric16Id?: string;
+  cachedAt?: number;
+}
+
+/**
+ * Retrieves the cached authenticated user session from localStorage
+ * Used to keep the app working 100% offline without signing the user out.
+ */
+export function getCachedAuthUser(): CachedAuthUser | null {
+  try {
+    const raw = localStorage.getItem(CACHED_AUTH_USER_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+/**
+ * Persists the authenticated user session to localStorage
+ */
+export function setCachedAuthUser(user: CachedAuthUser | null): void {
+  try {
+    if (user) {
+      localStorage.setItem(
+        CACHED_AUTH_USER_KEY,
+        JSON.stringify({
+          ...user,
+          cachedAt: Date.now(),
+        })
+      );
+    } else {
+      localStorage.removeItem(CACHED_AUTH_USER_KEY);
+    }
+  } catch (err) {
+    console.warn('[Firebase] Failed to save cached auth user:', err);
+  }
+}
 
 // Google Provider with Google Drive Scopes for Dual-Layer Cloud Backup
 const googleProvider = new GoogleAuthProvider();
@@ -99,6 +151,15 @@ export async function loginWithGoogle(): Promise<User> {
     if (oauthCred?.accessToken) {
       setGoogleDriveAccessToken(oauthCred.accessToken);
     }
+    if (cred.user) {
+      setCachedAuthUser({
+        uid: cred.user.uid,
+        email: cred.user.email,
+        displayName: cred.user.displayName,
+        photoURL: cred.user.photoURL,
+        phoneNumber: cred.user.phoneNumber,
+      });
+    }
     return cred.user;
   } catch (err: any) {
     if (err?.code === 'auth/popup-blocked' || err?.code === 'auth/popup-closed-by-user') {
@@ -120,6 +181,15 @@ export async function checkAndHandleGoogleRedirect(): Promise<User | null> {
       if (oauthCred?.accessToken) {
         setGoogleDriveAccessToken(oauthCred.accessToken);
       }
+      if (cred.user) {
+        setCachedAuthUser({
+          uid: cred.user.uid,
+          email: cred.user.email,
+          displayName: cred.user.displayName,
+          photoURL: cred.user.photoURL,
+          phoneNumber: cred.user.phoneNumber,
+        });
+      }
       return cred.user;
     }
   } catch (err) {
@@ -133,6 +203,10 @@ export async function checkAndHandleGoogleRedirect(): Promise<User | null> {
  */
 export async function logoutUser(): Promise<void> {
   setGoogleDriveAccessToken(null);
+  setCachedAuthUser(null);
+  try {
+    localStorage.removeItem('app_permanent_16digit_id');
+  } catch {}
   await fbSignOut(auth);
 }
 
