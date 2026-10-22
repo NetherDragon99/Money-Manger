@@ -9,6 +9,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
+  getRedirectResult,
   signOut as fbSignOut,
   onAuthStateChanged,
   User,
@@ -41,9 +42,36 @@ export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfi
 export const auth = getAuth(app);
 export const rtdb = getDatabase(app);
 
-// Google Provider
+// Google Provider with Google Drive Scopes for Dual-Layer Cloud Backup
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+googleProvider.addScope('https://www.googleapis.com/auth/drive.appdata');
+googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
+
+export const GOOGLE_DRIVE_TOKEN_KEY = 'google_drive_access_token';
+
+/**
+ * Access Token Storage for Google Drive API operations
+ */
+export function getGoogleDriveAccessToken(): string | null {
+  try {
+    return localStorage.getItem(GOOGLE_DRIVE_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setGoogleDriveAccessToken(token: string | null): void {
+  try {
+    if (token) {
+      localStorage.setItem(GOOGLE_DRIVE_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(GOOGLE_DRIVE_TOKEN_KEY);
+    }
+  } catch (err) {
+    console.warn('[Firebase] Failed to persist Google Drive token:', err);
+  }
+}
 
 /**
  * Ensure the client has an active Firebase Auth session (signs in anonymously if not signed in)
@@ -62,10 +90,15 @@ export async function ensureFirebaseAuth(): Promise<User | null> {
 
 /**
  * Sign In With Google (Popup with Redirect Fallback for mobile/PWA)
+ * Captures and securely persists OAuth Access Token for Google Drive sync.
  */
 export async function loginWithGoogle(): Promise<User> {
   try {
     const cred = await signInWithPopup(auth, googleProvider);
+    const oauthCred = GoogleAuthProvider.credentialFromResult(cred);
+    if (oauthCred?.accessToken) {
+      setGoogleDriveAccessToken(oauthCred.accessToken);
+    }
     return cred.user;
   } catch (err: any) {
     if (err?.code === 'auth/popup-blocked' || err?.code === 'auth/popup-closed-by-user') {
@@ -77,10 +110,57 @@ export async function loginWithGoogle(): Promise<User> {
 }
 
 /**
+ * Handle Google OAuth Redirect on app startup to retrieve Drive access token
+ */
+export async function checkAndHandleGoogleRedirect(): Promise<User | null> {
+  try {
+    const cred = await getRedirectResult(auth);
+    if (cred) {
+      const oauthCred = GoogleAuthProvider.credentialFromResult(cred);
+      if (oauthCred?.accessToken) {
+        setGoogleDriveAccessToken(oauthCred.accessToken);
+      }
+      return cred.user;
+    }
+  } catch (err) {
+    console.warn('[Firebase] Google redirect result check error:', err);
+  }
+  return null;
+}
+
+/**
  * Sign Out
  */
 export async function logoutUser(): Promise<void> {
+  setGoogleDriveAccessToken(null);
   await fbSignOut(auth);
+}
+
+/**
+ * Firebase RTDB Server Cloud Backup Fallback
+ * Dedicated cloud backup endpoint at users/${uid}/cloud_backup
+ */
+export async function saveFirebaseCloudBackup(uid: string, backupData: any): Promise<void> {
+  if (!uid) return;
+  const backupRef = ref(rtdb, `users/${uid}/cloud_backup`);
+  await set(backupRef, {
+    ...backupData,
+    serverUpdatedAt: Date.now(),
+  });
+}
+
+export async function getFirebaseCloudBackup(uid: string): Promise<any | null> {
+  if (!uid) return null;
+  try {
+    const backupRef = ref(rtdb, `users/${uid}/cloud_backup`);
+    const snapshot = await get(backupRef);
+    if (snapshot.exists()) {
+      return snapshot.val();
+    }
+  } catch (err) {
+    console.warn('[Firebase] Failed to fetch server cloud_backup:', err);
+  }
+  return null;
 }
 
 /**

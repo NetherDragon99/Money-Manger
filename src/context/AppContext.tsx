@@ -65,12 +65,20 @@ import { translations } from '../utils/translations';
 import { DEFAULT_SETTINGS } from '../utils/constants';
 import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomDialogModal';
 import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId, cleanNumericId } from '../utils/userId';
-import { auth } from '../utils/firebase';
+import { auth, checkAndHandleGoogleRedirect } from '../utils/firebase';
+import {
+  FullAppBackupPayload,
+  executeDualCloudBackup,
+  fetchDualCloudBackup,
+  scheduleDualCloudBackup,
+} from '../utils/autoBackup';
 import { decodeShareSnapshot } from '../utils/sharing';
 import {
   publishUserProfileCard,
   syncShareFoldersWithMainData,
   subscribeToMyInbox,
+  loadMyShareFolders,
+  saveMyShareFolders,
   loadReceivedShareFolders,
   saveReceivedShareFolders,
   fetchShareFolderFromCloud,
@@ -267,6 +275,8 @@ interface AppContextType {
     categories?: Category[];
     transactions?: Transaction[];
   }) => { accountsCount: number; categoriesCount: number; txsCount: number };
+  triggerCloudBackupNow: () => Promise<{ provider: 'google_drive' | 'firebase'; success: boolean }>;
+  triggerCloudRestoreNow: () => Promise<boolean>;
 
   // Toasts
   toasts: ToastItem[];
@@ -318,6 +328,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       },
     };
   });
+
+  const isArabic = settings.language === 'ar';
 
   // Nav
   const [currentTab, setCurrentTab] = useState<TabType>('home');
@@ -378,6 +390,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const sec = loadSecuritySettings();
     return sec.isLockEnabled && !isSessionUnlocked();
   });
+
+  // Cloud Sync & Dual-Layer Hydration Engine
+  const isHydratingCloudRef = useRef(false);
+  const lastRestoredUidRef = useRef<string | null>(null);
 
   // Smart Budget Alerts dismissed state
   const [dismissedAlertIds, setDismissedAlertIds] = useState<string[]>([]);
@@ -905,8 +921,50 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [settings]);
 
-  // Strictly ensure that EVERY time a user signs in, the app immediately writes/updates their public profile
-  // to Firebase RTDB at shared_accounts/profile_${cleanMy16Id} (including numericId, name, avatar, and uid).
+  // Check for Google OAuth redirect credentials on startup
+  useEffect(() => {
+    checkAndHandleGoogleRedirect().catch((err) =>
+      console.warn('[AppContext] Google redirect check error:', err)
+    );
+  }, []);
+
+  // Build current full application state payload for cloud backups
+  const buildCurrentBackupPayload = (overrideSettings?: AppSettings): FullAppBackupPayload => {
+    const effectiveSettings = overrideSettings || settings;
+    return {
+      version: '1.1.32',
+      backupDate: new Date().toISOString(),
+      timestamp: Date.now(),
+      accounts,
+      categories,
+      transactions,
+      recurringTransactions,
+      settings: effectiveSettings,
+      sharedSpaces: {
+        myFolders: loadMyShareFolders(),
+        receivedFolders: loadReceivedShareFolders(),
+      },
+      userProfile: {
+        name: effectiveSettings.userProfile?.name || 'User',
+        numericId: effectiveSettings.userProfile?.numericId || '',
+        avatarEmoji: effectiveSettings.userProfile?.avatarEmoji || '👤',
+        customAvatarUrl: effectiveSettings.userProfile?.customAvatarUrl || auth.currentUser?.photoURL || '',
+        email: auth.currentUser?.email || '',
+        uid: auth.currentUser?.uid || '',
+      },
+    };
+  };
+
+  // Debounced Automatic Cloud Backup whenever data changes
+  useEffect(() => {
+    if (!auth.currentUser || isHydratingCloudRef.current) return;
+    scheduleDualCloudBackup(auth.currentUser.uid, () => buildCurrentBackupPayload(), 2500);
+  }, [accounts, categories, transactions, recurringTransactions, settings]);
+
+  // Strictly ensure that EVERY time a user signs in, the app:
+  // 1. Checks Google Drive first (and Firebase users/${uid}/cloud_backup as fallback) to auto-restore & hydrate data.
+  // 2. Writes/updates public profile to Firebase RTDB at shared_accounts/profile_${cleanMy16Id}.
+  // 3. Immediately triggers an initial cloud backup to confirm synchronization.
   useEffect(() => {
     let isMounted = true;
 
@@ -929,6 +987,70 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       try {
+        // 1. Dual-Layer Cloud Auto-Restore upon Sign-In (Google Drive first, then Firebase Server Fallback)
+        if (lastRestoredUidRef.current !== user.uid) {
+          lastRestoredUidRef.current = user.uid;
+          isHydratingCloudRef.current = true;
+
+          try {
+            const cloudBackup = await fetchDualCloudBackup(user.uid);
+            if (cloudBackup && cloudBackup.data) {
+              const d = cloudBackup.data;
+              let restoredSomething = false;
+
+              if (Array.isArray(d.accounts) && d.accounts.length > 0) {
+                setAccounts(syncAllAccountBalances(d.accounts, d.transactions || []));
+                restoredSomething = true;
+              }
+              if (Array.isArray(d.categories) && d.categories.length > 0) {
+                setCategories(d.categories);
+                restoredSomething = true;
+              }
+              if (Array.isArray(d.transactions)) {
+                setTransactions(d.transactions);
+                restoredSomething = true;
+              }
+              if (Array.isArray(d.recurringTransactions)) {
+                setRecurringTransactions(d.recurringTransactions);
+              }
+              if (d.settings && typeof d.settings === 'object') {
+                setSettings((prev) => ({
+                  ...prev,
+                  ...d.settings,
+                  userProfile: d.settings.userProfile
+                    ? { ...prev.userProfile, ...d.settings.userProfile }
+                    : prev.userProfile,
+                }));
+                restoredSomething = true;
+              }
+              if (d.sharedSpaces) {
+                if (Array.isArray(d.sharedSpaces.myFolders)) {
+                  saveMyShareFolders(d.sharedSpaces.myFolders);
+                }
+                if (Array.isArray(d.sharedSpaces.receivedFolders)) {
+                  saveReceivedShareFolders(d.sharedSpaces.receivedFolders);
+                }
+              }
+
+              if (restoredSomething) {
+                const isDrive = cloudBackup.provider === 'google_drive';
+                showToast(
+                  isArabic
+                    ? (isDrive
+                        ? 'تمت استعادة حساباتك وبياناتك تلقائياً من Google Drive!'
+                        : 'تمت استعادة حساباتك وبياناتك تلقائياً من النسخة السحابية!')
+                    : (isDrive
+                        ? 'All accounts & data automatically restored from Google Drive!'
+                        : 'All accounts & data automatically restored from Cloud Backup!'),
+                  'success'
+                );
+              }
+            }
+          } catch (restoreErr) {
+            console.warn('[AppContext] Dual cloud restore on login failed:', restoreErr);
+          }
+        }
+
         const resolvedId = await resolvePermanent16DigitId(user.uid);
         const clean16Id = cleanNumericId(resolvedId);
 
@@ -974,6 +1096,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           finalName,
           user.email || ''
         );
+
+        // Initial confirmation backup to Google Drive & Firebase server
+        setTimeout(() => {
+          isHydratingCloudRef.current = false;
+          if (auth.currentUser) {
+            executeDualCloudBackup(auth.currentUser.uid, buildCurrentBackupPayload());
+          }
+        }, 1500);
       } catch (e) {
         console.warn('[AppContext] Error syncing profile on auth state change:', e);
       }
@@ -1496,6 +1626,88 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // Manual Dual-Layer Cloud Backup (Google Drive with Firebase Server Fallback)
+  const triggerCloudBackupNow = async (): Promise<{ provider: 'google_drive' | 'firebase'; success: boolean }> => {
+    const user = auth.currentUser;
+    if (!user) {
+      showToast(isArabic ? 'يرجى تسجيل الدخول أولاً للنسخ السحابي' : 'Please sign in first to back up', 'error');
+      return { provider: 'firebase', success: false };
+    }
+    showToast(isArabic ? 'جارٍ النسخ السحابي الاحتياطي...' : 'Saving cloud backup...', 'info');
+    const payload = buildCurrentBackupPayload();
+    const result = await executeDualCloudBackup(user.uid, payload);
+    if (result.success) {
+      const isDrive = result.provider === 'google_drive';
+      showToast(
+        isArabic
+          ? (isDrive ? 'تم حفظ النسخة الاحتياطية بنجاح على Google Drive!' : 'تم حفظ النسخة الاحتياطية على الخادم السحابي!')
+          : (isDrive ? 'Backup saved successfully to Google Drive!' : 'Backup saved successfully to Cloud Server!'),
+        'success'
+      );
+    } else {
+      showToast(isArabic ? 'فشل حفظ النسخة الاحتياطية' : 'Failed to save cloud backup', 'error');
+    }
+    return result;
+  };
+
+  // Manual Dual-Layer Cloud Restore (Google Drive first, Firebase Server Fallback)
+  const triggerCloudRestoreNow = async (): Promise<boolean> => {
+    const user = auth.currentUser;
+    if (!user) {
+      showToast(isArabic ? 'يرجى تسجيل الدخول أولاً لاستعادة البيانات' : 'Please sign in first to restore', 'error');
+      return false;
+    }
+    showToast(isArabic ? 'جارٍ فحص النسخ السحابية المتاحة...' : 'Checking for cloud backups...', 'info');
+    const cloudBackup = await fetchDualCloudBackup(user.uid);
+    if (!cloudBackup || !cloudBackup.data) {
+      showToast(isArabic ? 'لم يتم العثور على نسخة احتياطية سحابية' : 'No cloud backup found', 'info');
+      return false;
+    }
+    const data = cloudBackup.data;
+    isHydratingCloudRef.current = true;
+    if (Array.isArray(data.accounts) && data.accounts.length > 0) {
+      setAccounts(syncAllAccountBalances(data.accounts, data.transactions || []));
+    }
+    if (Array.isArray(data.categories) && data.categories.length > 0) {
+      setCategories(data.categories);
+    }
+    if (Array.isArray(data.transactions)) {
+      setTransactions(data.transactions);
+    }
+    if (Array.isArray(data.recurringTransactions)) {
+      setRecurringTransactions(data.recurringTransactions);
+    }
+    if (data.settings && typeof data.settings === 'object') {
+      setSettings((prev) => ({
+        ...prev,
+        ...data.settings,
+        userProfile: data.settings.userProfile
+          ? { ...prev.userProfile, ...data.settings.userProfile }
+          : prev.userProfile,
+      }));
+    }
+    if (data.sharedSpaces) {
+      if (Array.isArray(data.sharedSpaces.myFolders)) {
+        saveMyShareFolders(data.sharedSpaces.myFolders);
+      }
+      if (Array.isArray(data.sharedSpaces.receivedFolders)) {
+        saveReceivedShareFolders(data.sharedSpaces.receivedFolders);
+      }
+    }
+    setTimeout(() => {
+      isHydratingCloudRef.current = false;
+    }, 1000);
+
+    const isDrive = cloudBackup.provider === 'google_drive';
+    showToast(
+      isArabic
+        ? (isDrive ? 'تمت استعادة جميع بياناتك بنجاح من Google Drive!' : 'تمت استعادة بياناتك من الخادم السحابي!')
+        : (isDrive ? 'All data successfully restored from Google Drive!' : 'Data successfully restored from Cloud Server!'),
+      'success'
+    );
+    return true;
+  };
+
   // Custom In-App Confirm and Prompt System (Item 6)
   const [customDialogState, setCustomDialogState] = useState<{
     type: 'confirm' | 'prompt';
@@ -1672,6 +1884,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     importFullData,
     importSingleAccountData,
     importSharedItems,
+    triggerCloudBackupNow,
+    triggerCloudRestoreNow,
     showToast,
     showConfirm,
     showPrompt,

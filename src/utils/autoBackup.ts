@@ -4,7 +4,36 @@
  * and background execution loops on visibilitychange / intervals.
  */
 
-import { AppData } from '../types';
+import { AppData, Account, Category, Transaction, AppSettings, RecurringTransaction } from '../types';
+import {
+  getGoogleDriveAccessToken,
+  saveFirebaseCloudBackup,
+  getFirebaseCloudBackup,
+} from './firebase';
+import { ShareFolder, loadMyShareFolders, loadReceivedShareFolders } from './shareFolders';
+
+export interface FullAppBackupPayload {
+  version: string;
+  backupDate: string;
+  timestamp: number;
+  accounts: Account[];
+  categories: Category[];
+  transactions: Transaction[];
+  recurringTransactions?: RecurringTransaction[];
+  settings: AppSettings;
+  sharedSpaces?: {
+    myFolders: ShareFolder[];
+    receivedFolders: ShareFolder[];
+  };
+  userProfile?: {
+    name: string;
+    numericId: string;
+    avatarEmoji: string;
+    customAvatarUrl?: string;
+    email?: string;
+    uid?: string;
+  };
+}
 
 export type BackupScheduleFrequency = 'off' | 'daily' | 'weekly' | 'monthly';
 
@@ -165,4 +194,287 @@ export async function executeAutoBackup(data: AppData): Promise<{ success: boole
   saveAutoBackupConfig(config);
 
   return { success: true, folderBackedUp };
+}
+
+/* ====================================================================
+ * Automatic Google Drive Backup with Firebase Server Fallback Engine
+ * ==================================================================== */
+
+const BACKUP_FILE_NAME = 'money_manager_backup.json';
+
+/**
+ * Searches for the backup file in Google Drive (appDataFolder first, then root)
+ */
+async function findGoogleDriveBackupFile(
+  accessToken: string
+): Promise<{ id: string; inAppData: boolean } | null> {
+  // 1. Search in appDataFolder (private application space)
+  try {
+    const appDataUrl = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D'${BACKUP_FILE_NAME}'+and+trashed%3Dfalse&fields=files(id%2Cname%2CmodifiedTime)`;
+    const res = await fetch(appDataUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.ok) {
+      const body = await res.json();
+      if (body.files && body.files.length > 0) {
+        return { id: body.files[0].id, inAppData: true };
+      }
+    }
+  } catch (err) {
+    console.warn('[GoogleDrive] Search appDataFolder error:', err);
+  }
+
+  // 2. Search in standard Drive root space as fallback
+  try {
+    const driveUrl = `https://www.googleapis.com/drive/v3/files?q=name%3D'${BACKUP_FILE_NAME}'+and+trashed%3Dfalse&fields=files(id%2Cname%2CmodifiedTime)`;
+    const res = await fetch(driveUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.ok) {
+      const body = await res.json();
+      if (body.files && body.files.length > 0) {
+        return { id: body.files[0].id, inAppData: false };
+      }
+    }
+  } catch (err) {
+    console.warn('[GoogleDrive] Search root drive error:', err);
+  }
+
+  return null;
+}
+
+/**
+ * Uploads/Updates full backup payload to Google Drive
+ */
+export async function uploadToGoogleDrive(
+  accessToken: string,
+  payload: FullAppBackupPayload
+): Promise<boolean> {
+  if (!accessToken) return false;
+  const jsonStr = JSON.stringify(payload, null, 2);
+
+  try {
+    const existing = await findGoogleDriveBackupFile(accessToken);
+
+    if (existing) {
+      // Update existing backup file content
+      const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=media`;
+      const res = await fetch(updateUrl, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: jsonStr,
+      });
+      if (res.ok) {
+        return true;
+      }
+      console.warn('[GoogleDrive] Update failed with status:', res.status);
+    }
+
+    // Create new backup file via multipart upload
+    const boundary = 'money_manager_drive_boundary_99';
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
+
+    // Attempt 1: Create in appDataFolder
+    const metadata = {
+      name: BACKUP_FILE_NAME,
+      parents: ['appDataFolder'],
+      mimeType: 'application/json',
+    };
+
+    const multipartBody =
+      delimiter +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      JSON.stringify(metadata) +
+      delimiter +
+      'Content-Type: application/json\r\n\r\n' +
+      jsonStr +
+      closeDelimiter;
+
+    const createRes = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body: multipartBody,
+      }
+    );
+
+    if (createRes.ok) {
+      return true;
+    }
+
+    // Attempt 2: If appDataFolder is restricted, create in root drive
+    const rootMetadata = {
+      name: BACKUP_FILE_NAME,
+      mimeType: 'application/json',
+    };
+    const rootMultipartBody =
+      delimiter +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      JSON.stringify(rootMetadata) +
+      delimiter +
+      'Content-Type: application/json\r\n\r\n' +
+      jsonStr +
+      closeDelimiter;
+
+    const rootCreateRes = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body: rootMultipartBody,
+      }
+    );
+
+    return rootCreateRes.ok;
+  } catch (err) {
+    console.warn('[GoogleDrive] Upload error:', err);
+    return false;
+  }
+}
+
+/**
+ * Downloads and parses backup payload from Google Drive
+ */
+export async function fetchFromGoogleDrive(accessToken: string): Promise<any | null> {
+  if (!accessToken) return null;
+  try {
+    const existing = await findGoogleDriveBackupFile(accessToken);
+    if (!existing) return null;
+
+    const downloadUrl = `https://www.googleapis.com/drive/v3/files/${existing.id}?alt=media`;
+    const res = await fetch(downloadUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch (err) {
+    console.warn('[GoogleDrive] Fetch error:', err);
+  }
+  return null;
+}
+
+/**
+ * Dual-Layer Cloud Backup Engine:
+ * 1. Automatically uploads to Google Drive.
+ * 2. If Google Drive fails (missing token, expired token, API error), seamlessly
+ *    falls back to Firebase RTDB server at users/${uid}/cloud_backup.
+ */
+export async function executeDualCloudBackup(
+  uid: string,
+  payload: FullAppBackupPayload
+): Promise<{ provider: 'google_drive' | 'firebase'; success: boolean }> {
+  if (!uid) return { provider: 'firebase', success: false };
+
+  const accessToken = getGoogleDriveAccessToken();
+  let driveSuccess = false;
+
+  if (accessToken) {
+    try {
+      driveSuccess = await uploadToGoogleDrive(accessToken, payload);
+    } catch (e) {
+      console.warn('[DualCloudBackup] Google Drive upload attempt failed:', e);
+    }
+  }
+
+  if (driveSuccess) {
+    try {
+      localStorage.setItem('pwa_last_cloud_backup_time', new Date().toISOString());
+      localStorage.setItem('pwa_last_cloud_backup_provider', 'google_drive');
+    } catch {}
+
+    // Async server mirror fallback write so Firebase RTDB server is also continuously safeguarded
+    saveFirebaseCloudBackup(uid, payload).catch((e) =>
+      console.warn('[DualCloudBackup] Background server mirror note:', e)
+    );
+
+    return { provider: 'google_drive', success: true };
+  }
+
+  // Google Drive upload failed or access token unavailable: Seamless Firebase Server Fallback
+  try {
+    await saveFirebaseCloudBackup(uid, payload);
+    try {
+      localStorage.setItem('pwa_last_cloud_backup_time', new Date().toISOString());
+      localStorage.setItem('pwa_last_cloud_backup_provider', 'firebase');
+    } catch {}
+    return { provider: 'firebase', success: true };
+  } catch (err) {
+    console.error('[DualCloudBackup] Firebase server fallback failed:', err);
+    return { provider: 'firebase', success: false };
+  }
+}
+
+/**
+ * Dual-Layer Cloud Restore Engine:
+ * Checks Google Drive first, then seamlessly falls back to Firebase RTDB users/${uid}/cloud_backup.
+ */
+export async function fetchDualCloudBackup(
+  uid: string
+): Promise<{ data: any; provider: 'google_drive' | 'firebase' } | null> {
+  if (!uid) return null;
+
+  // 1. Check Google Drive first
+  const accessToken = getGoogleDriveAccessToken();
+  if (accessToken) {
+    try {
+      const driveData = await fetchFromGoogleDrive(accessToken);
+      if (driveData && typeof driveData === 'object' && (driveData.accounts || driveData.settings)) {
+        return { data: driveData, provider: 'google_drive' };
+      }
+    } catch (e) {
+      console.warn('[DualCloudBackup] Google Drive fetch failed, checking Firebase fallback:', e);
+    }
+  }
+
+  // 2. Seamless Fallback: Check Firebase RTDB server cloud_backup
+  try {
+    const serverData = await getFirebaseCloudBackup(uid);
+    if (serverData && typeof serverData === 'object' && (serverData.accounts || serverData.settings)) {
+      return { data: serverData, provider: 'firebase' };
+    }
+  } catch (e) {
+    console.warn('[DualCloudBackup] Firebase server backup fetch error:', e);
+  }
+
+  return null;
+}
+
+/**
+ * Debounced Auto-Backup Dispatcher
+ */
+let debouncedBackupTimeout: any = null;
+
+export function scheduleDualCloudBackup(
+  uid: string,
+  getPayload: () => FullAppBackupPayload,
+  debounceMs = 2500
+): void {
+  if (!uid || typeof navigator === 'undefined' || !navigator.onLine) return;
+
+  if (debouncedBackupTimeout) {
+    clearTimeout(debouncedBackupTimeout);
+  }
+
+  debouncedBackupTimeout = setTimeout(async () => {
+    try {
+      const payload = getPayload();
+      await executeDualCloudBackup(uid, payload);
+    } catch (err) {
+      console.warn('[DualCloudBackup] Debounced backup execution error:', err);
+    }
+  }, debounceMs);
 }

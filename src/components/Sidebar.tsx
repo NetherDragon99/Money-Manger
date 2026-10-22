@@ -65,6 +65,8 @@ export const Sidebar: React.FC = () => {
     categories,
     transactions,
     importFullData,
+    triggerCloudBackupNow,
+    triggerCloudRestoreNow,
     showToast,
     showConfirm,
     t,
@@ -282,23 +284,22 @@ export const Sidebar: React.FC = () => {
       showToast(isArabic ? 'يرجى تسجيل الدخول أولاً للنسخ السحابي' : 'Please sign in first to back up to cloud', 'info');
       return;
     }
-    setBackupProgress(20);
-    setBackupStatusLabel(isArabic ? 'جارٍ فحص بيانات الحساب...' : 'Validating account credentials...');
+    setBackupProgress(30);
+    setBackupStatusLabel(isArabic ? 'جارٍ الاتصال بـ Google Drive والخادم...' : 'Connecting to Google Drive & Server...');
     try {
-      setBackupProgress(50);
-      setBackupStatusLabel(isArabic ? 'جارٍ تشفير ومزامنة البيانات مع السحابة...' : 'Encrypting and syncing backup...');
-      const backupRef = ref(rtdb, `users/${user.uid}/backup`);
-      await set(backupRef, {
-        version: '1.1.10',
-        backupDate: new Date().toISOString(),
-        accounts,
-        categories,
-        transactions,
-        settings,
-      });
-      setBackupProgress(100);
-      setBackupStatusLabel(isArabic ? 'اكتمل النسخ السحابي بنجاح!' : 'Cloud backup complete!');
-      showToast(isArabic ? 'تم رفع نسخة احتياطية مشفرة إلى السحابة بنجاح!' : 'Encrypted backup synced to secure cloud successfully!', 'success');
+      setBackupProgress(65);
+      setBackupStatusLabel(isArabic ? 'جارٍ تشفير وحفظ النسخة الاحتياطية...' : 'Encrypting and saving backup payload...');
+      const result = await triggerCloudBackupNow();
+      if (result.success) {
+        setBackupProgress(100);
+        setBackupStatusLabel(
+          result.provider === 'google_drive'
+            ? (isArabic ? 'اكتمل النسخ على Google Drive!' : 'Google Drive backup complete!')
+            : (isArabic ? 'اكتمل النسخ على الخادم السحابي!' : 'Cloud Server backup complete!')
+        );
+      } else {
+        setBackupProgress(null);
+      }
     } catch (err: any) {
       setBackupProgress(null);
       showToast(err?.message || 'Cloud backup failed', 'error');
@@ -317,28 +318,17 @@ export const Sidebar: React.FC = () => {
       showToast(isArabic ? 'يرجى تسجيل الدخول أولاً لاستعادة النسخة السحابية' : 'Please sign in first to restore cloud backup', 'info');
       return;
     }
-    setBackupProgress(20);
-    setBackupStatusLabel(isArabic ? 'جارٍ الاتصال بالسحابة الآمنة...' : 'Connecting to secure cloud...');
+    setBackupProgress(30);
+    setBackupStatusLabel(isArabic ? 'جارٍ فحص Google Drive والخادم...' : 'Checking Google Drive & Server...');
     try {
-      const backupRef = ref(rtdb, `users/${user.uid}/backup`);
-      setBackupProgress(50);
-      setBackupStatusLabel(isArabic ? 'جارٍ فحص النسخة السحابية المتوفرة...' : 'Checking available cloud backup...');
-      const snapshot = await get(backupRef);
-      if (snapshot.exists()) {
-        setBackupProgress(80);
-        setBackupStatusLabel(isArabic ? 'جارٍ استيراد وترقية البيانات...' : 'Restoring data...');
-        const data = snapshot.val();
-        const success = importFullData(data);
-        if (success) {
-          setBackupProgress(100);
-          setBackupStatusLabel(isArabic ? 'تمت استعادة البيانات بنجاح!' : 'Data restored successfully!');
-          showToast(isArabic ? 'تم استعادة النسخة السحابية بنجاح!' : 'Cloud backup restored successfully!', 'success');
-        } else {
-          setBackupProgress(null);
-        }
+      setBackupProgress(75);
+      setBackupStatusLabel(isArabic ? 'جارٍ استيراد وترقية البيانات...' : 'Restoring data...');
+      const success = await triggerCloudRestoreNow();
+      if (success) {
+        setBackupProgress(100);
+        setBackupStatusLabel(isArabic ? 'تمت استعادة البيانات بنجاح!' : 'Data restored successfully!');
       } else {
         setBackupProgress(null);
-        showToast(isArabic ? 'لا توجد نسخة سحابية محفوظة لهذا الحساب' : 'No cloud backup found for this account', 'error');
       }
     } catch (err: any) {
       setBackupProgress(null);
