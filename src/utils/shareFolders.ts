@@ -165,6 +165,64 @@ export function getAvatarColorGradient(idOrName: string): string {
 }
 
 /**
+ * Resolves the owner's actual profile photo URL dynamically across folder metadata,
+ * current userProfile, cached contacts, and Firebase Auth.
+ */
+export function resolveOwnerPhoto(
+  folder: { ownerPhotoURL?: string; ownerAvatar?: string; owner16DigitId?: string; ownerNumericId?: string; ownerUid?: string },
+  currentProfile?: { photoURL?: string; customAvatarUrl?: string; avatar?: string; avatarEmoji?: string; numericId?: string; uid?: string } | null
+): string {
+  // 1. Direct ownerPhotoURL on folder
+  if (folder?.ownerPhotoURL && folder.ownerPhotoURL.trim()) {
+    return folder.ownerPhotoURL.trim();
+  }
+  // 2. Direct ownerAvatar if it's an image URL or data URI
+  if (folder?.ownerAvatar && (folder.ownerAvatar.startsWith('http') || folder.ownerAvatar.startsWith('data:image'))) {
+    return folder.ownerAvatar.trim();
+  }
+  // 3. Fallback to current userProfile if this user is the owner
+  const owner16 = normalize16DigitId(folder?.owner16DigitId || folder?.ownerNumericId);
+  const myClean16 = currentProfile?.numericId ? normalize16DigitId(currentProfile.numericId) : '';
+  const myUid = currentProfile?.uid || auth.currentUser?.uid || '';
+  const isCurrentOwner = (owner16 && myClean16 && owner16 === myClean16) || Boolean(folder?.ownerUid && myUid && folder.ownerUid === myUid);
+
+  if (isCurrentOwner && currentProfile) {
+    const profPhoto = currentProfile.customAvatarUrl || currentProfile.photoURL || (currentProfile.avatar && currentProfile.avatar.startsWith('http') ? currentProfile.avatar : '');
+    if (profPhoto) return profPhoto.trim();
+  }
+  // 4. Fallback to cached known contacts for owner16
+  if (owner16) {
+    const cached = getKnownContact(owner16);
+    if (cached?.photoURL && cached.photoURL.trim()) {
+      return cached.photoURL.trim();
+    }
+  }
+  // 5. Fallback to auth.currentUser photoURL if current user is owner
+  if (isCurrentOwner && auth.currentUser?.photoURL) {
+    return auth.currentUser.photoURL.trim();
+  }
+  return '';
+}
+
+/**
+ * Dynamically queries shared_accounts/profile_${owner16DigitId} if the owner's photo
+ * is missing, caching the result and returning the resolved photo URL.
+ */
+export async function ensureOwnerPhotoLoaded(folder: ShareFolder): Promise<string> {
+  const existing = resolveOwnerPhoto(folder);
+  if (existing) return existing;
+  const owner16 = normalize16DigitId(folder.owner16DigitId || folder.ownerNumericId);
+  if (owner16.length === 16) {
+    const card = await fetchUserProfileCard(owner16);
+    if (card?.photoURL) {
+      folder.ownerPhotoURL = card.photoURL;
+      return card.photoURL;
+    }
+  }
+  return '';
+}
+
+/**
  * Compute 1-2 letter uppercase initials for display when photo is absent
  */
 export function getMemberInitials(name: string, numericId?: string): string {
@@ -628,8 +686,18 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
   const originalOwner16 = normalize16DigitId(cleanFolder.owner16DigitId || cleanFolder.ownerNumericId);
   const originalOwnerUid = cleanFolder.ownerUid || '';
   const originalOwnerName = cleanFolder.ownerName || (originalOwner16 ? `User ${originalOwner16.slice(0, 4)}` : 'User');
-  const originalOwnerAvatar = cleanFolder.ownerAvatar || '👤';
-  const originalOwnerPhotoURL = cleanFolder.ownerPhotoURL || '';
+  let originalOwnerAvatar = cleanFolder.ownerAvatar || '👤';
+  let originalOwnerPhotoURL = (cleanFolder.ownerPhotoURL || (cleanFolder.ownerAvatar && cleanFolder.ownerAvatar.startsWith('http') ? cleanFolder.ownerAvatar : '')).trim();
+
+  // Dynamically resolve owner photo if missing
+  if (!originalOwnerPhotoURL && originalOwner16) {
+    const cached = getKnownContact(originalOwner16);
+    if (cached?.photoURL) originalOwnerPhotoURL = cached.photoURL.trim();
+    if (cached?.avatar && originalOwnerAvatar === '👤') originalOwnerAvatar = cached.avatar;
+  }
+  if (!originalOwnerPhotoURL && auth.currentUser?.photoURL) {
+    originalOwnerPhotoURL = auth.currentUser.photoURL.trim();
+  }
 
   const ownerUid = originalOwnerUid || (auth.currentUser?.uid ? auth.currentUser.uid : originalOwner16 || 'guest_user');
   const accountName = String(cleanFolder.name || 'Shared Space').slice(0, 100);
@@ -641,17 +709,25 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
   const invited16List: string[] = [];
 
   // Build clean members array with status: 'active' and populate memberIds & invited16Ids lookup maps
+  let hasOwnerInMembers = false;
   const normalizedMembers: ShareMember[] = (cleanFolder.members || []).map((m: any) => {
     const cleanMid = normalize16DigitId(m.numericId);
+    const isOwnerMember = cleanMid.length === 16 && cleanMid === originalOwner16;
+    if (isOwnerMember) {
+      hasOwnerInMembers = true;
+    }
+    const memberPhoto = (m.photoURL || (isOwnerMember ? originalOwnerPhotoURL : '')).trim();
+    const memberAvatar = m.avatar || (isOwnerMember ? originalOwnerAvatar : '👤');
+
     if (cleanMid.length === 16) {
       memberIds[cleanMid] = true;
       cleanInvites[cleanMid] = {
         numericId: cleanMid,
-        name: m.name || 'User',
+        name: isOwnerMember ? originalOwnerName : (m.name || 'User'),
         status: 'active',
-        role: m.role || 'viewer',
-        avatar: m.avatar || '👤',
-        photoURL: m.photoURL || '',
+        role: isOwnerMember ? 'editor' : (m.role || 'viewer'),
+        avatar: memberAvatar,
+        photoURL: memberPhoto,
         addedAt: m.addedAt || now,
       };
       if (cleanMid !== originalOwner16) {
@@ -662,13 +738,36 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
     return {
       ...m,
       numericId: cleanMid,
-      name: m.name || 'User',
-      avatar: m.avatar || '👤',
-      photoURL: m.photoURL || '',
-      role: m.role || 'viewer',
+      name: isOwnerMember ? originalOwnerName : (m.name || 'User'),
+      avatar: memberAvatar,
+      photoURL: memberPhoto,
+      role: isOwnerMember ? 'editor' : (m.role || 'viewer'),
       status: 'active' as const,
     };
   });
+
+  if (!hasOwnerInMembers && originalOwner16.length === 16) {
+    const ownerMemberEntry: ShareMember = {
+      numericId: originalOwner16,
+      name: originalOwnerName,
+      avatar: originalOwnerAvatar,
+      photoURL: originalOwnerPhotoURL,
+      role: 'editor',
+      status: 'active',
+      addedAt: cleanFolder.createdAt || now,
+    };
+    normalizedMembers.unshift(ownerMemberEntry);
+    memberIds[originalOwner16] = true;
+    cleanInvites[originalOwner16] = {
+      numericId: originalOwner16,
+      name: originalOwnerName,
+      status: 'active',
+      role: 'editor',
+      avatar: originalOwnerAvatar,
+      photoURL: originalOwnerPhotoURL,
+      addedAt: cleanFolder.createdAt || now,
+    };
+  }
 
   return deepSanitizeForFirebase({
     ...cleanFolder,
@@ -755,8 +854,49 @@ export function normalizeParsedShareFolder(val: any, fallbackId?: string): Share
   );
   const ownerUid = val.ownerUid || '';
   const ownerName = val.ownerName || val.ownerDisplayName || (owner16 ? `User ${owner16.slice(0, 4)}` : 'User');
-  const ownerAvatar = val.ownerAvatar || '👤';
-  const ownerPhotoURL = val.ownerPhotoURL || '';
+  let ownerAvatar = val.ownerAvatar || '👤';
+  let ownerPhotoURL = (val.ownerPhotoURL || (val.ownerAvatar && val.ownerAvatar.startsWith('http') ? val.ownerAvatar : '')).trim();
+
+  // Dynamic fallback to cached contact or auth user if photo is missing
+  if (!ownerPhotoURL && owner16) {
+    const cached = getKnownContact(owner16);
+    if (cached?.photoURL) {
+      ownerPhotoURL = cached.photoURL.trim();
+    }
+    if (cached?.avatar && ownerAvatar === '👤') {
+      ownerAvatar = cached.avatar;
+    }
+  }
+  if (!ownerPhotoURL && auth.currentUser?.photoURL) {
+    ownerPhotoURL = auth.currentUser.photoURL.trim();
+  }
+
+  // Ensure owner is represented in members list with real photo
+  let hasOwner = false;
+  members = members.map((m) => {
+    if (m.numericId === owner16 && owner16.length === 16) {
+      hasOwner = true;
+      return {
+        ...m,
+        name: m.name && m.name !== 'User' ? m.name : ownerName,
+        photoURL: m.photoURL || ownerPhotoURL,
+        avatar: m.avatar || ownerAvatar,
+      };
+    }
+    return m;
+  });
+
+  if (!hasOwner && owner16.length === 16) {
+    members.unshift({
+      numericId: owner16,
+      name: ownerName,
+      avatar: ownerAvatar,
+      photoURL: ownerPhotoURL,
+      role: 'editor',
+      status: 'accepted',
+      addedAt: val.createdAt || Date.now(),
+    });
+  }
 
   return {
     id,
@@ -1338,9 +1478,11 @@ export function createNewShareFolder(params: {
   categories?: Category[];
   transactions?: Transaction[];
   ownerNumericId: string;
+  owner16DigitId?: string;
   ownerName: string;
   ownerAvatar?: string;
   ownerPhotoURL?: string;
+  ownerUid?: string;
   permission?: 'view_only' | 'allow_import_edit';
   isArabic: boolean;
 }): ShareFolder {
@@ -1353,6 +1495,30 @@ export function createNewShareFolder(params: {
   const icon = params.customIcon?.trim() || autoMeta.icon;
   const itemCount = accounts.length + categories.length + transactions.length;
 
+  const owner16 = normalize16DigitId(params.owner16DigitId || params.ownerNumericId);
+  const ownerName = params.ownerName || 'User';
+  let ownerPhoto = (params.ownerPhotoURL || '').trim();
+  let ownerAvatar = params.ownerAvatar || '👤';
+
+  if (!ownerPhoto && owner16) {
+    const cached = getKnownContact(owner16);
+    if (cached?.photoURL) ownerPhoto = cached.photoURL.trim();
+    if (cached?.avatar && ownerAvatar === '👤') ownerAvatar = cached.avatar;
+  }
+  if (!ownerPhoto && auth.currentUser?.photoURL) {
+    ownerPhoto = auth.currentUser.photoURL.trim();
+  }
+
+  const ownerMember: ShareMember = {
+    numericId: owner16,
+    name: ownerName,
+    avatar: ownerAvatar,
+    photoURL: ownerPhoto,
+    role: 'editor',
+    status: 'accepted',
+    addedAt: Date.now(),
+  };
+
   const folder: ShareFolder = {
     id: `share_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     name,
@@ -1360,12 +1526,14 @@ export function createNewShareFolder(params: {
     description: params.customDescription?.trim() || '',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    ownerNumericId: normalize16DigitId(params.ownerNumericId),
-    ownerName: params.ownerName || 'User',
-    ownerAvatar: params.ownerAvatar || '👤',
-    ownerPhotoURL: params.ownerPhotoURL || '',
+    ownerNumericId: owner16,
+    owner16DigitId: owner16,
+    ownerUid: params.ownerUid || auth.currentUser?.uid || '',
+    ownerName,
+    ownerAvatar,
+    ownerPhotoURL: ownerPhoto,
     permission: params.permission || 'allow_import_edit',
-    members: [],
+    members: [ownerMember],
     itemType: autoMeta.itemType,
     itemCount,
     payload: {

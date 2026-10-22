@@ -184,6 +184,10 @@ export const ShareFolderModal: React.FC = () => {
   }
 
   const getOrCreateFolder = (): ShareFolder | null => {
+    const user = auth.currentUser || currentUser;
+    const myPhoto = settings.userProfile?.customAvatarUrl || settings.userProfile?.photoURL || user?.photoURL || '';
+    const myAvatar = settings.userProfile?.avatarEmoji || (myPhoto ? '👤' : '👤');
+
     if (folderMode === 'new' || existingFolders.length === 0) {
       return createNewShareFolder({
         customName: customFolderName.trim() || autoMeta.name,
@@ -192,7 +196,11 @@ export const ShareFolderModal: React.FC = () => {
         categories,
         transactions: resolvedTransactions,
         ownerNumericId: myNumericId,
+        owner16DigitId: myNumericId,
         ownerName: myName,
+        ownerAvatar: myAvatar,
+        ownerPhotoURL: myPhoto,
+        ownerUid: user?.uid || settings.userProfile?.uid || '',
         isArabic,
       });
     } else {

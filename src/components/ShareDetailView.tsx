@@ -56,6 +56,8 @@ import {
   fetchUserProfileCard,
   getAvatarColorGradient,
   getMemberInitials,
+  resolveOwnerPhoto,
+  ensureOwnerPhotoLoaded,
 } from '../utils/shareFolders';
 import {
   formatCurrency,
@@ -267,11 +269,26 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     };
   }, [myCleanNumericId]);
 
+  // Ensure owner photo is loaded if missing
+  useEffect(() => {
+    if (!folder.ownerPhotoURL && (folder.owner16DigitId || folder.ownerNumericId)) {
+      ensureOwnerPhotoLoaded(folder).then((loadedPhoto) => {
+        if (loadedPhoto) {
+          setFolder((prev) => ({
+            ...prev,
+            ownerPhotoURL: loadedPhoto,
+          }));
+        }
+      });
+    }
+  }, [folder.id, folder.owner16DigitId, folder.ownerNumericId, folder.ownerPhotoURL]);
+
   const folderOwner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId);
   const isOwner = (myCleanNumericId && folderOwner16 && folderOwner16 === myCleanNumericId) ||
                   (auth.currentUser?.uid && folder.ownerUid && folder.ownerUid === auth.currentUser.uid);
   const myMemberEntry = folder.members.find((m) => cleanNumericId(m.numericId) === myCleanNumericId);
   const canEdit = isOwner || folder.permission === 'allow_import_edit' || myMemberEntry?.role === 'editor';
+  const ownerPhoto = resolveOwnerPhoto(folder, settings.userProfile);
 
   const accounts = folder.payload.accounts || [];
   const categories = folder.payload.categories || [];
@@ -628,8 +645,27 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                   {folder.name}
                 </h1>
                 <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
-                  <span className="truncate">
-                    {isOwner ? (isArabic ? 'أنت المالك' : 'Owned by You') : `${isArabic ? 'المالك:' : 'Owner:'} ${folder.ownerName}`}
+                  <span className="inline-flex items-center gap-1.5 truncate">
+                    {ownerPhoto ? (
+                      <img
+                        src={ownerPhoto}
+                        alt={folder.ownerName}
+                        className="w-3.5 h-3.5 rounded-full object-cover border border-purple-500/40 inline-block shrink-0"
+                      />
+                    ) : folder.ownerAvatar && folder.ownerAvatar !== '👤' ? (
+                      <span className="text-[10px] shrink-0">{folder.ownerAvatar}</span>
+                    ) : (
+                      <span
+                        className={`w-3.5 h-3.5 rounded-full inline-flex items-center justify-center text-[8px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
+                          folder.owner16DigitId || folder.ownerNumericId || folder.ownerName
+                        )} shrink-0`}
+                      >
+                        {getMemberInitials(folder.ownerName, folder.owner16DigitId || folder.ownerNumericId).slice(0, 1)}
+                      </span>
+                    )}
+                    <span className="truncate">
+                      {isOwner ? (isArabic ? 'أنت المالك' : 'Owned by You') : `${isArabic ? 'المالك:' : 'Owner:'} ${folder.ownerName}`}
+                    </span>
                   </span>
                   <span>·</span>
                   <span className="flex items-center gap-1 text-emerald-400 font-medium">
@@ -749,9 +785,9 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                 title={`${folder.ownerName || 'Owner'} (${isArabic ? 'المالك' : 'Owner'})`}
               >
                 <div className="shrink-0 w-10 h-10 rounded-full overflow-visible relative bg-blue-600/30 border border-blue-500/60 flex items-center justify-center text-xs font-bold text-blue-300">
-                  {folder.ownerPhotoURL ? (
+                  {ownerPhoto ? (
                     <img
-                      src={folder.ownerPhotoURL}
+                      src={ownerPhoto}
                       alt={folder.ownerName}
                       className="w-full h-full object-cover rounded-full"
                     />
@@ -774,7 +810,13 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               </div>
 
               {/* Members Chips */}
-              {folder.members.map((m) => {
+              {folder.members
+                .filter(
+                  (m) =>
+                    cleanNumericId(m.numericId) !==
+                    cleanNumericId(folder.owner16DigitId || folder.ownerNumericId || '')
+                )
+                .map((m) => {
                 const isCurrent = cleanNumericId(m.numericId) === myCleanNumericId;
                 const isAccepted = m.status === 'accepted' || (m.status as string) === 'active';
                 return (
@@ -1597,8 +1639,8 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               <div className="p-3 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded-full bg-blue-600/30 border border-blue-500/50 flex items-center justify-center text-sm font-bold text-blue-300 shrink-0 overflow-hidden">
-                    {folder.ownerPhotoURL ? (
-                      <img src={folder.ownerPhotoURL} alt={folder.ownerName} className="w-full h-full object-cover" />
+                    {ownerPhoto ? (
+                      <img src={ownerPhoto} alt={folder.ownerName} className="w-full h-full object-cover" />
                     ) : (
                       <span>{folder.ownerAvatar || '👑'}</span>
                     )}
@@ -1618,12 +1660,22 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               </div>
 
               {/* Members List */}
-              {folder.members.length === 0 ? (
+              {folder.members.filter(
+                (m) =>
+                  cleanNumericId(m.numericId) !==
+                  cleanNumericId(folder.owner16DigitId || folder.ownerNumericId || '')
+              ).length === 0 ? (
                 <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 text-center text-xs text-zinc-400">
                   {isArabic ? 'لا يوجد أعضاء مضافون حتى الآن. اضغط على "إضافة عضو" لمشاركة الصفحة.' : 'No members added yet. Click "Add Member" to share.'}
                 </div>
               ) : (
-                folder.members.map((m) => {
+                folder.members
+                  .filter(
+                    (m) =>
+                      cleanNumericId(m.numericId) !==
+                      cleanNumericId(folder.owner16DigitId || folder.ownerNumericId || '')
+                  )
+                  .map((m) => {
                   const isCurrentMember = cleanNumericId(m.numericId) === myCleanNumericId;
                   return (
                     <div

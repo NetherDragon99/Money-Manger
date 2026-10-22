@@ -51,6 +51,7 @@ import {
   getAvatarColorGradient,
   getMemberInitials,
   UserProfileCard,
+  resolveOwnerPhoto,
 } from '../utils/shareFolders';
 import { ShareDetailView } from './ShareDetailView';
 
@@ -738,79 +739,92 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                         {/* Inline Member Badges List */}
                         {folder.members.length > 0 && (
                           <div className="flex items-center gap-2 pt-1 border-t border-zinc-800/50 overflow-x-auto py-1">
-                            {folder.members.map((m) => (
-                              <div
-                                key={m.numericId}
-                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl bg-zinc-950 border border-zinc-800 text-xs shrink-0"
-                              >
-                                {m.photoURL ? (
-                                  <img src={m.photoURL} alt={m.name} className="w-4 h-4 rounded-full object-cover" />
-                                ) : m.avatar && m.avatar !== '👤' ? (
-                                  <span className="text-[11px]">{m.avatar}</span>
-                                ) : (
-                                  <span
-                                    className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
-                                      m.numericId || m.name
-                                    )}`}
-                                  >
-                                    {getMemberInitials(m.name, m.numericId).slice(0, 1)}
+                            {folder.members.map((m) => {
+                              const isOwnerMember =
+                                cleanNumericId(m.numericId) ===
+                                cleanNumericId(folder.owner16DigitId || folder.ownerNumericId || '');
+                              const memberPhoto =
+                                m.photoURL || (isOwnerMember ? resolveOwnerPhoto(folder, settings.userProfile) : '');
+                              return (
+                                <div
+                                  key={m.numericId}
+                                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl bg-zinc-950 border border-zinc-800 text-xs shrink-0"
+                                >
+                                  {memberPhoto ? (
+                                    <img src={memberPhoto} alt={m.name} className="w-4 h-4 rounded-full object-cover" />
+                                  ) : m.avatar && m.avatar !== '👤' ? (
+                                    <span className="text-[11px]">{m.avatar}</span>
+                                  ) : (
+                                    <span
+                                      className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
+                                        m.numericId || m.name
+                                      )}`}
+                                    >
+                                      {getMemberInitials(m.name, m.numericId).slice(0, 1)}
+                                    </span>
+                                  )}
+                                  <span className="text-[11px] font-medium text-zinc-300 truncate max-w-[80px]">
+                                    {m.name}
                                   </span>
-                                )}
-                                <span className="text-[11px] font-medium text-zinc-300 truncate max-w-[80px]">
-                                  {m.name}
-                                </span>
-                                <span
-                                  className={`text-[9px] px-1 py-0.2 rounded font-mono ${
-                                    m.status === 'accepted'
-                                      ? 'bg-emerald-500/20 text-emerald-400'
-                                      : 'bg-amber-500/20 text-amber-400'
-                                  }`}
-                                >
-                                  {isArabic ? 'نشط' : 'Active'}
-                                </span>
+                                  <span
+                                    className={`text-[9px] px-1 py-0.2 rounded font-mono ${
+                                      isOwnerMember
+                                        ? 'bg-purple-500/20 text-purple-300'
+                                        : m.status === 'accepted'
+                                        ? 'bg-emerald-500/20 text-emerald-400'
+                                        : 'bg-amber-500/20 text-amber-400'
+                                    }`}
+                                  >
+                                    {isOwnerMember
+                                      ? (isArabic ? 'المالك' : 'Owner')
+                                      : (isArabic ? 'نشط' : 'Active')}
+                                  </span>
 
-                                {/* Quick Remove Member with Undo */}
-                                <button
-                                  type="button"
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    const confirmed = await showConfirm({
-                                      title: isArabic ? 'استبعاد العضو' : 'Remove Member',
-                                      message: isArabic
-                                        ? `هل تريد بالتأكيد استبعاد العضو "${m.name}" من هذه المشاركة؟`
-                                        : `Are you sure you want to remove member "${m.name}" from this share?`,
-                                      confirmLabel: isArabic ? 'تأكيد الاستبعاد' : 'Confirm',
-                                      cancelLabel: isArabic ? 'تراجع' : 'Cancel',
-                                      isDanger: true,
-                                    });
-                                    if (!confirmed) return;
+                                  {/* Quick Remove Member with Undo (hide for owner) */}
+                                  {!isOwnerMember && (
+                                    <button
+                                      type="button"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        const confirmed = await showConfirm({
+                                          title: isArabic ? 'استبعاد العضو' : 'Remove Member',
+                                          message: isArabic
+                                            ? `هل تريد بالتأكيد استبعاد العضو "${m.name}" من هذه المشاركة؟`
+                                            : `Are you sure you want to remove member "${m.name}" from this share?`,
+                                          confirmLabel: isArabic ? 'تأكيد الاستبعاد' : 'Confirm',
+                                          cancelLabel: isArabic ? 'تراجع' : 'Cancel',
+                                          isDanger: true,
+                                        });
+                                        if (!confirmed) return;
 
-                                    const backupMember = { ...m };
-                                    const res = await removeMemberFromShareFolder(folder.id, m.numericId);
-                                    if (res.success && res.folder) {
-                                      setMyFolders((prev) => prev.map((f) => (f.id === folder.id ? res.folder! : f)));
-                                      showToast(
-                                        isArabic ? `تم استبعاد "${m.name}" بنجاح` : `Member "${m.name}" removed`,
-                                        'info',
-                                        {
-                                          label: isArabic ? 'تراجع' : 'Undo',
-                                          onClick: async () => {
-                                            await addMemberToShareFolder(folder.id, backupMember.numericId, backupMember.name, backupMember.role);
-                                            setMyFolders(loadMyShareFolders());
-                                            showToast(isArabic ? 'تمت استعادة العضو بنجاح' : 'Member restored', 'success');
-                                          },
-                                        },
-                                        5000
-                                      );
-                                    }
-                                  }}
-                                  className="p-0.5 rounded-md hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer shrink-0"
-                                  title={isArabic ? 'استبعاد العضو' : 'Remove Member'}
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                            ))}
+                                        const backupMember = { ...m };
+                                        const res = await removeMemberFromShareFolder(folder.id, m.numericId);
+                                        if (res.success && res.folder) {
+                                          setMyFolders((prev) => prev.map((f) => (f.id === folder.id ? res.folder! : f)));
+                                          showToast(
+                                            isArabic ? `تم استبعاد "${m.name}" بنجاح` : `Member "${m.name}" removed`,
+                                            'info',
+                                            {
+                                              label: isArabic ? 'تراجع' : 'Undo',
+                                              onClick: async () => {
+                                                await addMemberToShareFolder(folder.id, backupMember.numericId, backupMember.name, backupMember.role);
+                                                setMyFolders(loadMyShareFolders());
+                                                showToast(isArabic ? 'تمت استعادة العضو بنجاح' : 'Member restored', 'success');
+                                              },
+                                            },
+                                            5000
+                                          );
+                                        }
+                                      }}
+                                      className="p-0.5 rounded-md hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer shrink-0"
+                                      title={isArabic ? 'استبعاد العضو' : 'Remove Member'}
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
 
@@ -936,7 +950,27 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                                 )}
                               </div>
                               <div className="flex items-center gap-1.5 text-xs text-zinc-400 mt-0.5">
-                                <span>{isArabic ? 'المالك:' : 'Owner:'} {folder.ownerName}</span>
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span>{isArabic ? 'المالك:' : 'Owner:'}</span>
+                                  {resolveOwnerPhoto(folder, settings.userProfile) ? (
+                                    <img
+                                      src={resolveOwnerPhoto(folder, settings.userProfile)}
+                                      alt={folder.ownerName}
+                                      className="w-4 h-4 rounded-full object-cover border border-purple-500/40 inline-block"
+                                    />
+                                  ) : folder.ownerAvatar && folder.ownerAvatar !== '👤' ? (
+                                    <span className="text-xs">{folder.ownerAvatar}</span>
+                                  ) : (
+                                    <span
+                                      className={`w-4 h-4 rounded-full inline-flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
+                                        folder.owner16DigitId || folder.ownerNumericId || folder.ownerName
+                                      )}`}
+                                    >
+                                      {getMemberInitials(folder.ownerName, folder.owner16DigitId || folder.ownerNumericId).slice(0, 1)}
+                                    </span>
+                                  )}
+                                  <span className="font-medium text-zinc-300">{folder.ownerName}</span>
+                                </span>
                                 <span>·</span>
                                 <span>{folder.itemCount} {isArabic ? 'عنصر' : 'items'}</span>
                               </div>

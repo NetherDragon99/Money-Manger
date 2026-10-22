@@ -74,6 +74,7 @@ export interface UserProfile {
   name: string;
   avatarEmoji: string;
   customAvatarUrl?: string;
+  photoURL?: string;
   numericId?: string;
   uid?: string;
   driveAccessGranted?: boolean;
