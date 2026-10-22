@@ -93,6 +93,7 @@ import {
   publishUserProfileCard,
   syncShareFoldersWithMainData,
   subscribeToMyInbox,
+  fetchMyInboxOnce,
   loadMyShareFolders,
   saveMyShareFolders,
   loadReceivedShareFolders,
@@ -867,8 +868,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: liveReceived }));
     });
 
-    return () => unsub();
-  }, [settings.userProfile?.numericId, settings.language]);
+    // Background periodic poll every 10 seconds to catch incoming shares immediately
+    let isMounted = true;
+    const backgroundPoll = async () => {
+      try {
+        const live = await fetchMyInboxOnce(cleanId);
+        if (isMounted && live && live.length > 0) {
+          saveReceivedShareFolders(live);
+          window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: live }));
+        }
+      } catch {}
+    };
+    backgroundPoll();
+    const pollInterval = setInterval(backgroundPoll, 10000);
+
+    return () => {
+      isMounted = false;
+      unsub();
+      clearInterval(pollInterval);
+    };
+  }, [settings.userProfile?.numericId, settings.userProfile?.uid, settings.language]);
 
   useEffect(() => {
     debouncedPersist('recurring_transactions', () => saveRecurringTransactions(recurringTransactions));

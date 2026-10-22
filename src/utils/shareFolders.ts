@@ -87,6 +87,21 @@ export function normalize16DigitId(rawId: string | null | undefined): string {
 }
 
 /**
+ * Deeply sanitizes any object or payload for Firebase RTDB by eliminating all
+ * `undefined` properties, functions, and symbols, preventing fatal Firebase SDK
+ * errors (such as "Unsupported field value: undefined").
+ */
+export function deepSanitizeForFirebase<T>(val: T): T {
+  if (val === undefined || val === null) return null as any;
+  try {
+    return JSON.parse(JSON.stringify(val));
+  } catch (err) {
+    console.warn('[ShareFolders] deepSanitizeForFirebase serialization fallback:', err);
+    return val;
+  }
+}
+
+/**
  * Load locally cached known contacts (16-digit ID -> UserProfileCard)
  */
 export function loadKnownContacts(): Record<string, UserProfileCard> {
@@ -222,7 +237,7 @@ export async function publishUserProfileCard(profile: {
     if (typeof profile.drivePromptResolved === 'boolean') {
       cardData.drivePromptResolved = profile.drivePromptResolved;
     }
-    await set(ref(rtdb, `shared_accounts/profile_${clean16Id}`), cardData);
+    await set(ref(rtdb, `shared_accounts/profile_${clean16Id}`), deepSanitizeForFirebase(cardData));
   } catch (err) {
     console.warn('[ShareFolders] Failed to publish user profile card to RTDB:', err);
   }
@@ -243,7 +258,7 @@ export async function publishUserProfileCard(profile: {
     if (typeof profile.drivePromptResolved === 'boolean') {
       userProfileUpdates.drivePromptResolved = profile.drivePromptResolved;
     }
-    await update(ref(rtdb, `users/${currentUid}/profile`), userProfileUpdates);
+    await update(ref(rtdb, `users/${currentUid}/profile`), deepSanitizeForFirebase(userProfileUpdates));
     await set(ref(rtdb, `users/${currentUid}/numeric16Id`), clean16Id);
   } catch (err) {
     console.warn('[ShareFolders] Failed to save numeric16Id under users/profile in RTDB:', err);
@@ -251,7 +266,7 @@ export async function publishUserProfileCard(profile: {
 
   // Also publish to numericIds/${clean16Id}
   try {
-    await set(ref(rtdb, `numericIds/${clean16Id}`), {
+    await set(ref(rtdb, `numericIds/${clean16Id}`), deepSanitizeForFirebase({
       uid: currentUid,
       displayName: userName,
       name: userName,
@@ -259,7 +274,7 @@ export async function publishUserProfileCard(profile: {
       avatar: avatarEmoji,
       email: auth.currentUser?.email || '',
       updatedAt: Date.now(),
-    });
+    }));
   } catch {}
 }
 
@@ -655,7 +670,7 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
     };
   });
 
-  return {
+  return deepSanitizeForFirebase({
     ...cleanFolder,
     id: cleanFolder.id,
     sharedId: `share_${rawShareId}`,
@@ -672,7 +687,7 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
     memberIds,
     invited16Ids,
     invited16List,
-  };
+  });
 }
 
 /**
@@ -993,14 +1008,18 @@ export async function writeSpaceToCloudSlots(
   if (cleanTarget.length !== 16) return false;
 
   const rawShareId = space.id.replace(/^share_/, '');
-  const slotPayload = {
-    ownerUid: senderUid,
-    accountName: space.name || fullPayload.accountName || 'Shared Space',
+  const effectiveUid = auth.currentUser?.uid || senderUid || 'authenticated_user';
+  const effectiveName = String(space.name || fullPayload.accountName || 'Shared Space').slice(0, 100);
+
+  const slotPayload = deepSanitizeForFirebase({
+    ownerUid: effectiveUid,
+    accountName: effectiveName,
     updatedAt: Date.now(),
     shareId: space.id,
+    rawShareId,
     target16Id: cleanTarget,
     space: fullPayload,
-  };
+  });
 
   let targetIndex = 0;
   try {
@@ -1059,15 +1078,18 @@ export async function deliverSpaceToTargetMember(
   if (cleanTarget === owner16) return;
 
   const now = Date.now();
-  const profileSharePayload = {
-    ownerUid: senderUid,
-    accountName: space.name || fullPayload.accountName || 'Shared Space',
+  const effectiveUid = auth.currentUser?.uid || senderUid || 'authenticated_user';
+  const effectiveName = String(space.name || fullPayload.accountName || 'Shared Space').slice(0, 100);
+
+  const profileSharePayload = deepSanitizeForFirebase({
+    ownerUid: effectiveUid,
+    accountName: effectiveName,
     updatedAt: now,
     target16Id: cleanTarget,
     shareId: space.id,
     rawShareId,
     space: fullPayload,
-  };
+  });
 
   // 1. Dedicated lookup node using exact profile-style accessible pattern:
   // shared_accounts/profile_shares_${targetClean16Id}_${shareId}
@@ -1082,31 +1104,31 @@ export async function deliverSpaceToTargetMember(
 
   // 2. Shared directory map at shared_accounts/profile_directory_${targetClean16Id}
   try {
-    const dirEntry = {
+    const dirEntry = deepSanitizeForFirebase({
       shareId: space.id,
       rawShareId,
-      name: space.name || fullPayload.accountName || 'Shared Space',
-      ownerUid: senderUid,
+      name: effectiveName,
+      ownerUid: effectiveUid,
       owner16DigitId: owner16,
       ownerName: space.ownerName || fullPayload.ownerName || 'User',
       updatedAt: now,
-    };
-    await update(ref(rtdb, `shared_accounts/profile_directory_${cleanTarget}`), {
-      ownerUid: senderUid,
+    });
+    await update(ref(rtdb, `shared_accounts/profile_directory_${cleanTarget}`), deepSanitizeForFirebase({
+      ownerUid: effectiveUid,
       accountName: 'Shared Directory',
       updatedAt: now,
       target16Id: cleanTarget,
       [`shares/${rawShareId}`]: dirEntry,
       [rawShareId]: space.id,
       [`knownShareIds/${rawShareId}`]: true,
-    });
+    }));
   } catch (err) {
     console.warn(`[ShareFolders] Failed to update profile_directory for ${cleanTarget}:`, err);
   }
 
   // 3. Deterministic cloud slots (slot_${targetClean16Id}_0..9)
   try {
-    await writeSpaceToCloudSlots(cleanTarget, space, fullPayload, senderUid);
+    await writeSpaceToCloudSlots(cleanTarget, space, fullPayload, effectiveUid);
   } catch (slotErr) {
     console.warn(`[ShareFolders] Failed writing to cloud slots for ${cleanTarget}:`, slotErr);
   }
@@ -1117,7 +1139,10 @@ export async function deliverSpaceToTargetMember(
     await set(ref(rtdb, `shared_accounts/invite_${cleanTarget}_${space.id}`), profileSharePayload);
   } catch {}
   try {
-    await set(ref(rtdb, `shared_accounts/inbox_${cleanTarget}/${space.id}`), fullPayload);
+    await set(ref(rtdb, `shared_accounts/inbox_${cleanTarget}/${space.id}`), deepSanitizeForFirebase(fullPayload));
+  } catch {}
+  try {
+    await set(ref(rtdb, `inboxByNumericId/${cleanTarget}/${space.id}`), deepSanitizeForFirebase(fullPayload));
   } catch {}
 }
 
@@ -1170,7 +1195,7 @@ export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
   }
 
   try {
-    const fullPayload = buildFullSharePayload(folder);
+    const fullPayload = deepSanitizeForFirebase(buildFullSharePayload(folder));
     const rawShareId = folder.id.replace(/^share_/, '');
     const currentUserUid = auth.currentUser?.uid || fullPayload.ownerUid;
 
@@ -1879,7 +1904,7 @@ export async function addMemberToShareFolder(
     saveReceivedShareFolders(received);
   }
 
-  const fullPayload = buildFullSharePayload(updatedFolder);
+  const fullPayload = deepSanitizeForFirebase(buildFullSharePayload(updatedFolder));
   const rawShareId = folderId.replace(/^share_/, '');
   const currentUserUid = auth.currentUser?.uid || getCachedAuthUser()?.uid || fullPayload.ownerUid;
 
@@ -2036,7 +2061,7 @@ export async function removeMemberFromShareFolder(
   }
 
   try {
-    const fullPayload = buildFullSharePayload(updatedFolder);
+    const fullPayload = deepSanitizeForFirebase(buildFullSharePayload(updatedFolder));
     const rawShareId = folderId.replace(/^share_/, '');
     // Delete from recipient's profile_shares, directory, slots, inbox and invite nodes
     await cleanupTargetMemberSpaceDelivery(cleanId, folderId);
@@ -2075,7 +2100,7 @@ export async function removeAllMembersFromShareFolder(
   saveMyShareFolders(existing);
 
   try {
-    const fullPayload = buildFullSharePayload(updatedFolder);
+    const fullPayload = deepSanitizeForFirebase(buildFullSharePayload(updatedFolder));
     const rawShareId = folderId.replace(/^share_/, '');
     for (const m of oldMembers) {
       const cleanId = normalize16DigitId(m.numericId);
@@ -2432,6 +2457,23 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
                 const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
                 if (owner16 !== cleanId) {
                   spaceMap.set(parsed.id, parsed);
+                  return;
+                }
+              }
+            }
+          } catch {}
+
+          // Fallback to dedicated invite node
+          try {
+            const iSnap = await get(ref(rtdb, `shared_accounts/invite_${cleanId}_${cleanRawId}`));
+            if (iSnap.exists() && iSnap.val()) {
+              const val = iSnap.val();
+              const rawSpace = val.space || val;
+              const parsed = normalizeParsedShareFolder(rawSpace, val.shareId || cleanRawId);
+              if (parsed) {
+                const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
+                if (owner16 !== cleanId) {
+                  spaceMap.set(parsed.id, parsed);
                 }
               }
             }
@@ -2535,6 +2577,19 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
           }
         } catch {}
 
+        // Merge with existing locally saved received folders so previously received shares are preserved
+        try {
+          const locallyReceived = loadReceivedShareFolders();
+          for (const localSpace of locallyReceived) {
+            if (localSpace && localSpace.id && !spaceMap.has(localSpace.id)) {
+              const owner16 = normalize16DigitId(localSpace.owner16DigitId || localSpace.ownerNumericId);
+              if (owner16 !== cleanId) {
+                spaceMap.set(localSpace.id, localSpace);
+              }
+            }
+          }
+        } catch {}
+
         const result = Array.from(spaceMap.values());
         result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
@@ -2622,9 +2677,31 @@ export function subscribeToMyInbox(
     };
     onValue(profShareRef, pListener, () => {});
 
+    // 3. Also subscribe to shared_accounts/invite_${cleanId}_${rawShareId}
+    const inviteRef = ref(rtdb, `shared_accounts/invite_${cleanId}_${rawShareId}`);
+    const iListener = (iSnap: any) => {
+      if (iSnap.exists() && iSnap.val()) {
+        const val = iSnap.val();
+        const rawSpace = val.space || val;
+        const parsed = normalizeParsedShareFolder(rawSpace, val.shareId || rawShareId);
+        if (parsed) {
+          const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
+          if (owner16 !== cleanId) {
+            const existingMaster = masterSpacesData.get(parsed.id);
+            if (!existingMaster || (parsed.updatedAt || 0) >= (existingMaster.updatedAt || 0)) {
+              masterSpacesData.set(parsed.id, parsed);
+              emitCombined();
+            }
+          }
+        }
+      }
+    };
+    onValue(inviteRef, iListener, () => {});
+
     activeMasterSubs.set(rawShareId, () => {
       off(masterRef, 'value', mListener);
       off(profShareRef, 'value', pListener);
+      off(inviteRef, 'value', iListener);
     });
   };
 
@@ -2747,6 +2824,19 @@ export function subscribeToMyInbox(
         spaceMap.set(liveSpace.id || sId, liveSpace);
       }
     });
+
+    // 6. Merge with locally cached received folders to avoid dropping spaces during network transitions
+    try {
+      const locallyReceived = loadReceivedShareFolders();
+      for (const loc of locallyReceived) {
+        if (loc && loc.id && !spaceMap.has(loc.id)) {
+          const owner16 = normalize16DigitId(loc.owner16DigitId || loc.ownerNumericId);
+          if (owner16 !== cleanId) {
+            spaceMap.set(loc.id, loc);
+          }
+        }
+      }
+    } catch {}
 
     const liveFolders = Array.from(spaceMap.values());
     liveFolders.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));

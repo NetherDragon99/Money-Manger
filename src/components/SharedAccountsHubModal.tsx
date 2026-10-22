@@ -232,13 +232,22 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
         const live = await fetchMyInboxOnce(myCleanNumericId);
         if (isMounted && live && Array.isArray(live)) {
           setReceivedFolders((prev) => {
-            if (
-              live.length !== prev.length ||
-              JSON.stringify(live.map((f) => [f.id, f.updatedAt, f.members.length])) !==
-                JSON.stringify(prev.map((f) => [f.id, f.updatedAt, f.members.length]))
-            ) {
-              saveReceivedShareFolders(live);
-              return live;
+            const liveMap = new Map<string, ShareFolder>();
+            for (const f of prev) {
+              if (f && f.id) liveMap.set(f.id, f);
+            }
+            for (const f of live) {
+              if (f && f.id) liveMap.set(f.id, f);
+            }
+            const merged = Array.from(liveMap.values());
+            merged.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+            const prevSig = prev.map((f) => `${f.id}_${f.updatedAt || 0}_${f.members?.length || 0}`).join('|');
+            const mergedSig = merged.map((f) => `${f.id}_${f.updatedAt || 0}_${f.members?.length || 0}`).join('|');
+
+            if (prevSig !== mergedSig || prev.length !== merged.length) {
+              saveReceivedShareFolders(merged);
+              return merged;
             }
             return prev;
           });
