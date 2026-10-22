@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   X,
   Users,
@@ -32,6 +32,7 @@ import { ShareSpaceSettingsModal } from './ShareSpaceSettingsModal';
 import {
   loadMyShareFolders,
   loadReceivedShareFolders,
+  repairAndMigrateSharedSpaces,
   saveMyShareFolders,
   saveReceivedShareFolders,
   syncFolderToCloud,
@@ -237,13 +238,50 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     };
   }, []);
 
-  // Real-time listener for current user's created share pages
+  // (3) Automatically repair and migrate locally cached shared spaces on open or identity change
   useEffect(() => {
     if (isOpen) {
-      setMyFolders(loadMyShareFolders());
-      setReceivedFolders(loadReceivedShareFolders());
+      const { myFolders: migratedMy, receivedFolders: migratedReceived } = repairAndMigrateSharedSpaces(
+        myCleanNumericId,
+        currentUser?.uid
+      );
+      setMyFolders(migratedMy);
+      setReceivedFolders(migratedReceived);
     }
-  }, [isOpen]);
+  }, [isOpen, myCleanNumericId, currentUser]);
+
+  // (2) Strictly filter "Shared by Me" to ONLY display spaces where cleanId(space.owner16DigitId) === myClean16Id (or space.ownerUid === currentUser.uid)
+  const displayedMyFolders = useMemo(() => {
+    return myFolders.filter((space) => {
+      const owner16 = cleanNumericId(space.owner16DigitId || space.ownerNumericId);
+      const isOwnerBy16 = myCleanNumericId && owner16 && owner16 === myCleanNumericId;
+      const isOwnerByUid = currentUser?.uid && space.ownerUid && space.ownerUid === currentUser.uid;
+      return isOwnerBy16 || isOwnerByUid;
+    });
+  }, [myFolders, myCleanNumericId, currentUser]);
+
+  // (2) Strictly filter "Shared with Me" to display all spaces where cleanId(space.owner16DigitId) !== myClean16Id (including pending & accepted)
+  const displayedReceivedFolders = useMemo(() => {
+    const combinedMap = new Map<string, ShareFolder>();
+    for (const f of receivedFolders) {
+      if (f && f.id) combinedMap.set(f.id, f);
+    }
+    for (const f of myFolders) {
+      const owner16 = cleanNumericId(f.owner16DigitId || f.ownerNumericId);
+      const isOwner = (myCleanNumericId && owner16 && owner16 === myCleanNumericId) ||
+                      (currentUser?.uid && f.ownerUid && f.ownerUid === currentUser.uid);
+      if (!isOwner && f && f.id) {
+        combinedMap.set(f.id, f);
+      }
+    }
+
+    return Array.from(combinedMap.values()).filter((space) => {
+      const owner16 = cleanNumericId(space.owner16DigitId || space.ownerNumericId);
+      const isOwner = (myCleanNumericId && owner16 && owner16 === myCleanNumericId) ||
+                      (currentUser?.uid && space.ownerUid && space.ownerUid === currentUser.uid);
+      return !isOwner;
+    });
+  }, [receivedFolders, myFolders, myCleanNumericId, currentUser]);
 
   if (!isOpen) return null;
 
@@ -254,8 +292,12 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
         folder={activeShareDetailFolder}
         onExit={() => {
           setActiveShareDetailFolder(null);
-          setMyFolders(loadMyShareFolders());
-          setReceivedFolders(loadReceivedShareFolders());
+          const { myFolders: refreshedMy, receivedFolders: refreshedReceived } = repairAndMigrateSharedSpaces(
+            myCleanNumericId,
+            currentUser?.uid
+          );
+          setMyFolders(refreshedMy);
+          setReceivedFolders(refreshedReceived);
         }}
       />
     );
@@ -527,7 +569,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
               <Users className="w-3.5 h-3.5 text-blue-400" />
               <span>{isArabic ? 'قسم أنا مشيره' : 'Shared by Me'}</span>
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-blue-500/20 text-blue-300">
-                {myFolders.length}
+                {displayedMyFolders.length}
               </span>
             </button>
 
@@ -543,7 +585,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
               <Folder className="w-3.5 h-3.5 text-purple-400" />
               <span>{isArabic ? 'قسم متشير معايا' : 'Shared with Me'}</span>
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-purple-500/20 text-purple-300">
-                {receivedFolders.length}
+                {displayedReceivedFolders.length}
               </span>
             </button>
           </div>
@@ -568,7 +610,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                 </button>
               </div>
 
-              {myFolders.length === 0 ? (
+              {displayedMyFolders.length === 0 ? (
                 <div className="py-12 text-center space-y-3">
                   <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-xl">
                     📁
@@ -581,7 +623,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {myFolders.map((folder) => {
+                  {displayedMyFolders.map((folder) => {
                     const isInviting = invitingFolderId === folder.id;
 
                     return (
@@ -823,7 +865,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                 </button>
               </form>
 
-              {receivedFolders.length === 0 ? (
+              {displayedReceivedFolders.length === 0 ? (
                 <div className="py-12 text-center space-y-3">
                   <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-xl">
                     📬
@@ -836,15 +878,18 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {receivedFolders.map((folder) => {
+                  {displayedReceivedFolders.map((folder) => {
                     const myEntry = folder.members?.find((m) => cleanNumericId(m.numericId) === myCleanNumericId);
+                    const isPending = myEntry?.status === 'pending';
                     const isEditor = myEntry?.role === 'editor';
 
                     return (
                       <div
                         key={folder.id}
                         onClick={() => setActiveShareDetailFolder(folder)}
-                        className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850 transition cursor-pointer space-y-3 shadow-md group"
+                        className={`p-3.5 rounded-2xl bg-zinc-900 border ${
+                          isPending ? 'border-amber-500/40 bg-zinc-900/90' : 'border-zinc-800 hover:border-zinc-700'
+                        } hover:bg-zinc-850 transition cursor-pointer space-y-3 shadow-md group`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3 min-w-0">
@@ -856,9 +901,16 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                                 <span className="text-sm font-bold text-white truncate group-hover:text-purple-300 transition">
                                   {folder.name}
                                 </span>
-                                <span className="px-1.5 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[10px] font-semibold">
-                                  {isEditor ? (isArabic ? 'محرر' : 'Editor') : (isArabic ? 'مشاهد' : 'Viewer')}
-                                </span>
+                                {isPending ? (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-semibold flex items-center gap-1">
+                                    <Clock className="w-2.5 h-2.5" />
+                                    <span>{isArabic ? 'دعوة معلقة' : 'Pending Invite'}</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[10px] font-semibold">
+                                    {isEditor ? (isArabic ? 'محرر' : 'Editor') : (isArabic ? 'مشاهد' : 'Viewer')}
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-1.5 text-xs text-zinc-400 mt-0.5">
                                 <span>{isArabic ? 'المالك:' : 'Owner:'} {folder.ownerName}</span>
@@ -868,25 +920,50 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                             </div>
                           </div>
 
-                          {/* Action Buttons: Leave & Open */}
+                          {/* Action Buttons: Pending Accept/Decline vs Active Leave/Open */}
                           <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              onClick={(e) => handleLeaveSharedFolder(folder, e)}
-                              className="px-2.5 py-1.5 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 hover:border-red-500/30 text-zinc-400 hover:text-red-400 text-xs font-semibold flex items-center gap-1 transition cursor-pointer active:scale-95"
-                              title={isArabic ? 'مغادرة المشاركة' : 'Leave Share'}
-                            >
-                              <LogOut className="w-3.5 h-3.5 text-red-400" />
-                              <span>{isArabic ? 'مغادرة' : 'Leave'}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setActiveShareDetailFolder(folder)}
-                              className="p-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
-                              title={isArabic ? 'فتح وعرض' : 'Open & View'}
-                            >
-                              <ChevronRight className="w-4 h-4 rtl:rotate-180" />
-                            </button>
+                            {isPending ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleAcceptInvite(folder, e)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 transition cursor-pointer active:scale-95 shadow-md shadow-emerald-950/40"
+                                  title={isArabic ? 'قبول الدعوة' : 'Accept Invite'}
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>{isArabic ? 'قبول' : 'Accept'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDeclineInvite(folder, e)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 hover:border-red-500/30 text-zinc-400 hover:text-red-400 text-xs font-semibold flex items-center gap-1 transition cursor-pointer active:scale-95"
+                                  title={isArabic ? 'رفض الدعوة' : 'Decline Invite'}
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                  <span>{isArabic ? 'رفض' : 'Decline'}</span>
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleLeaveSharedFolder(folder, e)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-zinc-950 hover:bg-red-950/40 border border-zinc-800 hover:border-red-500/30 text-zinc-400 hover:text-red-400 text-xs font-semibold flex items-center gap-1 transition cursor-pointer active:scale-95"
+                                  title={isArabic ? 'مغادرة المشاركة' : 'Leave Share'}
+                                >
+                                  <LogOut className="w-3.5 h-3.5 text-red-400" />
+                                  <span>{isArabic ? 'مغادرة' : 'Leave'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveShareDetailFolder(folder)}
+                                  className="p-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                                  title={isArabic ? 'فتح وعرض' : 'Open & View'}
+                                >
+                                  <ChevronRight className="w-4 h-4 rtl:rotate-180" />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>

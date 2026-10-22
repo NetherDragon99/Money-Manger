@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
+import { auth } from '../utils/firebase';
 import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
 import { ShareSpaceSettingsModal } from './ShareSpaceSettingsModal';
@@ -176,7 +177,15 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     if (!initialFolder.id) return;
     const unsub = subscribeToShareFolder(initialFolder.id, (liveFolder) => {
       if (liveFolder) {
-        setFolder(liveFolder);
+        setFolder((prev) => ({
+          ...liveFolder,
+          ownerNumericId: liveFolder.ownerNumericId || prev.ownerNumericId,
+          owner16DigitId: liveFolder.owner16DigitId || prev.owner16DigitId || liveFolder.ownerNumericId || prev.ownerNumericId,
+          ownerUid: liveFolder.ownerUid || prev.ownerUid,
+          ownerName: liveFolder.ownerName || prev.ownerName,
+          ownerAvatar: liveFolder.ownerAvatar || prev.ownerAvatar,
+          ownerPhotoURL: liveFolder.ownerPhotoURL || prev.ownerPhotoURL,
+        }));
       }
     });
     return () => unsub();
@@ -198,7 +207,15 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               live.payload.transactions.length !== prev.payload.transactions.length ||
               live.payload.accounts.length !== prev.payload.accounts.length
             ) {
-              return live;
+              return {
+                ...live,
+                ownerNumericId: live.ownerNumericId || prev.ownerNumericId,
+                owner16DigitId: live.owner16DigitId || prev.owner16DigitId || live.ownerNumericId || prev.ownerNumericId,
+                ownerUid: live.ownerUid || prev.ownerUid,
+                ownerName: live.ownerName || prev.ownerName,
+                ownerAvatar: live.ownerAvatar || prev.ownerAvatar,
+                ownerPhotoURL: live.ownerPhotoURL || prev.ownerPhotoURL,
+              };
             }
             return prev;
           });
@@ -215,8 +232,10 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     };
   }, [initialFolder.id]);
 
-  const isOwner = folder.ownerNumericId === myCleanNumericId;
-  const myMemberEntry = folder.members.find((m) => m.numericId === myCleanNumericId);
+  const folderOwner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId);
+  const isOwner = (myCleanNumericId && folderOwner16 && folderOwner16 === myCleanNumericId) ||
+                  (auth.currentUser?.uid && folder.ownerUid && folder.ownerUid === auth.currentUser.uid);
+  const myMemberEntry = folder.members.find((m) => cleanNumericId(m.numericId) === myCleanNumericId);
   const canEdit = isOwner || folder.permission === 'allow_import_edit' || myMemberEntry?.role === 'editor';
 
   const accounts = folder.payload.accounts || [];

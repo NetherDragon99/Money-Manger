@@ -1,6 +1,6 @@
 import { rtdb, auth } from './firebase';
 import { ref, set, get, remove, onValue, off, update } from 'firebase/database';
-import { cleanNumericId, format16DigitId } from './userId';
+import { cleanNumericId, format16DigitId, getOrCreateNumericId } from './userId';
 import { Account, Category, Transaction } from '../types';
 import { encodeShareSnapshot } from './sharing';
 
@@ -58,6 +58,8 @@ export interface ShareFolder {
   createdAt: number;
   updatedAt: number;
   ownerNumericId: string;
+  owner16DigitId?: string;
+  ownerUid?: string;
   ownerName: string;
   ownerAvatar?: string;
   ownerPhotoURL?: string;
@@ -506,6 +508,55 @@ export function saveReceivedShareFolders(folders: ShareFolder[]): void {
 }
 
 /**
+ * Automatically migrate / repair any existing locally cached shared spaces
+ * whose owner16DigitId does not match myClean16Id (and ownerUid !== currentUser.uid),
+ * so they immediately move to the "Shared with Me" section.
+ */
+export function repairAndMigrateSharedSpaces(
+  myNumericId?: string,
+  currentUserUid?: string
+): { myFolders: ShareFolder[]; receivedFolders: ShareFolder[] } {
+  const cleanMyId = myNumericId ? normalize16DigitId(myNumericId) : '';
+  const currentUid = currentUserUid || auth.currentUser?.uid || '';
+
+  const rawMy = loadMyShareFolders();
+  const rawReceived = loadReceivedShareFolders();
+
+  if (!cleanMyId && !currentUid) {
+    return { myFolders: rawMy, receivedFolders: rawReceived };
+  }
+
+  const allFoldersMap = new Map<string, ShareFolder>();
+  for (const f of rawReceived) {
+    if (f && f.id) allFoldersMap.set(f.id, f);
+  }
+  for (const f of rawMy) {
+    if (f && f.id) allFoldersMap.set(f.id, f);
+  }
+
+  const nextMy: ShareFolder[] = [];
+  const nextReceived: ShareFolder[] = [];
+
+  for (const folder of allFoldersMap.values()) {
+    const folderOwner16 = normalize16DigitId(folder.owner16DigitId || folder.ownerNumericId);
+    const isOwnerBy16 = cleanMyId && folderOwner16 && folderOwner16 === cleanMyId;
+    const isOwnerByUid = currentUid && folder.ownerUid && folder.ownerUid === currentUid;
+    const isOwner = isOwnerBy16 || isOwnerByUid;
+
+    if (isOwner) {
+      nextMy.push(folder);
+    } else {
+      nextReceived.push(folder);
+    }
+  }
+
+  saveMyShareFolders(nextMy);
+  saveReceivedShareFolders(nextReceived);
+
+  return { myFolders: nextMy, receivedFolders: nextReceived };
+}
+
+/**
  * Extract share ID from raw input, handle full URL or query params or plain share ID
  */
 export function extractShareIdFromUrl(input: string): string {
@@ -534,7 +585,15 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
 } {
   const cleanFolder: ShareFolder = JSON.parse(JSON.stringify(folder));
   const rawShareId = cleanFolder.id.replace(/^share_/, '');
-  const ownerUid = auth.currentUser?.uid || cleanFolder.ownerNumericId || 'guest_user';
+
+  // NEVER overwrite original ownerUid, owner16DigitId, or ownerName with recipient's info
+  const originalOwner16 = normalize16DigitId(cleanFolder.owner16DigitId || cleanFolder.ownerNumericId);
+  const originalOwnerUid = cleanFolder.ownerUid || '';
+  const originalOwnerName = cleanFolder.ownerName || (originalOwner16 ? `User ${originalOwner16.slice(0, 4)}` : 'User');
+  const originalOwnerAvatar = cleanFolder.ownerAvatar || '👤';
+  const originalOwnerPhotoURL = cleanFolder.ownerPhotoURL || '';
+
+  const ownerUid = originalOwnerUid || (auth.currentUser?.uid ? auth.currentUser.uid : originalOwner16 || 'guest_user');
   const accountName = String(cleanFolder.name || 'Shared Account').slice(0, 100);
   const now = Date.now();
 
@@ -559,6 +618,11 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
     id: cleanFolder.id,
     sharedId: `share_${rawShareId}`,
     ownerUid,
+    ownerNumericId: originalOwner16 || cleanFolder.ownerNumericId,
+    owner16DigitId: originalOwner16 || cleanFolder.ownerNumericId,
+    ownerName: originalOwnerName,
+    ownerAvatar: originalOwnerAvatar,
+    ownerPhotoURL: originalOwnerPhotoURL,
     accountName,
     updatedAt: now,
     invites: cleanInvites,
@@ -582,7 +646,7 @@ export function normalizeParsedShareFolder(val: any, fallbackId?: string): Share
       avatar: m.avatar || '👤',
       photoURL: m.photoURL || '',
       role: m.role || 'viewer',
-      status: 'accepted' as const,
+      status: (m.status === 'pending' ? 'pending' : 'accepted') as 'pending' | 'accepted',
       addedAt: m.addedAt || Date.now(),
     }));
   } else if (val.invites && typeof val.invites === 'object') {
@@ -592,7 +656,7 @@ export function normalizeParsedShareFolder(val: any, fallbackId?: string): Share
       avatar: inv.avatar || '👤',
       photoURL: inv.photoURL || '',
       role: inv.role || 'viewer',
-      status: 'accepted' as const,
+      status: (inv.status === 'pending' ? 'pending' : 'accepted') as 'pending' | 'accepted',
       addedAt: inv.addedAt || Date.now(),
     }));
   }
@@ -621,6 +685,18 @@ export function normalizeParsedShareFolder(val: any, fallbackId?: string): Share
       ? val.itemCount
       : payload.accounts.length + payload.categories.length + payload.transactions.length;
 
+  const owner16 = normalize16DigitId(
+    val.owner16DigitId ||
+    val.ownerNumericId ||
+    val.ownerNumeric16Id ||
+    val.ownerId ||
+    (val.ownerUid && /^\d{16}$/.test(val.ownerUid) ? val.ownerUid : '')
+  );
+  const ownerUid = val.ownerUid || '';
+  const ownerName = val.ownerName || val.ownerDisplayName || (owner16 ? `User ${owner16.slice(0, 4)}` : 'User');
+  const ownerAvatar = val.ownerAvatar || '👤';
+  const ownerPhotoURL = val.ownerPhotoURL || '';
+
   return {
     id,
     name,
@@ -628,10 +704,12 @@ export function normalizeParsedShareFolder(val: any, fallbackId?: string): Share
     description: val.description || '',
     createdAt: val.createdAt || val.updatedAt || Date.now(),
     updatedAt: val.updatedAt || Date.now(),
-    ownerNumericId: normalize16DigitId(val.ownerNumericId || val.ownerUid),
-    ownerName: val.ownerName || 'User',
-    ownerAvatar: val.ownerAvatar || '👤',
-    ownerPhotoURL: val.ownerPhotoURL || '',
+    ownerNumericId: owner16,
+    owner16DigitId: owner16,
+    ownerUid,
+    ownerName,
+    ownerAvatar,
+    ownerPhotoURL,
     permission: val.permission || 'allow_import_edit',
     members,
     itemType: val.itemType || 'mixed',
@@ -692,7 +770,9 @@ export async function registerReceivedShareFolder(
   myPhotoURL?: string
 ): Promise<ShareFolder> {
   const cleanId = myNumericId ? normalize16DigitId(myNumericId) : '';
-  const isOwner = cleanId && cleanId.length === 16 && normalize16DigitId(folder.ownerNumericId) === cleanId;
+  const folderOwner16 = normalize16DigitId(folder.owner16DigitId || folder.ownerNumericId);
+  const isOwner = (cleanId && cleanId.length === 16 && folderOwner16 === cleanId) ||
+                  (auth.currentUser?.uid && folder.ownerUid === auth.currentUser.uid);
 
   let updatedMembers = Array.isArray(folder.members) ? [...folder.members] : [];
 
@@ -717,35 +797,66 @@ export async function registerReceivedShareFolder(
     }
   }
 
+  // Preserve original owner info strictly
   const finalFolder: ShareFolder = {
     ...folder,
-    members: updatedMembers.map((m) => ({ ...m, status: 'accepted' as const })),
+    ownerNumericId: folderOwner16 || folder.ownerNumericId,
+    owner16DigitId: folderOwner16 || folder.ownerNumericId,
+    ownerUid: folder.ownerUid,
+    ownerName: folder.ownerName,
+    ownerAvatar: folder.ownerAvatar,
+    ownerPhotoURL: folder.ownerPhotoURL,
+    members: updatedMembers.map((m) => ({
+      ...m,
+      status: (m.status === 'pending' && normalize16DigitId(m.numericId) !== cleanId ? 'pending' : 'accepted') as 'pending' | 'accepted',
+    })),
   };
 
-  // 1. Save to local received share folders
-  const currentReceived = loadReceivedShareFolders();
-  const idx = currentReceived.findIndex((f) => f.id === finalFolder.id);
-  let nextReceived: ShareFolder[];
-  if (idx !== -1) {
-    nextReceived = [...currentReceived];
-    nextReceived[idx] = finalFolder;
+  if (isOwner) {
+    // 1. Save to local "My Shares"
+    const currentMy = loadMyShareFolders();
+    const idx = currentMy.findIndex((f) => f.id === finalFolder.id);
+    let nextMy: ShareFolder[];
+    if (idx !== -1) {
+      nextMy = [...currentMy];
+      nextMy[idx] = finalFolder;
+    } else {
+      nextMy = [finalFolder, ...currentMy];
+    }
+    saveMyShareFolders(nextMy);
+    // Remove from received if present
+    const nextReceived = loadReceivedShareFolders().filter((f) => f.id !== finalFolder.id);
+    saveReceivedShareFolders(nextReceived);
   } else {
-    nextReceived = [finalFolder, ...currentReceived];
-  }
-  saveReceivedShareFolders(nextReceived);
+    // 1. Save to local received share folders ("Shared with Me")
+    const currentReceived = loadReceivedShareFolders();
+    const idx = currentReceived.findIndex((f) => f.id === finalFolder.id);
+    let nextReceived: ShareFolder[];
+    if (idx !== -1) {
+      nextReceived = [...currentReceived];
+      nextReceived[idx] = finalFolder;
+    } else {
+      nextReceived = [finalFolder, ...currentReceived];
+    }
+    saveReceivedShareFolders(nextReceived);
 
-  // 2. Dispatch event to update any open modal or views immediately
+    // 2. Strictly ensure it is REMOVED from "My Share Folders"
+    const currentMy = loadMyShareFolders().filter((f) => f.id !== finalFolder.id);
+    saveMyShareFolders(currentMy);
+  }
+
+  // 3. Dispatch event to update any open modal or views immediately
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: nextReceived }));
+    window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: loadReceivedShareFolders() }));
   }
 
-  // 3. Sync member addition to Firebase RTDB cloud if recipient has 16-digit ID and is not owner
+  // 4. Sync member addition to Firebase RTDB cloud if recipient has 16-digit ID and is not owner
   if (!isOwner && cleanId.length === 16) {
     try {
       const fullPayload = buildFullSharePayload(finalFolder);
       const rawShareId = finalFolder.id.replace(/^share_/, '');
 
-      // Deliver to user's inbox with required Firebase rule fields
+      // Deliver to user's inbox with required Firebase rule fields (preserving original owner)
       try {
         await set(ref(rtdb, `shared_accounts/inbox_${cleanId}/${finalFolder.id}`), fullPayload);
       } catch {}
@@ -762,10 +873,12 @@ export async function registerReceivedShareFolder(
         await set(ref(rtdb, `inboxByNumericId/${cleanId}/${finalFolder.id}`), fullPayload);
       } catch {}
 
-      // Update cloud share folder
-      await set(ref(rtdb, `shared_accounts/share_${rawShareId}`), fullPayload);
-      await set(ref(rtdb, `shared_accounts/${finalFolder.id}`), fullPayload);
-      await set(ref(rtdb, `sharedBundles/${finalFolder.id}`), fullPayload);
+      // Update members & invites in cloud share folder WITHOUT wiping original owner
+      try {
+        await set(ref(rtdb, `shared_accounts/share_${rawShareId}/members`), finalFolder.members);
+        await set(ref(rtdb, `shared_accounts/${finalFolder.id}/members`), finalFolder.members);
+        await set(ref(rtdb, `sharedBundles/${finalFolder.id}/members`), finalFolder.members);
+      } catch {}
     } catch (err) {
       console.warn('[ShareFolders] Failed to sync member join to cloud RTDB:', err);
     }
@@ -1075,16 +1188,19 @@ export function addTransactionToShareFolder(
   const recvIdx = received.findIndex((f) => f.id === folderId);
 
   let targetFolder: ShareFolder | null = null;
-  let isOwner = false;
 
   if (myIdx !== -1) {
     targetFolder = existing[myIdx];
-    isOwner = true;
   } else if (recvIdx !== -1) {
     targetFolder = received[recvIdx];
   }
 
   if (!targetFolder) return null;
+
+  const myCleanId = cleanNumericId(getOrCreateNumericId());
+  const folderOwner16 = cleanNumericId(targetFolder.owner16DigitId || targetFolder.ownerNumericId);
+  const isOwner = (myCleanId && folderOwner16 && folderOwner16 === myCleanId) ||
+                  (auth.currentUser?.uid && targetFolder.ownerUid === auth.currentUser.uid);
 
   const txs = [...targetFolder.payload.transactions];
   const existingTxIdx = txs.findIndex((t) => t.id === tx.id);
@@ -1105,11 +1221,17 @@ export function addTransactionToShareFolder(
   };
 
   if (isOwner) {
-    existing[myIdx] = updatedFolder;
-    saveMyShareFolders(existing);
+    const updatedMy = existing.filter((f) => f.id !== folderId);
+    updatedMy.unshift(updatedFolder);
+    saveMyShareFolders(updatedMy);
+    const cleanedReceived = received.filter((f) => f.id !== folderId);
+    saveReceivedShareFolders(cleanedReceived);
   } else {
-    received[recvIdx] = updatedFolder;
-    saveReceivedShareFolders(received);
+    const updatedReceived = received.filter((f) => f.id !== folderId);
+    updatedReceived.unshift(updatedFolder);
+    saveReceivedShareFolders(updatedReceived);
+    const cleanedMy = existing.filter((f) => f.id !== folderId);
+    saveMyShareFolders(cleanedMy);
   }
 
   syncFolderToCloud(updatedFolder);
@@ -1136,16 +1258,19 @@ export function updateItemInShareFolder(
   const recvIdx = received.findIndex((f) => f.id === folderId);
 
   let targetFolder: ShareFolder | null = null;
-  let isOwner = false;
 
   if (myIdx !== -1) {
     targetFolder = existing[myIdx];
-    isOwner = true;
   } else if (recvIdx !== -1) {
     targetFolder = received[recvIdx];
   }
 
   if (!targetFolder) return null;
+
+  const myCleanId = cleanNumericId(getOrCreateNumericId());
+  const folderOwner16 = cleanNumericId(targetFolder.owner16DigitId || targetFolder.ownerNumericId);
+  const isOwner = (myCleanId && folderOwner16 && folderOwner16 === myCleanId) ||
+                  (auth.currentUser?.uid && targetFolder.ownerUid === auth.currentUser.uid);
 
   let nextAccounts = [...targetFolder.payload.accounts];
   let nextCategories = [...targetFolder.payload.categories];
@@ -1177,11 +1302,17 @@ export function updateItemInShareFolder(
   };
 
   if (isOwner) {
-    existing[myIdx] = updatedFolder;
-    saveMyShareFolders(existing);
+    const updatedMy = existing.filter((f) => f.id !== folderId);
+    updatedMy.unshift(updatedFolder);
+    saveMyShareFolders(updatedMy);
+    const cleanedReceived = received.filter((f) => f.id !== folderId);
+    saveReceivedShareFolders(cleanedReceived);
   } else {
-    received[recvIdx] = updatedFolder;
-    saveReceivedShareFolders(received);
+    const updatedReceived = received.filter((f) => f.id !== folderId);
+    updatedReceived.unshift(updatedFolder);
+    saveReceivedShareFolders(updatedReceived);
+    const cleanedMy = existing.filter((f) => f.id !== folderId);
+    saveMyShareFolders(cleanedMy);
   }
 
   syncFolderToCloud(updatedFolder);
@@ -1202,16 +1333,19 @@ export function removeItemFromShareFolder(
   const recvIdx = received.findIndex((f) => f.id === folderId);
 
   let folder: ShareFolder | null = null;
-  let isOwner = false;
 
   if (myIdx !== -1) {
     folder = existing[myIdx];
-    isOwner = true;
   } else if (recvIdx !== -1) {
     folder = received[recvIdx];
   }
 
   if (!folder) return null;
+
+  const myCleanId = cleanNumericId(getOrCreateNumericId());
+  const folderOwner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId);
+  const isOwner = (myCleanId && folderOwner16 && folderOwner16 === myCleanId) ||
+                  (auth.currentUser?.uid && folder.ownerUid === auth.currentUser.uid);
 
   let nextAccounts = folder.payload.accounts;
   let nextCategories = folder.payload.categories;
@@ -1237,11 +1371,17 @@ export function removeItemFromShareFolder(
   };
 
   if (isOwner) {
-    existing[myIdx] = updatedFolder;
-    saveMyShareFolders(existing);
+    const updatedMy = existing.filter((f) => f.id !== folderId);
+    updatedMy.unshift(updatedFolder);
+    saveMyShareFolders(updatedMy);
+    const cleanedReceived = received.filter((f) => f.id !== folderId);
+    saveReceivedShareFolders(cleanedReceived);
   } else {
-    received[recvIdx] = updatedFolder;
-    saveReceivedShareFolders(received);
+    const updatedReceived = received.filter((f) => f.id !== folderId);
+    updatedReceived.unshift(updatedFolder);
+    saveReceivedShareFolders(updatedReceived);
+    const cleanedMy = existing.filter((f) => f.id !== folderId);
+    saveMyShareFolders(cleanedMy);
   }
 
   syncFolderToCloud(updatedFolder);
@@ -1748,6 +1888,12 @@ export async function acceptShareInvitation(
   });
 
   saveReceivedShareFolders(updated);
+
+  // Strictly ensure this folder does NOT exist in myShareFolders
+  const currentMy = loadMyShareFolders();
+  if (currentMy.some((f) => f.id === folderId)) {
+    saveMyShareFolders(currentMy.filter((f) => f.id !== folderId));
+  }
 
   try {
     const rawShareId = folderId.replace(/^share_/, '');
