@@ -513,7 +513,7 @@ export async function fetchDualCloudBackup(
  * Debounced Auto-Backup Dispatcher
  */
 let debouncedBackupTimeout: any = null;
-let isCloudBackupBlocked = false;
+let isCloudBackupBlocked = true;
 
 export function setCloudBackupBlocked(blocked: boolean): void {
   isCloudBackupBlocked = blocked;
