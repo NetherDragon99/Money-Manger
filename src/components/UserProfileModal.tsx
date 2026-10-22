@@ -123,14 +123,8 @@ export const UserProfileModal: React.FC = () => {
     return () => unsub();
   }, []);
 
-  // Sync local inputs when settings.userProfile changes or upon sign out
-  useEffect(() => {
-    if (settings.userProfile) {
-      setName(settings.userProfile.name || (auth.currentUser ? 'My Profile' : 'Guest'));
-      setAvatarEmoji(settings.userProfile.avatarEmoji || '👤');
-      setCustomAvatarUrl(settings.userProfile.customAvatarUrl || undefined);
-    }
-  }, [settings.userProfile]);
+  const prevIsOpenRef = useRef(false);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   // Photo editing & Cropper state
   const [photoToEdit, setPhotoToEdit] = useState<string | null>(null);
@@ -144,10 +138,11 @@ export const UserProfileModal: React.FC = () => {
   const initialZoomRef = useRef<number>(1);
   const [isClosing, setIsClosing] = useState(false);
 
-  // Sync profile state when modal opens & register profile to cloud if authenticated
+  // Sync profile draft state strictly when modal opens, and never overwrite while user is typing
   useEffect(() => {
-    if (isUserProfileModalOpen) {
-      setName(settings.userProfile?.name || 'My Profile');
+    const isOpening = isUserProfileModalOpen && !prevIsOpenRef.current;
+    if (isOpening) {
+      setName(settings.userProfile?.name || (auth.currentUser ? 'My Profile' : 'Guest'));
       setAvatarEmoji(settings.userProfile?.avatarEmoji || '👤');
       setCustomAvatarUrl(settings.userProfile?.customAvatarUrl);
       setPhotoToEdit(null);
@@ -170,7 +165,24 @@ export const UserProfileModal: React.FC = () => {
           });
         }
       }
+    } else if (isUserProfileModalOpen) {
+      // Background sync update: NEVER overwrite local draft if user is currently typing/focused in the input!
+      if (document.activeElement !== nameInputRef.current && settings.userProfile?.name) {
+        setName(settings.userProfile.name);
+      }
+      if (settings.userProfile?.avatarEmoji) {
+        setAvatarEmoji(settings.userProfile.avatarEmoji);
+      }
+      if (settings.userProfile?.customAvatarUrl !== undefined) {
+        setCustomAvatarUrl(settings.userProfile.customAvatarUrl);
+      }
+    } else {
+      // Modal closed: keep draft up to date silently
+      if (settings.userProfile?.name) {
+        setName(settings.userProfile.name);
+      }
     }
+    prevIsOpenRef.current = isUserProfileModalOpen;
   }, [isUserProfileModalOpen, settings.userProfile, currentUser]);
 
   if (!isUserProfileModalOpen) return null;
@@ -641,6 +653,7 @@ export const UserProfileModal: React.FC = () => {
               {t('userName')}
             </label>
             <input
+              ref={nameInputRef}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}

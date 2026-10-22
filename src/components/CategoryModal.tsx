@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { X, Trash2, AlertTriangle } from 'lucide-react';
 import { Category, TransactionType } from '../types';
@@ -26,19 +26,42 @@ export const CategoryModal: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
 
+  const prevOpenRef = useRef(false);
+  const prevEditingIdRef = useRef<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const budgetInputRef = useRef<HTMLInputElement | null>(null);
+
   useEffect(() => {
     setShowDeleteConfirm(false);
-    if (editingCategory) {
-      setName(editingCategory.name);
-      setIcon(editingCategory.icon || '🛍️');
-      setType(editingCategory.type);
-      setBudgetLimit(editingCategory.budgetLimit ? String(editingCategory.budgetLimit) : '0');
-    } else {
-      setName('');
-      setIcon(defaultCategoryType === 'income' ? '💵' : '🛍️');
-      setType(defaultCategoryType || 'expense');
-      setBudgetLimit('0');
+    const isOpening = isCategoryModalOpen && !prevOpenRef.current;
+    const isDifferentCategory = editingCategory?.id !== prevEditingIdRef.current;
+
+    if (isOpening || isDifferentCategory) {
+      if (editingCategory) {
+        setName(editingCategory.name);
+        setIcon(editingCategory.icon || '🛍️');
+        setType(editingCategory.type);
+        setBudgetLimit(editingCategory.budgetLimit ? String(editingCategory.budgetLimit) : '0');
+      } else {
+        setName('');
+        setIcon(defaultCategoryType === 'income' ? '💵' : '🛍️');
+        setType(defaultCategoryType || 'expense');
+        setBudgetLimit('0');
+      }
+    } else if (isCategoryModalOpen && editingCategory) {
+      // Live context update / background sync: NEVER overwrite fields while the user is actively focused or typing!
+      if (document.activeElement !== nameInputRef.current && editingCategory.name) {
+        setName(editingCategory.name);
+      }
+      if (document.activeElement !== budgetInputRef.current && editingCategory.budgetLimit !== undefined) {
+        setBudgetLimit(editingCategory.budgetLimit ? String(editingCategory.budgetLimit) : '0');
+      }
+      if (editingCategory.icon) setIcon(editingCategory.icon);
+      if (editingCategory.type) setType(editingCategory.type);
     }
+
+    prevOpenRef.current = isCategoryModalOpen;
+    prevEditingIdRef.current = editingCategory?.id || null;
   }, [editingCategory, isCategoryModalOpen, defaultCategoryType]);
 
   if (!isCategoryModalOpen) return null;
@@ -239,6 +262,7 @@ export const CategoryModal: React.FC = () => {
               {settings.language === 'ar' ? 'اسم الفئة' : 'Category Name'}
             </label>
             <input
+              ref={nameInputRef}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -255,6 +279,7 @@ export const CategoryModal: React.FC = () => {
                 {t('monthlyBudgetLimit')} ({settings.currencySymbol || '£'})
               </label>
               <input
+                ref={budgetInputRef}
                 type="number"
                 step="any"
                 value={budgetLimit}

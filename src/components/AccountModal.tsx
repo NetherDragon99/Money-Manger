@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { X, Smile, ShieldAlert } from 'lucide-react';
 import { Account } from '../types';
@@ -23,26 +23,60 @@ export const AccountModal: React.FC = () => {
   const [notes, setNotes] = useState('');
   const [isClosing, setIsClosing] = useState(false);
 
+  const prevOpenRef = useRef(false);
+  const prevEditingIdRef = useRef<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const balanceInputRef = useRef<HTMLInputElement | null>(null);
+  const notesInputRef = useRef<HTMLTextAreaElement | null>(null);
+
   useEffect(() => {
-    if (editingAccount) {
-      setName(editingAccount.name);
-      setIcon(editingAccount.icon || '💵');
-      setBalance(editingAccount.balance.toString());
+    const isOpening = isAccountModalOpen && !prevOpenRef.current;
+    const isDifferentAccount = editingAccount?.id !== prevEditingIdRef.current;
+
+    if (isOpening || isDifferentAccount) {
+      if (editingAccount) {
+        setName(editingAccount.name);
+        setIcon(editingAccount.icon || '💵');
+        setBalance(editingAccount.balance.toString());
+        setIsPrivate(editingAccount.isPrivate);
+        setMonthStartDay(
+          editingAccount.customMonthStartDay === 'default'
+            ? 'default'
+            : String(editingAccount.customMonthStartDay)
+        );
+        setNotes(editingAccount.notes || '');
+      } else {
+        setName('');
+        setIcon('💵');
+        setBalance('0');
+        setIsPrivate(false);
+        setMonthStartDay('default');
+        setNotes('');
+      }
+    } else if (isAccountModalOpen && editingAccount) {
+      // Live context / background sync: only update fields when user is NOT actively typing/focused!
+      if (document.activeElement !== nameInputRef.current && editingAccount.name) {
+        setName(editingAccount.name);
+      }
+      if (document.activeElement !== balanceInputRef.current && editingAccount.balance !== undefined) {
+        setBalance(editingAccount.balance.toString());
+      }
+      if (editingAccount.icon) setIcon(editingAccount.icon);
       setIsPrivate(editingAccount.isPrivate);
-      setMonthStartDay(
-        editingAccount.customMonthStartDay === 'default'
-          ? 'default'
-          : String(editingAccount.customMonthStartDay)
-      );
-      setNotes(editingAccount.notes || '');
-    } else {
-      setName('');
-      setIcon('💵');
-      setBalance('0');
-      setIsPrivate(false);
-      setMonthStartDay('default');
-      setNotes('');
+      if (editingAccount.customMonthStartDay !== undefined) {
+        setMonthStartDay(
+          editingAccount.customMonthStartDay === 'default'
+            ? 'default'
+            : String(editingAccount.customMonthStartDay)
+        );
+      }
+      if (document.activeElement !== notesInputRef.current && editingAccount.notes !== undefined) {
+        setNotes(editingAccount.notes || '');
+      }
     }
+
+    prevOpenRef.current = isAccountModalOpen;
+    prevEditingIdRef.current = editingAccount?.id || null;
   }, [editingAccount, isAccountModalOpen]);
 
   if (!isAccountModalOpen) return null;
@@ -149,6 +183,7 @@ export const AccountModal: React.FC = () => {
               {t('accountName')}
             </label>
             <input
+              ref={nameInputRef}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -172,6 +207,7 @@ export const AccountModal: React.FC = () => {
               )}
             </div>
             <input
+              ref={balanceInputRef}
               type="number"
               step="any"
               value={balance}
@@ -261,6 +297,7 @@ export const AccountModal: React.FC = () => {
               {t('notes')}
             </label>
             <textarea
+              ref={notesInputRef}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Optional notes or account details..."

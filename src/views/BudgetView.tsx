@@ -349,6 +349,7 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
 
   const [categoryTab, setCategoryTab] = useState<'expense' | 'income'>('expense');
   const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -627,6 +628,7 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
       <div className="relative">
         <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
         <input
+          ref={searchInputRef}
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
