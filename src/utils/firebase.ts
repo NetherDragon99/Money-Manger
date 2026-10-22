@@ -9,15 +9,9 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  sendPasswordResetEmail,
   signOut as fbSignOut,
   onAuthStateChanged,
   User,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  ConfirmationResult,
   signInAnonymously,
 } from 'firebase/auth';
 import {
@@ -83,49 +77,10 @@ export async function loginWithGoogle(): Promise<User> {
 }
 
 /**
- * Sign in with Email and Password
- */
-export async function loginWithEmail(email: string, pass: string): Promise<User> {
-  const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
-  return cred.user;
-}
-
-/**
- * Register with Email and Password
- */
-export async function registerWithEmail(email: string, pass: string): Promise<User> {
-  const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
-  return cred.user;
-}
-
-/**
- * Send Password Reset Email
- */
-export async function resetPassword(email: string): Promise<void> {
-  await sendPasswordResetEmail(auth, email.trim());
-}
-
-/**
  * Sign Out
  */
 export async function logoutUser(): Promise<void> {
   await fbSignOut(auth);
-}
-
-/**
- * Phone Number Auth: Set up Recaptcha & Send OTP
- */
-export function setupRecaptcha(containerId: string): RecaptchaVerifier {
-  return new RecaptchaVerifier(auth, containerId, {
-    size: 'invisible',
-  });
-}
-
-export async function sendPhoneOtp(
-  phoneNumber: string,
-  verifier: RecaptchaVerifier
-): Promise<ConfirmationResult> {
-  return await signInWithPhoneNumber(auth, phoneNumber.trim(), verifier);
 }
 
 /**

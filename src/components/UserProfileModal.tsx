@@ -8,9 +8,6 @@ import {
   Check,
   ZoomIn,
   Move,
-  Mail,
-  Lock,
-  Phone,
   Cloud,
   CheckCircle2,
   LogOut,
@@ -21,20 +18,16 @@ import {
   RefreshCw,
   Copy,
   Sparkles,
+  Lock,
 } from 'lucide-react';
 import {
   auth,
   loginWithGoogle,
-  loginWithEmail,
-  registerWithEmail,
-  resetPassword,
   logoutUser,
-  setupRecaptcha,
-  sendPhoneOtp,
 } from '../utils/firebase';
 import { format16DigitId, cleanNumericId, getOrCreateNumericId } from '../utils/userId';
 import { publishUserProfileCard } from '../utils/shareFolders';
-import { User, ConfirmationResult } from 'firebase/auth';
+import { User } from 'firebase/auth';
 
 const CURATED_DEFAULT_AVATARS = [
   // Animals
@@ -91,13 +84,6 @@ export const UserProfileModal: React.FC = () => {
 
   // Authentication & Cloud Sync State
   const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
-  const [authMode, setAuthMode] = useState<'none' | 'email' | 'phone'>('none');
-  const [emailAuthType, setEmailAuthType] = useState<'login' | 'register' | 'forgot'>('login');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authPhone, setAuthPhone] = useState('');
-  const [otpCode, setOtpCode] = useState('');
-  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [copiedNumericId, setCopiedNumericId] = useState(false);
@@ -327,78 +313,8 @@ export const UserProfileModal: React.FC = () => {
         isArabic ? 'تم تسجيل الدخول بنجاح!' : 'Signed in with Google successfully!',
         'success'
       );
-      setAuthMode('none');
     } catch (err: any) {
       setAuthError(err?.message || 'Google sign in failed');
-    } finally {
-      setIsAuthLoading(false);
-    }
-  };
-
-  const handleEmailAuthSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!authEmail) return;
-    setIsAuthLoading(true);
-    setAuthError('');
-    try {
-      if (emailAuthType === 'login') {
-        await loginWithEmail(authEmail, authPassword);
-        showToast(isArabic ? 'تم تسجيل الدخول بنجاح!' : 'Signed in successfully!', 'success');
-        setAuthMode('none');
-      } else if (emailAuthType === 'register') {
-        await registerWithEmail(authEmail, authPassword);
-        showToast(isArabic ? 'تم إنشاء الحساب بنجاح!' : 'Account created successfully!', 'success');
-        setAuthMode('none');
-      } else if (emailAuthType === 'forgot') {
-        await resetPassword(authEmail);
-        showToast(
-          isArabic
-            ? 'تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني'
-            : 'Password reset link sent to your email',
-          'info'
-        );
-        setEmailAuthType('login');
-      }
-    } catch (err: any) {
-      setAuthError(err?.message || 'Authentication error');
-    } finally {
-      setIsAuthLoading(false);
-    }
-  };
-
-  const handleSendPhoneOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!authPhone.trim()) return;
-    setIsAuthLoading(true);
-    setAuthError('');
-    try {
-      const verifier = setupRecaptcha('profile-recaptcha-container');
-      const confirmation = await sendPhoneOtp(authPhone, verifier);
-      setConfirmationResult(confirmation);
-      showToast(
-        isArabic ? 'تم إرسال رمز التحقق (OTP) بنجاح!' : 'Verification code sent via SMS!',
-        'info'
-      );
-    } catch (err: any) {
-      setAuthError(err?.message || 'Failed to send verification code');
-    } finally {
-      setIsAuthLoading(false);
-    }
-  };
-
-  const handleVerifyPhoneOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!confirmationResult || !otpCode.trim()) return;
-    setIsAuthLoading(true);
-    setAuthError('');
-    try {
-      await confirmationResult.confirm(otpCode.trim());
-      showToast(isArabic ? 'تم تأكيد رقم الهاتف والدخول بنجاح!' : 'Phone verified and signed in!', 'success');
-      setAuthMode('none');
-      setConfirmationResult(null);
-      setOtpCode('');
-    } catch (err: any) {
-      setAuthError(err?.message || 'Invalid verification code');
     } finally {
       setIsAuthLoading(false);
     }
@@ -828,180 +744,23 @@ export const UserProfileModal: React.FC = () => {
                   </div>
                 )}
 
-                {authMode === 'none' && (
-                  <div className="space-y-2">
-                    {/* Continue with Google */}
-                    <button
-                      type="button"
-                      onClick={handleGoogleSignIn}
-                      disabled={isAuthLoading}
-                      className="w-full flex items-center justify-center gap-2.5 py-2.5 px-4 rounded-xl bg-white hover:bg-zinc-100 text-black text-xs font-bold transition shadow cursor-pointer active:scale-98 disabled:opacity-50"
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 24 24">
-                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                      </svg>
-                      <span>{isArabic ? 'المتابعة باستخدام Google' : 'Continue with Google'}</span>
-                    </button>
-
-                    {/* Secondary Email & Phone Buttons */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => { setAuthMode('email'); setAuthError(''); }}
-                        className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 hover:text-white transition cursor-pointer"
-                      >
-                        <Mail className="w-3.5 h-3.5 text-blue-400" />
-                        <span>{isArabic ? 'بالبريد الإلكتروني' : 'Sign in with Email'}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setAuthMode('phone'); setAuthError(''); }}
-                        className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 hover:text-white transition cursor-pointer"
-                      >
-                        <Phone className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>{isArabic ? 'برقم الهاتف' : 'Sign in with Phone'}</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Email Form */}
-                {authMode === 'email' && (
-                  <form onSubmit={handleEmailAuthSubmit} className="space-y-3 pt-1">
-                    <div className="flex p-0.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] font-bold">
-                      <button
-                        type="button"
-                        onClick={() => setEmailAuthType('login')}
-                        className={`flex-1 py-1.5 rounded-lg transition ${
-                          emailAuthType === 'login' ? 'bg-zinc-800 text-white' : 'text-zinc-400'
-                        }`}
-                      >
-                        {isArabic ? 'دخول' : 'Sign In'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEmailAuthType('register')}
-                        className={`flex-1 py-1.5 rounded-lg transition ${
-                          emailAuthType === 'register' ? 'bg-zinc-800 text-white' : 'text-zinc-400'
-                        }`}
-                      >
-                        {isArabic ? 'تسجيل جديد' : 'Register'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEmailAuthType('forgot')}
-                        className={`flex-1 py-1.5 rounded-lg transition ${
-                          emailAuthType === 'forgot' ? 'bg-zinc-800 text-white' : 'text-zinc-400'
-                        }`}
-                      >
-                        {isArabic ? 'استعادة' : 'Reset'}
-                      </button>
-                    </div>
-
-                    <div className="space-y-2">
-                      <input
-                        type="email"
-                        value={authEmail}
-                        onChange={(e) => setAuthEmail(e.target.value)}
-                        placeholder={isArabic ? 'البريد الإلكتروني' : 'Email address'}
-                        className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                        required
-                      />
-                      {emailAuthType !== 'forgot' && (
-                        <input
-                          type="password"
-                          value={authPassword}
-                          onChange={(e) => setAuthPassword(e.target.value)}
-                          placeholder={isArabic ? 'كلمة المرور' : 'Password'}
-                          className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                          required
-                        />
-                      )}
-                    </div>
-
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setAuthMode('none')}
-                        className="flex-1 py-2 rounded-xl bg-zinc-950 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer"
-                      >
-                        {isArabic ? 'إلغاء' : 'Cancel'}
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={isAuthLoading}
-                        className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition shadow cursor-pointer disabled:opacity-50"
-                      >
-                        {isAuthLoading ? '...' : emailAuthType === 'login' ? (isArabic ? 'تسجيل الدخول' : 'Sign In') : emailAuthType === 'register' ? (isArabic ? 'إنشاء حساب' : 'Create Account') : (isArabic ? 'إرسال الرابط' : 'Send Reset Link')}
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                {/* Phone Form */}
-                {authMode === 'phone' && (
-                  <div className="space-y-3 pt-1">
-                    <div id="profile-recaptcha-container"></div>
-                    {!confirmationResult ? (
-                      <form onSubmit={handleSendPhoneOtp} className="space-y-2.5">
-                        <input
-                          type="tel"
-                          value={authPhone}
-                          onChange={(e) => setAuthPhone(e.target.value)}
-                          placeholder={isArabic ? 'رقم الهاتف مع رمز الدولة (+20...)' : 'Phone number (+1...)'}
-                          className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
-                          required
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setAuthMode('none')}
-                            className="flex-1 py-2 rounded-xl bg-zinc-950 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer"
-                          >
-                            {isArabic ? 'إلغاء' : 'Cancel'}
-                          </button>
-                          <button
-                            type="submit"
-                            disabled={isAuthLoading}
-                            className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white transition shadow cursor-pointer disabled:opacity-50"
-                          >
-                            {isAuthLoading ? '...' : (isArabic ? 'إرسال رمز OTP' : 'Send OTP')}
-                          </button>
-                        </div>
-                      </form>
-                    ) : (
-                      <form onSubmit={handleVerifyPhoneOtp} className="space-y-2.5">
-                        <input
-                          type="text"
-                          value={otpCode}
-                          onChange={(e) => setOtpCode(e.target.value)}
-                          placeholder={isArabic ? 'رمز التحقق (6 أرقام)' : '6-digit SMS code'}
-                          className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 text-center font-mono tracking-widest focus:outline-none focus:border-emerald-500"
-                          required
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setConfirmationResult(null)}
-                            className="flex-1 py-2 rounded-xl bg-zinc-950 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer"
-                          >
-                            {isArabic ? 'تغيير الرقم' : 'Change Phone'}
-                          </button>
-                          <button
-                            type="submit"
-                            disabled={isAuthLoading}
-                            className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white transition shadow cursor-pointer disabled:opacity-50"
-                          >
-                            {isAuthLoading ? '...' : (isArabic ? 'تأكيد ودخول' : 'Verify & Sign In')}
-                          </button>
-                        </div>
-                      </form>
-                    )}
-                  </div>
-                )}
+                {/* Sole Authentication Method: Continue with Google */}
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    disabled={isAuthLoading}
+                    className="w-full flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl bg-white hover:bg-zinc-100 text-black text-xs font-bold transition shadow-lg cursor-pointer active:scale-98 disabled:opacity-50"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                    </svg>
+                    <span>{isArabic ? 'تسجيل الدخول باستخدام جوجل' : 'Continue with Google'}</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
