@@ -730,7 +730,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                   <button
                     type="button"
                     onClick={() => setIsAddMemberOpen(true)}
-                    className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-xs font-semibold text-zinc-200 flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-700/60"
+                    className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm shadow-purple-950/40"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>{isArabic ? 'إضافة عضو' : 'Add Member'}</span>
