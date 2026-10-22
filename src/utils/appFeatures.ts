@@ -21,6 +21,30 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.34',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Smart Cloud Sync & Account Data Conflict Resolution',
+      ar: 'المزامنة السحابية الذكية وحل تعارض بيانات الحساب',
+    },
+    highlights: {
+      en: [
+        'Share Hub Authentication Decoupling: Removed any requirement for a Google Drive token in Shared Spaces; authenticated sessions and cached offline users now access the Shared Spaces Hub immediately without encountering sign-in loops.',
+        'Decoupled Google Drive Permission & Graceful Fallback: Google Drive storage scope is requested during sign-in, with a one-time optional prompt explicitly labeled "Grant Storage Access". Granting, denying, closing, or quota exhaustion permanently suppresses the prompt and seamlessly falls back to our Firebase RTDB server at users/${uid}/cloud_backup.',
+        'Elimination of Overwrite Race Condition: Automatic cloud backup writes are strictly locked on sign-in (isCloudHydratedRef.current = false) until existing cloud backups are thoroughly inspected, preventing local device state from ever overwriting remote data.',
+        'Account Data Sync Conflict Modal (z-[95]): When cloud data exists alongside local device transactions, users are prompted to either "Replace Device Data with Account Data" or "Merge Current Device Data with Account Data" (deduplicated by ID). If 0 local transactions exist, account data auto-restores immediately.',
+        'Full Profile & 16-Digit ID Hydration: Whether replacing or merging on sign-in, the user’s display name, avatar, custom avatar URL, and permanent 16-digit ID are restored to local state and instantly published to shared_accounts/profile_${clean16Id} in Firebase RTDB.',
+      ],
+      ar: [
+        'فك ارتباط مساحات المشاركة بصلاحيات جوجل درايف: إلغاء اشتراط رمز Google Drive لفتح مساحات المشاركة، وإتاحة الدخول الفوري للجلسات المسجلة والجلسات المحفوظة دون اتصال دون الوقوع في حلقة تسجيل الدخول.',
+        'فصل صلاحية تخزين Google Drive والتحويل التلقائي للخادم: طلب صلاحية Drive عند تسجيل الدخول مع نافذة اختيارية لمرة واحدة بزر يحمل نص "منح صلاحية التخزين"، مع حفظ الاختيار نهائياً والتحويل السلس والتلقائي للنسخ عبر خادم فايربيس في users/${uid}/cloud_backup.',
+        'منع الكتابة العرضية فوق البيانات السحابية: قفل عمليات النسخ الاحتياطي التلقائي تماماً عند تسجيل الدخول حتى اكتمال فحص النسخ السحابية لمنع استبدال بيانات الحساب ببيانات الجهاز المحلية.',
+        'نافذة حل تعارض بيانات الحساب (z-[95]): عند وجود بيانات سحابية ومعاملات محلية، يتاح للمستخدم خيار "استبدال بيانات الجهاز ببيانات الحساب" أو "دمج البيانات الحالية مع بيانات الحساب" دون تكرار المعرفات، مع الاستعادة التلقائية الفورية عند عدم وجود معاملات محلية.',
+        'استعادة ومزامنة كامل الملف الشخصي والمعرف الثابت: استعادة اسم المستخدم وصورته ومعرفه الرقمي المكون من 16 رقماً فور الاستبدال أو الدمج وحفظها في الحالة المحلية ونشرها تلقائياً على shared_accounts/profile_${clean16Id} في فايربيس.',
+      ],
+    },
+  },
+  {
     version: '1.1.33',
     releaseDate: 'October 22, 2026',
     title: {

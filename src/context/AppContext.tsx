@@ -958,7 +958,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const buildCurrentBackupPayload = (overrideSettings?: AppSettings): FullAppBackupPayload => {
     const effectiveSettings = overrideSettings || settings;
     return {
-      version: '1.1.33',
+      version: '1.1.34',
       backupDate: new Date().toISOString(),
       timestamp: Date.now(),
       accounts,
@@ -1924,7 +1924,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // Sync merged state to cloud
       const effectiveSettings = settingsRef.current;
       const mergedPayload: FullAppBackupPayload = {
-        version: '1.1.33',
+        version: '1.1.34',
         backupDate: new Date().toISOString(),
         timestamp: Date.now(),
         accounts: mergedAccounts,
