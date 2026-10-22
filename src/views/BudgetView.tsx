@@ -538,7 +538,7 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
+        className={`fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -561,14 +561,14 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
         </div>
       </header>
 
-      <div className="px-4 py-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto space-y-5">
+      <div className="px-4 py-3 landscape:py-2 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto space-y-5 landscape:space-y-3">
 
       {/* Smart Budget Alert Banner */}
       <SmartBudgetAlertBanner />
 
       {/* Top Summary Block */}
-      <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden space-y-4">
-        <div className="md:grid md:grid-cols-2 md:items-center md:gap-6">
+      <div className="p-6 landscape:p-4 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden space-y-4 landscape:space-y-2">
+        <div className="md:grid md:grid-cols-2 md:items-center md:gap-6 landscape:grid landscape:grid-cols-2 landscape:items-center landscape:gap-4">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
               {t('totalBudget')}
@@ -725,7 +725,7 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 landscape:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {displayExpenseCategories.map((cat) => {
               const spent = categorySpentMap.get(cat.id) || 0;
               const originalIdx = expenseCategories.findIndex((c) => c.id === cat.id);
@@ -808,7 +808,7 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 landscape:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {displayIncomeCategories.map((cat) => {
                 const received = categoryIncomeMap.get(cat.id) || 0;
                 const originalIdx = incomeCategories.findIndex((c) => c.id === cat.id);

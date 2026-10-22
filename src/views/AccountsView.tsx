@@ -298,7 +298,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
+        className={`fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -333,10 +333,10 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
       </header>
 
       {/* Scrollable View Content Container */}
-      <div className="pt-20 px-3.5 space-y-4 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto">
+      <div className="pt-20 landscape:pt-16 px-3.5 space-y-4 landscape:space-y-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto">
         {/* Global Net Worth Dashboard Card */}
         <div className="p-4 sm:p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 shadow-xl space-y-4">
-          <div className="md:grid md:grid-cols-3 md:items-center md:gap-6">
+          <div className="md:grid md:grid-cols-3 md:items-center md:gap-6 landscape:grid landscape:grid-cols-3 landscape:items-center landscape:gap-4">
             <div className="space-y-1 text-center md:text-start md:col-span-1">
               <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
                 {t('netWorth')}
@@ -349,7 +349,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mt-4 md:mt-0 pt-4 md:pt-0 border-t md:border-t-0 md:border-s md:border-zinc-800/80 md:ps-6 md:col-span-2">
+            <div className="grid grid-cols-2 gap-4 mt-4 md:mt-0 pt-4 md:pt-0 border-t md:border-t-0 md:border-s md:border-zinc-800/80 md:ps-6 md:col-span-2 landscape:mt-0 landscape:pt-0 landscape:border-t-0 landscape:border-s landscape:border-zinc-800/80 landscape:ps-4 landscape:col-span-2">
               {/* Total Income */}
               <div className="text-left rtl:text-right">
                 <div className="flex items-center gap-1 text-xs font-bold text-emerald-400">
@@ -410,7 +410,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 landscape:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
             {accounts.map((acc, index) => {
               const metrics = accountMonthMetricsMap.get(acc.id) || { income: 0, expense: 0 };
               const isPrimary = index === 0;

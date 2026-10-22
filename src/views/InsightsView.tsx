@@ -220,7 +220,7 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
+        className={`fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -243,21 +243,21 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
         </div>
       </header>
 
-      <div className="px-4 py-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto space-y-5">
+      <div className="px-4 py-3 landscape:py-2 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto space-y-5 landscape:space-y-3">
 
       {/* Top Summary Block: Current Month Total Balance, Income, Expense */}
-      <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden">
-        <div className="md:grid md:grid-cols-3 md:items-center md:gap-6">
+      <div className="p-6 landscape:p-4 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden">
+        <div className="md:grid md:grid-cols-3 md:items-center md:gap-6 landscape:grid landscape:grid-cols-3 landscape:items-center landscape:gap-4">
           <div className="space-y-1 text-center md:text-start md:col-span-1">
             <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
               {t('totalBalance')} ({t('publicAccounts')})
             </span>
-            <div className="text-3xl sm:text-4xl font-black font-mono text-white tracking-tight">
+            <div className="text-3xl sm:text-4xl landscape:text-2xl font-black font-mono text-white tracking-tight">
               {formatCurrency(totalCycleBalance, currencySymbol)}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mt-6 md:mt-0 pt-5 md:pt-0 border-t md:border-t-0 md:border-s md:border-zinc-800/80 md:ps-6 md:col-span-2">
+          <div className="grid grid-cols-2 gap-4 mt-6 md:mt-0 pt-5 md:pt-0 border-t md:border-t-0 md:border-s md:border-zinc-800/80 md:ps-6 md:col-span-2 landscape:mt-0 landscape:pt-0 landscape:border-t-0 landscape:border-s landscape:border-zinc-800/80 landscape:ps-4 landscape:col-span-2">
             <div className="text-left rtl:text-right">
               <div className="flex items-center gap-1 text-xs font-bold text-emerald-400">
                 <ArrowDown className="w-3.5 h-3.5" />
@@ -324,8 +324,8 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
         </button>
       </div>
 
-      {/* Section 1 & 2 Grid on Large Screens */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+      {/* Section 1 & 2 Grid on Large Screens & Mobile Landscape */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 landscape:grid-cols-2 gap-5 landscape:gap-4 items-start">
         {/* Section 1: Top Categories */}
         <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-3.5">
           <div className="flex items-center justify-between">

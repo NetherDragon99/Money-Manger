@@ -471,14 +471,14 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
   };
 
   return (
-    <div className="min-h-[calc(100dvh-4.25rem)] sm:min-h-[calc(100dvh-4.75rem)] w-full max-w-lg md:max-w-2xl mx-auto flex flex-col justify-between overflow-y-auto bg-black text-white px-3.5 pt-1 pb-2 select-none animate-in fade-in">
+    <div className="min-h-[calc(100dvh-4.25rem)] sm:min-h-[calc(100dvh-4.75rem)] w-full max-w-lg md:max-w-2xl landscape:max-w-5xl mx-auto flex flex-col justify-between overflow-y-auto bg-black text-white px-3.5 pt-1 pb-2 select-none animate-in fade-in">
       {/* 1. Unified Header Bar Across All 5 Tabs (Standardized h-16) */}
       <header
         style={{
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`sticky top-0 z-20 h-16 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2 ${
+        className={`sticky top-0 z-20 h-16 landscape:h-12 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2 landscape:mb-1 ${
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -516,8 +516,10 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
         </button>
       </header>
 
-      {/* 2. Display Screen with Smooth Animated History Drawer */}
-      <div className="calc-display-screen flex-1 flex flex-col justify-end p-4 rounded-3xl bg-zinc-950/90 border border-zinc-800/90 shadow-2xl relative overflow-hidden my-2">
+      {/* Responsive Two-Column Landscape Grid Container */}
+      <div className="flex-1 flex flex-col justify-between landscape:grid landscape:grid-cols-12 landscape:gap-4 landscape:items-stretch landscape:my-auto">
+        {/* 2. Display Screen with Smooth Animated History Drawer */}
+        <div className="calc-display-screen flex-1 flex flex-col justify-end p-4 rounded-3xl bg-zinc-950/90 border border-zinc-800/90 shadow-2xl relative overflow-hidden my-2 landscape:my-0 landscape:col-span-5 landscape:h-full">
         {/* Animated In-Display History Tape */}
         <div
           className={`calc-history-drawer absolute inset-0 bg-zinc-950/98 backdrop-blur-md p-3.5 flex flex-col justify-between z-20 transition-all duration-300 ease-in-out overscroll-contain ${
@@ -643,12 +645,12 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
       </div>
 
       {/* 3. Mathematical Keypad: Ergonomically Proportioned with Clean SVG & Typography */}
-      <div className="grid grid-cols-4 gap-2 text-center shrink-0">
+      <div className="grid grid-cols-4 gap-2 landscape:gap-1.5 text-center shrink-0 landscape:col-span-7 landscape:my-auto">
         {/* Row 1: Clear, Square Root (√), Power (^), Divide (÷) */}
         <button
           type="button"
           onClick={handleClear}
-          className="h-12 sm:h-13 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-amber-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-amber-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           C
         </button>
@@ -656,7 +658,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
           type="button"
           onClick={() => handleInput('√')}
           title="Square Root"
-          className="h-12 sm:h-13 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-lg font-serif font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-lg font-serif font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           <svg className="w-5 h-5 fill-none stroke-current stroke-[2.5]" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 13h3l3 8 5-16h7" />
@@ -666,14 +668,14 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
           type="button"
           onClick={() => handleInput('^')}
           title="Power / Exponent"
-          className="h-12 sm:h-13 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           <span>xʸ</span>
         </button>
         <button
           type="button"
           onClick={() => handleInput('÷')}
-          className="h-12 sm:h-13 rounded-2xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           ÷
         </button>
@@ -682,14 +684,14 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
         <button
           type="button"
           onClick={() => handleInput('(')}
-          className="h-12 sm:h-13 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           (
         </button>
         <button
           type="button"
           onClick={() => handleInput(')')}
-          className="h-12 sm:h-13 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           )
         </button>
@@ -697,14 +699,14 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
           type="button"
           onClick={() => handleInput('%')}
           title="Percentage"
-          className="h-12 sm:h-13 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           %
         </button>
         <button
           type="button"
           onClick={() => handleInput('×')}
-          className="h-12 sm:h-13 rounded-2xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           ×
         </button>
@@ -715,7 +717,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
             key={digit}
             type="button"
             onClick={() => handleInput(digit)}
-            className="h-12 sm:h-13 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+            className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
           >
             {digit}
           </button>
@@ -723,7 +725,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
         <button
           type="button"
           onClick={() => handleInput('−')}
-          className="h-12 sm:h-13 rounded-2xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           −
         </button>
@@ -734,7 +736,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
             key={digit}
             type="button"
             onClick={() => handleInput(digit)}
-            className="h-12 sm:h-13 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+            className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
           >
             {digit}
           </button>
@@ -742,7 +744,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
         <button
           type="button"
           onClick={() => handleInput('+')}
-          className="h-12 sm:h-13 rounded-2xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           +
         </button>
@@ -753,7 +755,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
             key={digit}
             type="button"
             onClick={() => handleInput(digit)}
-            className="h-12 sm:h-13 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+            className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
           >
             {digit}
           </button>
@@ -762,7 +764,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
           type="button"
           onClick={handleBackspace}
           aria-label="Backspace"
-          className="h-12 sm:h-13 rounded-2xl bg-zinc-850 hover:bg-zinc-800 border border-zinc-750 text-zinc-300 hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-850 hover:bg-zinc-800 border border-zinc-750 text-zinc-300 hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           <Delete className="w-5 h-5" />
         </button>
@@ -771,14 +773,14 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
         <button
           type="button"
           onClick={() => handleInput('0')}
-          className="h-12 sm:h-13 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           0
         </button>
         <button
           type="button"
           onClick={() => handleInput('.')}
-          className="h-12 sm:h-13 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-zinc-300 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-zinc-300 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
         >
           .
         </button>
@@ -786,7 +788,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
           type="button"
           onClick={handleCreateTransaction}
           title={isArabic ? 'تحويل المبلغ لمعاملة جديدة' : 'Create Transaction from Amount'}
-          className="h-12 sm:h-13 rounded-2xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 font-bold active:scale-95 transition cursor-pointer flex items-center justify-center gap-1 shadow-sm text-xs"
+          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 font-bold active:scale-95 transition cursor-pointer flex items-center justify-center gap-1 shadow-sm text-xs"
         >
           <PlusCircle className="w-4 h-4" />
           <span>Tx</span>
@@ -794,11 +796,12 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
         <button
           type="button"
           onClick={handleEquals}
-          className="calc-equals-btn h-12 sm:h-13 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-2xl font-black font-mono active:scale-95 transition cursor-pointer flex items-center justify-center shadow-lg shadow-emerald-600/50 border border-emerald-400/50"
+          className="calc-equals-btn h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-2xl font-black font-mono active:scale-95 transition cursor-pointer flex items-center justify-center shadow-lg shadow-emerald-600/50 border border-emerald-400/50"
         >
           <span className="text-2xl font-black leading-none select-none text-white">=</span>
         </button>
       </div>
+    </div>
     </div>
   );
 };

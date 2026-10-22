@@ -267,7 +267,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
+        className={`fixed top-0 left-0 right-0 max-w-full md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -536,28 +536,28 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
 
         {/* VIEW A: DAILY */}
         {homeSubView === 'daily' && (
-          <div className="space-y-4">
+          <div className="space-y-4 landscape:space-y-0 landscape:grid landscape:grid-cols-12 landscape:gap-5 landscape:items-start">
             {/* Public Summary Block: INCOME (Green), EXPENSE (Red), BALANCE (Gold/White).
                 Crucial: Calculated ONLY from Public accounts (isPrivate === false)! */}
-            <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden">
-              <div className="md:grid md:grid-cols-3 md:items-center md:gap-6">
-                <div className="text-center md:text-start md:col-span-1 space-y-1">
+            <div className="landscape:col-span-5 p-6 landscape:p-4 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden">
+              <div className="md:grid md:grid-cols-3 md:items-center md:gap-6 landscape:block landscape:space-y-3">
+                <div className="text-center md:text-start landscape:text-start md:col-span-1 space-y-1">
                   <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
                     {t('totalBalance')} ({t('publicAccounts')})
                   </span>
-                  <div className="text-3xl sm:text-4xl font-black font-mono text-white tracking-tight">
+                  <div className="text-3xl sm:text-4xl landscape:text-2xl font-black font-mono text-white tracking-tight">
                     {formatCurrency(publicBalance, currencySymbol)}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mt-6 md:mt-0 pt-5 md:pt-0 border-t md:border-t-0 md:border-s md:border-zinc-800/80 md:ps-6 md:col-span-2">
+                <div className="grid grid-cols-2 gap-4 mt-6 md:mt-0 pt-5 md:pt-0 border-t md:border-t-0 md:border-s md:border-zinc-800/80 md:ps-6 md:col-span-2 landscape:mt-3 landscape:pt-3 landscape:border-t landscape:border-zinc-800/80 landscape:border-s-0 landscape:ps-0">
                   {/* Total Income */}
                   <div className="text-left rtl:text-right">
                     <div className="flex items-center gap-1 text-xs font-bold text-emerald-400">
                       <ArrowDown className="w-3.5 h-3.5" />
                       <span>{t('totalIncome')}</span>
                     </div>
-                    <div className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-1">
+                    <div className="text-base sm:text-lg landscape:text-base font-black font-mono text-emerald-400 mt-1">
                       {formatCurrency(publicIncome, currencySymbol)}
                     </div>
                   </div>
@@ -568,7 +568,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
                       <span>{t('totalExpense')}</span>
                       <ArrowUp className="w-3.5 h-3.5" />
                     </div>
-                    <div className="text-base sm:text-lg font-black font-mono text-red-400 mt-1">
+                    <div className="text-base sm:text-lg landscape:text-base font-black font-mono text-red-400 mt-1">
                       {formatCurrency(publicExpense, currencySymbol)}
                     </div>
                   </div>
@@ -577,19 +577,21 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
             </div>
 
             {/* Collapsible Month & Day Transaction Blocks with Account Badge Hidden */}
-            <GroupedTransactionList
-              transactions={filteredTransactions}
-              emptyMessage={searchQuery ? (settings.language === 'ar' ? 'لا توجد نتائج بحث مطابقة' : 'No matching search results') : t('noTransactions')}
-              hideAccountBadge={true}
-            />
+            <div className="landscape:col-span-7">
+              <GroupedTransactionList
+                transactions={filteredTransactions}
+                emptyMessage={searchQuery ? (settings.language === 'ar' ? 'لا توجد نتائج بحث مطابقة' : 'No matching search results') : t('noTransactions')}
+                hideAccountBadge={true}
+              />
+            </div>
           </div>
         )}
 
         {/* VIEW B: CALENDAR */}
         {homeSubView === 'calendar' && (
-          <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-6 items-start">
+          <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-6 landscape:space-y-0 landscape:grid landscape:grid-cols-12 landscape:gap-5 items-start">
             {/* Monthly Calendar Grid Card */}
-            <div className="lg:col-span-7 p-4 sm:p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl">
+            <div className="lg:col-span-7 landscape:col-span-7 p-4 sm:p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl">
               {/* Month Navigation */}
               <div className="flex items-center justify-between mb-4 px-2">
                 <button
@@ -694,7 +696,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
             </div>
 
             {/* Selected Day Transactions Block below calendar in portrait, beside it in landscape/desktop */}
-            <div className="lg:col-span-5 space-y-2 lg:sticky lg:top-20">
+            <div className="lg:col-span-5 landscape:col-span-5 space-y-2 lg:sticky lg:top-20 landscape:sticky landscape:top-16">
               <div className="flex items-center justify-between px-1">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                   <CalendarIcon className="w-3.5 h-3.5 text-blue-400" />

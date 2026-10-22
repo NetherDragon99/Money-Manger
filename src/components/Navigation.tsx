@@ -83,7 +83,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
             transform: isNavVisible ? 'translateY(0%)' : 'translateY(115%)',
             transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
           }}
-          className={`fixed bottom-20 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto pointer-events-none z-30 px-5 flex justify-end ${
+          className={`fixed bottom-20 landscape:bottom-14 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto pointer-events-none z-30 px-5 flex justify-end ${
             isNavVisible ? 'opacity-100' : 'opacity-0'
           }`}
         >
@@ -104,7 +104,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
           transform: isNavVisible ? 'translateY(0%)' : 'translateY(115%)',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`fixed bottom-0 left-0 right-0 z-30 bg-black/95 backdrop-blur-lg border-t border-zinc-800/80 px-2 py-2 safe-area-bottom ${
+        className={`fixed bottom-0 left-0 right-0 z-30 bg-black/95 backdrop-blur-lg border-t border-zinc-800/80 px-2 py-2 landscape:py-1 safe-area-bottom ${
           isNavVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -130,7 +130,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
                 key={tab.key}
                 type="button"
                 onClick={() => setCurrentTab(tab.key)}
-                className={`flex flex-col md:flex-row md:gap-1.5 items-center justify-center py-1 md:py-1.5 transition-all duration-200 z-10 cursor-pointer ${
+                className={`flex flex-col md:flex-row md:gap-1.5 landscape:flex-row landscape:gap-1 items-center justify-center py-1 md:py-1.5 landscape:py-0.5 transition-all duration-200 z-10 cursor-pointer ${
                   isActive ? 'text-blue-400 font-bold' : 'text-zinc-500 hover:text-zinc-300 font-medium'
                 }`}
               >
