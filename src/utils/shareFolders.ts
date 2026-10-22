@@ -1,4 +1,4 @@
-import { rtdb, auth } from './firebase';
+import { rtdb, auth, getCachedAuthUser } from './firebase';
 import { ref, set, get, remove, onValue, off, update } from 'firebase/database';
 import { cleanNumericId, format16DigitId, getOrCreateNumericId } from './userId';
 import { Account, Category, Transaction } from '../types';
@@ -986,6 +986,7 @@ export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
             };
             try {
               await set(ref(rtdb, `shared_accounts/invite_${cleanMemberId}_${rawShareId}`), inviteNodePayload);
+              await set(ref(rtdb, `shared_accounts/invite_${cleanMemberId}_${folder.id}`), inviteNodePayload);
             } catch (err) {
               console.warn('[ShareFolders] Failed to write invite node in syncFolderToCloud:', err);
             }
@@ -1626,12 +1627,24 @@ export async function addMemberToShareFolder(
   });
 
   const existing = loadMyShareFolders();
-  const idx = existing.findIndex((f) => f.id === folderId);
-  if (idx === -1) {
+  let idx = existing.findIndex((f) => f.id === folderId);
+  let isMy = true;
+  let folder = idx !== -1 ? existing[idx] : null;
+
+  if (!folder) {
+    const received = loadReceivedShareFolders();
+    const rIdx = received.findIndex((f) => f.id === folderId);
+    if (rIdx !== -1) {
+      folder = received[rIdx];
+      isMy = false;
+      idx = rIdx;
+    }
+  }
+
+  if (!folder) {
     return { success: false, error: 'Share page not found' };
   }
 
-  const folder = existing[idx];
   if (folder.members.some((m) => normalize16DigitId(m.numericId) === cleanId)) {
     return { success: false, error: 'Member is already added to this share' };
   }
@@ -1652,12 +1665,18 @@ export async function addMemberToShareFolder(
     updatedAt: Date.now(),
   };
 
-  existing[idx] = updatedFolder;
-  saveMyShareFolders(existing);
+  if (isMy) {
+    existing[idx] = updatedFolder;
+    saveMyShareFolders(existing);
+  } else {
+    const received = loadReceivedShareFolders();
+    received[idx] = updatedFolder;
+    saveReceivedShareFolders(received);
+  }
 
   const fullPayload = buildFullSharePayload(updatedFolder);
   const rawShareId = folderId.replace(/^share_/, '');
-  const currentUserUid = auth.currentUser?.uid || fullPayload.ownerUid;
+  const currentUserUid = auth.currentUser?.uid || getCachedAuthUser()?.uid || fullPayload.ownerUid;
 
   let cloudSynced = true;
   try {
@@ -1684,6 +1703,7 @@ export async function addMemberToShareFolder(
             };
             try {
               await set(ref(rtdb, `shared_accounts/invite_${mClean}_${rawShareId}`), inviteNodePayload);
+              await set(ref(rtdb, `shared_accounts/invite_${mClean}_${updatedFolder.id}`), inviteNodePayload);
             } catch (err) {
               console.warn('[ShareFolders] Failed to write invite node for member:', mClean, err);
             }
@@ -2037,6 +2057,11 @@ export async function sendShareFolderToRecipient(
   recipientAvatar?: string,
   recipientPhotoURL?: string
 ): Promise<{ success: boolean; error?: string }> {
+  // Ensure the folder is saved locally first
+  const myFolders = loadMyShareFolders();
+  if (!myFolders.some((f) => f.id === folder.id)) {
+    saveMyShareFolders([folder, ...myFolders]);
+  }
   return addMemberToShareFolder(
     folder.id,
     recipient16DigitId,
@@ -2169,21 +2194,27 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
                   }
                 }
 
-                // Standard share space node: share_${id}
-                if (key.startsWith('share_')) {
+                // Standard share space node or space object
+                if (!key.startsWith('invite_') && !key.startsWith('inbox_') && !key.startsWith('profile_')) {
                   const rawSpace = val as any;
-                  const owner16 = normalize16DigitId(rawSpace.owner16DigitId || rawSpace.ownerNumericId);
-                  if (owner16 !== cleanId) {
-                    const isMember =
-                      (Array.isArray(rawSpace.members) &&
-                        rawSpace.members.some((m: any) => normalize16DigitId(m.numericId) === cleanId)) ||
-                      rawSpace.memberIds?.[cleanId] ||
-                      rawSpace.invites?.[cleanId];
+                  if (rawSpace && typeof rawSpace === 'object') {
+                    const owner16 = normalize16DigitId(rawSpace.owner16DigitId || rawSpace.ownerNumericId);
+                    if (owner16 !== cleanId) {
+                      const membersList = Array.isArray(rawSpace.members)
+                        ? rawSpace.members
+                        : typeof rawSpace.members === 'object'
+                        ? Object.values(rawSpace.members)
+                        : [];
+                      const isMember =
+                        membersList.some((m: any) => normalize16DigitId(m.numericId) === cleanId) ||
+                        rawSpace.memberIds?.[cleanId] ||
+                        rawSpace.invites?.[cleanId];
 
-                    if (isMember) {
-                      const parsed = normalizeParsedShareFolder(rawSpace, key);
-                      if (parsed) {
-                        spaceMap.set(parsed.id, parsed);
+                      if (isMember) {
+                        const parsed = normalizeParsedShareFolder(rawSpace, key);
+                        if (parsed) {
+                          spaceMap.set(parsed.id, parsed);
+                        }
                       }
                     }
                   }
@@ -2285,21 +2316,27 @@ export function subscribeToMyInbox(
           }
         }
 
-        // Standard share space node: share_${id}
-        if (key.startsWith('share_')) {
+        // Standard share space node or space object
+        if (!key.startsWith('invite_') && !key.startsWith('inbox_') && !key.startsWith('profile_')) {
           const rawSpace = val as any;
-          const owner16 = normalize16DigitId(rawSpace.owner16DigitId || rawSpace.ownerNumericId);
-          if (owner16 !== cleanId) {
-            const isMember =
-              (Array.isArray(rawSpace.members) &&
-                rawSpace.members.some((m: any) => normalize16DigitId(m.numericId) === cleanId)) ||
-              rawSpace.memberIds?.[cleanId] ||
-              rawSpace.invites?.[cleanId];
+          if (rawSpace && typeof rawSpace === 'object') {
+            const owner16 = normalize16DigitId(rawSpace.owner16DigitId || rawSpace.ownerNumericId);
+            if (owner16 !== cleanId) {
+              const membersList = Array.isArray(rawSpace.members)
+                ? rawSpace.members
+                : typeof rawSpace.members === 'object'
+                ? Object.values(rawSpace.members)
+                : [];
+              const isMember =
+                membersList.some((m: any) => normalize16DigitId(m.numericId) === cleanId) ||
+                rawSpace.memberIds?.[cleanId] ||
+                rawSpace.invites?.[cleanId];
 
-            if (isMember) {
-              const parsed = normalizeParsedShareFolder(rawSpace, key);
-              if (parsed) {
-                spaceMap.set(parsed.id, parsed);
+              if (isMember) {
+                const parsed = normalizeParsedShareFolder(rawSpace, key);
+                if (parsed) {
+                  spaceMap.set(parsed.id, parsed);
+                }
               }
             }
           }

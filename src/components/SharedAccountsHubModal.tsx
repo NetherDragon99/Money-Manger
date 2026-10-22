@@ -73,7 +73,6 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   } = useApp();
 
   const isArabic = settings.language === 'ar';
-  const myCleanNumericId = cleanNumericId(settings.userProfile?.numericId || '');
   const myName = settings.userProfile?.name || 'User';
 
   const resolveActiveUser = () => {
@@ -114,6 +113,10 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     getCachedAuthUser()?.uid ||
     settings.userProfile?.uid
   );
+
+  const myCleanNumericId =
+    cleanNumericId(settings.userProfile?.numericId || '') ||
+    (isAuthenticated ? getOrCreateNumericId() : '');
 
   const [isSigningInWithGoogle, setIsSigningInWithGoogle] = useState(false);
 

@@ -786,7 +786,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Active global real-time listener for incoming shares to user's 16-digit ID
   // Delivers instant incoming shares without requiring the recipient to refresh!
   useEffect(() => {
-    const rawId = settings.userProfile?.numericId;
+    const isAuthed = Boolean(auth.currentUser?.uid || getCachedAuthUser()?.uid || settings.userProfile?.uid);
+    const rawId = settings.userProfile?.numericId || (isAuthed ? getOrCreateNumericId() : '');
     const cleanId = cleanNumericId(rawId || '');
     if (cleanId.length !== 16) return;
 

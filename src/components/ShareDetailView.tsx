@@ -31,7 +31,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
 import { auth } from '../utils/firebase';
-import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
+import { format16DigitId, cleanNumericId, format16DigitInput, getOrCreateNumericId } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
 import { ShareSpaceSettingsModal } from './ShareSpaceSettingsModal';
 import {
@@ -39,6 +39,9 @@ import {
   ShareMember,
   subscribeToShareFolder,
   fetchShareFolderFromCloud,
+  subscribeToMyInbox,
+  fetchMyInboxOnce,
+  saveReceivedShareFolders,
   addTransactionToShareFolder,
   removeItemFromShareFolder,
   removeItemsFromShareFolderSmart,
@@ -82,7 +85,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
 
   const isArabic = settings.language === 'ar';
   const currencySymbol = settings.currencySymbol || '£';
-  const myCleanNumericId = cleanNumericId(settings.userProfile?.numericId || '');
+  const myCleanNumericId = cleanNumericId(settings.userProfile?.numericId || '') || getOrCreateNumericId();
 
   const [folder, setFolder] = useState<ShareFolder>(initialFolder);
   const [isCopied, setIsCopied] = useState(false);
@@ -232,6 +235,35 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       clearInterval(intervalId);
     };
   }, [initialFolder.id]);
+
+  // Dual Sync 3: Real-time listener & 3-second periodic polling for incoming shares while Detail View is open
+  useEffect(() => {
+    if (myCleanNumericId.length !== 16) return;
+    const unsub = subscribeToMyInbox(myCleanNumericId, (liveReceived) => {
+      if (liveReceived && Array.isArray(liveReceived)) {
+        saveReceivedShareFolders(liveReceived);
+      }
+    });
+
+    let isMounted = true;
+    const pollInbox = async () => {
+      try {
+        const live = await fetchMyInboxOnce(myCleanNumericId);
+        if (isMounted && live && Array.isArray(live)) {
+          saveReceivedShareFolders(live);
+        }
+      } catch {}
+    };
+
+    pollInbox();
+    const intervalId = setInterval(pollInbox, 3000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+      unsub();
+    };
+  }, [myCleanNumericId]);
 
   const folderOwner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId);
   const isOwner = (myCleanNumericId && folderOwner16 && folderOwner16 === myCleanNumericId) ||
