@@ -157,6 +157,21 @@ const MainAppContent: React.FC = () => {
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
   const tabHistoryRef = useRef<TabType[]>(['home']);
 
+  // Force unlock screen orientation to support landscape & portrait mode in installed PWAs and mobile browsers
+  useEffect(() => {
+    try {
+      if (typeof screen !== 'undefined' && screen.orientation) {
+        const unlock = (screen.orientation as any).unlock;
+        if (typeof unlock === 'function') {
+          const promise = unlock.call(screen.orientation);
+          if (promise && typeof promise.catch === 'function') {
+            promise.catch(() => {});
+          }
+        }
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     const current = tabHistoryRef.current;
     if (current[current.length - 1] !== currentTab) {

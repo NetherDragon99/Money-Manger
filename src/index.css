@@ -429,10 +429,11 @@ button:active:not(:disabled),
     width: 100% !important;
     min-height: 100% !important;
     max-width: 100% !important;
+    overflow-x: hidden;
   }
 }
 
-@media screen and (orientation: landscape) and (max-height: 540px) {
+@media screen and (orientation: landscape) and (max-height: 600px) {
   .safe-area-bottom {
     padding-bottom: max(0.25rem, env(safe-area-inset-bottom)) !important;
   }
