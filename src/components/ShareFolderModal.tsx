@@ -24,6 +24,7 @@ import {
   appendToExistingShareFolder,
   sendShareFolderToRecipient,
   syncFolderToCloud,
+  syncShareFolderToCloud,
   loadMyShareFolders,
   deduceFolderMetadata,
   generateShareUrl,
@@ -241,6 +242,8 @@ export const ShareFolderModal: React.FC = () => {
         selectedRecipientUser?.photoURL
       );
       if (res.success) {
+        // Mandatory cloud sync on delivery to recipient
+        await syncShareFolderToCloud(res.folder || folder).catch(() => {});
         const displayName = selectedRecipientUser?.name || format16DigitId(cleanId);
         showToast(
           isArabic

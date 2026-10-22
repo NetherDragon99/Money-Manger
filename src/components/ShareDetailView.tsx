@@ -50,6 +50,7 @@ import {
   leaveShareFolder,
   updateMemberRoleInShareFolder,
   syncFolderToCloud,
+  syncShareFolderToCloud,
   generateShareUrl,
   fetchUserProfileCard,
   getAvatarColorGradient,
@@ -545,6 +546,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
 
     if (res.success && res.folder) {
       setFolder(res.folder);
+      await syncShareFolderToCloud(res.folder).catch(() => {});
       setNewMemberId('');
       setSelectedMemberUser(null);
       setIsAddMemberOpen(false);

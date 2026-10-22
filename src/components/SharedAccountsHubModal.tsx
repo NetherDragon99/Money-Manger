@@ -36,6 +36,7 @@ import {
   saveMyShareFolders,
   saveReceivedShareFolders,
   syncFolderToCloud,
+  syncShareFolderToCloud,
   deleteShareFolder,
   addMemberToShareFolder,
   removeMemberFromShareFolder,
@@ -248,7 +249,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     };
 
     pollInbox();
-    const intervalId = setInterval(pollInbox, 4000);
+    const intervalId = setInterval(pollInbox, 3000);
     return () => {
       isMounted = false;
       clearInterval(intervalId);
@@ -400,6 +401,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     setIsSendingInvite(false);
 
     if (res.success && res.folder) {
+      await syncShareFolderToCloud(res.folder).catch(() => {});
       setMyFolders(loadMyShareFolders());
       setInvite16Id('');
       setInviteSelectedUser(null);
