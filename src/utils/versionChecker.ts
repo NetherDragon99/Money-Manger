@@ -3,7 +3,7 @@
  * Performs background version checks and coordinates seamless client-side updates.
  */
 
-export const CURRENT_APP_VERSION = '1.1.36';
+export const CURRENT_APP_VERSION = '1.1.37';
 const BACKUP_VERSION_ENDPOINT = 'NetherDragon99/Money-Manger';
 const AUTO_UPDATE_STORAGE_KEY = 'mm_auto_update_enabled';
 

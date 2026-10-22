@@ -21,6 +21,30 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.37',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Custom Import, In-App Update System, Complete Sign-Out Reset, Deterministic Cloud Slots, and Mobile Landscape Support',
+      ar: 'استيراد مخصص، نظام التحديث المباشر بالتطبيق، تصفير تسجيل الخروج الكامل، خانات المشاركة السحابية، ودعم التدوير الأفقي للهواتف والأجهزة اللوحية',
+    },
+    highlights: {
+      en: [
+        'Full Custom Import Alongside Custom Export: Added an interactive Custom Import modal that lets users select a backup file, previews item counts across Accounts, Categories, Transactions, Budgets, and Shared Spaces, allows selective section importing, and offers Merge (deduplicating by ID) or Replace modes with immediate cloud backup.',
+        'Professional In-App Update System: Completely removed raw GitHub repository URLs and commit metadata from update modals. Added an in-app Auto-Update toggle and a manual "Check & Update Now" button in the Sidebar that cleans Service Worker caches with an active progress indicator and reloads into new builds seamlessly.',
+        'Instant Profile & Auth State Cleanup on Sign-Out: Fixed sign-out state persistence by instantly removing cached authenticated user tokens, bound account UIDs, and Google Drive keys from localStorage, unsubscribing cloud listeners, and immediately resetting profile state to clean Guest defaults ({ name: "Guest", email: "", photoURL: "", avatar: "", uid: null }).',
+        'Deterministic Cloud Invite Slots (slot_${targetClean16Id}_0..9): Solved Firebase RTDB multi-device delivery under strict security rules by writing share spaces into 10 deterministic sender-owned cloud slots alongside master nodes (shared_accounts/share_${shareId}), with real-time onValue listeners and 4-second polling loops ensuring recipients see shared spaces immediately even when offline.',
+        'Mobile Phone & Tablet Landscape Rotation Support: Removed portrait orientation restrictions in VitePWA manifest and public/manifest.json ("orientation": "any"), removed portrait CSS constraints, and upgraded all 5 main views (Home, Budget, Insights, Accounts, Calculator) with responsive 2-column layouts and compact vertical spacing in landscape mode.',
+      ],
+      ar: [
+        'استيراد مخصص كامل بجانب التصدير المخصص: إضافة نافذة استيراد مخصص تتيح اختيار ملف النسخة الاحتياطية، ومعاينة أعداد الحسابات والفئات والمعاملات والميزانيات ومساحات المشاركة، مع إمكانية تحديد أقسام مخصصة للاستيراد والاختيار بين الدمج (منع التكرار بالمعرف) أو الاستبدال مع تحديث فوري للمزامنة السحابية.',
+        'نظام تحديثات التطبيق المباشر داخل التطبيق: إزالة جميع روابط ومعلومات GitHub الخام من نوافذ التحديث، وإضافة زر تبديل للتحديث التلقائي وزر فحص وتحديث فوري بالشريط الجانبي يقوم بتنظيف كاش Service Worker مع مؤشر تقدم وإعادة تحميل سلسة للإصدار الجديد.',
+        'تصفير فوري لبيانات المستخدم وتسجيل الخروج: معالجة بقاء الاسم والصورة بعد تسجيل الخروج عبر الحذف الفوري لبيانات المستخدم المحفوظة وربط الحساب ومفاتيح جوجل درايف، وإلغاء اشتراك مستمعي السحابة، وإعادة الملف الشخصي فوراً لوضع الضيف النظيف ({ name: "Guest", email: "", photoURL: "", avatar: "", uid: null }).',
+        'خانات المشاركة السحابية الحتمية (slot_${targetClean16Id}_0..9): حل تسليم مساحات الشير عبر الأجهزة حتى في ظل قواعد أمان فايربيس الصارمة عبر الكتابة في 10 خانات سحابية يملكها المرسل بجانب العقدة الرئيسية (shared_accounts/share_${shareId})، مع مستمعين فوريين وحلقة تحديث كل 4 ثوانٍ لظهور الشير فوراً في "تمت مشاركتها معي".',
+        'دعم كامل للتدوير الأفقي (Landscape) للهواتف والأجهزة اللوحية: إلغاء حصر الاتجاه الرأسي في ملفات المانيفست ("orientation": "any")، وإزالة قيود CSS الرأسية، وتحديث الواجهات الرئيسية الخمس (الرئيسية، الميزانية، التحليلات، الحسابات، الحاسبة) بشبكات مرنة من عمودين ومسافات عمودية مدمجة عند التدوير أفقياً.',
+      ],
+    },
+  },
+  {
     version: '1.1.36',
     releaseDate: 'October 22, 2026',
     title: {
