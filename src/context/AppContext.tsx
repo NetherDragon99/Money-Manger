@@ -899,7 +899,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [settings]);
 
-  // Real-time synchronization of 16-Digit Identity & Public Profile Card with Firebase RTDB
+  // Strictly ensure that EVERY time a user signs in, the app immediately writes/updates their public profile
+  // to Firebase RTDB at shared_accounts/profile_${cleanMy16Id} (including numericId, name, avatar, and uid).
   useEffect(() => {
     let isMounted = true;
 
@@ -921,58 +922,54 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return;
       }
 
-      let finalNumId = cleanNumericId(settings.userProfile?.numericId || '');
-
       try {
         const resolvedId = await resolvePermanent16DigitId(user.uid);
-        if (resolvedId && isMounted) {
-          finalNumId = cleanNumericId(resolvedId);
-          if (settings.userProfile?.numericId !== finalNumId) {
-            setSettings((prev) => ({
-              ...prev,
-              userProfile: {
-                ...prev.userProfile,
-                numericId: finalNumId,
-              },
-            }));
-          }
+        const clean16Id = cleanNumericId(resolvedId);
+
+        if (!clean16Id || clean16Id.length !== 16) {
+          console.warn('[AppContext] Resolved ID is invalid:', resolvedId);
+          return;
         }
-        await syncNumericIdToFirebase(
-          finalNumId,
-          user.uid,
-          settings.userProfile?.name || user.displayName || '',
-          user.email || ''
-        );
-      } catch (e) {
-        console.warn('[AppContext] Error resolving signed-in numeric ID:', e);
-      }
 
-      // Publish public lookup card so recipients and searchers can discover the profile
-      if (finalNumId && finalNumId.length === 16) {
-        const publishedName =
-          settings.userProfile?.name && settings.userProfile.name !== 'My Profile'
-            ? settings.userProfile.name
-            : user?.displayName || settings.userProfile?.name || 'User';
-        const publishedPhoto = settings.userProfile?.customAvatarUrl || user?.photoURL || '';
+        const suggestedName = user.displayName || (user.email ? user.email.split('@')[0] : 'User');
+        const currentName = settings.userProfile?.name;
+        const isDefaultOrBlank =
+          !currentName || currentName === 'My Profile' || currentName === 'User' || currentName.trim() === '';
+        const finalName = isDefaultOrBlank && suggestedName ? suggestedName : currentName || suggestedName;
+        const finalAvatar = settings.userProfile?.avatarEmoji || '👤';
+        const finalPhoto = settings.userProfile?.customAvatarUrl || user.photoURL || '';
 
-        // Auto-sync real name and avatar photo to local profile if placeholder
-        if (user?.displayName && (!settings.userProfile?.name || settings.userProfile.name === 'My Profile') && isMounted) {
+        if (isMounted) {
           setSettings((prev) => ({
             ...prev,
             userProfile: {
               ...prev.userProfile,
-              name: user.displayName,
-              customAvatarUrl: user.photoURL || prev.userProfile?.customAvatarUrl,
+              numericId: clean16Id,
+              name: finalName,
+              avatarEmoji: finalAvatar,
+              customAvatarUrl: finalPhoto || prev.userProfile?.customAvatarUrl,
             },
           }));
         }
 
-        publishUserProfileCard({
-          numericId: finalNumId,
-          name: publishedName,
-          avatar: settings.userProfile?.avatarEmoji || '👤',
-          photoURL: publishedPhoto,
+        // IMMEDIATELY publish & update public profile to Firebase RTDB at shared_accounts/profile_${cleanMy16Id}
+        await publishUserProfileCard({
+          numericId: clean16Id,
+          name: finalName,
+          avatar: finalAvatar,
+          photoURL: finalPhoto,
+          uid: user.uid,
         });
+
+        // Also publish to numericIds/${cleanMy16Id} for reverse UID lookup
+        await syncNumericIdToFirebase(
+          clean16Id,
+          user.uid,
+          finalName,
+          user.email || ''
+        );
+      } catch (e) {
+        console.warn('[AppContext] Error syncing profile on auth state change:', e);
       }
     };
 
@@ -980,14 +977,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       syncIdentity(user);
     });
 
-    // Also run immediate sync for current session
-    syncIdentity(auth.currentUser);
+    // Also run immediate sync for current session if already signed in
+    if (auth.currentUser) {
+      syncIdentity(auth.currentUser);
+    }
 
     return () => {
       isMounted = false;
       unsubAuth();
     };
-  }, [settings.userProfile?.name, settings.userProfile?.avatarEmoji, settings.userProfile?.customAvatarUrl]);
+  }, []);
 
   // Modals open/close handlers
   const openAddTxModal = (preselectedAccountId?: string, initialAmount?: number) => {
@@ -1583,42 +1582,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     });
   }, [activeSharedId, settings.userProfile?.numericId, settings.userProfile?.name]);
-
-  // Auto-populate profile name & resolve the PERMANENT 16-digit numeric ID for signed-in users
-  useEffect(() => {
-    const unsub = auth.onAuthStateChanged(async (user) => {
-      if (!user) {
-        setSettings((prev) => {
-          if (!prev.userProfile?.numericId) return prev;
-          return {
-            ...prev,
-            userProfile: { ...prev.userProfile, numericId: '' },
-          };
-        });
-        return;
-      }
-      const permanentId = await resolvePermanent16DigitId(user.uid);
-      const suggestedName = user.displayName || (user.email ? user.email.split('@')[0] : 'User');
-      let finalName = suggestedName;
-
-      setSettings((prev) => {
-        const currentName = prev.userProfile?.name;
-        const isDefaultOrBlank =
-          !currentName || currentName === 'My Profile' || currentName === 'User' || currentName.trim() === '';
-        finalName = isDefaultOrBlank && suggestedName ? suggestedName : currentName || 'User';
-        if (prev.userProfile?.numericId === permanentId && prev.userProfile?.name === finalName) {
-          return prev;
-        }
-        return {
-          ...prev,
-          userProfile: { ...prev.userProfile, numericId: permanentId, name: finalName },
-        };
-      });
-
-      syncNumericIdToFirebase(permanentId, user.uid, finalName, user.email || undefined);
-    });
-    return () => unsub();
-  }, []);
 
   // All mutators: permanently stable identities, always executing the latest logic
   const stable = useStableCallbacks({

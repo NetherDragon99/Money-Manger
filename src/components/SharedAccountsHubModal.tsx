@@ -116,6 +116,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
         name: myName,
         avatar: settings.userProfile?.avatarEmoji || '👤',
         photoURL: settings.userProfile?.customAvatarUrl || '',
+        uid: currentUser.uid,
       });
     }
   }, [isOpen, currentUser, myCleanNumericId, myName, settings.userProfile]);

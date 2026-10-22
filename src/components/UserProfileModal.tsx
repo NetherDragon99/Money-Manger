@@ -418,6 +418,7 @@ export const UserProfileModal: React.FC = () => {
         name: cleanName,
         avatar: avatarEmoji || '👤',
         photoURL: customAvatarUrl || '',
+        uid: currentUser.uid,
       });
     }
 

@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.28',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Immediate Public Profile Sync on Auth State Change for 16-Digit Search Discoverability',
+      ar: 'مزامنة فورية للملف الشخصي العام عند تسجيل الدخول لضمان الظهور في بحث الـ 16 رقماً',
+    },
+    highlights: {
+      en: [
+        'Immediate Profile Sync: Every time a user authenticates, their public profile (numericId, name, avatar, photoURL, and uid) is instantly published to Firebase RTDB at shared_accounts/profile_${cleanMy16Id}.',
+        'Flawless 16-Digit Discovery: Guarantees that newly registered or signed-in users are immediately discoverable by recipient verification searches in Share Spaces.',
+        'Unified Auth State Listener: Streamlined auth identity resolution into a single source of truth without race conditions or redundant handlers.',
+      ],
+      ar: [
+        'مزامنة فورية للهوية العامة: مع كل تسجيل دخول، يتم نشر وتحديث بيانات المستخدم العامة (المعرّف الرقمي، الاسم، الرمز التعبيري، الصورة، والـ uid) فوراً في Firebase RTDB تحت shared_accounts/profile_${cleanMy16Id}.',
+        'اكتشاف فوري للمستخدمين: ضمان ظهور جميع المستخدمين المسجلين فوراً في فحص وبحث الـ 16 رقماً داخل مركز المشاركة دون رسائل "لم يتم العثور".',
+        'توحيد مراقب حالة المصادقة: دمج منطق معالجة هوية المستخدم في نقطة مركزية واحدة تضمن السرعة والاستقرار وتمنع التضارب.',
+      ],
+    },
+  },
+  {
     version: '1.1.27',
     releaseDate: 'October 22, 2026',
     title: {

@@ -40,6 +40,7 @@ export interface UserProfileCard {
   name: string;
   avatar?: string;
   photoURL?: string;
+  uid?: string;
   updatedAt: number;
 }
 
@@ -169,15 +170,19 @@ export async function publishUserProfileCard(profile: {
   name: string;
   avatar?: string;
   photoURL?: string;
+  uid?: string;
 }): Promise<void> {
   const cleanId = normalize16DigitId(profile.numericId);
   if (cleanId.length !== 16) return;
+
+  const currentUid = profile.uid || auth.currentUser?.uid || '';
 
   saveKnownContact({
     numericId: cleanId,
     name: profile.name,
     avatar: profile.avatar,
     photoURL: profile.photoURL,
+    uid: currentUid,
   });
 
   try {
@@ -186,6 +191,7 @@ export async function publishUserProfileCard(profile: {
       name: profile.name || 'User',
       avatar: profile.avatar || '👤',
       photoURL: profile.photoURL || '',
+      uid: currentUid,
       updatedAt: Date.now(),
     };
     await set(ref(rtdb, `shared_accounts/profile_${cleanId}`), card);
