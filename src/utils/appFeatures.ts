@@ -21,6 +21,32 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.38',
+    releaseDate: 'October 23, 2026',
+    title: {
+      en: 'Transaction Account Selector Fix, Transfer Auto-Swap, Dual Balance Tracking, and Section Multi-Select',
+      ar: 'إصلاح محدد الحساب بالمعاملات، التبديل التلقائي للتحويلات، تتبع الرصيد المزدوج، وتحديد الأيام والشهور المتعدد',
+    },
+    highlights: {
+      en: [
+        'Instant Account Selection in Transaction Modals: Resolved the critical bug where selecting accounts stayed locked on the primary account. Form initialization is now strictly isolated to modal launch and transaction ID changes, decoupled from live context updates.',
+        'Intelligent Transfer Auto-Swap: In Transfer mode, selecting a From Account matching the To Account (or vice versa) automatically swaps the accounts instantaneously without disabling options or blocking selections.',
+        'Dropdown Focus & Tap Reliability: Added onMouseDown preventDefault and pointerdown propagation guards on account picker dropdowns, ensuring every tap registers cleanly without premature blur dismissal.',
+        'Dual Before & After Balances on Transfers: Transfers now record and display both source and destination accounts before and after balances (fromBalanceBefore -> fromBalanceAfter & toBalanceBefore -> toBalanceAfter) on transaction cards and detail views.',
+        'Day & Month Section Multi-Select: Added bulk toggle checkboxes to Month and Day headers on Home, Account Details, and Shared Views for selecting or deselecting all transactions in an entire day or month at once.',
+        'Streamlined 16-Digit ID Tap-to-Copy: Removed cramped copy icon in the Sidebar; tapping directly on the 16-digit ID badge copies it immediately with a bilingual toast notification.',
+      ],
+      ar: [
+        'اختيار فوري للحسابات في نوافذ المعاملات: معالجة المشكلة التي كانت تعيد تثبيت الحساب على الحساب الافتراضي عند الاختيار، عبر عزل تهيئة النموذج لتقتصر فقط على لحظة فتح النافذة أو تغيير المعاملة.',
+        'التبديل التلقائي الذكي في التحويلات: عند اختيار نفس الحساب في حقلي (من / إلى) في المعاملات المالية، يقوم النظام بتبديل الحسابين تلقائياً وبشكل فوري دون تعطيل الخيارات أو حظر المستخدم.',
+        'موثوقية فائقة لقوائم الحسابات المنسدلة: منع الإغلاق التلقائي المبكر عند النقر عبر حماية أحداث pointerdown وتثبيت التحديد فوراً عند الضغط على أي حساب.',
+        'عرض الأرصدة قبل وبعد لكلا الحسابين في التحويل: تسجيل وعرض أرصدة الحساب المحول منه والمحول إليه قبل وبعد التحويل بوضوح على بطاقة المعاملة وفي شاشة التفاصيل.',
+        'التحديد المتعدد لكامل الأيام والشهور: إضافة مربعات تحديد مباشر على ترويسة كل شهر وكل يوم بالصفحة الرئيسية وتفاصيل الحساب والمساحات المشتركة لتحديد أو إلغاء تحديد كافة معاملات اليوم أو الشهر بضغطة واحدة.',
+        'نسخ المعرف المكون من 16 رقماً بلمسة واحدة: إزالة أيقونة النسخ المزدحمة في الشريط الجانبي وإتاحة نسخ المعرف فوراً بالنقر المباشر عليه مع إشعار تأكيد ثنائي اللغة.',
+      ],
+    },
+  },
+  {
     version: '1.1.37',
     releaseDate: 'October 22, 2026',
     title: {
