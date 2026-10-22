@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw } from 'lucide-react';
 import { TransactionType, RecurringFrequency } from '../types';
@@ -40,6 +40,7 @@ export const TransactionModal: React.FC = () => {
   const [showDateTimePicker, setShowDateTimePicker] = useState<boolean>(false);
   const [pickerTab, setPickerTab] = useState<'date' | 'time'>('date');
   const [accountDropdownOpen, setAccountDropdownOpen] = useState<'single' | 'from' | 'to' | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
   const [showCategoryDirectory, setShowCategoryDirectory] = useState<boolean>(false);
   const [isClosing, setIsClosing] = useState<boolean>(false);
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
@@ -56,18 +57,48 @@ export const TransactionModal: React.FC = () => {
 
   useEffect(() => {
     if (!accountDropdownOpen) return;
-    const handleOutside = () => setAccountDropdownOpen(null);
-    document.addEventListener('pointerdown', handleOutside);
-    return () => document.removeEventListener('pointerdown', handleOutside);
+    const handleOutside = (e: MouseEvent | PointerEvent) => {
+      if (dropdownRef.current && dropdownRef.current.contains(e.target as Node)) {
+        return;
+      }
+      setAccountDropdownOpen(null);
+    };
+
+    const timer = setTimeout(() => {
+      document.addEventListener('pointerdown', handleOutside);
+    }, 10);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('pointerdown', handleOutside);
+    };
   }, [accountDropdownOpen]);
 
   // Clean Reset Rule & Initialize on Open / Edit
+  // STRICT AUDIT: Form initialization ONLY runs when modal transitions from closed to open
+  // or when editingTx?.id changes. It NEVER re-runs on live accounts/categories array changes!
+  const prevIsOpenRef = useRef(false);
+  const prevEditingTxIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!isAddTxModalOpen) {
+      prevIsOpenRef.current = false;
+      prevEditingTxIdRef.current = null;
       setAccountDropdownOpen(null);
       setShowDateTimePicker(false);
       return;
     }
+
+    const isNewlyOpened = !prevIsOpenRef.current;
+    const currentTxId = editingTx ? editingTx.id : null;
+    const isDifferentTx = currentTxId !== prevEditingTxIdRef.current;
+
+    if (!isNewlyOpened && !isDifferentTx) {
+      return;
+    }
+
+    prevIsOpenRef.current = true;
+    prevEditingTxIdRef.current = currentTxId;
 
     if (editingTx) {
       setType(editingTx.type);
@@ -79,6 +110,8 @@ export const TransactionModal: React.FC = () => {
       setToAccountId(editingTx.toAccountId || '');
       setCategoryId(editingTx.categoryId || '');
       setDescription(editingTx.description || '');
+      setIsRecurring(false);
+      setRecurringFrequency('monthly');
     } else {
       // Clean Reset Rule: reset amount to 0 or defaultTxAmount, note to "", type to Expense
       setType('expense');
@@ -99,12 +132,15 @@ export const TransactionModal: React.FC = () => {
       setIsRecurring(false);
       setRecurringFrequency('monthly');
     }
-  }, [isAddTxModalOpen, editingTx, accounts, categories, defaultTxAccountId, defaultTxAmount, selectedAccountId]);
+  }, [isAddTxModalOpen, editingTx?.id]);
 
-  // When type changes, ensure valid category selection & Transfer Auto-Select destination
+  // When type changes, ensure valid category selection & Transfer destination
+  const prevTypeRef = useRef(type);
   useEffect(() => {
+    if (prevTypeRef.current === type) return;
+    prevTypeRef.current = type;
+
     if (type === 'transfer') {
-      // Auto-select second available account if empty or same as source
       if (!toAccountId || toAccountId === accountId) {
         const destination = accounts.find((a) => a.id !== accountId);
         if (destination) {
@@ -117,7 +153,7 @@ export const TransactionModal: React.FC = () => {
         setCategoryId(matchCat.id);
       }
     }
-  }, [type, accounts, accountId, toAccountId, categories, categoryId]);
+  }, [type]);
 
   // Filtered categories for the active type
   const availableCategories = useMemo(() => {
@@ -160,13 +196,16 @@ export const TransactionModal: React.FC = () => {
   const handleSave = () => {
     if (!canSave) return;
 
+    const finalAccountId = accountId || selectedAccount?.id || '';
+    const finalToAccountId = type === 'transfer' ? (toAccountId || selectedToAccount?.id || '') : undefined;
+
     const payload = {
       type,
       amount: numericAmount,
       date,
       time: hasTime ? time : '',
-      accountId,
-      toAccountId: type === 'transfer' ? toAccountId : undefined,
+      accountId: finalAccountId,
+      toAccountId: finalToAccountId,
       categoryId: type === 'transfer' ? undefined : selectedCategory?.id,
       categoryName: type === 'transfer' ? undefined : selectedCategory?.name,
       categoryIcon: type === 'transfer' ? undefined : selectedCategory?.icon,
@@ -185,8 +224,8 @@ export const TransactionModal: React.FC = () => {
           type,
           amount: numericAmount,
           description: description.trim(),
-          accountId,
-          toAccountId: type === 'transfer' ? toAccountId : undefined,
+          accountId: finalAccountId,
+          toAccountId: finalToAccountId,
           categoryId: type === 'transfer' ? undefined : selectedCategory?.id,
           categoryName: type === 'transfer' ? undefined : selectedCategory?.name,
           categoryIcon: type === 'transfer' ? undefined : selectedCategory?.icon,
@@ -354,6 +393,7 @@ export const TransactionModal: React.FC = () => {
               </label>
               <button
                 type="button"
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
                   setAccountDropdownOpen(accountDropdownOpen === 'single' ? null : 'single');
@@ -374,13 +414,16 @@ export const TransactionModal: React.FC = () => {
 
               {accountDropdownOpen === 'single' && (
                 <div
+                  ref={dropdownRef}
                   onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
                   className="absolute z-30 left-0 right-0 mt-1 rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-1.5 max-h-52 overflow-y-auto"
                 >
                   {accounts.map((acc) => (
                     <button
                       key={acc.id}
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setAccountId(acc.id);
                         setAccountDropdownOpen(null);
@@ -401,6 +444,7 @@ export const TransactionModal: React.FC = () => {
                   {/* The very last item inside this dropdown menu MUST be "+ Add New Account" */}
                   <button
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       setAccountDropdownOpen(null);
                       openAddAccountModal();
@@ -422,6 +466,7 @@ export const TransactionModal: React.FC = () => {
                   <span className="block text-[11px] text-zinc-400 mb-1">{t('fromAccount')}</span>
                   <button
                     type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       setAccountDropdownOpen(accountDropdownOpen === 'from' ? null : 'from');
@@ -439,14 +484,20 @@ export const TransactionModal: React.FC = () => {
 
                   {accountDropdownOpen === 'from' && (
                     <div
+                      ref={dropdownRef}
                       onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
                       className="absolute z-30 left-0 w-48 mt-1 rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-1.5 max-h-48 overflow-y-auto"
                     >
                       {accounts.map((acc) => (
                         <button
                           key={acc.id}
                           type="button"
+                          onMouseDown={(e) => e.preventDefault()}
                           onClick={() => {
+                            if (acc.id === toAccountId) {
+                              setToAccountId(accountId);
+                            }
                             setAccountId(acc.id);
                             setAccountDropdownOpen(null);
                           }}
@@ -479,6 +530,7 @@ export const TransactionModal: React.FC = () => {
                   <span className="block text-[11px] text-zinc-400 mb-1">{t('toAccount')}</span>
                   <button
                     type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       setAccountDropdownOpen(accountDropdownOpen === 'to' ? null : 'to');
@@ -496,30 +548,32 @@ export const TransactionModal: React.FC = () => {
 
                   {accountDropdownOpen === 'to' && (
                     <div
+                      ref={dropdownRef}
                       onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
                       className="absolute z-30 right-0 w-48 mt-1 rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-1.5 max-h-48 overflow-y-auto"
                     >
                       {accounts.map((acc) => {
-                        const isSameAsFrom = acc.id === accountId;
+                        const isSelected = acc.id === toAccountId;
                         return (
                           <button
                             key={acc.id}
                             type="button"
-                            disabled={isSameAsFrom}
+                            onMouseDown={(e) => e.preventDefault()}
                             onClick={() => {
+                              if (acc.id === accountId) {
+                                setAccountId(toAccountId);
+                              }
                               setToAccountId(acc.id);
                               setAccountDropdownOpen(null);
                             }}
                             className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs ${
-                              isSameAsFrom
-                                ? 'opacity-30 cursor-not-allowed text-zinc-500'
-                                : acc.id === toAccountId
+                              isSelected
                                 ? 'bg-blue-600/20 text-white'
                                 : 'text-zinc-300 hover:bg-zinc-800'
                             }`}
                           >
                             <span className="truncate">{acc.icon} {acc.name}</span>
-                            {isSameAsFrom && <span className="text-[9px] text-red-400">Same</span>}
                           </button>
                         );
                       })}
