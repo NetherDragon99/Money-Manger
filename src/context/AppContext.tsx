@@ -65,13 +65,14 @@ import { translations } from '../utils/translations';
 import { DEFAULT_SETTINGS } from '../utils/constants';
 import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomDialogModal';
 import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId, cleanNumericId } from '../utils/userId';
-import { auth, checkAndHandleGoogleRedirect, getCachedAuthUser, setCachedAuthUser } from '../utils/firebase';
+import { auth, checkAndHandleGoogleRedirect, getCachedAuthUser, setCachedAuthUser, subscribeToCloudBackup } from '../utils/firebase';
 import {
   FullAppBackupPayload,
   executeDualCloudBackup,
   fetchDualCloudBackup,
   scheduleDualCloudBackup,
   setCloudBackupBlocked,
+  isCloudBackupBlockedStatus,
 } from '../utils/autoBackup';
 
 export interface SyncConflictData {
@@ -958,10 +959,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Build current full application state payload for cloud backups
   const buildCurrentBackupPayload = (overrideSettings?: AppSettings): FullAppBackupPayload => {
     const effectiveSettings = overrideSettings || settings;
+    const now = Date.now();
+    const uid = auth.currentUser?.uid || effectiveSettings.userProfile?.uid || '';
     return {
       version: '1.1.35',
       backupDate: new Date().toISOString(),
-      timestamp: Date.now(),
+      timestamp: now,
+      updatedAt: now,
+      ownerUid: uid,
+      accountName: effectiveSettings.userProfile?.name || 'Cloud Backup',
       accounts,
       categories,
       transactions,
@@ -977,15 +983,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         avatarEmoji: effectiveSettings.userProfile?.avatarEmoji || '👤',
         customAvatarUrl: effectiveSettings.userProfile?.customAvatarUrl || auth.currentUser?.photoURL || '',
         email: auth.currentUser?.email || '',
-        uid: auth.currentUser?.uid || '',
+        uid,
       },
     };
   };
 
   // Debounced Automatic Cloud Backup whenever data changes
   useEffect(() => {
-    if (!auth.currentUser || !isCloudHydratedRef.current) return;
-    scheduleDualCloudBackup(auth.currentUser.uid, () => buildCurrentBackupPayload(), 2500);
+    const activeUid = auth.currentUser?.uid || getCachedAuthUser()?.uid || settings.userProfile?.uid;
+    if (!activeUid || !isCloudHydratedRef.current) return;
+    localStorage.setItem('mm_last_local_data_update', String(Date.now()));
+    scheduleDualCloudBackup(activeUid, () => buildCurrentBackupPayload(), 2500);
   }, [accounts, categories, transactions, recurringTransactions, settings]);
 
   const applyCloudData = (d: any) => {
@@ -1100,11 +1108,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Strictly ensure that EVERY time a user signs in, the app:
-  // 1. Blocks cloud backup writes (isCloudHydratedRef.current = false) until cloud inspection completes.
+  // 1. Checks device account binding ('mm_bound_account_uid'): if already bound, NEVER prompts with conflict modal on refresh.
   // 2. Checks Google Drive first (and Firebase users/${uid}/cloud_backup as fallback) for existing data.
-  // 3. Resolves replace vs. merge if conflicts exist, or auto-restores if local device has 0 transactions.
+  // 3. Silently syncs newest state (cloud.updatedAt vs. local.updatedAt) without interruption.
+  // 4. ONLY prompts with "Merge vs. Replace" during a true initial transition from an unbound guest state with local transactions.
   useEffect(() => {
     let isMounted = true;
+    let unsubRemoteBackup: (() => void) | null = null;
 
     const syncIdentity = async (user: any) => {
       if (!user) {
@@ -1114,10 +1124,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           // Do NOT sign out when offline or if token refresh fails!
           return;
         }
+        localStorage.removeItem('mm_bound_account_uid');
         lastRestoredUidRef.current = null;
         isCloudHydratedRef.current = false;
         setCloudBackupBlocked(false);
         setPendingSyncConflict(null);
+        if (unsubRemoteBackup) {
+          unsubRemoteBackup();
+          unsubRemoteBackup = null;
+        }
 
         // Guest user: strictly ensure 16-digit ID is not generated, stored, or published
         try {
@@ -1145,33 +1160,95 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           phoneNumber: user.phoneNumber || null,
         });
 
-        // Strictly block all cloud backup writes until cloud inspection completes
-        isCloudHydratedRef.current = false;
-        setCloudBackupBlocked(true);
+        // Real-time two-way silent synchronization listener on remote cloud backup changes
+        if (!unsubRemoteBackup) {
+          unsubRemoteBackup = subscribeToCloudBackup(user.uid, (remoteBackup) => {
+            if (!isMounted || !remoteBackup || typeof remoteBackup !== 'object') return;
+            if (isCloudBackupBlockedStatus()) return;
 
-        if (lastRestoredUidRef.current !== user.uid) {
-          lastRestoredUidRef.current = user.uid;
-
-          try {
-            const cloudBackup = await fetchDualCloudBackup(user.uid);
-            const cloudData = cloudBackup?.data;
-            const hasCloudData = Boolean(
-              cloudData &&
-              typeof cloudData === 'object' &&
-              ((Array.isArray(cloudData.transactions) && cloudData.transactions.length > 0) ||
-               (Array.isArray(cloudData.accounts) && cloudData.accounts.length > 0))
+            const remoteUpdatedAt = Number(
+              remoteBackup.updatedAt ||
+              remoteBackup.timestamp ||
+              (remoteBackup.backupDate ? new Date(remoteBackup.backupDate).getTime() : 0) ||
+              remoteBackup.serverUpdatedAt ||
+              0
             );
+            const localUpdatedAt = Number(localStorage.getItem('mm_last_local_data_update')) || 0;
 
-            const localTxCount = transactionsRef.current.length;
+            if (remoteUpdatedAt > localUpdatedAt + 1000) {
+              console.log('[AppContext] Remote cloud change detected. Silently applying latest cloud snapshot.');
+              applyCloudData(remoteBackup);
+              localStorage.setItem('mm_last_local_data_update', String(remoteUpdatedAt));
+            }
+          });
+        }
+
+        const boundUid = localStorage.getItem('mm_bound_account_uid');
+        const isDeviceBoundToUser = boundUid === user.uid;
+
+        try {
+          const cloudBackup = await fetchDualCloudBackup(user.uid);
+          const cloudData = cloudBackup?.data;
+          const hasCloudData = Boolean(
+            cloudData &&
+            typeof cloudData === 'object' &&
+            ((Array.isArray(cloudData.transactions) && cloudData.transactions.length > 0) ||
+             (Array.isArray(cloudData.accounts) && cloudData.accounts.length > 0))
+          );
+          const localTxCount = transactionsRef.current.length;
+          const cloudUpdatedAt = Number(
+            cloudData?.updatedAt ||
+            cloudData?.timestamp ||
+            (cloudData?.backupDate ? new Date(cloudData.backupDate).getTime() : 0) ||
+            cloudData?.serverUpdatedAt ||
+            0
+          );
+          const localUpdatedAt = Number(localStorage.getItem('mm_last_local_data_update')) || 0;
+
+          if (isDeviceBoundToUser) {
+            // (1) Device already bound to this user:
+            // NEVER show "Merge vs. Replace" modal on page refresh, app restart, or version update!
+            setPendingSyncConflict(null);
+
+            if (hasCloudData) {
+              if (cloudUpdatedAt > localUpdatedAt) {
+                console.log('[AppContext] Silent sync on reload: cloud data is newer (cloud:', cloudUpdatedAt, 'vs local:', localUpdatedAt, '). Applying cloud snapshot.');
+                applyCloudData(cloudData);
+                await hydrateAndPublishUserProfile(user.uid, cloudData);
+                localStorage.setItem('mm_last_local_data_update', String(cloudUpdatedAt));
+              } else if (localUpdatedAt > cloudUpdatedAt && localTxCount > 0) {
+                console.log('[AppContext] Silent sync on reload: local data is newer (local:', localUpdatedAt, 'vs cloud:', cloudUpdatedAt, '). Pushing to cloud.');
+                await hydrateAndPublishUserProfile(user.uid);
+                executeDualCloudBackup(user.uid, buildCurrentBackupPayload());
+              } else {
+                await hydrateAndPublishUserProfile(user.uid, cloudData);
+              }
+            } else {
+              await hydrateAndPublishUserProfile(user.uid);
+              if (localTxCount > 0) {
+                executeDualCloudBackup(user.uid, buildCurrentBackupPayload());
+              }
+            }
+
+            // Unlock continuous automatic background sync
+            isCloudHydratedRef.current = true;
+            setCloudBackupBlocked(false);
+          } else {
+            // (2) Unbound transition: Initial sign-in from logged-out guest state or new account!
+            isCloudHydratedRef.current = false;
+            setCloudBackupBlocked(true);
 
             if (hasCloudData) {
               if (localTxCount === 0) {
                 // If local device has 0 custom transactions, automatically restore cloud account data immediately!
-                console.log('[AppContext] Local device has 0 transactions: Auto-restoring cloud account data immediately');
+                console.log('[AppContext] Unbound sign-in with 0 local transactions: Auto-restoring cloud account data.');
                 applyCloudData(cloudData);
                 await hydrateAndPublishUserProfile(user.uid, cloudData);
+                localStorage.setItem('mm_bound_account_uid', user.uid);
+                localStorage.setItem('mm_last_local_data_update', String(cloudUpdatedAt || Date.now()));
                 isCloudHydratedRef.current = true;
                 setCloudBackupBlocked(false);
+                setPendingSyncConflict(null);
 
                 const isDrive = cloudBackup?.provider === 'google_drive';
                 showToast(
@@ -1185,9 +1262,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   'success'
                 );
               } else {
-                // Cloud data exists AND local device has custom transactions/accounts:
+                // Cloud data exists AND local device has custom transactions created while in guest mode:
                 // Open mandatory high-priority modal ("Account Data Sync / مزامنة بيانات الحساب" at z-[95])
-                console.log('[AppContext] Cloud sync conflict: local device has', localTxCount, 'transactions and cloud data exists');
+                console.log('[AppContext] Cloud sync conflict: local device has', localTxCount, 'guest transactions and cloud data exists');
                 setPendingSyncConflict({
                   uid: user.uid,
                   cloudBackup: cloudData,
@@ -1199,21 +1276,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 // Cloud backup writes remain strictly locked (isCloudHydratedRef.current = false)
               }
             } else {
-              // No cloud data exists on this account yet: Local device data is source of truth
-              console.log('[AppContext] No existing cloud backup found. Using local device data and saving initial backup.');
+              // No cloud data exists on this account yet: Local device data is initial source of truth
+              console.log('[AppContext] No existing cloud backup found. Binding device and saving initial backup.');
+              localStorage.setItem('mm_bound_account_uid', user.uid);
+              localStorage.setItem('mm_last_local_data_update', String(Date.now()));
               await hydrateAndPublishUserProfile(user.uid);
               isCloudHydratedRef.current = true;
               setCloudBackupBlocked(false);
+              setPendingSyncConflict(null);
               setTimeout(() => {
                 if (auth.currentUser && isCloudHydratedRef.current) {
                   executeDualCloudBackup(auth.currentUser.uid, buildCurrentBackupPayload());
                 }
               }, 1500);
             }
-          } catch (restoreErr) {
-            console.warn('[AppContext] Dual cloud restore on login failed:', restoreErr);
           }
-        } else {
+        } catch (restoreErr) {
+          console.warn('[AppContext] Dual cloud restore on login failed:', restoreErr);
           isCloudHydratedRef.current = true;
           setCloudBackupBlocked(false);
           await hydrateAndPublishUserProfile(user.uid);
@@ -1250,6 +1329,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     return () => {
       isMounted = false;
+      if (unsubRemoteBackup) {
+        unsubRemoteBackup();
+      }
       unsubAuth();
     };
   }, []);
@@ -1845,6 +1927,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (choice === 'replace') {
       applyCloudData(d);
       await hydrateAndPublishUserProfile(uid, d);
+      localStorage.setItem('mm_bound_account_uid', uid);
+      const cloudTime = Number(d.updatedAt || d.timestamp || Date.now());
+      localStorage.setItem('mm_last_local_data_update', String(cloudTime));
       isCloudHydratedRef.current = true;
       setCloudBackupBlocked(false);
       setPendingSyncConflict(null);
@@ -1917,6 +2002,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // Immediately restore full profile & 16-digit ID upon merge
       const prof = await hydrateAndPublishUserProfile(uid, d);
 
+      localStorage.setItem('mm_bound_account_uid', uid);
+      const mergeTime = Date.now();
+      localStorage.setItem('mm_last_local_data_update', String(mergeTime));
+
       // Unlock cloud backup writes
       isCloudHydratedRef.current = true;
       setCloudBackupBlocked(false);
@@ -1927,7 +2016,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const mergedPayload: FullAppBackupPayload = {
         version: '1.1.35',
         backupDate: new Date().toISOString(),
-        timestamp: Date.now(),
+        timestamp: mergeTime,
+        updatedAt: mergeTime,
+        ownerUid: uid,
+        accountName: effectiveSettings.userProfile?.name || 'Cloud Backup',
         accounts: mergedAccounts,
         categories: mergedCategories,
         transactions: mergedTransactions,

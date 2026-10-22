@@ -244,21 +244,41 @@ export async function logoutUser(): Promise<void> {
   setCachedAuthUser(null);
   try {
     localStorage.removeItem('app_permanent_16digit_id');
+    localStorage.removeItem('mm_bound_account_uid');
   } catch {}
   await fbSignOut(auth);
 }
 
 /**
  * Firebase RTDB Server Cloud Backup Fallback
- * Dedicated cloud backup endpoint at users/${uid}/cloud_backup
+ * Dedicated cloud backup endpoint at users/${uid}/cloud_backup and shared_accounts/backup_${uid}
  */
 export async function saveFirebaseCloudBackup(uid: string, backupData: any): Promise<void> {
   if (!uid) return;
-  const backupRef = ref(rtdb, `users/${uid}/cloud_backup`);
-  await set(backupRef, {
+  const now = Date.now();
+  const backupPayload = {
     ...backupData,
-    serverUpdatedAt: Date.now(),
-  });
+    ownerUid: uid,
+    accountName: backupData.settings?.userProfile?.name || 'Cloud Backup',
+    updatedAt: now,
+    serverUpdatedAt: now,
+  };
+
+  // 1. Primary write at users/${uid}/cloud_backup
+  try {
+    const backupRef = ref(rtdb, `users/${uid}/cloud_backup`);
+    await set(backupRef, backupPayload);
+  } catch (err) {
+    console.warn('[Firebase] users/${uid}/cloud_backup save note:', err);
+  }
+
+  // 2. Dual endpoint write at shared_accounts/backup_${uid} with required rule fields
+  try {
+    const sharedRef = ref(rtdb, `shared_accounts/backup_${uid}`);
+    await set(sharedRef, backupPayload);
+  } catch (err) {
+    console.warn('[Firebase] shared_accounts/backup_${uid} save note:', err);
+  }
 }
 
 export async function getFirebaseCloudBackup(uid: string): Promise<any | null> {
@@ -266,13 +286,62 @@ export async function getFirebaseCloudBackup(uid: string): Promise<any | null> {
   try {
     const backupRef = ref(rtdb, `users/${uid}/cloud_backup`);
     const snapshot = await get(backupRef);
-    if (snapshot.exists()) {
+    if (snapshot.exists() && snapshot.val()) {
       return snapshot.val();
     }
   } catch (err) {
     console.warn('[Firebase] Failed to fetch server cloud_backup:', err);
   }
+
+  try {
+    const sharedRef = ref(rtdb, `shared_accounts/backup_${uid}`);
+    const snapshot = await get(sharedRef);
+    if (snapshot.exists() && snapshot.val()) {
+      return snapshot.val();
+    }
+  } catch (err) {
+    console.warn('[Firebase] Failed to fetch shared_accounts/backup_${uid}:', err);
+  }
+
   return null;
+}
+
+/**
+ * Listen in real time to remote cloud backup changes for two-way silent synchronization
+ */
+export function subscribeToCloudBackup(
+  uid: string,
+  callback: (data: any) => void
+): () => void {
+  if (!uid) return () => {};
+
+  const userRef = ref(rtdb, `users/${uid}/cloud_backup`);
+  const sharedRef = ref(rtdb, `shared_accounts/backup_${uid}`);
+
+  let lastSeenTimestamp = 0;
+
+  const handleSnap = (snapshot: any) => {
+    if (snapshot.exists() && snapshot.val()) {
+      const val = snapshot.val();
+      const ts = Number(val.updatedAt || val.timestamp || val.serverUpdatedAt || 0);
+      if (ts > lastSeenTimestamp) {
+        lastSeenTimestamp = ts;
+        callback(val);
+      }
+    }
+  };
+
+  onValue(userRef, handleSnap, (err) => {
+    console.warn('[Firebase] users/${uid}/cloud_backup onValue note:', err);
+  });
+  onValue(sharedRef, handleSnap, (err) => {
+    console.warn('[Firebase] shared_accounts/backup_${uid} onValue note:', err);
+  });
+
+  return () => {
+    off(userRef, 'value', handleSnap);
+    off(sharedRef, 'value', handleSnap);
+  };
 }
 
 /**

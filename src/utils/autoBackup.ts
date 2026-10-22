@@ -18,6 +18,9 @@ export interface FullAppBackupPayload {
   version: string;
   backupDate: string;
   timestamp: number;
+  updatedAt?: number;
+  ownerUid?: string;
+  accountName?: string;
   accounts: Account[];
   categories: Category[];
   transactions: Transaction[];
