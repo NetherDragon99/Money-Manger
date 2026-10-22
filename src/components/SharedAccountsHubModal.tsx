@@ -26,7 +26,7 @@ import { auth } from '../utils/firebase';
 import { User } from 'firebase/auth';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
-import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
+import { format16DigitId, cleanNumericId, format16DigitInput, getOrCreateNumericId } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
 import { ShareSpaceSettingsModal } from './ShareSpaceSettingsModal';
 import {
@@ -149,14 +149,18 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
 
   // Automatically publish user's public lookup card on open (only if signed in)
   useEffect(() => {
-    if (isOpen && currentUser && myCleanNumericId.length === 16) {
-      publishUserProfileCard({
-        numericId: myCleanNumericId,
-        name: myName,
-        avatar: settings.userProfile?.avatarEmoji || '👤',
-        photoURL: settings.userProfile?.customAvatarUrl || '',
-        uid: currentUser.uid,
-      });
+    const user = auth.currentUser || currentUser;
+    if (isOpen && user) {
+      const clean16 = myCleanNumericId || getOrCreateNumericId();
+      if (clean16.length === 16) {
+        publishUserProfileCard({
+          numericId: clean16,
+          name: myName,
+          avatar: settings.userProfile?.avatarEmoji || '👤',
+          photoURL: settings.userProfile?.customAvatarUrl || user.photoURL || '',
+          uid: user.uid,
+        });
+      }
     }
   }, [isOpen, currentUser, myCleanNumericId, myName, settings.userProfile]);
 

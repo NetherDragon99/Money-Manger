@@ -136,10 +136,24 @@ export async function resolvePermanent16DigitId(uid: string): Promise<string> {
     if (snap && snap.exists() && isValid16DigitId(String(snap.val()))) {
       finalId = cleanNumericId(String(snap.val()));
     } else {
-      // Never overwrite an existing local ID on sign-in unless users/{uid}/numeric16Id was already stored in RTDB
-      finalId = existingLocal || derive16DigitIdFromUid(uid);
+      // Check under users/${uid}/profile/numeric16Id as well
+      try {
+        const profSnap = await get(ref(rtdb, `users/${uid}/profile/numeric16Id`));
+        if (profSnap && profSnap.exists() && isValid16DigitId(String(profSnap.val()))) {
+          finalId = cleanNumericId(String(profSnap.val()));
+        }
+      } catch {}
+
+      if (!finalId) {
+        // Never overwrite an existing local ID on sign-in unless users/{uid}/numeric16Id was already stored in RTDB
+        finalId = existingLocal || derive16DigitIdFromUid(uid);
+      }
+
       await Promise.race([
-        set(ref(rtdb, `users/${uid}/numeric16Id`), finalId),
+        Promise.all([
+          set(ref(rtdb, `users/${uid}/numeric16Id`), finalId),
+          set(ref(rtdb, `users/${uid}/profile/numeric16Id`), finalId),
+        ]),
         new Promise<void>((resolve) => setTimeout(resolve, 10000)),
       ]);
     }
@@ -155,6 +169,7 @@ export async function resolvePermanent16DigitId(uid: string): Promise<string> {
 
 /**
  * Publish the reverse lookup `/numericIds/{id}` -> { uid, displayName, email, updatedAt }
+ * and also persist `users/${uid}/profile/numeric16Id`
  */
 export async function syncNumericIdToFirebase(
   numericId: string,
@@ -171,6 +186,9 @@ export async function syncNumericIdToFirebase(
       email: email || '',
       updatedAt: Date.now(),
     });
+    // Persist under users/${uid}/profile/numeric16Id as well
+    await set(ref(rtdb, `users/${uid}/profile/numeric16Id`), cleanId).catch(() => {});
+    await set(ref(rtdb, `users/${uid}/numeric16Id`), cleanId).catch(() => {});
   } catch (err) {
     console.warn('[NumericId] Failed to sync to Firebase RTDB:', err);
   }
@@ -179,14 +197,46 @@ export async function syncNumericIdToFirebase(
 /** Look up a user profile by their 16-digit Numeric ID */
 export async function lookupUserByNumericId(
   numericId: string
-): Promise<{ uid?: string; displayName?: string; email?: string } | null> {
+): Promise<{ uid?: string; displayName?: string; email?: string; photoURL?: string; avatar?: string; name?: string; numericId?: string } | null> {
   const cleanId = cleanNumericId(numericId);
   if (cleanId.length !== 16) return null;
+
+  // 1. Check shared_accounts/profile_${cleanId}
+  try {
+    const profSnap = await get(ref(rtdb, `shared_accounts/profile_${cleanId}`));
+    if (profSnap.exists()) {
+      const p = profSnap.val();
+      return {
+        uid: p.uid || p.ownerUid,
+        displayName: p.name || p.accountName || `User ${cleanId.slice(0, 4)}`,
+        name: p.name || p.accountName || `User ${cleanId.slice(0, 4)}`,
+        photoURL: p.photoURL || '',
+        avatar: p.avatar || '👤',
+        numericId: cleanId,
+      };
+    }
+  } catch (err) {
+    console.warn('[NumericId] Failed to query shared_accounts profile:', err);
+  }
+
+  // 2. Fallback to numericIds/${cleanId}
   try {
     const snapshot = await get(ref(rtdb, `numericIds/${cleanId}`));
-    return snapshot.exists() ? snapshot.val() : null;
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      return {
+        uid: data.uid,
+        displayName: data.displayName || data.name || data.email?.split('@')[0],
+        name: data.displayName || data.name || data.email?.split('@')[0],
+        email: data.email,
+        photoURL: data.photoURL || '',
+        avatar: data.avatar || '👤',
+        numericId: cleanId,
+      };
+    }
   } catch (err) {
-    console.warn('[NumericId] Failed to look up numeric ID:', err);
-    return null;
+    console.warn('[NumericId] Failed to look up numeric ID in numericIds:', err);
   }
+
+  return null;
 }

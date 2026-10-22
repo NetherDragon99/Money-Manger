@@ -32,7 +32,7 @@ import {
   setupRecaptcha,
   sendPhoneOtp,
 } from '../utils/firebase';
-import { format16DigitId, cleanNumericId } from '../utils/userId';
+import { format16DigitId, cleanNumericId, getOrCreateNumericId } from '../utils/userId';
 import { publishUserProfileCard } from '../utils/shareFolders';
 import { User, ConfirmationResult } from 'firebase/auth';
 
@@ -137,7 +137,7 @@ export const UserProfileModal: React.FC = () => {
   const initialZoomRef = useRef<number>(1);
   const [isClosing, setIsClosing] = useState(false);
 
-  // Sync profile state when modal opens
+  // Sync profile state when modal opens & register profile to cloud if authenticated
   useEffect(() => {
     if (isUserProfileModalOpen) {
       setName(settings.userProfile?.name || 'My Profile');
@@ -148,8 +148,23 @@ export const UserProfileModal: React.FC = () => {
       setPanOffset({ x: 0, y: 0 });
       setAuthError('');
       setIsClosing(false);
+
+      // Trigger profile cloud-registration immediately if signed in
+      const user = auth.currentUser || currentUser;
+      if (user) {
+        const clean16 = cleanNumericId(settings.userProfile?.numericId) || getOrCreateNumericId();
+        if (clean16.length === 16) {
+          publishUserProfileCard({
+            numericId: clean16,
+            name: settings.userProfile?.name || user.displayName || 'User',
+            avatar: settings.userProfile?.avatarEmoji || '👤',
+            photoURL: settings.userProfile?.customAvatarUrl || user.photoURL || '',
+            uid: user.uid,
+          });
+        }
+      }
     }
-  }, [isUserProfileModalOpen, settings.userProfile]);
+  }, [isUserProfileModalOpen, settings.userProfile, currentUser]);
 
   if (!isUserProfileModalOpen) return null;
 

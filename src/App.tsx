@@ -38,7 +38,9 @@ import { checkForAppUpdates, applyLatestAppUpdate, CURRENT_APP_VERSION } from '.
 import { TabType } from './types';
 import { loadAutoBackupConfig, isBackupDue, executeAutoBackup } from './utils/autoBackup';
 import { decodeShareSnapshot } from './utils/sharing';
-import { listenToMyNumericIdInbox } from './utils/shareFolders';
+import { listenToMyNumericIdInbox, publishUserProfileCard } from './utils/shareFolders';
+import { cleanNumericId, getOrCreateNumericId } from './utils/userId';
+import { auth } from './utils/firebase';
 import { ShareFolderModal } from './components/ShareFolderModal';
 import { RemainingBalanceModal } from './components/RemainingBalanceModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -181,6 +183,38 @@ const MainAppContent: React.FC = () => {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [accounts, categories, transactions, settings]);
+
+  // Trigger profile cloud-registration on startup when signed in, and every time UserProfileModal, SharedAccountsHubModal, or ShareFolderModal is opened
+  useEffect(() => {
+    const syncProfileToCloud = () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      const clean16 = cleanNumericId(settings.userProfile?.numericId) || getOrCreateNumericId();
+      if (clean16.length === 16) {
+        publishUserProfileCard({
+          numericId: clean16,
+          name: settings.userProfile?.name || user.displayName || 'User',
+          avatar: settings.userProfile?.avatarEmoji || '👤',
+          photoURL: settings.userProfile?.customAvatarUrl || user.photoURL || '',
+          uid: user.uid,
+        });
+      }
+    };
+
+    syncProfileToCloud();
+    const unsub = auth.onAuthStateChanged((user) => {
+      if (user) syncProfileToCloud();
+    });
+    return () => unsub();
+  }, [
+    isUserProfileModalOpen,
+    isSharedHubModalOpen,
+    shareModalState?.isOpen,
+    settings.userProfile?.numericId,
+    settings.userProfile?.name,
+    settings.userProfile?.avatarEmoji,
+    settings.userProfile?.customAvatarUrl,
+  ]);
 
   // Real-time listener for incoming bundles on my 16-digit Numeric ID (Item 7)
   useEffect(() => {

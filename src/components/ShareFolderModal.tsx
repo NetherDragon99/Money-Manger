@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { auth } from '../utils/firebase';
 import { User } from 'firebase/auth';
-import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
+import { format16DigitId, cleanNumericId, format16DigitInput, getOrCreateNumericId } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
 import {
   createNewShareFolder,
@@ -27,6 +27,7 @@ import {
   loadMyShareFolders,
   deduceFolderMetadata,
   generateShareUrl,
+  publishUserProfileCard,
   ShareFolder,
   UserProfileCard,
 } from '../utils/shareFolders';
@@ -119,7 +120,7 @@ export const ShareFolderModal: React.FC = () => {
   const myNumericId = settings.userProfile?.numericId || '0000000000000000';
   const myName = settings.userProfile?.name || 'User';
 
-  // Strictly reset all fields on every modal open so each share starts 100% fresh
+  // Strictly reset all fields on every modal open so each share starts 100% fresh & register profile to cloud
   useEffect(() => {
     if (shareModalState?.isOpen) {
       const folders = loadMyShareFolders();
@@ -131,8 +132,23 @@ export const ShareFolderModal: React.FC = () => {
       setCustomFolderName(autoMeta.name);
       setCustomFolderIcon(autoMeta.icon);
       setSelectedExistingId(folders[0]?.id || '');
+
+      // Trigger profile cloud-registration immediately on open if signed in
+      const user = auth.currentUser || currentUser;
+      if (user) {
+        const clean16 = cleanNumericId(myNumericId) || getOrCreateNumericId();
+        if (clean16.length === 16) {
+          publishUserProfileCard({
+            numericId: clean16,
+            name: myName,
+            avatar: settings.userProfile?.avatarEmoji || '👤',
+            photoURL: settings.userProfile?.customAvatarUrl || user.photoURL || '',
+            uid: user.uid,
+          });
+        }
+      }
     }
-  }, [shareModalState?.isOpen, autoMeta.name, autoMeta.icon]);
+  }, [shareModalState?.isOpen, autoMeta.name, autoMeta.icon, currentUser, myNumericId, myName, settings.userProfile]);
 
   if (!shareModalState || !shareModalState.isOpen) {
     return null;

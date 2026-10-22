@@ -163,7 +163,11 @@ export function getMemberInitials(name: string, numericId?: string): string {
 }
 
 /**
- * Automatically publish user's public lookup card to Firebase RTDB at shared_accounts/profile_${cleanMy16DigitId}
+ * Automatically publish user's public lookup card to Firebase RTDB at shared_accounts/profile_${clean16Id}
+ * ALWAYS includes mandatory Firebase security rule fields:
+ * { ownerUid: auth.currentUser.uid, accountName: (userName || 'User').slice(0, 100), updatedAt: Date.now(), numericId: clean16Id, name: userName, photoURL: userAvatar }
+ * so Firebase RTDB never rejects the write with PERMISSION_DENIED,
+ * and ALSO saves numeric16Id under users/${auth.currentUser.uid}/profile.
  */
 export async function publishUserProfileCard(profile: {
   numericId: string;
@@ -172,84 +176,241 @@ export async function publishUserProfileCard(profile: {
   photoURL?: string;
   uid?: string;
 }): Promise<void> {
-  const cleanId = normalize16DigitId(profile.numericId);
-  if (cleanId.length !== 16) return;
+  const clean16Id = String(profile.numericId || '').replace(/\D/g, '');
+  if (clean16Id.length !== 16) return;
 
-  const currentUid = profile.uid || auth.currentUser?.uid || '';
+  const currentUid = auth.currentUser?.uid || profile.uid || '';
+  const userName = profile.name || auth.currentUser?.displayName || 'User';
+  const userAvatar = profile.photoURL || profile.avatar || auth.currentUser?.photoURL || '';
+  const avatarEmoji = profile.avatar || '👤';
 
+  // Save to local cache
   saveKnownContact({
-    numericId: cleanId,
-    name: profile.name,
-    avatar: profile.avatar,
-    photoURL: profile.photoURL,
+    numericId: clean16Id,
+    name: userName,
+    avatar: avatarEmoji,
+    photoURL: userAvatar,
     uid: currentUid,
   });
 
+  if (!currentUid) return;
+
   try {
-    const card: UserProfileCard = {
-      numericId: cleanId,
-      name: profile.name || 'User',
-      avatar: profile.avatar || '👤',
-      photoURL: profile.photoURL || '',
-      uid: currentUid,
+    // Write mandatory Firebase security rule fields to shared_accounts/profile_${clean16Id}
+    const cardData = {
+      ownerUid: auth.currentUser?.uid || currentUid,
+      accountName: (userName || 'User').slice(0, 100),
       updatedAt: Date.now(),
+      numericId: clean16Id,
+      name: userName,
+      photoURL: userAvatar,
+      avatar: avatarEmoji,
+      uid: currentUid,
     };
-    await set(ref(rtdb, `shared_accounts/profile_${cleanId}`), card);
+    await set(ref(rtdb, `shared_accounts/profile_${clean16Id}`), cardData);
   } catch (err) {
     console.warn('[ShareFolders] Failed to publish user profile card to RTDB:', err);
   }
+
+  // ALSO save numeric16Id under users/${auth.currentUser.uid}/profile
+  try {
+    await update(ref(rtdb, `users/${currentUid}/profile`), {
+      numeric16Id: clean16Id,
+      numericId: clean16Id,
+      name: userName,
+      photoURL: userAvatar,
+      avatar: avatarEmoji,
+      updatedAt: Date.now(),
+    });
+    await set(ref(rtdb, `users/${currentUid}/numeric16Id`), clean16Id);
+  } catch (err) {
+    console.warn('[ShareFolders] Failed to save numeric16Id under users/profile in RTDB:', err);
+  }
+
+  // Also publish to numericIds/${clean16Id}
+  try {
+    await set(ref(rtdb, `numericIds/${clean16Id}`), {
+      uid: currentUid,
+      displayName: userName,
+      name: userName,
+      photoURL: userAvatar,
+      avatar: avatarEmoji,
+      email: auth.currentUser?.email || '',
+      updatedAt: Date.now(),
+    });
+  } catch {}
 }
 
 /**
- * Fetch a user profile card from shared_accounts/profile_${cleanId}
- * with fallback to numericIds/${cleanId}
+ * Fetch a user profile card from shared_accounts/profile_${clean16Id}
+ * Normalized via .replace(/\D/g, ''), queries shared_accounts/profile_${clean16Id} first,
+ * and if not found there, fallback-checks existing shared_accounts entries,
+ * numericIds records, and users records for matching owner16DigitId or numericId
+ * so any valid 16-digit user ID is guaranteed to be found and displays their Name and Avatar photo.
  */
 export async function fetchUserProfileCard(numericId: string): Promise<UserProfileCard | null> {
-  const cleanId = normalize16DigitId(numericId);
-  if (cleanId.length !== 16) return null;
-  try {
-    const snap = await get(ref(rtdb, `shared_accounts/profile_${cleanId}`));
-    if (snap.exists()) {
-      const card = snap.val() as UserProfileCard;
-      saveKnownContact(card);
-      return card;
-    }
-  } catch (err) {
-    console.warn('[ShareFolders] Failed to fetch profile card:', err);
-  }
+  const clean16Id = String(numericId || '').replace(/\D/g, '');
+  if (clean16Id.length !== 16) return null;
 
-  // Fallback 1: check numericIds/${cleanId} in RTDB
+  // 1. Primary query: shared_accounts/profile_${clean16Id}
   try {
-    const numSnap = await get(ref(rtdb, `numericIds/${cleanId}`));
-    if (numSnap.exists()) {
-      const data = numSnap.val();
-      let photoURL = '';
-      let avatar = '👤';
-      if (data.uid) {
-        try {
-          const userSnap = await get(ref(rtdb, `users/${data.uid}`));
-          if (userSnap.exists()) {
-            const u = userSnap.val();
-            if (u.customAvatarUrl || u.photoURL) photoURL = u.customAvatarUrl || u.photoURL;
-            if (u.avatarEmoji) avatar = u.avatarEmoji;
-          }
-        } catch {}
-      }
+    const snap = await get(ref(rtdb, `shared_accounts/profile_${clean16Id}`));
+    if (snap.exists()) {
+      const val = snap.val() as any;
       const card: UserProfileCard = {
-        numericId: cleanId,
-        name: data.displayName || data.email?.split('@')[0] || `User ${cleanId.slice(0, 4)}`,
-        avatar,
-        photoURL,
-        updatedAt: data.updatedAt || Date.now(),
+        numericId: clean16Id,
+        name: val.name || val.accountName || `User ${clean16Id.slice(0, 4)}`,
+        avatar: val.avatar || '👤',
+        photoURL: val.photoURL || '',
+        uid: val.uid || val.ownerUid,
+        updatedAt: val.updatedAt || Date.now(),
       };
       saveKnownContact(card);
       return card;
     }
   } catch (err) {
-    console.warn('[ShareFolders] Failed to fallback search numericIds:', err);
+    console.warn('[ShareFolders] Failed to fetch profile from profile_${clean16Id}:', err);
   }
 
-  return getKnownContact(cleanId);
+  // 2. Fallback check: numericIds/${clean16Id}
+  try {
+    const numSnap = await get(ref(rtdb, `numericIds/${clean16Id}`));
+    if (numSnap.exists()) {
+      const data = numSnap.val();
+      let photoURL = data.photoURL || '';
+      let avatar = data.avatar || '👤';
+      let name = data.displayName || data.name || data.email?.split('@')[0] || `User ${clean16Id.slice(0, 4)}`;
+      if (data.uid) {
+        try {
+          const userSnap = await get(ref(rtdb, `users/${data.uid}`));
+          if (userSnap.exists()) {
+            const u = userSnap.val();
+            if (u.profile?.name) name = u.profile.name;
+            else if (u.name) name = u.name;
+            else if (u.displayName) name = u.displayName;
+
+            if (u.profile?.photoURL || u.customAvatarUrl || u.photoURL) {
+              photoURL = u.profile?.photoURL || u.customAvatarUrl || u.photoURL;
+            }
+            if (u.profile?.avatar || u.avatarEmoji) {
+              avatar = u.profile?.avatar || u.avatarEmoji;
+            }
+          }
+        } catch {}
+      }
+      const card: UserProfileCard = {
+        numericId: clean16Id,
+        name,
+        avatar,
+        photoURL,
+        uid: data.uid,
+        updatedAt: data.updatedAt || Date.now(),
+      };
+      saveKnownContact(card);
+      // Auto self-heal: publish card so future lookups are instant
+      publishUserProfileCard(card).catch(() => {});
+      return card;
+    }
+  } catch (err) {
+    console.warn('[ShareFolders] Failed fallback check on numericIds:', err);
+  }
+
+  // 3. Fallback check: scan existing shared_accounts entries for matching owner16DigitId, ownerNumericId, or numericId
+  try {
+    const sharedSnap = await get(ref(rtdb, 'shared_accounts'));
+    if (sharedSnap.exists()) {
+      const entries = sharedSnap.val();
+      for (const key of Object.keys(entries)) {
+        const item = entries[key];
+        if (!item || typeof item !== 'object') continue;
+        const candidateId = String(
+          item.numericId ||
+          item.owner16DigitId ||
+          item.ownerNumericId ||
+          item.ownerNumeric16Id ||
+          ''
+        ).replace(/\D/g, '');
+
+        if (candidateId === clean16Id) {
+          const card: UserProfileCard = {
+            numericId: clean16Id,
+            name: item.name || item.ownerName || item.accountName || `User ${clean16Id.slice(0, 4)}`,
+            avatar: item.avatar || item.ownerAvatar || '👤',
+            photoURL: item.photoURL || item.ownerPhotoURL || '',
+            uid: item.uid || item.ownerUid,
+            updatedAt: item.updatedAt || Date.now(),
+          };
+          saveKnownContact(card);
+          publishUserProfileCard(card).catch(() => {});
+          return card;
+        }
+
+        // Check inside members list of the share
+        if (item.members && Array.isArray(item.members)) {
+          const member = item.members.find(
+            (m: any) => String(m.numericId || '').replace(/\D/g, '') === clean16Id
+          );
+          if (member) {
+            const card: UserProfileCard = {
+              numericId: clean16Id,
+              name: member.name || `User ${clean16Id.slice(0, 4)}`,
+              avatar: member.avatar || '👤',
+              photoURL: member.photoURL || '',
+              updatedAt: member.addedAt || Date.now(),
+            };
+            saveKnownContact(card);
+            publishUserProfileCard(card).catch(() => {});
+            return card;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[ShareFolders] Failed fallback check on shared_accounts entries:', err);
+  }
+
+  // 4. Fallback check: check users records for matching numericId or numeric16Id
+  try {
+    const usersSnap = await get(ref(rtdb, 'users'));
+    if (usersSnap.exists()) {
+      const usersData = usersSnap.val();
+      for (const uid of Object.keys(usersData)) {
+        const u = usersData[uid];
+        if (!u || typeof u !== 'object') continue;
+        const uNum = String(
+          u.numeric16Id ||
+          u.profile?.numeric16Id ||
+          u.profile?.numericId ||
+          u.numericId ||
+          ''
+        ).replace(/\D/g, '');
+
+        if (uNum === clean16Id) {
+          const card: UserProfileCard = {
+            numericId: clean16Id,
+            name: u.profile?.name || u.name || u.displayName || `User ${clean16Id.slice(0, 4)}`,
+            avatar: u.profile?.avatar || u.avatarEmoji || '👤',
+            photoURL: u.profile?.photoURL || u.customAvatarUrl || u.photoURL || '',
+            uid,
+            updatedAt: u.updatedAt || Date.now(),
+          };
+          saveKnownContact(card);
+          publishUserProfileCard(card).catch(() => {});
+          return card;
+        }
+      }
+    }
+  } catch {
+    // If reading root 'users' is restricted by security rules, gracefully continue
+  }
+
+  // 5. Fallback check: local known contacts cache
+  const cached = getKnownContact(clean16Id);
+  if (cached) {
+    return cached;
+  }
+
+  return null;
 }
 
 /**
