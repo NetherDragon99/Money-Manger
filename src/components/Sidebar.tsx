@@ -34,19 +34,10 @@ import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from
 import { format16DigitId } from '../utils/userId';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ExportCustomizeModal } from './ExportCustomizeModal';
-import { auth, rtdb, loginWithGoogle } from '../utils/firebase';
+import { auth } from '../utils/firebase';
 import { signOut } from 'firebase/auth';
-import { ref, set, get } from 'firebase/database';
 import { WeekStartDay } from '../types';
 import { WORLD_CURRENCIES, CurrencyOption } from '../utils/currencies';
-import {
-  loadAutoBackupConfig,
-  saveAutoBackupConfig,
-  saveDirectoryHandle,
-  executeAutoBackup,
-  AutoBackupConfig,
-  BackupScheduleFrequency,
-} from '../utils/autoBackup';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -64,9 +55,6 @@ export const Sidebar: React.FC = () => {
     accounts,
     categories,
     transactions,
-    importFullData,
-    triggerCloudBackupNow,
-    triggerCloudRestoreNow,
     showToast,
     showConfirm,
     t,
@@ -78,7 +66,6 @@ export const Sidebar: React.FC = () => {
     isBiometricAvailable().then(setIsBioSupported).catch(() => setIsBioSupported(false));
   }, []);
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const currencyMenuRef = useRef<HTMLDivElement | null>(null);
   const sidebarTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -113,11 +100,6 @@ export const Sidebar: React.FC = () => {
     document.addEventListener('pointerdown', handleOutside);
     return () => document.removeEventListener('pointerdown', handleOutside);
   }, [currencyDropdownOpen]);
-
-  // Auto Backup Configuration
-  const [backupConfig, setBackupConfig] = useState<AutoBackupConfig>(() => loadAutoBackupConfig());
-  const [backupProgress, setBackupProgress] = useState<number | null>(null);
-  const [backupStatusLabel, setBackupStatusLabel] = useState<string>('');
 
   const isArabic = settings.language === 'ar';
 
@@ -160,222 +142,6 @@ export const Sidebar: React.FC = () => {
         : `Currency changed to ${cur.name.en} (${cur.symbol})`,
       'success'
     );
-  };
-
-  const handleSelectBackupFolder = async () => {
-    if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
-      try {
-        // @ts-expect-error File System Access API
-        const dirHandle = await window.showDirectoryPicker();
-        await saveDirectoryHandle(dirHandle);
-        const nextConfig: AutoBackupConfig = {
-          ...backupConfig,
-          enabled: true,
-          folderName: dirHandle.name,
-        };
-        setBackupConfig(nextConfig);
-        saveAutoBackupConfig(nextConfig);
-        showToast(
-          isArabic
-            ? `تم تحديد مجلد الحفظ: ${dirHandle.name}`
-            : `Backup folder selected: ${dirHandle.name}`,
-          'success'
-        );
-      } catch (err) {
-        console.warn('Directory pick cancelled or failed:', err);
-      }
-    } else {
-      showToast(
-        isArabic
-          ? 'المتصفح لا يدعم الوصول المباشر للمجلدات. سيتم حفظ النسخ الاحتياطية محلياً.'
-          : 'Direct folder access not supported on this browser. Local snapshot enabled.',
-        'info'
-      );
-      const nextConfig: AutoBackupConfig = {
-        ...backupConfig,
-        enabled: true,
-        folderName: 'Local Storage Snapshot',
-      };
-      setBackupConfig(nextConfig);
-      saveAutoBackupConfig(nextConfig);
-    }
-  };
-
-  const handleBackupNow = async () => {
-    setBackupProgress(25);
-    setBackupStatusLabel(isArabic ? 'جارٍ جمع البيانات...' : 'Gathering financial data...');
-    try {
-      const data = {
-        version: '1.1.10',
-        exportDate: new Date().toISOString(),
-        accounts,
-        categories,
-        transactions,
-        settings,
-      };
-
-      setBackupProgress(65);
-      setBackupStatusLabel(isArabic ? 'جارٍ إنشاء ملف النسخة الاحتياطية...' : 'Generating backup file...');
-
-      // 1. Export JSON file directly to browser download
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `money-manager-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      // 2. Persist local backup snapshot / folder
-      await executeAutoBackup({
-        accounts,
-        categories,
-        transactions,
-        settings,
-      });
-
-      setBackupProgress(100);
-      setBackupStatusLabel(isArabic ? 'تم حفظ وتنزيل النسخة بنجاح!' : 'Backup exported and saved successfully!');
-      showToast(
-        isArabic ? 'تم تنزيل وحفظ النسخة الاحتياطية بنجاح!' : 'Backup exported and saved successfully!',
-        'success'
-      );
-      setBackupConfig(loadAutoBackupConfig());
-    } catch (e: any) {
-      setBackupProgress(null);
-      showToast(e?.message || 'Backup failed', 'error');
-    } finally {
-      setTimeout(() => {
-        setBackupProgress(null);
-        setBackupStatusLabel('');
-      }, 1500);
-    }
-  };
-
-  const handleUpdateBackupConfig = (partial: Partial<AutoBackupConfig>) => {
-    const next = { ...backupConfig, ...partial };
-    setBackupConfig(next);
-    saveAutoBackupConfig(next);
-  };
-
-  const handleEmailBackup = () => {
-    const data = {
-      version: '1.1.10',
-      exportDate: new Date().toISOString(),
-      accounts,
-      categories,
-      transactions,
-      settings,
-    };
-    const subject = encodeURIComponent(`Personal Finance Tracker Backup (${new Date().toLocaleDateString()})`);
-    const body = encodeURIComponent(
-      `Hello,\n\nHere is your Personal Finance Tracker backup data for ${new Date().toLocaleString()}.\n\nAccounts: ${accounts.length}\nCategories: ${categories.length}\nTransactions: ${transactions.length}\n\nRAW DATA (JSON):\n${JSON.stringify(data, null, 2)}`
-    );
-    window.location.href = `mailto:?subject=${subject}&body=${body}`;
-    showToast(isArabic ? 'فتح تطبيق البريد لإرسال النسخة الاحتياطية' : 'Opening email client with backup data', 'info');
-  };
-
-  const handleCloudBackup = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      setIsUserProfileModalOpen(true);
-      showToast(isArabic ? 'يرجى تسجيل الدخول أولاً للنسخ السحابي' : 'Please sign in first to back up to cloud', 'info');
-      return;
-    }
-    setBackupProgress(30);
-    setBackupStatusLabel(isArabic ? 'جارٍ الاتصال بـ Google Drive والخادم...' : 'Connecting to Google Drive & Server...');
-    try {
-      setBackupProgress(65);
-      setBackupStatusLabel(isArabic ? 'جارٍ تشفير وحفظ النسخة الاحتياطية...' : 'Encrypting and saving backup payload...');
-      const result = await triggerCloudBackupNow();
-      if (result.success) {
-        setBackupProgress(100);
-        setBackupStatusLabel(
-          result.provider === 'google_drive'
-            ? (isArabic ? 'اكتمل النسخ على Google Drive!' : 'Google Drive backup complete!')
-            : (isArabic ? 'اكتمل النسخ على الخادم السحابي!' : 'Cloud Server backup complete!')
-        );
-      } else {
-        setBackupProgress(null);
-      }
-    } catch (err: any) {
-      setBackupProgress(null);
-      showToast(err?.message || 'Cloud backup failed', 'error');
-    } finally {
-      setTimeout(() => {
-        setBackupProgress(null);
-        setBackupStatusLabel('');
-      }, 1500);
-    }
-  };
-
-  const handleCloudRestore = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      setIsUserProfileModalOpen(true);
-      showToast(isArabic ? 'يرجى تسجيل الدخول أولاً لاستعادة النسخة السحابية' : 'Please sign in first to restore cloud backup', 'info');
-      return;
-    }
-    setBackupProgress(30);
-    setBackupStatusLabel(isArabic ? 'جارٍ فحص Google Drive والخادم...' : 'Checking Google Drive & Server...');
-    try {
-      setBackupProgress(75);
-      setBackupStatusLabel(isArabic ? 'جارٍ استيراد وترقية البيانات...' : 'Restoring data...');
-      const success = await triggerCloudRestoreNow();
-      if (success) {
-        setBackupProgress(100);
-        setBackupStatusLabel(isArabic ? 'تمت استعادة البيانات بنجاح!' : 'Data restored successfully!');
-      } else {
-        setBackupProgress(null);
-      }
-    } catch (err: any) {
-      setBackupProgress(null);
-      showToast(err?.message || 'Cloud restore failed', 'error');
-    } finally {
-      setTimeout(() => {
-        setBackupProgress(null);
-        setBackupStatusLabel('');
-      }, 1500);
-    }
-  };
-
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setBackupProgress(25);
-    setBackupStatusLabel(isArabic ? 'جارٍ قراءة ملف النسخة الاحتياطية...' : 'Reading backup file...');
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        setBackupProgress(65);
-        setBackupStatusLabel(isArabic ? 'جارٍ التحقق من صحة البيانات...' : 'Validating backup schema...');
-        const parsed = JSON.parse(event.target?.result as string);
-        const ok = importFullData(parsed);
-        if (ok) {
-          setBackupProgress(100);
-          setBackupStatusLabel(isArabic ? 'تمت الاستعادة بنجاح!' : 'Restored successfully!');
-          showToast(isArabic ? 'تمت استعادة النسخة الاحتياطية بنجاح!' : 'Backup restored successfully!', 'success');
-          setTimeout(() => {
-            setIsSidebarOpen(false);
-          }, 600);
-        } else {
-          setBackupProgress(null);
-        }
-      } catch (err) {
-        setBackupProgress(null);
-        console.error(err);
-        showToast(t('invalidFileError'), 'error');
-      } finally {
-        setTimeout(() => {
-          setBackupProgress(null);
-          setBackupStatusLabel('');
-        }, 1500);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
   };
 
   // Swipe in opposite direction to close sidebar (Item 2)
@@ -428,15 +194,6 @@ export const Sidebar: React.FC = () => {
           isClosing ? 'opacity-0 -translate-x-full rtl:translate-x-full' : 'animate-in slide-in-from-left rtl:slide-in-from-right duration-300'
         }`}
       >
-        {/* Hidden file input for import */}
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleImportFile}
-          accept=".json"
-          className="hidden"
-        />
-
         {/* User Profile Header: Entire Section is 100% Clickable Card (Item 10) */}
         <div
           onClick={() => {
@@ -853,251 +610,28 @@ export const Sidebar: React.FC = () => {
             </div>
           </div>
 
-          {/* Unified "Backup & Restore" Hub (Merged & Streamlined) */}
-          <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800 space-y-3.5">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>{isArabic ? 'النسخ الاحتياطي والاستعادة' : 'Backup & Restore'}</span>
-              </h4>
-              <span className="text-[10px] font-mono text-zinc-500">v1.1.10</span>
-            </div>
-
-            {/* Mandatory Visual Progress Bar (0% to 100%) */}
-            {backupProgress !== null && (
-              <div className="p-3 rounded-xl bg-zinc-950 border border-blue-500/40 space-y-2 animate-in fade-in">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-zinc-200">{backupStatusLabel}</span>
-                  <span className="font-mono font-bold text-blue-400">{backupProgress}%</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden border border-zinc-800">
-                  <div
-                    className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full transition-all duration-300"
-                    style={{ width: `${backupProgress}%` }}
-                  />
-                </div>
+          {/* Custom Data Export */}
+          <div className="p-3.5 rounded-2xl bg-zinc-900/70 border border-zinc-800 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
+                <Download className="w-4 h-4" />
               </div>
-            )}
-
-            {/* WhatsApp-Style Cloud Backup & Restore Box */}
-            <div className="p-3 rounded-xl bg-zinc-950/80 border border-zinc-800 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
-                  <Cloud className="w-3.5 h-3.5 text-purple-400" />
-                  <span>{isArabic ? 'النسخ السحابي (WhatsApp Style)' : 'Cloud Backup (WhatsApp Style)'}</span>
-                </span>
-                <span className="text-[10px] text-zinc-400 font-mono truncate max-w-[130px]">
-                  {auth.currentUser?.email || (isArabic ? 'غير مسجل' : 'Not signed in')}
-                </span>
-              </div>
-
-              {!auth.currentUser && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      await loginWithGoogle();
-                      showToast(isArabic ? 'تم تسجيل الدخول بنجاح!' : 'Signed in successfully!', 'success');
-                    } catch (e: any) {
-                      if (!e?.message?.includes('Redirecting')) {
-                        showToast(e?.message || (isArabic ? 'فشل تسجيل الدخول' : 'Sign in failed'), 'error');
-                      }
-                    }
-                  }}
-                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-white hover:bg-zinc-100 text-zinc-950 text-xs font-bold transition cursor-pointer shadow-sm active:scale-98"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    />
-                  </svg>
-                  <span>{isArabic ? 'تسجيل الدخول بجوجل للنسخ' : 'Sign in with Google to backup'}</span>
-                </button>
-              )}
-
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={handleCloudBackup}
-                  className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-[11px] font-bold transition cursor-pointer active:scale-95"
-                >
-                  <Cloud className="w-3.5 h-3.5 text-purple-400" />
-                  <span>{isArabic ? 'نسخ للسحابة الآن' : 'Backup to Cloud Now'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleCloudRestore}
-                  className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 text-[11px] font-bold transition cursor-pointer active:scale-95"
-                >
-                  <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
-                  <span>{isArabic ? 'استعادة من السحابة' : 'Restore from Cloud'}</span>
-                </button>
+              <div className="min-w-0">
+                <h4 className="text-xs font-bold text-white truncate">
+                  {isArabic ? 'تصدير البيانات المخصصة' : 'Custom Data Export'}
+                </h4>
+                <p className="text-[10px] text-zinc-400 truncate mt-0.5">
+                  {isArabic ? 'تصدير التقارير والمعاملات' : 'Export reports & transactions'}
+                </p>
               </div>
             </div>
-
-            {/* Manual & File Backup Controls */}
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                {/* Backup Now (Exports file & saves local snapshot) */}
-                <button
-                  type="button"
-                  onClick={handleBackupNow}
-                  className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-lg shadow-emerald-950/40 transition cursor-pointer active:scale-95"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>{isArabic ? 'نسخ احتياطي الآن' : 'Backup Now'}</span>
-                </button>
-
-                {/* Import / Restore Backup */}
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl bg-zinc-950 hover:bg-zinc-850 border border-zinc-800 text-zinc-200 text-[11px] font-bold transition cursor-pointer active:scale-95"
-                >
-                  <Upload className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>{isArabic ? 'استيراد نسخة' : 'Import / Restore'}</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsExportModalOpen(true)}
-                  className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-zinc-950 hover:bg-zinc-850 border border-zinc-800 text-zinc-300 text-[10px] font-semibold transition cursor-pointer"
-                >
-                  <Download className="w-3 h-3 text-zinc-400" />
-                  <span>{isArabic ? 'تخصيص التصدير' : 'Customize Export'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleEmailBackup}
-                  className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-zinc-950 hover:bg-zinc-850 border border-zinc-800 text-zinc-300 text-[10px] font-semibold transition cursor-pointer"
-                >
-                  <Mail className="w-3 h-3 text-blue-400" />
-                  <span>{isArabic ? 'إرسال للإيميل' : 'Email Backup'}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Scheduled Auto Backup Sub-section */}
-            <div className="pt-2 border-t border-zinc-800/60 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-zinc-400">
-                  {isArabic ? 'الجدولة التلقائية الدورية' : 'Scheduled Auto-Backup'}
-                </span>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={backupConfig.enabled}
-                    onChange={(e) => handleUpdateBackupConfig({ enabled: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-9 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                </label>
-              </div>
-
-              <div className={`accordion-wrapper ${backupConfig.enabled ? 'open' : 'closed'}`}>
-                <div className="accordion-inner space-y-2.5 pt-1 text-xs">
-                  {/* Folder Selector */}
-                  <div>
-                    <button
-                      type="button"
-                      onClick={handleSelectBackupFolder}
-                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-zinc-700 text-zinc-300 transition cursor-pointer"
-                    >
-                      <span className="flex items-center gap-1.5 truncate">
-                        <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                        <span className="truncate">{backupConfig.folderName || (isArabic ? 'اختر مجلد الحفظ...' : 'Select Target Folder...')}</span>
-                      </span>
-                      <span className="text-[10px] text-blue-400 font-bold shrink-0">{isArabic ? 'تغيير' : 'Change'}</span>
-                    </button>
-                  </div>
-
-                  {/* Frequency selector */}
-                  <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-zinc-950 border border-zinc-800">
-                    {(['daily', 'weekly', 'monthly'] as BackupScheduleFrequency[]).map((freq) => (
-                      <button
-                        key={freq}
-                        type="button"
-                        onClick={() => handleUpdateBackupConfig({ frequency: freq })}
-                        className={`py-1 rounded-lg text-[11px] font-semibold capitalize transition ${
-                          backupConfig.frequency === freq
-                            ? 'bg-emerald-600 text-white'
-                            : 'text-zinc-400 hover:text-white'
-                        }`}
-                      >
-                        {freq}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Day of Week Selector if Weekly */}
-                  {backupConfig.frequency === 'weekly' && (
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-zinc-400 font-medium">
-                        {isArabic ? 'اليوم المفضل أسبوعياً:' : 'Preferred Day of Week:'}
-                      </span>
-                      <div className="grid grid-cols-7 gap-1">
-                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, idx) => (
-                          <button
-                            key={d}
-                            type="button"
-                            onClick={() => handleUpdateBackupConfig({ dayOfWeek: idx })}
-                            className={`py-1 rounded-lg text-[10px] font-bold transition ${
-                              backupConfig.dayOfWeek === idx
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800'
-                            }`}
-                          >
-                            {d}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Day of Month Selector if Monthly */}
-                  {backupConfig.frequency === 'monthly' && (
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-zinc-400 font-medium">
-                        {isArabic ? 'يوم الشهر (1 - 28):' : 'Preferred Day of Month:'}
-                      </span>
-                      <div className="grid grid-cols-6 gap-1">
-                        {[1, 5, 10, 15, 20, 25].map((dom) => (
-                          <button
-                            key={dom}
-                            type="button"
-                            onClick={() => handleUpdateBackupConfig({ dayOfMonth: dom })}
-                            className={`py-1 rounded-lg text-[10px] font-bold transition ${
-                              backupConfig.dayOfMonth === dom
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800'
-                            }`}
-                          >
-                            Day {dom}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+            <button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold transition cursor-pointer active:scale-95 shrink-0"
+            >
+              {isArabic ? 'تخصيص' : 'Customize'}
+            </button>
           </div>
 
           {/* Standalone PWA Installation Card (Outside Backup) */}

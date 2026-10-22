@@ -72,8 +72,6 @@ export const UserProfileModal: React.FC = () => {
     updateSettings,
     t,
     showToast,
-    triggerCloudBackupNow,
-    triggerCloudRestoreNow,
   } = useApp();
 
   const isArabic = settings.language === 'ar';
@@ -87,7 +85,6 @@ export const UserProfileModal: React.FC = () => {
   // Authentication & Cloud Sync State
   const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
-  const [isCloudActionLoading, setIsCloudActionLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [copiedNumericId, setCopiedNumericId] = useState(false);
   const handleCopyNumericId = async (id: string) => {
@@ -329,24 +326,6 @@ export const UserProfileModal: React.FC = () => {
       showToast(isArabic ? 'تم تسجيل الخروج بنجاح' : 'Signed out successfully', 'info');
     } catch (err: any) {
       showToast(err?.message || 'Error signing out', 'error');
-    }
-  };
-
-  const handleManualCloudBackup = async () => {
-    try {
-      setIsCloudActionLoading(true);
-      await triggerCloudBackupNow();
-    } finally {
-      setIsCloudActionLoading(false);
-    }
-  };
-
-  const handleManualCloudRestore = async () => {
-    try {
-      setIsCloudActionLoading(true);
-      await triggerCloudRestoreNow();
-    } finally {
-      setIsCloudActionLoading(false);
     }
   };
 
@@ -739,31 +718,9 @@ export const UserProfileModal: React.FC = () => {
 
                   <p className="text-[11px] text-zinc-400 leading-relaxed">
                     {isArabic
-                      ? 'يتم حفظ جميع حساباتك ومعاملاتك ومساحاتك تلقائياً على Google Drive مع خادم سحابي احتياطي فوري.'
-                      : 'All accounts, transactions, and spaces are backed up automatically to Google Drive with an instant server fallback.'}
+                      ? 'يتم حفظ جميع حساباتك ومعاملاتك ومساحاتك وإعداداتك تلقائياً على Google Drive لحظة بلحظة مع خادم سحابي احتياطي فوري واستعادة تلقائية عند تسجيل الدخول.'
+                      : 'All accounts, transactions, spaces, and settings are automatically backed up to Google Drive with instant server fallback and auto-restored on sign-in.'}
                   </p>
-
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleManualCloudBackup}
-                      disabled={isCloudActionLoading}
-                      className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 text-xs font-bold transition active:scale-95 cursor-pointer disabled:opacity-50"
-                    >
-                      <Cloud className="w-3.5 h-3.5 text-blue-400" />
-                      <span>{isArabic ? 'نسخ لجوجل درايف الآن' : 'Backup to Drive Now'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleManualCloudRestore}
-                      disabled={isCloudActionLoading}
-                      className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-bold transition active:scale-95 cursor-pointer disabled:opacity-50"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5 text-purple-400" />
-                      <span>{isArabic ? 'استعادة من السحابة' : 'Restore from Cloud'}</span>
-                    </button>
-                  </div>
                 </div>
 
                 <div className="flex items-center justify-between pt-1 text-[10px] text-zinc-400">
