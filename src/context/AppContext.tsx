@@ -904,32 +904,47 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     let isMounted = true;
 
     const syncIdentity = async (user: any) => {
+      if (!user) {
+        // Guest user: strictly ensure 16-digit ID is not generated, stored, or published
+        try {
+          localStorage.removeItem('app_permanent_16digit_id');
+        } catch {}
+        if (settings.userProfile?.numericId) {
+          setSettings((prev) => ({
+            ...prev,
+            userProfile: {
+              ...prev.userProfile,
+              numericId: '',
+            },
+          }));
+        }
+        return;
+      }
+
       let finalNumId = cleanNumericId(settings.userProfile?.numericId || '');
 
-      if (user) {
-        try {
-          const resolvedId = await resolvePermanent16DigitId(user.uid);
-          if (resolvedId && isMounted) {
-            finalNumId = cleanNumericId(resolvedId);
-            if (settings.userProfile?.numericId !== finalNumId) {
-              setSettings((prev) => ({
-                ...prev,
-                userProfile: {
-                  ...prev.userProfile,
-                  numericId: finalNumId,
-                },
-              }));
-            }
+      try {
+        const resolvedId = await resolvePermanent16DigitId(user.uid);
+        if (resolvedId && isMounted) {
+          finalNumId = cleanNumericId(resolvedId);
+          if (settings.userProfile?.numericId !== finalNumId) {
+            setSettings((prev) => ({
+              ...prev,
+              userProfile: {
+                ...prev.userProfile,
+                numericId: finalNumId,
+              },
+            }));
           }
-          await syncNumericIdToFirebase(
-            finalNumId,
-            user.uid,
-            settings.userProfile?.name || user.displayName || '',
-            user.email || ''
-          );
-        } catch (e) {
-          console.warn('[AppContext] Error resolving signed-in numeric ID:', e);
         }
+        await syncNumericIdToFirebase(
+          finalNumId,
+          user.uid,
+          settings.userProfile?.name || user.displayName || '',
+          user.email || ''
+        );
+      } catch (e) {
+        console.warn('[AppContext] Error resolving signed-in numeric ID:', e);
       }
 
       // Publish public lookup card so recipients and searchers can discover the profile
@@ -1572,7 +1587,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Auto-populate profile name & resolve the PERMANENT 16-digit numeric ID for signed-in users
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (user) => {
-      if (!user) return;
+      if (!user) {
+        setSettings((prev) => {
+          if (!prev.userProfile?.numericId) return prev;
+          return {
+            ...prev,
+            userProfile: { ...prev.userProfile, numericId: '' },
+          };
+        });
+        return;
+      }
       const permanentId = await resolvePermanent16DigitId(user.uid);
       const suggestedName = user.displayName || (user.email ? user.email.split('@')[0] : 'User');
       let finalName = suggestedName;

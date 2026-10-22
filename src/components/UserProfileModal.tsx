@@ -412,7 +412,7 @@ export const UserProfileModal: React.FC = () => {
       },
     });
 
-    if (my16 && my16.length === 16) {
+    if (currentUser && my16 && my16.length === 16) {
       publishUserProfileCard({
         numericId: my16,
         name: cleanName,
@@ -772,40 +772,31 @@ export const UserProfileModal: React.FC = () => {
                 </div>
               </div>
             ) : (
-              /* Signed Out State: Premium Action Card */
+              /* Signed Out State: Prominent Sign In Required Block & Auth Options */
               <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3.5 shadow-md">
-                {/* Fixed 16-Digit Numeric ID for Local / Offline User */}
-                <div className="w-full p-2.5 rounded-xl bg-zinc-950/90 border border-zinc-800/80 flex items-center justify-between gap-2 shadow-inner">
-                  <div className="min-w-0 flex-1">
-                    <span className="block text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
-                      {isArabic ? 'معرفك الرقمي الثابت (16 رقماً)' : 'Fixed 16-Digit Numeric ID'}
-                    </span>
-                    <span className="block text-sm font-black font-mono text-white tracking-widest mt-0.5 select-all truncate">
-                      {format16DigitId(settings.userProfile?.numericId || '')}
-                    </span>
+                {/* Prominent Sign In Required Blocking Banner */}
+                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-purple-950/50 via-zinc-900 to-blue-950/40 border border-purple-500/30 space-y-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-purple-600/20 border border-purple-500/40 text-purple-400 flex items-center justify-center shrink-0">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                        <span>{isArabic ? 'تسجيل الدخول مطلوب' : 'Sign in Required'}</span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          {isArabic ? 'المشاركة السحابية' : 'Cloud Share'}
+                        </span>
+                      </h4>
+                      <p className="text-[10px] text-zinc-400 mt-0.5">
+                        {isArabic ? 'المعرف الرقمي الثابت مقيد للمستخدمين المسجلين فقط' : '16-Digit ID is restricted to authenticated users'}
+                      </p>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCopyNumericId(settings.userProfile?.numericId || '')}
-                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-bold transition active:scale-95 cursor-pointer shrink-0 ${
-                      copiedNumericId
-                        ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
-                        : 'bg-zinc-850 hover:bg-zinc-800 border-zinc-700 text-zinc-200'
-                    }`}
-                    title="Copy Numeric ID"
-                  >
-                    {copiedNumericId ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>{isArabic ? 'تم النسخ' : 'Copied!'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5 text-blue-400" />
-                        <span>{isArabic ? 'نسخ' : 'Copy'}</span>
-                      </>
-                    )}
-                  </button>
+                  <p className="text-xs text-zinc-300 leading-relaxed pt-0.5">
+                    {isArabic
+                      ? 'المعرّف المالي المكوّن من 16 رقماً وميزات المشاركة السحابية الجماعية متاحة حصرياً للأعضاء المسجلين. سجّل دخولك أدناه لإنشاء معرّفك ومزامنة مساحاتك المشتركة بأمان.'
+                      : 'The 16-digit ID and cloud collaboration features are exclusively reserved for authenticated accounts. Sign in below to activate your ID and securely sync shared spaces.'}
+                  </p>
                 </div>
 
                 <p className="text-xs text-zinc-400 leading-relaxed">

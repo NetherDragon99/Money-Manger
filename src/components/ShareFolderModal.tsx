@@ -12,7 +12,11 @@ import {
   Sparkles,
   Loader2,
   Smile,
+  Lock,
+  Users,
 } from 'lucide-react';
+import { auth } from '../utils/firebase';
+import { User } from 'firebase/auth';
 import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
 import {
@@ -40,9 +44,19 @@ export const ShareFolderModal: React.FC = () => {
     clearAccountSelection,
     transactions: allAppTransactions,
     openEmojiPicker,
+    setIsUserProfileModalOpen,
   } = useApp();
 
   const isArabic = settings.language === 'ar';
+
+  const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
+
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged((user) => {
+      setCurrentUser(user);
+    });
+    return () => unsub();
+  }, []);
   const accounts: Account[] = shareModalState?.accounts || [];
   const categories: Category[] = shareModalState?.categories || [];
   const transactions: Transaction[] = shareModalState?.transactions || [];
@@ -293,7 +307,39 @@ export const ShareFolderModal: React.FC = () => {
           </span>
         </div>
 
-        {/* Choice: Create New Share vs Add to Existing Share */}
+        {!currentUser ? (
+          /* Guest Mode: Prominent Sign In Required Block */
+          <div className="py-8 px-2 flex flex-col items-center justify-center text-center space-y-5">
+            <div className="w-16 h-16 rounded-3xl bg-purple-600/20 border-2 border-purple-500/40 text-purple-400 flex items-center justify-center shadow-lg shadow-purple-950/40">
+              <Lock className="w-8 h-8 text-purple-300" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-base font-black text-white">
+                {isArabic ? 'تسجيل الدخول مطلوب للمشاركة' : 'Sign in Required to Share'}
+              </h3>
+              <p className="text-xs text-zinc-400 leading-relaxed max-w-sm">
+                {isArabic
+                  ? 'ميزات المشاركة السحابية الجماعية والمعرّف الرقمي المكون من 16 رقماً متاحة فقط للحسابات المسجلة. يرجى تسجيل الدخول لحفظ ومزامنة الشير.'
+                  : 'Cloud sharing features and 16-digit recipient invites are exclusively available to authenticated accounts. Please sign in to create and sync shared spaces.'}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                closeShareModal();
+                setIsUserProfileModalOpen(true);
+              }}
+              className="w-full max-w-xs py-3 px-5 rounded-2xl bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold text-xs shadow-xl shadow-purple-600/25 transition cursor-pointer flex items-center justify-center gap-2 active:scale-95"
+            >
+              <Users className="w-4 h-4" />
+              <span>{isArabic ? 'تسجيل الدخول الآن' : 'Sign In Now'}</span>
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Choice: Create New Share vs Add to Existing Share */}
         <div className="space-y-2">
           <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
             {isArabic ? 'طريقة المشاركة:' : 'Share Destination Mode:'}
@@ -507,26 +553,28 @@ export const ShareFolderModal: React.FC = () => {
             </button>
           </form>
 
-          {/* Action Buttons: Copy Web Link & Save */}
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <button
-              type="button"
-              onClick={handleCopyLink}
-              className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xs font-semibold text-zinc-200 transition cursor-pointer active:scale-95"
-            >
-              <Copy className="w-3.5 h-3.5 text-blue-400" />
-              <span>{isArabic ? 'نسخ رابط الويب' : 'Copy Web Link'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveOnly}
-              className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xs font-semibold text-blue-300 transition cursor-pointer active:scale-95"
-            >
-              <Folder className="w-3.5 h-3.5" />
-              <span>{isArabic ? 'حفظ في الشير' : 'Save to Share'}</span>
-            </button>
+            {/* Action Buttons: Copy Web Link & Save */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xs font-semibold text-zinc-200 transition cursor-pointer active:scale-95"
+              >
+                <Copy className="w-3.5 h-3.5 text-blue-400" />
+                <span>{isArabic ? 'نسخ رابط الويب' : 'Copy Web Link'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveOnly}
+                className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xs font-semibold text-blue-300 transition cursor-pointer active:scale-95"
+              >
+                <Folder className="w-3.5 h-3.5" />
+                <span>{isArabic ? 'حفظ في الشير' : 'Save to Share'}</span>
+              </button>
+            </div>
           </div>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );

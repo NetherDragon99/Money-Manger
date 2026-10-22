@@ -20,7 +20,10 @@ import {
   LogOut,
   Loader2,
   Settings,
+  Lock,
 } from 'lucide-react';
+import { auth } from '../utils/firebase';
+import { User } from 'firebase/auth';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
 import { format16DigitId, cleanNumericId, format16DigitInput } from '../utils/userId';
@@ -67,11 +70,21 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     openShareModal,
     showToast,
     showConfirm,
+    setIsUserProfileModalOpen,
   } = useApp();
 
   const isArabic = settings.language === 'ar';
   const myCleanNumericId = cleanNumericId(settings.userProfile?.numericId || '');
   const myName = settings.userProfile?.name || 'User';
+
+  const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
+
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged((user) => {
+      setCurrentUser(user);
+    });
+    return () => unsub();
+  }, []);
 
   const [activeTab, setActiveTab] = useState<'my_shares' | 'shared_with_me'>('my_shares');
   const [myFolders, setMyFolders] = useState<ShareFolder[]>(() => loadMyShareFolders());
@@ -95,9 +108,9 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   const [joinLinkInput, setJoinLinkInput] = useState('');
   const [isJoiningByLink, setIsJoiningByLink] = useState(false);
 
-  // Automatically publish user's public lookup card on open
+  // Automatically publish user's public lookup card on open (only if signed in)
   useEffect(() => {
-    if (isOpen && myCleanNumericId.length === 16) {
+    if (isOpen && currentUser && myCleanNumericId.length === 16) {
       publishUserProfileCard({
         numericId: myCleanNumericId,
         name: myName,
@@ -105,11 +118,11 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
         photoURL: settings.userProfile?.customAvatarUrl || '',
       });
     }
-  }, [isOpen, myCleanNumericId, myName, settings.userProfile]);
+  }, [isOpen, currentUser, myCleanNumericId, myName, settings.userProfile]);
 
-  // Dual Sync 1: Real-time inbox listener on Firebase RTDB (shared_accounts/inbox_${myCleanNumericId})
+  // Dual Sync 1: Real-time inbox listener on Firebase RTDB (only if signed in)
   useEffect(() => {
-    if (!isOpen || myCleanNumericId.length !== 16) return;
+    if (!isOpen || !currentUser || myCleanNumericId.length !== 16) return;
     const unsub = subscribeToMyInbox(myCleanNumericId, (liveReceived) => {
       if (liveReceived && Array.isArray(liveReceived)) {
         setReceivedFolders(liveReceived);
@@ -117,11 +130,11 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
       }
     });
     return () => unsub();
-  }, [isOpen, myCleanNumericId]);
+  }, [isOpen, currentUser, myCleanNumericId]);
 
-  // Dual Sync 2: Automatic 4-second periodic polling loop fetching get(ref(db, 'shared_accounts/inbox_' + myClean16Id))
+  // Dual Sync 2: Automatic 4-second periodic polling loop (only if signed in)
   useEffect(() => {
-    if (!isOpen || myCleanNumericId.length !== 16) return;
+    if (!isOpen || !currentUser || myCleanNumericId.length !== 16) return;
 
     let isMounted = true;
     const pollInbox = async () => {
@@ -151,7 +164,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
       isMounted = false;
       clearInterval(intervalId);
     };
-  }, [isOpen, myCleanNumericId]);
+  }, [isOpen, currentUser, myCleanNumericId]);
 
   // Real-time listener on custom events when inbox is updated globally or hub is opened
   useEffect(() => {
@@ -396,15 +409,64 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
           </button>
         </div>
 
-        {/* User's 16-Digit Identity Banner */}
-        <div className="px-4 py-2.5 bg-zinc-900/60 border-b border-zinc-850 flex items-center justify-between text-xs font-mono">
-          <span className="text-zinc-400">
-            {isArabic ? 'معرّفك الرقمي (16 رقم):' : 'Your 16-Digit ID:'}
-          </span>
-          <span className="font-bold text-purple-300 tracking-wider">
-            {format16DigitId(myCleanNumericId || '0000000000000000')}
-          </span>
-        </div>
+        {!currentUser ? (
+          /* Guest Mode: Prominent Sign In Required Block */
+          <div className="flex-1 overflow-y-auto p-6 sm:p-10 flex flex-col items-center justify-center text-center space-y-6">
+            <div className="relative">
+              <div className="w-20 h-20 rounded-3xl bg-purple-600/20 border-2 border-purple-500/40 text-purple-400 flex items-center justify-center shadow-xl shadow-purple-950/40">
+                <Lock className="w-10 h-10 text-purple-300" />
+              </div>
+              <div className="absolute -top-1 -right-1 w-7 h-7 rounded-full bg-blue-600 border-2 border-zinc-950 text-white flex items-center justify-center shadow-md">
+                <Users className="w-3.5 h-3.5" />
+              </div>
+            </div>
+
+            <div className="max-w-md space-y-2.5">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-xs font-bold">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{isArabic ? 'المشاركة السحابية مقيدة' : 'Cloud Sharing Restricted'}</span>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                {isArabic ? 'تسجيل الدخول مطلوب' : 'Sign in Required'}
+              </h3>
+              <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed">
+                {isArabic
+                  ? 'المعرّف المالي المكوّن من 16 رقماً ومساحات المشاركة السحابية المشفرة متاحة حصرياً للمستخدمين المسجلين. سجّل دخولك الآن لحفظ مساحاتك المشتركة، ودعوة جهات اتصالك، ومزامنة معاملاتك لحظياً وبأمان.'
+                  : 'The 16-digit Financial ID and real-time collaborative shared spaces are exclusively accessible to authenticated accounts. Sign in to create shared spaces, invite members, and sync financial transactions securely in real-time.'}
+              </p>
+            </div>
+
+            <div className="w-full max-w-sm pt-2 space-y-3">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  setIsUserProfileModalOpen(true);
+                }}
+                className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold text-sm shadow-xl shadow-purple-600/30 transition cursor-pointer flex items-center justify-center gap-2 active:scale-98"
+              >
+                <Users className="w-4 h-4" />
+                <span>{isArabic ? 'تسجيل الدخول / إنشاء حساب' : 'Sign In / Create Account'}</span>
+              </button>
+
+              <p className="text-[11px] text-zinc-500">
+                {isArabic
+                  ? 'تسجيل الدخول يتيح لك مزامنة بياناتك على جميع أجهزتك مجاناً وبأمان.'
+                  : 'Signing in allows multi-device real-time sync safely and for free.'}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* User's 16-Digit Identity Banner */}
+            <div className="px-4 py-2.5 bg-zinc-900/60 border-b border-zinc-850 flex items-center justify-between text-xs font-mono">
+              <span className="text-zinc-400">
+                {isArabic ? 'معرّفك الرقمي (16 رقم):' : 'Your 16-Digit ID:'}
+              </span>
+              <span className="font-bold text-purple-300 tracking-wider">
+                {format16DigitId(myCleanNumericId || '0000000000000000')}
+              </span>
+            </div>
 
         {/* Two Dedicated Tabs: "Shared by Me" (أنا مشيره) and "Shared with Me" (متشير معايا) */}
         <div className="p-3 border-b border-zinc-800/60 bg-zinc-950/90 shrink-0">
@@ -788,6 +850,8 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
             </>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* Dedicated Share Space Settings Modal */}

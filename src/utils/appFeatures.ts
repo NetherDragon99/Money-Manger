@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.27',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Strict Guest Mode Isolation: 16-Digit ID & Cloud Share Authentication Gate',
+      ar: 'عزل حسابات الضيوف وتقييد المعرّف المالي والمشاركة السحابية بالمصادقة',
+    },
+    highlights: {
+      en: [
+        'Guest ID Prevention: Strictly prevent generation, display, or storage of 16-digit numeric IDs for guest users not authenticated with Firebase Auth.',
+        'Prominent Sign-In Gate: Display a clear and prominent "Sign in required" blocking card across the Share Hub and Profile modal when accessed in guest mode.',
+        'Protected Cloud Features: Hide all share space creation, member invitations, and inbox listeners until authentication is completed.',
+      ],
+      ar: [
+        'منع توليد المعرّف للضيوف: حظر توليد أو عرض أو حفظ المعرّف الرقمي المكون من 16 رقماً للمستخدمين غير المسجلين عبر Firebase.',
+        'شاشة تنبيه بارزة لتسجيل الدخول: عرض بطاقة تنبيهية واضحة ومباشرة تلزم تسجيل الدخول في مركز المشاركة والملف الشخصي في وضع الضيف.',
+        'حماية ميزات المشاركة السحابية: إخفاء إنشاء مساحات المشاركة ودعوات الأعضاء ومزامنة الصندوق حتى إتمام تسجيل الدخول.',
+      ],
+    },
+  },
+  {
     version: '1.1.26',
     releaseDate: 'October 22, 2026',
     title: {

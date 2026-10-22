@@ -1,4 +1,4 @@
-import { rtdb } from './firebase';
+import { auth, rtdb } from './firebase';
 import { ref, set, get } from 'firebase/database';
 
 /** Permanent guest-mode storage key for the 16-digit numeric ID */
@@ -82,17 +82,28 @@ export function derive16DigitIdFromUid(uid: string): string {
 }
 
 /**
- * Guest mode: generate a 16-digit numeric ID once and persist it permanently in localStorage.
+ * Returns the 16-digit numeric ID ONLY if user is authenticated with Firebase Auth.
+ * Guest users (not signed in to Firebase Auth) DO NOT generate or receive a 16-digit ID.
  */
 export function getOrCreateNumericId(existing?: string): string {
+  const user = auth?.currentUser;
+  if (!user) {
+    // Guest user: strictly do not generate, return, or persist a 16-digit ID
+    try {
+      localStorage.removeItem(PERMANENT_ID_STORAGE_KEY);
+      localStorage.removeItem(LEGACY_ID_STORAGE_KEY);
+    } catch {}
+    return '';
+  }
+
   try {
     const saved = localStorage.getItem(PERMANENT_ID_STORAGE_KEY);
     if (isValid16DigitId(saved)) return cleanNumericId(saved!);
   } catch {}
 
-  const candidates = [existing, (() => { try { return localStorage.getItem(LEGACY_ID_STORAGE_KEY); } catch { return null; } })()];
+  const candidates = [existing, derive16DigitIdFromUid(user.uid)];
   const reuse = candidates.find((c) => isValid16DigitId(c));
-  const id = reuse ? cleanNumericId(reuse) : generate16DigitNumericId();
+  const id = reuse ? cleanNumericId(reuse) : derive16DigitIdFromUid(user.uid);
 
   try {
     localStorage.setItem(PERMANENT_ID_STORAGE_KEY, id);
