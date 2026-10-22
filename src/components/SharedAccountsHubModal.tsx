@@ -45,10 +45,6 @@ import {
   generateShareUrl,
   subscribeToMyInbox,
   fetchMyInboxOnce,
-  subscribeToShareFolder,
-  fetchShareFolderFromCloud,
-  extractShareIdFromUrl,
-  registerReceivedShareFolder,
   ShareFolder,
   publishUserProfileCard,
   getAvatarColorGradient,
@@ -193,10 +189,6 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   const [inviteSelectedUser, setInviteSelectedUser] = useState<UserProfileCard | null>(null);
   const [isVerifyingInvite, setIsVerifyingInvite] = useState(false);
   const [isSendingInvite, setIsSendingInvite] = useState(false);
-
-  // Join via link state
-  const [joinLinkInput, setJoinLinkInput] = useState('');
-  const [isJoiningByLink, setIsJoiningByLink] = useState(false);
 
   // Automatically publish user's public lookup card on open (only if signed in)
   useEffect(() => {
@@ -442,50 +434,6 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     const updated = loadReceivedShareFolders().filter((f) => f.id !== folder.id);
     setReceivedFolders(updated);
     showToast(isArabic ? 'تمت مغادرة المشاركة بنجاح' : 'Left share successfully', 'info');
-  };
-
-  const handleJoinByLink = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const shareId = extractShareIdFromUrl(joinLinkInput);
-    if (!shareId) {
-      showToast(isArabic ? 'يرجى إدخال رابط أو كود شير صحيح' : 'Please enter a valid share link or ID', 'error');
-      return;
-    }
-
-    setIsJoiningByLink(true);
-    try {
-      const folder = await fetchShareFolderFromCloud(shareId);
-      if (folder) {
-        const registered = await registerReceivedShareFolder(
-          folder,
-          myCleanNumericId,
-          myName,
-          settings.userProfile?.avatarEmoji,
-          settings.userProfile?.customAvatarUrl
-        );
-        const updated = loadReceivedShareFolders();
-        setReceivedFolders(updated);
-        setJoinLinkInput('');
-        setActiveShareDetailFolder(registered);
-        showToast(
-          isArabic
-            ? `تم الانضمام إلى شير "${folder.name}" بنجاح!`
-            : `Joined "${folder.name}" successfully!`,
-          'success'
-        );
-      } else {
-        showToast(
-          isArabic
-            ? 'لم يتم العثور على هذا الشير، يرجى التأكد من صحة الرابط أو الكود'
-            : 'Share space not found, please verify link or ID',
-          'error'
-        );
-      }
-    } catch {
-      showToast(isArabic ? 'حدث خطأ أثناء الانضمام' : 'Error joining share', 'error');
-    } finally {
-      setIsJoiningByLink(false);
-    }
   };
 
   const handleAcceptInvite = async (folder: ShareFolder, e?: React.MouseEvent) => {
@@ -929,25 +877,6 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                   {isArabic ? 'دعوات ومجلدات تمت مشاركتها معك' : 'Spaces Shared with You'}
                 </span>
               </div>
-
-              {/* Join via Share Link / Code Input Bar */}
-              <form onSubmit={handleJoinByLink} className="flex gap-2">
-                <input
-                  type="text"
-                  value={joinLinkInput}
-                  onChange={(e) => setJoinLinkInput(e.target.value)}
-                  placeholder={isArabic ? 'ألصق رابط شير أو كود للانضمام الفوري...' : 'Paste share link or ID to join...'}
-                  className="flex-1 px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500 transition"
-                />
-                <button
-                  type="submit"
-                  disabled={isJoiningByLink || !joinLinkInput.trim()}
-                  className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 shadow-md active:scale-95"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>{isJoiningByLink ? '...' : isArabic ? 'انضمام' : 'Join'}</span>
-                </button>
-              </form>
 
               {displayedReceivedFolders.length === 0 ? (
                 <div className="py-12 text-center space-y-3">
