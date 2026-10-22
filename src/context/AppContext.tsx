@@ -194,6 +194,10 @@ interface AppContextType {
   // Shared Accounts Hub Modal
   isSharedHubModalOpen: boolean;
   setIsSharedHubModalOpen: (open: boolean) => void;
+  isEditingSpace: boolean;
+  setIsEditingSpace: (val: boolean) => void;
+  editingShareId: string | null;
+  setEditingShareId: (id: string | null) => void;
 
   // Categories CRUD
   addCategory: (cat: Omit<Category, 'id'>) => void;
@@ -361,6 +365,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isSharedHubModalOpen, setIsSharedHubModalOpen] = useState(false);
+  const [isEditingSpace, setIsEditingSpace] = useState(false);
+  const [editingShareId, setEditingShareId] = useState<string | null>(null);
 
   // Recurring transactions state
   const [recurringTransactions, setRecurringTransactions] = useState<RecurringTransaction[]>(() =>
@@ -1615,6 +1621,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsRecurringModalOpen,
     setIsPinModalOpen,
     setIsSharedHubModalOpen,
+    setIsEditingSpace,
+    setEditingShareId,
     setIsAppLocked,
     unlockApp,
     lockApp,
@@ -1709,6 +1717,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isRecurringModalOpen,
       isPinModalOpen,
       isSharedHubModalOpen,
+      isEditingSpace,
+      editingShareId,
       isAppLocked,
       recurringTransactions,
       budgetAlerts,
@@ -1761,6 +1771,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isRecurringModalOpen,
       isPinModalOpen,
       isSharedHubModalOpen,
+      isEditingSpace,
+      editingShareId,
       isAppLocked,
       recurringTransactions,
       budgetAlerts,

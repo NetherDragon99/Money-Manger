@@ -71,6 +71,8 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     showToast,
     showConfirm,
     setIsUserProfileModalOpen,
+    setIsEditingSpace: setGlobalIsEditingSpace,
+    setEditingShareId: setGlobalEditingShareId,
   } = useApp();
 
   const isArabic = settings.language === 'ar';
@@ -93,8 +95,51 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   // Full-screen native detail page view state
   const [activeShareDetailFolder, setActiveShareDetailFolder] = useState<ShareFolder | null>(null);
 
-  // Dedicated Share Space Settings Modal state
+  // Dedicated Share Space Settings / Edit Space Modal state
   const [settingsFolder, setSettingsFolder] = useState<ShareFolder | null>(null);
+  const [isEditingSpace, setIsEditingSpace] = useState<boolean>(false);
+  const [editingShareId, setEditingShareId] = useState<string | null>(null);
+
+  const handleOpenEditSpace = (folder: ShareFolder, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSettingsFolder(folder);
+    setIsEditingSpace(true);
+    setEditingShareId(folder.id);
+    setGlobalIsEditingSpace?.(true);
+    setGlobalEditingShareId?.(folder.id);
+  };
+
+  const handleCloseEditSpace = () => {
+    setSettingsFolder(null);
+    setIsEditingSpace(false);
+    setEditingShareId(null);
+    setGlobalIsEditingSpace?.(false);
+    setGlobalEditingShareId?.(null);
+  };
+
+  // Explicit popstate & unmount cleanup for edit space states
+  useEffect(() => {
+    const handlePop = () => {
+      if (settingsFolder || isEditingSpace || editingShareId) {
+        handleCloseEditSpace();
+      }
+    };
+
+    window.addEventListener('popstate', handlePop);
+
+    return () => {
+      window.removeEventListener('popstate', handlePop);
+      handleCloseEditSpace();
+    };
+  }, [settingsFolder, isEditingSpace, editingShareId]);
+
+  // When hub closes, explicitly clear edit space and detail view states
+  useEffect(() => {
+    if (!isOpen) {
+      handleCloseEditSpace();
+      setActiveShareDetailFolder(null);
+    }
+  }, [isOpen]);
 
   // Quick invite inside modal state
   const [invitingFolderId, setInvitingFolderId] = useState<string | null>(null);
@@ -585,7 +630,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => setSettingsFolder(folder)}
+                              onClick={(e) => handleOpenEditSpace(folder, e)}
                               className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
                               title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
                               aria-label={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
@@ -859,17 +904,17 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
       {settingsFolder && (
         <ShareSpaceSettingsModal
           isOpen={!!settingsFolder}
-          onClose={() => setSettingsFolder(null)}
+          onClose={handleCloseEditSpace}
           folder={settingsFolder}
           onUpdated={(updated) => {
             const next = loadMyShareFolders();
             setMyFolders(next);
-            setSettingsFolder(null);
+            handleCloseEditSpace();
           }}
           onDeleted={() => {
             const next = loadMyShareFolders();
             setMyFolders(next);
-            setSettingsFolder(null);
+            handleCloseEditSpace();
           }}
         />
       )}

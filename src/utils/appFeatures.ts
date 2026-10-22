@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.29',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Edit Space Loop Fix & Popstate Navigation State Guard',
+      ar: 'معالجة حلقة تعديل المساحة اللانهائية وتثبيت حالة التنقل بالزر الخلفي',
+    },
+    highlights: {
+      en: [
+        'Popstate Navigation Safety: Explicitly reset isEditingSpace, editingShareId, and settingsFolder to false/null in popstate handlers and component unmount cleanups.',
+        'Eliminated Modal Re-open Loop: Prevented the Edit Space dialog from erroneously re-opening upon re-entering the Shared Spaces Hub or pressing the hardware Back button.',
+        'Coordinated App-Level Hierarchy: Unified back-button priority chain so pressing hardware Back dismisses active space settings first before affecting underlying hub views.',
+      ],
+      ar: [
+        'أمان التنقل بالزر الخلفي: إعادة تعيين isEditingSpace و editingShareId و settingsFolder صراحة إلى false/null في مراقبات popstate وعند إلغاء تحميل المكونات.',
+        'القضاء على التكرار التلقائي: منع نافذة تعديل المساحة من الفتح التلقائي عند الدخول مجدداً إلى مركز المشاركة أو الضغط على زر الرجوع.',
+        'تسلسل هرمي موحد للتنقل: إغلاق نافذة إعدادات المساحة أولاً بشكل مستقل دون الخروج المفاجئ من مركز المشاركة أو إعادة توجيه الصفحة الرئيسية.',
+      ],
+    },
+  },
+  {
     version: '1.1.28',
     releaseDate: 'October 22, 2026',
     title: {

@@ -75,6 +75,8 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     importSharedItems,
     showToast,
     showConfirm,
+    setIsEditingSpace: setGlobalIsEditingSpace,
+    setEditingShareId: setGlobalEditingShareId,
   } = useApp();
 
   const isArabic = settings.language === 'ar';
@@ -106,6 +108,41 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [isManageMembersOpen, setIsManageMembersOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isEditingSpace, setIsEditingSpace] = useState<boolean>(false);
+  const [editingShareId, setEditingShareId] = useState<string | null>(null);
+
+  const handleOpenEditSpace = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setIsSettingsOpen(true);
+    setIsEditingSpace(true);
+    setEditingShareId(folder.id);
+    setGlobalIsEditingSpace?.(true);
+    setGlobalEditingShareId?.(folder.id);
+  };
+
+  const handleCloseEditSpace = () => {
+    setIsSettingsOpen(false);
+    setIsEditingSpace(false);
+    setEditingShareId(null);
+    setGlobalIsEditingSpace?.(false);
+    setGlobalEditingShareId?.(null);
+  };
+
+  // Explicit popstate & unmount cleanup for edit space states
+  useEffect(() => {
+    const handlePop = () => {
+      if (isSettingsOpen || isEditingSpace || editingShareId) {
+        handleCloseEditSpace();
+      }
+    };
+
+    window.addEventListener('popstate', handlePop);
+
+    return () => {
+      window.removeEventListener('popstate', handlePop);
+      handleCloseEditSpace();
+    };
+  }, [isSettingsOpen, isEditingSpace, editingShareId]);
   const [newMemberId, setNewMemberId] = useState('');
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedMemberUser, setSelectedMemberUser] = useState<any>(null);
@@ -561,7 +598,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             {isOwner && (
               <button
                 type="button"
-                onClick={() => setIsSettingsOpen(true)}
+                onClick={handleOpenEditSpace}
                 className="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition active:scale-95 cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
                 title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
                 aria-label={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
@@ -666,7 +703,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setIsSettingsOpen(true)}
+                  onClick={handleOpenEditSpace}
                   className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-800"
                   title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
                 >
@@ -1830,12 +1867,14 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       {isSettingsOpen && (
         <ShareSpaceSettingsModal
           isOpen={isSettingsOpen}
-          onClose={() => setIsSettingsOpen(false)}
+          onClose={handleCloseEditSpace}
           folder={folder}
           onUpdated={(updated) => {
             setFolder(updated);
+            handleCloseEditSpace();
           }}
           onDeleted={() => {
+            handleCloseEditSpace();
             onExit();
           }}
         />

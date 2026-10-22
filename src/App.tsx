@@ -117,6 +117,10 @@ const MainAppContent: React.FC = () => {
     setIsRecurringModalOpen,
     isSharedHubModalOpen,
     setIsSharedHubModalOpen,
+    isEditingSpace,
+    setIsEditingSpace,
+    editingShareId,
+    setEditingShareId,
     openAddTxModal,
     isTxMultiSelect,
     clearTxSelection,
@@ -217,6 +221,8 @@ const MainAppContent: React.FC = () => {
     editingTx,
     isSidebarOpen,
     isSharedHubModalOpen,
+    isEditingSpace,
+    editingShareId,
     customDialogState,
     selectedAccountId,
     currentTab,
@@ -247,6 +253,8 @@ const MainAppContent: React.FC = () => {
     editingTx,
     isSidebarOpen,
     isSharedHubModalOpen,
+    isEditingSpace,
+    editingShareId,
     customDialogState,
     selectedAccountId,
     currentTab,
@@ -371,9 +379,19 @@ const MainAppContent: React.FC = () => {
         return;
       }
 
+      // Layer 4.5: Space Edit Settings Modal
+      if (s.isEditingSpace || s.editingShareId) {
+        setIsEditingSpace(false);
+        setEditingShareId(null);
+        window.history.pushState({ exitGuard: true }, '');
+        return;
+      }
+
       // Layer 2: Full-Screen Sub-pages
       if (s.isSharedHubModalOpen) {
         setIsSharedHubModalOpen(false);
+        setIsEditingSpace(false);
+        setEditingShareId(null);
         window.history.pushState({ exitGuard: true }, '');
         return;
       }
