@@ -112,10 +112,11 @@ export function getOrCreateNumericId(existing?: string): string {
 }
 
 /**
- * Signed-in mode: fetch `users/{uid}/numeric16Id`; if missing, derive deterministically from the
- * UID hash and save it, so the user keeps the exact same 16-digit ID across devices & resets.
+ * Signed-in mode: fetch `users/{uid}/numeric16Id`; if missing, check cloud backup hint,
+ * or derive deterministically from the UID hash and save it, so the user keeps the exact
+ * same 16-digit ID across devices & resets.
  */
-export async function resolvePermanent16DigitId(uid: string): Promise<string> {
+export async function resolvePermanent16DigitId(uid: string, fallbackIdHint?: string): Promise<string> {
   let existingLocal: string | null = null;
   try {
     const saved = localStorage.getItem(PERMANENT_ID_STORAGE_KEY);
@@ -144,6 +145,10 @@ export async function resolvePermanent16DigitId(uid: string): Promise<string> {
         }
       } catch {}
 
+      if (!finalId && fallbackIdHint && isValid16DigitId(fallbackIdHint)) {
+        finalId = cleanNumericId(fallbackIdHint);
+      }
+
       if (!finalId) {
         // Never overwrite an existing local ID on sign-in unless users/{uid}/numeric16Id was already stored in RTDB
         finalId = existingLocal || derive16DigitIdFromUid(uid);
@@ -159,7 +164,11 @@ export async function resolvePermanent16DigitId(uid: string): Promise<string> {
     }
   } catch (err) {
     console.warn('[NumericId] Could not reach Firebase within timeout, preserving existing ID:', err);
-    finalId = existingLocal || derive16DigitIdFromUid(uid);
+    if (fallbackIdHint && isValid16DigitId(fallbackIdHint)) {
+      finalId = cleanNumericId(fallbackIdHint);
+    } else {
+      finalId = existingLocal || derive16DigitIdFromUid(uid);
+    }
   }
   try {
     localStorage.setItem(PERMANENT_ID_STORAGE_KEY, finalId);

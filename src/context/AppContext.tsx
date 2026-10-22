@@ -1020,6 +1020,84 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  /**
+   * Immediately hydrates full profile & 16-digit ID upon cloud restore or merge,
+   * restoring local state and publishing to shared_accounts/profile_${clean16Id} in Firebase RTDB.
+   */
+  const hydrateAndPublishUserProfile = async (uid: string, cloudBackupData?: any) => {
+    try {
+      const d = cloudBackupData || {};
+      const backupProfile = d.userProfile || d.settings?.userProfile || {};
+
+      // 1. Resolve permanent 16-digit numeric ID from users/${uid}/numeric16Id, profile, or cloud backup hint
+      const fallbackHint = backupProfile.numericId || settingsRef.current.userProfile?.numericId;
+      const resolvedId = await resolvePermanent16DigitId(uid, fallbackHint);
+      const clean16Id = cleanNumericId(resolvedId);
+
+      // 2. Resolve display name, avatar, and photoURL
+      const currentUser = auth.currentUser || getCachedAuthUser();
+      const suggestedName =
+        currentUser?.displayName || (currentUser?.email ? currentUser.email.split('@')[0] : 'User');
+      const cloudName = backupProfile.name;
+      const currentName = settingsRef.current.userProfile?.name;
+
+      const finalName =
+        cloudName && cloudName !== 'User' && cloudName !== 'My Profile' && cloudName.trim() !== ''
+          ? cloudName
+          : currentName && currentName !== 'User' && currentName !== 'My Profile' && currentName.trim() !== ''
+          ? currentName
+          : suggestedName;
+
+      const finalAvatar = backupProfile.avatarEmoji || settingsRef.current.userProfile?.avatarEmoji || '👤';
+      const finalPhoto =
+        backupProfile.customAvatarUrl ||
+        settingsRef.current.userProfile?.customAvatarUrl ||
+        currentUser?.photoURL ||
+        '';
+
+      // 3. Update local state and localStorage immediately
+      setSettings((prev) => ({
+        ...prev,
+        userProfile: {
+          ...prev.userProfile,
+          uid: uid,
+          numericId: clean16Id,
+          name: finalName,
+          avatarEmoji: finalAvatar,
+          customAvatarUrl: finalPhoto,
+        },
+      }));
+
+      try {
+        localStorage.setItem('app_permanent_16digit_id', clean16Id);
+      } catch {}
+
+      // 4. Publish immediately to Firebase RTDB at shared_accounts/profile_${clean16Id}
+      if (typeof navigator !== 'undefined' && navigator.onLine && clean16Id.length === 16) {
+        await publishUserProfileCard({
+          numericId: clean16Id,
+          name: finalName,
+          avatar: finalAvatar,
+          photoURL: finalPhoto,
+          uid: uid,
+        }).catch((err) => console.warn('[AppContext] Profile cloud publish note:', err));
+
+        // Also publish to numericIds/${clean16Id} for reverse UID lookup
+        await syncNumericIdToFirebase(
+          clean16Id,
+          uid,
+          finalName,
+          currentUser?.email || ''
+        ).catch((err) => console.warn('[AppContext] Numeric ID sync note:', err));
+      }
+
+      return { clean16Id, finalName, finalAvatar, finalPhoto };
+    } catch (err) {
+      console.warn('[AppContext] Error hydrating user profile:', err);
+      return null;
+    }
+  };
+
   // Strictly ensure that EVERY time a user signs in, the app:
   // 1. Blocks cloud backup writes (isCloudHydratedRef.current = false) until cloud inspection completes.
   // 2. Checks Google Drive first (and Firebase users/${uid}/cloud_backup as fallback) for existing data.
@@ -1090,6 +1168,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 // If local device has 0 custom transactions, automatically restore cloud account data immediately!
                 console.log('[AppContext] Local device has 0 transactions: Auto-restoring cloud account data immediately');
                 applyCloudData(cloudData);
+                await hydrateAndPublishUserProfile(user.uid, cloudData);
                 isCloudHydratedRef.current = true;
                 setCloudBackupBlocked(false);
 
@@ -1121,6 +1200,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             } else {
               // No cloud data exists on this account yet: Local device data is source of truth
               console.log('[AppContext] No existing cloud backup found. Using local device data and saving initial backup.');
+              await hydrateAndPublishUserProfile(user.uid);
               isCloudHydratedRef.current = true;
               setCloudBackupBlocked(false);
               setTimeout(() => {
@@ -1135,55 +1215,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         } else {
           isCloudHydratedRef.current = true;
           setCloudBackupBlocked(false);
-        }
-
-        const resolvedId = await resolvePermanent16DigitId(user.uid);
-        const clean16Id = cleanNumericId(resolvedId);
-
-        if (!clean16Id || clean16Id.length !== 16) {
-          console.warn('[AppContext] Resolved ID is invalid:', resolvedId);
-          return;
-        }
-
-        const suggestedName = user.displayName || (user.email ? user.email.split('@')[0] : 'User');
-        const currentName = settings.userProfile?.name;
-        const isDefaultOrBlank =
-          !currentName || currentName === 'My Profile' || currentName === 'User' || currentName.trim() === '';
-        const finalName = isDefaultOrBlank && suggestedName ? suggestedName : currentName || suggestedName;
-        const finalAvatar = settings.userProfile?.avatarEmoji || '👤';
-        const finalPhoto = settings.userProfile?.customAvatarUrl || user.photoURL || '';
-
-        if (isMounted) {
-          setSettings((prev) => ({
-            ...prev,
-            userProfile: {
-              ...prev.userProfile,
-              uid: user.uid,
-              numericId: clean16Id,
-              name: finalName,
-              avatarEmoji: finalAvatar,
-              customAvatarUrl: finalPhoto || prev.userProfile?.customAvatarUrl,
-            },
-          }));
-        }
-
-        if (typeof navigator !== 'undefined' && navigator.onLine) {
-          // IMMEDIATELY publish & update public profile to Firebase RTDB at shared_accounts/profile_${cleanMy16Id}
-          await publishUserProfileCard({
-            numericId: clean16Id,
-            name: finalName,
-            avatar: finalAvatar,
-            photoURL: finalPhoto,
-            uid: user.uid,
-          }).catch((err) => console.warn('[AppContext] Profile cloud publish note:', err));
-
-          // Also publish to numericIds/${cleanMy16Id} for reverse UID lookup
-          await syncNumericIdToFirebase(
-            clean16Id,
-            user.uid,
-            finalName,
-            user.email || ''
-          ).catch((err) => console.warn('[AppContext] Numeric ID sync note:', err));
+          await hydrateAndPublishUserProfile(user.uid);
         }
       } catch (e) {
         console.warn('[AppContext] Error syncing profile on auth state change:', e);
@@ -1811,6 +1843,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     if (choice === 'replace') {
       applyCloudData(d);
+      await hydrateAndPublishUserProfile(uid, d);
       isCloudHydratedRef.current = true;
       setCloudBackupBlocked(false);
       setPendingSyncConflict(null);
@@ -1880,6 +1913,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
       }
 
+      // Immediately restore full profile & 16-digit ID upon merge
+      const prof = await hydrateAndPublishUserProfile(uid, d);
+
       // Unlock cloud backup writes
       isCloudHydratedRef.current = true;
       setCloudBackupBlocked(false);
@@ -1901,10 +1937,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           receivedFolders: loadReceivedShareFolders(),
         },
         userProfile: {
-          name: effectiveSettings.userProfile?.name || 'User',
-          numericId: effectiveSettings.userProfile?.numericId || '',
-          avatarEmoji: effectiveSettings.userProfile?.avatarEmoji || '👤',
-          customAvatarUrl: effectiveSettings.userProfile?.customAvatarUrl || auth.currentUser?.photoURL || '',
+          name: prof?.finalName || effectiveSettings.userProfile?.name || 'User',
+          numericId: prof?.clean16Id || effectiveSettings.userProfile?.numericId || '',
+          avatarEmoji: prof?.finalAvatar || effectiveSettings.userProfile?.avatarEmoji || '👤',
+          customAvatarUrl: prof?.finalPhoto || effectiveSettings.userProfile?.customAvatarUrl || auth.currentUser?.photoURL || '',
           email: auth.currentUser?.email || '',
           uid: uid,
         },
