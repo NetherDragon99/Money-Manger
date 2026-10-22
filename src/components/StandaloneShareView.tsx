@@ -411,7 +411,7 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white flex flex-col items-center selection:bg-blue-600 selection:text-white" dir={isArabic ? 'rtl' : 'ltr'}>
-      <div className="w-full max-w-full md:max-w-4xl lg:max-w-5xl min-h-screen bg-black flex flex-col shadow-2xl relative">
+      <div className="w-full max-w-none md:max-w-7xl landscape:max-w-none min-h-screen bg-black flex flex-col shadow-2xl relative">
         {/* Top Header Bar */}
         <header className="sticky top-0 z-30 px-4 sm:px-6 py-3 bg-black/90 backdrop-blur-xl border-b border-zinc-800/80 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">

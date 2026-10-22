@@ -487,7 +487,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
       </div>
 
       {/* View Content: Responsive Tablet & Desktop Container (Item 2) */}
-      <div className="flex-1 px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto w-full space-y-4">
+      <div className="flex-1 px-4 py-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto space-y-4">
         {/* Smart Budget Alert Banner */}
         <SmartBudgetAlertBanner />
 

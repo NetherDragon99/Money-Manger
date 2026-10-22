@@ -298,7 +298,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
+        className={`fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -333,7 +333,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
       </header>
 
       {/* Scrollable View Content Container */}
-      <div className="pt-20 px-3.5 space-y-4 max-w-md md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto w-full">
+      <div className="pt-20 px-3.5 space-y-4 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto">
         {/* Global Net Worth Dashboard Card */}
         <div className="p-4 sm:p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 shadow-xl space-y-4">
           <div className="md:grid md:grid-cols-3 md:items-center md:gap-6">

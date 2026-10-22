@@ -297,7 +297,7 @@ export const AccountDetailsView: React.FC = () => {
       </header>
 
       {/* Main Container */}
-      <div className="flex-1 px-4 py-4 max-w-2xl mx-auto w-full space-y-4">
+      <div className="flex-1 px-4 py-4 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto space-y-4">
         {/* Period Selector Sub-Header: < This Month ▾ > */}
         <div className="flex items-center justify-between px-2">
           <button
@@ -496,7 +496,7 @@ export const AccountDetailsView: React.FC = () => {
       </div>
 
       {/* Floating Action Button (+): Pre-selects this specific account, responsive container */}
-      <div className="fixed bottom-6 left-0 right-0 max-w-md md:max-w-4xl lg:max-w-6xl mx-auto pointer-events-none z-40 px-5 flex justify-end">
+      <div className="fixed bottom-6 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto pointer-events-none z-40 px-5 flex justify-end">
         <button
           type="button"
           onClick={() => openAddTxModal(account.id)}

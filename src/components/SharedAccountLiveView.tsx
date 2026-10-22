@@ -173,7 +173,7 @@ export const SharedAccountLiveView: React.FC<SharedAccountLiveViewProps> = ({
       </header>
 
       {/* Main Content Area */}
-      <div className="w-full max-w-4xl mx-auto p-4 sm:p-6 space-y-5 pb-24">
+      <div className="w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto p-4 sm:p-6 space-y-5 pb-24">
         {/* Info Banner & Primary Action Card */}
         <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800 shadow-xl space-y-4">
           <div className="flex items-center justify-between">

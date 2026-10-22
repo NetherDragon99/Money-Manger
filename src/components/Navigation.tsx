@@ -83,7 +83,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
             transform: isNavVisible ? 'translateY(0%)' : 'translateY(115%)',
             transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
           }}
-          className={`fixed bottom-20 left-0 right-0 max-w-md md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto pointer-events-none z-30 px-5 flex justify-end ${
+          className={`fixed bottom-20 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto pointer-events-none z-30 px-5 flex justify-end ${
             isNavVisible ? 'opacity-100' : 'opacity-0'
           }`}
         >
@@ -108,7 +108,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
           isNavVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
-        <div className="max-w-md md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto grid grid-cols-5 items-center relative">
+        <div className="w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto grid grid-cols-5 items-center relative">
           {/* Fluid Sliding Active Indicator (Inversion fixed for RTL Arabic) */}
           {activeIndex !== -1 && (
             <div

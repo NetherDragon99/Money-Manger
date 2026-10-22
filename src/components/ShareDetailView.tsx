@@ -516,7 +516,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       className="fixed inset-0 z-50 bg-black text-white flex flex-col overflow-y-auto animate-in fade-in"
       dir={isArabic ? 'rtl' : 'ltr'}
     >
-      <div className="w-full max-w-full md:max-w-5xl lg:max-w-6xl mx-auto min-h-screen flex flex-col bg-black pb-20">
+      <div className="w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto min-h-screen flex flex-col bg-black pb-20">
         {/* Top Header Bar: Styled Identically to HomeView Header */}
         <header className="sticky top-0 z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3 min-w-0">

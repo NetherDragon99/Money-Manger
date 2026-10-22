@@ -538,7 +538,7 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`fixed top-0 left-0 right-0 max-w-full md:max-w-5xl lg:max-w-6xl mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
+        className={`fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -561,7 +561,7 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
         </div>
       </header>
 
-      <div className="px-4 py-3 max-w-md md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto w-full space-y-5">
+      <div className="px-4 py-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto space-y-5">
 
       {/* Smart Budget Alert Banner */}
       <SmartBudgetAlertBanner />

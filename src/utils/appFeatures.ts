@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.24',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Tablet & Landscape Full-Width Expansion & Viewport Resizing',
+      ar: 'توسيع كامل العرض للأجهزة اللوحية والوضع الأفقي وإتاحة تغيير حجم العرض',
+    },
+    highlights: {
+      en: [
+        'Unconstrained Landscape Mode: Removed narrow mobile max-width bottlenecks across App, Views, and Navigation bars so content expands fluidly to full screen width (up to max-w-7xl) on tablets and foldables.',
+        'Resizable Viewport: Updated index.html viewport meta tag to enable natural browser resizing and rotation transitions without restrictive zoom/scaling locks.',
+        'Orientation Consistency: Manifests strictly configured with "orientation": "any" for PWA desktop and tablet installs.',
+      ],
+      ar: [
+        'توسيع شامل للوضع الأفقي: إزالة القيود الضيقة للعرض عبر الحاوية الرئيسية والصفحات وأشرطة التنقل ليتسع المحتوى بكامل عرض الشاشة على الأجهزة اللوحية والشاشات القابلة للطي.',
+        'تكييف وتدوير مرن: تحديث وسم viewport في index.html لتمكين التدوير الطبيعي وتغيير الحجم دون قيود صارمة على التحجيم.',
+        'تثبيت اتجاه حر: ضبط ملفات تعريف PWA بدقة على "orientation": "any" لضمان حرية التدوير على أجهزة التابلت والكمبيوتر.',
+      ],
+    },
+  },
+  {
     version: '1.1.23',
     releaseDate: 'October 22, 2026',
     title: {
