@@ -7,6 +7,7 @@
 import { AppData, Account, Category, Transaction, AppSettings, RecurringTransaction } from '../types';
 import {
   getGoogleDriveAccessToken,
+  setGoogleDriveAccessToken,
   saveFirebaseCloudBackup,
   getFirebaseCloudBackup,
 } from './firebase';
@@ -249,7 +250,8 @@ async function findGoogleDriveBackupFile(
  */
 export async function uploadToGoogleDrive(
   accessToken: string,
-  payload: FullAppBackupPayload
+  payload: FullAppBackupPayload,
+  uid?: string
 ): Promise<boolean> {
   if (!accessToken) return false;
   const jsonStr = JSON.stringify(payload, null, 2);
@@ -270,6 +272,16 @@ export async function uploadToGoogleDrive(
       });
       if (res.ok) {
         return true;
+      }
+      if (res.status === 401 || res.status === 403 || res.status === 507) {
+        console.warn('[GoogleDrive] Access revoked or quota exceeded (status ' + res.status + ')');
+        setGoogleDriveAccessToken(null);
+        if (uid) {
+          try {
+            localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
+          } catch {}
+        }
+        return false;
       }
       console.warn('[GoogleDrive] Update failed with status:', res.status);
     }
@@ -311,6 +323,17 @@ export async function uploadToGoogleDrive(
       return true;
     }
 
+    if (createRes.status === 401 || createRes.status === 403 || createRes.status === 507) {
+      console.warn('[GoogleDrive] AppDataFolder create failed with status:', createRes.status);
+      setGoogleDriveAccessToken(null);
+      if (uid) {
+        try {
+          localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
+        } catch {}
+      }
+      return false;
+    }
+
     // Attempt 2: If appDataFolder is restricted, create in root drive
     const rootMetadata = {
       name: BACKUP_FILE_NAME,
@@ -337,9 +360,29 @@ export async function uploadToGoogleDrive(
       }
     );
 
-    return rootCreateRes.ok;
+    if (rootCreateRes.ok) {
+      return true;
+    }
+
+    if (rootCreateRes.status === 401 || rootCreateRes.status === 403 || rootCreateRes.status === 507) {
+      console.warn('[GoogleDrive] Root drive create failed with status:', rootCreateRes.status);
+      setGoogleDriveAccessToken(null);
+      if (uid) {
+        try {
+          localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
+        } catch {}
+      }
+      return false;
+    }
+
+    return false;
   } catch (err) {
     console.warn('[GoogleDrive] Upload error:', err);
+    if (uid) {
+      try {
+        localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
+      } catch {}
+    }
     return false;
   }
 }
@@ -385,7 +428,7 @@ export async function executeDualCloudBackup(
 
   if (accessToken) {
     try {
-      driveSuccess = await uploadToGoogleDrive(accessToken, payload);
+      driveSuccess = await uploadToGoogleDrive(accessToken, payload, uid);
     } catch (e) {
       console.warn('[DualCloudBackup] Google Drive upload attempt failed:', e);
     }
@@ -395,6 +438,7 @@ export async function executeDualCloudBackup(
     try {
       localStorage.setItem('pwa_last_cloud_backup_time', new Date().toISOString());
       localStorage.setItem('pwa_last_cloud_backup_provider', 'google_drive');
+      localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
     } catch {}
 
     // Async server mirror fallback write so Firebase RTDB server is also continuously safeguarded
@@ -405,7 +449,12 @@ export async function executeDualCloudBackup(
     return { provider: 'google_drive', success: true };
   }
 
-  // Google Drive upload failed or access token unavailable: Seamless Firebase Server Fallback
+  // Google Drive upload failed, quota lacked, or access token unavailable:
+  // Permanently set prompt flag so user is never prompted again, and seamlessly switch to Firebase RTDB server
+  try {
+    localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
+  } catch {}
+
   try {
     await saveFirebaseCloudBackup(uid, payload);
     try {
@@ -438,6 +487,9 @@ export async function fetchDualCloudBackup(
       }
     } catch (e) {
       console.warn('[DualCloudBackup] Google Drive fetch failed, checking Firebase fallback:', e);
+      try {
+        localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
+      } catch {}
     }
   }
 

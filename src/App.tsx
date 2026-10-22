@@ -18,6 +18,7 @@ import { TransactionDetailsModal } from './components/TransactionDetailsModal';
 import { AccountModal } from './components/AccountModal';
 import { CategoryModal } from './components/CategoryModal';
 import { UserProfileModal } from './components/UserProfileModal';
+import { DriveStoragePromptModal } from './components/DriveStoragePromptModal';
 import { ResetPeriodModal } from './components/ResetPeriodModal';
 import { AdvancedFilterModal } from './components/AdvancedFilterModal';
 import { EmojiPickerModal } from './components/EmojiPickerModal';
@@ -772,6 +773,7 @@ const MainAppContent: React.FC = () => {
         <AccountModal />
         <CategoryModal />
         <UserProfileModal />
+        <DriveStoragePromptModal />
         <ResetPeriodModal />
         <AdvancedFilterModal />
 

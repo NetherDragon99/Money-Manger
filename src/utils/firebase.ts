@@ -152,6 +152,9 @@ export async function loginWithGoogle(): Promise<User> {
       setGoogleDriveAccessToken(oauthCred.accessToken);
     }
     if (cred.user) {
+      try {
+        localStorage.setItem('mm_drive_perm_prompted_' + cred.user.uid, 'true');
+      } catch {}
       setCachedAuthUser({
         uid: cred.user.uid,
         email: cred.user.email,
@@ -182,6 +185,9 @@ export async function checkAndHandleGoogleRedirect(): Promise<User | null> {
         setGoogleDriveAccessToken(oauthCred.accessToken);
       }
       if (cred.user) {
+        try {
+          localStorage.setItem('mm_drive_perm_prompted_' + cred.user.uid, 'true');
+        } catch {}
         setCachedAuthUser({
           uid: cred.user.uid,
           email: cred.user.email,
@@ -196,6 +202,38 @@ export async function checkAndHandleGoogleRedirect(): Promise<User | null> {
     console.warn('[Firebase] Google redirect result check error:', err);
   }
   return null;
+}
+
+/**
+ * Request Google Drive storage scope for an already signed-in user.
+ * Explicitly grants Drive storage access or marks prompt completed to seamlessly fallback to Firebase RTDB server.
+ */
+export async function requestGoogleDriveStorageAccess(
+  targetUid?: string
+): Promise<{ success: boolean; token: string | null }> {
+  const uid = targetUid || auth.currentUser?.uid || getCachedAuthUser()?.uid;
+  try {
+    const cred = await signInWithPopup(auth, googleProvider);
+    const oauthCred = GoogleAuthProvider.credentialFromResult(cred);
+    const token = oauthCred?.accessToken || null;
+    if (token) {
+      setGoogleDriveAccessToken(token);
+    }
+    if (uid || cred.user?.uid) {
+      try {
+        localStorage.setItem('mm_drive_perm_prompted_' + (uid || cred.user?.uid), 'true');
+      } catch {}
+    }
+    return { success: Boolean(token), token };
+  } catch (err: any) {
+    console.warn('[Firebase] Drive storage access permission prompt error or dismissed:', err);
+    if (uid) {
+      try {
+        localStorage.setItem('mm_drive_perm_prompted_' + uid, 'true');
+      } catch {}
+    }
+    return { success: false, token: null };
+  }
 }
 
 /**
