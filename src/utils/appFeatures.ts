@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.30',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Prominent Sidebar Shared Spaces Hub Button Redesign',
+      ar: 'إبراز وتحديث زر مساحات الحسابات المشتركة في القائمة الجانبية',
+    },
+    highlights: {
+      en: [
+        'Distinct Visual Emphasis: Redesigned the Shared Accounts & Spaces button with an eye-catching gradient tint, primary outline, and dedicated bold icon container.',
+        'Two-Tier Information Layout: Added a descriptive subtitle highlighting real-time collaboration & 16-digit sync alongside a pulsating Live status badge.',
+        'Enhanced Spacing & Accessibility: Expanded button padding and separation to ensure it is never cramped or lost among standard menu items.',
+      ],
+      ar: [
+        'إبراز بصري مميز: إعادة تصميم زر مساحات الحسابات المشتركة بتدرج لوني جذاب وإطار أساسي بارز وأيقونة واضحة مميزة.',
+        'تصميم معلوماتي من مستويين: إضافة نص فرعي يوضح المزامنة الحية والتعاون بالمعرف الرقمي مع شارة بث مباشر نابضة.',
+        'أبعاد وتناسق محسّن: توسيع هوامش وأبعاد الزر لمنع انحشاره أو ضياعه بين عناصر القائمة الجانبية الأخرى.',
+      ],
+    },
+  },
+  {
     version: '1.1.29',
     releaseDate: 'October 22, 2026',
     title: {

@@ -26,6 +26,7 @@ import {
   Cloud,
   Mail,
   Users,
+  Share2,
   Trash2,
   Copy,
 } from 'lucide-react';
@@ -743,22 +744,38 @@ export const Sidebar: React.FC = () => {
               <span>{isArabic ? 'دليل الاستخدام ومميزات التطبيق' : 'How to Use & Feature Directory'}</span>
             </button>
 
-            {/* Shared Accounts Manager Hub */}
+            {/* Prominent Shared Accounts / Spaces Hub Button */}
             <button
               type="button"
               onClick={() => {
                 setIsSidebarOpen(false);
                 setIsSharedHubModalOpen(true);
               }}
-              className="w-full flex items-center justify-between p-3 rounded-2xl bg-cyan-950/40 hover:bg-cyan-900/40 border border-cyan-500/40 text-xs font-bold text-white transition cursor-pointer shadow-lg active:scale-98"
+              className="w-full relative overflow-hidden group flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-blue-900/40 via-purple-900/30 to-blue-950/50 hover:from-blue-900/60 hover:via-purple-900/40 hover:to-blue-950/70 border-2 border-blue-500/50 hover:border-blue-400 text-white transition-all duration-200 cursor-pointer shadow-xl shadow-blue-950/40 hover:shadow-blue-900/50 active:scale-[0.98] my-1"
             >
-              <div className="flex items-center gap-2.5">
-                <Users className="w-4 h-4 text-cyan-400" />
-                <span>{isArabic ? 'مركز الحسابات المشتركة' : 'Shared Accounts Hub'}</span>
+              {/* Subtle Ambient Glow Effect */}
+              <div className="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+
+              <div className="flex items-center gap-3 relative z-10 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-blue-600/30 group-hover:scale-105 transition-transform">
+                  <Share2 className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <div className="text-start min-w-0">
+                  <h4 className="text-xs sm:text-sm font-extrabold text-white tracking-tight flex items-center gap-1.5 truncate">
+                    <span>{isArabic ? 'مساحات الحسابات المشتركة' : 'Shared Accounts & Spaces'}</span>
+                  </h4>
+                  <p className="text-[10px] text-blue-200/80 font-medium truncate mt-0.5">
+                    {isArabic ? 'تعاون ومزامنة حية بالمعرف الرقمي' : 'Live collaboration & 16-digit sync'}
+                  </p>
+                </div>
               </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                {isArabic ? 'مباشر' : 'Live'}
-              </span>
+
+              <div className="flex items-center gap-1.5 relative z-10 shrink-0 rtl:mr-2 ltr:ml-2">
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-500/25 border border-blue-400/50 text-blue-200 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>{isArabic ? 'مباشر' : 'Live'}</span>
+                </span>
+              </div>
             </button>
 
 
@@ -1124,7 +1141,7 @@ export const Sidebar: React.FC = () => {
         {/* Sidebar Footer: Version & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-zinc-300">Version: Beta v1.1.29</span>
+            <span className="font-bold text-zinc-300">Version: Beta v1.1.30</span>
           </div>
 
           {/* Refresh App Button */}
