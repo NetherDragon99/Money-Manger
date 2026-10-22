@@ -191,7 +191,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     return () => unsub();
   }, [initialFolder.id]);
 
-  // Dual Sync 2: Automatic 4-second periodic polling loop fetching active shared_accounts/share_${shareId}
+  // Dual Sync 2: Automatic 3-second periodic polling loop fetching active shared_accounts/share_${shareId}
   useEffect(() => {
     if (!initialFolder.id) return;
 
@@ -225,7 +225,8 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       }
     };
 
-    const intervalId = setInterval(pollActiveShare, 4000);
+    pollActiveShare();
+    const intervalId = setInterval(pollActiveShare, 3000);
     return () => {
       isMounted = false;
       clearInterval(intervalId);

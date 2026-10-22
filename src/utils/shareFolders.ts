@@ -32,7 +32,7 @@ export interface ShareMember {
   avatar?: string;
   photoURL?: string;
   role: 'viewer' | 'editor';
-  status: 'pending' | 'accepted';
+  status: 'pending' | 'accepted' | 'active';
   addedAt: number;
 }
 
@@ -582,6 +582,7 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
   accountName: string;
   updatedAt: number;
   invites: Record<string, any>;
+  memberIds: Record<string, boolean>;
   sharedId: string;
 } {
   const cleanFolder: ShareFolder = JSON.parse(JSON.stringify(folder));
@@ -595,24 +596,37 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
   const originalOwnerPhotoURL = cleanFolder.ownerPhotoURL || '';
 
   const ownerUid = originalOwnerUid || (auth.currentUser?.uid ? auth.currentUser.uid : originalOwner16 || 'guest_user');
-  const accountName = String(cleanFolder.name || 'Shared Account').slice(0, 100);
+  const accountName = String(cleanFolder.name || 'Shared Space').slice(0, 100);
   const now = Date.now();
 
   const cleanInvites: Record<string, any> = {};
-  for (const member of cleanFolder.members || []) {
-    const cleanMid = normalize16DigitId(member.numericId);
+  const memberIds: Record<string, boolean> = {};
+
+  // Build clean members array with status: 'active' and populate memberIds lookup map
+  const normalizedMembers: ShareMember[] = (cleanFolder.members || []).map((m: any) => {
+    const cleanMid = normalize16DigitId(m.numericId);
     if (cleanMid.length === 16) {
+      memberIds[cleanMid] = true;
       cleanInvites[cleanMid] = {
         numericId: cleanMid,
-        name: member.name || 'User',
-        status: member.status || 'accepted',
-        role: member.role || 'viewer',
-        avatar: member.avatar || '👤',
-        photoURL: member.photoURL || '',
-        addedAt: member.addedAt || now,
+        name: m.name || 'User',
+        status: 'active',
+        role: m.role || 'viewer',
+        avatar: m.avatar || '👤',
+        photoURL: m.photoURL || '',
+        addedAt: m.addedAt || now,
       };
     }
-  }
+    return {
+      ...m,
+      numericId: cleanMid,
+      name: m.name || 'User',
+      avatar: m.avatar || '👤',
+      photoURL: m.photoURL || '',
+      role: m.role || 'viewer',
+      status: 'active' as const,
+    };
+  });
 
   return {
     ...cleanFolder,
@@ -626,7 +640,9 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
     ownerPhotoURL: originalOwnerPhotoURL,
     accountName,
     updatedAt: now,
+    members: normalizedMembers,
     invites: cleanInvites,
+    memberIds,
   };
 }
 
@@ -944,6 +960,7 @@ export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
   try {
     const fullPayload = buildFullSharePayload(folder);
     const rawShareId = folder.id.replace(/^share_/, '');
+    const currentUserUid = auth.currentUser?.uid || fullPayload.ownerUid;
 
     await withTimeout(
       (async () => {
@@ -954,25 +971,24 @@ export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
         await set(ref(rtdb, `sharedBundles/${folder.id}`), fullPayload);
         await set(ref(rtdb, `sharedBundles/share_${rawShareId}`), fullPayload);
 
-        // 3. Deliver to member inboxes immediately with required Firebase rule fields
+        // 3. Write dedicated sender-owned invite node at shared_accounts/invite_${targetClean16Id}_${shareId}
+        const owner16 = normalize16DigitId(folder.owner16DigitId || folder.ownerNumericId);
         for (const member of folder.members || []) {
           const cleanMemberId = normalize16DigitId(member.numericId);
-          if (cleanMemberId.length === 16) {
+          if (cleanMemberId.length === 16 && cleanMemberId !== owner16) {
+            const inviteNodePayload = {
+              ownerUid: currentUserUid,
+              accountName: folder.name || fullPayload.accountName,
+              updatedAt: Date.now(),
+              target16Id: cleanMemberId,
+              shareId: folder.id,
+              space: fullPayload,
+            };
             try {
-              await set(ref(rtdb, `shared_accounts/inbox_${cleanMemberId}/${folder.id}`), fullPayload);
-            } catch {}
-            try {
-              await update(ref(rtdb, `shared_accounts/inbox_${cleanMemberId}`), {
-                ownerUid: fullPayload.ownerUid,
-                accountName: fullPayload.accountName,
-                updatedAt: fullPayload.updatedAt,
-                invites: fullPayload.invites,
-                [folder.id]: fullPayload,
-              });
-            } catch {}
-            try {
-              await set(ref(rtdb, `inboxByNumericId/${cleanMemberId}/${folder.id}`), fullPayload);
-            } catch {}
+              await set(ref(rtdb, `shared_accounts/invite_${cleanMemberId}_${rawShareId}`), inviteNodePayload);
+            } catch (err) {
+              console.warn('[ShareFolders] Failed to write invite node in syncFolderToCloud:', err);
+            }
           }
         }
       })(),
@@ -1626,7 +1642,7 @@ export async function addMemberToShareFolder(
     avatar: resolvedAvatar,
     photoURL: resolvedPhotoURL,
     role,
-    status: 'accepted',
+    status: 'active',
     addedAt: Date.now(),
   };
 
@@ -1641,6 +1657,7 @@ export async function addMemberToShareFolder(
 
   const fullPayload = buildFullSharePayload(updatedFolder);
   const rawShareId = folderId.replace(/^share_/, '');
+  const currentUserUid = auth.currentUser?.uid || fullPayload.ownerUid;
 
   let cloudSynced = true;
   try {
@@ -1651,32 +1668,25 @@ export async function addMemberToShareFolder(
         await set(ref(rtdb, `shared_accounts/${folderId}`), fullPayload);
         await set(ref(rtdb, `sharedBundles/${folderId}`), fullPayload);
 
-        // 2. Immediately write invite record to shared_accounts/inbox_${targetClean16Id}
-        // including required Firebase rule fields: ownerUid, accountName, updatedAt: Date.now(), and invites map
-        try {
-          await set(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folderId}`), fullPayload);
-        } catch {}
-        try {
-          await update(ref(rtdb, `shared_accounts/inbox_${cleanId}`), {
-            ownerUid: fullPayload.ownerUid,
-            accountName: fullPayload.accountName,
-            updatedAt: fullPayload.updatedAt,
-            invites: fullPayload.invites,
-            [folderId]: fullPayload,
-          });
-        } catch {}
-        try {
-          await set(ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}`), fullPayload);
-        } catch {}
-
-        // 3. Also ensure any existing members have the synchronized payload
+        // 2. Write dedicated sender-owned invite node at shared_accounts/invite_${targetClean16Id}_${shareId}
+        // containing { ownerUid: auth.currentUser.uid, accountName: space.name, updatedAt: Date.now(), target16Id: targetClean16Id, shareId: space.id, space: fullSpacePayload }
+        const owner16 = normalize16DigitId(updatedFolder.owner16DigitId || updatedFolder.ownerNumericId);
         for (const m of updatedFolder.members) {
           const mClean = normalize16DigitId(m.numericId);
-          if (mClean.length === 16 && mClean !== cleanId) {
+          if (mClean.length === 16 && mClean !== owner16) {
+            const inviteNodePayload = {
+              ownerUid: currentUserUid,
+              accountName: updatedFolder.name || fullPayload.accountName,
+              updatedAt: Date.now(),
+              target16Id: mClean,
+              shareId: updatedFolder.id,
+              space: fullPayload,
+            };
             try {
-              await set(ref(rtdb, `shared_accounts/inbox_${mClean}/${folderId}`), fullPayload);
-              await set(ref(rtdb, `inboxByNumericId/${mClean}/${folderId}`), fullPayload);
-            } catch {}
+              await set(ref(rtdb, `shared_accounts/invite_${mClean}_${rawShareId}`), inviteNodePayload);
+            } catch (err) {
+              console.warn('[ShareFolders] Failed to write invite node for member:', mClean, err);
+            }
           }
         }
       })(),
@@ -1814,7 +1824,10 @@ export async function removeMemberFromShareFolder(
   try {
     const fullPayload = buildFullSharePayload(updatedFolder);
     const rawShareId = folderId.replace(/^share_/, '');
-    // Delete from recipient's inbox
+    // Delete from recipient's inbox and dedicated invite node
+    try {
+      await remove(ref(rtdb, `shared_accounts/invite_${cleanId}_${rawShareId}`));
+    } catch {}
     await remove(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folderId}`));
     await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}`));
 
@@ -1857,6 +1870,9 @@ export async function removeAllMembersFromShareFolder(
     for (const m of oldMembers) {
       const cleanId = normalize16DigitId(m.numericId);
       if (cleanId.length === 16) {
+        try {
+          await remove(ref(rtdb, `shared_accounts/invite_${cleanId}_${rawShareId}`));
+        } catch {}
         await remove(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folderId}`));
         await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}`));
       }
@@ -1946,7 +1962,11 @@ export async function rejectShareInvitation(
   saveReceivedShareFolders(received);
 
   const cleanId = normalize16DigitId(my16DigitId);
+  const rawShareId = folderId.replace(/^share_/, '');
   try {
+    try {
+      await remove(ref(rtdb, `shared_accounts/invite_${cleanId}_${rawShareId}`));
+    } catch {}
     await remove(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folderId}`));
     await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}`));
   } catch (err) {
@@ -1968,8 +1988,12 @@ export async function leaveShareFolder(
   const received = loadReceivedShareFolders().filter((f) => f.id !== folderId);
   saveReceivedShareFolders(received);
 
-  // 2. Remove from recipient's inbox in Firebase RTDB
+  // 2. Remove from recipient's inbox and dedicated invite node in Firebase RTDB
+  const rawShareId = folderId.replace(/^share_/, '');
   try {
+    try {
+      await remove(ref(rtdb, `shared_accounts/invite_${cleanId}_${rawShareId}`));
+    } catch {}
     await remove(ref(rtdb, `shared_accounts/inbox_${cleanId}/${folderId}`));
     await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${folderId}`));
   } catch (err) {
@@ -2107,8 +2131,8 @@ export function subscribeToShareFolder(
 }
 
 /**
- * Single-shot fetch of user's inbox from Firebase RTDB
- * (fetching get(ref(db, 'shared_accounts/inbox_' + myClean16Id)))
+ * Single-shot fetch of user's incoming spaces from Firebase RTDB
+ * Checks shared_accounts root for invite_${myClean16Id}_${shareId} and member matches, plus legacy paths.
  */
 export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder[]> {
   const cleanId = normalize16DigitId(my16DigitId);
@@ -2117,27 +2141,96 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
   try {
     return await withTimeout(
       (async () => {
-        let data1: any = null;
-        let data2: any = null;
+        const spaceMap = new Map<string, ShareFolder>();
 
+        // 1. Fetch shared_accounts root to find all invite_${cleanId}_* and share_* member spaces
+        try {
+          const rootSnap = await get(ref(rtdb, 'shared_accounts'));
+          if (rootSnap.exists() && rootSnap.val()) {
+            const rootData = rootSnap.val();
+            if (typeof rootData === 'object') {
+              const invitePrefix = `invite_${cleanId}_`;
+
+              for (const [key, val] of Object.entries(rootData)) {
+                if (!val || typeof val !== 'object') continue;
+
+                // Dedicated invite node: invite_${myClean16Id}_${shareId}
+                if (key.startsWith(invitePrefix) || (val as any).target16Id === cleanId) {
+                  const rawSpace = (val as any).space || val;
+                  const parsed = normalizeParsedShareFolder(
+                    rawSpace,
+                    (val as any).shareId || key.replace(invitePrefix, '')
+                  );
+                  if (parsed) {
+                    const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
+                    if (owner16 !== cleanId) {
+                      spaceMap.set(parsed.id, parsed);
+                    }
+                  }
+                }
+
+                // Standard share space node: share_${id}
+                if (key.startsWith('share_')) {
+                  const rawSpace = val as any;
+                  const owner16 = normalize16DigitId(rawSpace.owner16DigitId || rawSpace.ownerNumericId);
+                  if (owner16 !== cleanId) {
+                    const isMember =
+                      (Array.isArray(rawSpace.members) &&
+                        rawSpace.members.some((m: any) => normalize16DigitId(m.numericId) === cleanId)) ||
+                      rawSpace.memberIds?.[cleanId] ||
+                      rawSpace.invites?.[cleanId];
+
+                    if (isMember) {
+                      const parsed = normalizeParsedShareFolder(rawSpace, key);
+                      if (parsed) {
+                        spaceMap.set(parsed.id, parsed);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[ShareFolders] root shared_accounts fetch note:', err);
+        }
+
+        // 2. Fetch legacy inbox paths as fallback
         try {
           const snap1 = await get(ref(rtdb, `shared_accounts/inbox_${cleanId}`));
-          if (snap1.exists()) data1 = snap1.val();
+          if (snap1.exists() && snap1.val()) {
+            const legacy1 = parseFoldersFromInboxData(snap1.val());
+            for (const f of legacy1) {
+              const owner16 = normalize16DigitId(f.owner16DigitId || f.ownerNumericId);
+              if (owner16 !== cleanId && !spaceMap.has(f.id)) {
+                spaceMap.set(f.id, f);
+              }
+            }
+          }
         } catch {}
 
         try {
           const snap2 = await get(ref(rtdb, `inboxByNumericId/${cleanId}`));
-          if (snap2.exists()) data2 = snap2.val();
+          if (snap2.exists() && snap2.val()) {
+            const legacy2 = parseFoldersFromInboxData(snap2.val());
+            for (const f of legacy2) {
+              const owner16 = normalize16DigitId(f.owner16DigitId || f.ownerNumericId);
+              if (owner16 !== cleanId && !spaceMap.has(f.id)) {
+                spaceMap.set(f.id, f);
+              }
+            }
+          }
         } catch {}
 
-        const combined = {
-          ...(data2 && typeof data2 === 'object' ? data2 : {}),
-          ...(data1 && typeof data1 === 'object' ? data1 : {}),
-        };
+        const result = Array.from(spaceMap.values());
+        result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-        return parseFoldersFromInboxData(combined);
+        if (result.length > 0) {
+          saveReceivedShareFolders(result);
+        }
+        return result;
       })(),
-      6000,
+      7000,
       'Inbox fetch timed out'
     );
   } catch (err) {
@@ -2148,7 +2241,9 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
 
 /**
  * Real-time listener for incoming share folders in user's 16-digit inbox
- * Listens to both modern and legacy inbox paths simultaneously for 100% instant delivery without refresh!
+ * Attaches a real-time onValue listener on ref(rtdb, 'shared_accounts') detecting every
+ * share_${id} and invite_${myClean16Id}_${id} where members/target16Id matches myClean16Id
+ * and owner16DigitId !== myClean16Id for 100% instant live delivery!
  */
 export function subscribeToMyInbox(
   my16DigitId: string,
@@ -2157,19 +2252,91 @@ export function subscribeToMyInbox(
   const cleanId = normalize16DigitId(my16DigitId);
   if (cleanId.length !== 16) return () => {};
 
+  const sharedAccountsRef = ref(rtdb, 'shared_accounts');
   const inboxRef = ref(rtdb, `shared_accounts/inbox_${cleanId}`);
   const fallbackRef = ref(rtdb, `inboxByNumericId/${cleanId}`);
 
+  let sharedAccountsData: any = {};
   let primaryData: any = {};
   let fallbackData: any = {};
 
   const emitCombined = () => {
-    const combined = {
+    const spaceMap = new Map<string, ShareFolder>();
+
+    // 1. Process shared_accounts root for share_${id} and invite_${cleanId}_${id}
+    if (sharedAccountsData && typeof sharedAccountsData === 'object') {
+      const invitePrefix = `invite_${cleanId}_`;
+
+      for (const [key, val] of Object.entries(sharedAccountsData)) {
+        if (!val || typeof val !== 'object') continue;
+
+        // Dedicated invite node: invite_${myClean16Id}_${shareId}
+        if (key.startsWith(invitePrefix) || (val as any).target16Id === cleanId) {
+          const rawSpace = (val as any).space || val;
+          const parsed = normalizeParsedShareFolder(
+            rawSpace,
+            (val as any).shareId || key.replace(invitePrefix, '')
+          );
+          if (parsed) {
+            const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
+            if (owner16 !== cleanId) {
+              spaceMap.set(parsed.id, parsed);
+            }
+          }
+        }
+
+        // Standard share space node: share_${id}
+        if (key.startsWith('share_')) {
+          const rawSpace = val as any;
+          const owner16 = normalize16DigitId(rawSpace.owner16DigitId || rawSpace.ownerNumericId);
+          if (owner16 !== cleanId) {
+            const isMember =
+              (Array.isArray(rawSpace.members) &&
+                rawSpace.members.some((m: any) => normalize16DigitId(m.numericId) === cleanId)) ||
+              rawSpace.memberIds?.[cleanId] ||
+              rawSpace.invites?.[cleanId];
+
+            if (isMember) {
+              const parsed = normalizeParsedShareFolder(rawSpace, key);
+              if (parsed) {
+                spaceMap.set(parsed.id, parsed);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Process legacy inbox paths
+    const combinedLegacy = {
       ...(fallbackData && typeof fallbackData === 'object' ? fallbackData : {}),
       ...(primaryData && typeof primaryData === 'object' ? primaryData : {}),
     };
-    const folders = parseFoldersFromInboxData(combined);
-    callback(folders);
+    const legacyFolders = parseFoldersFromInboxData(combinedLegacy);
+    for (const f of legacyFolders) {
+      const owner16 = normalize16DigitId(f.owner16DigitId || f.ownerNumericId);
+      if (owner16 !== cleanId && !spaceMap.has(f.id)) {
+        spaceMap.set(f.id, f);
+      }
+    }
+
+    const liveFolders = Array.from(spaceMap.values());
+    liveFolders.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+    // Immediately update local storage and notify UI
+    saveReceivedShareFolders(liveFolders);
+    callback(liveFolders);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('received_shares_updated', { detail: liveFolders })
+      );
+    }
+  };
+
+  const sharedAccountsListener = (snapshot: any) => {
+    sharedAccountsData = snapshot.exists() && snapshot.val() ? snapshot.val() : {};
+    emitCombined();
   };
 
   const primaryListener = (snapshot: any) => {
@@ -2182,6 +2349,9 @@ export function subscribeToMyInbox(
     emitCombined();
   };
 
+  onValue(sharedAccountsRef, sharedAccountsListener, (err) => {
+    console.warn('[ShareFolders] shared_accounts onValue subscription error:', err);
+  });
   onValue(inboxRef, primaryListener, (err) => {
     console.warn('[ShareFolders] Inbox subscription error:', err);
   });
@@ -2190,6 +2360,7 @@ export function subscribeToMyInbox(
   });
 
   return () => {
+    off(sharedAccountsRef, 'value', sharedAccountsListener);
     off(inboxRef, 'value', primaryListener);
     off(fallbackRef, 'value', fallbackListener);
   };

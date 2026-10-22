@@ -217,7 +217,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
 
   // Dual Sync 1: Real-time inbox listener on Firebase RTDB (only if signed in)
   useEffect(() => {
-    if (!isOpen || !currentUser || myCleanNumericId.length !== 16) return;
+    if (!isOpen || !isAuthenticated || myCleanNumericId.length !== 16) return;
     const unsub = subscribeToMyInbox(myCleanNumericId, (liveReceived) => {
       if (liveReceived && Array.isArray(liveReceived)) {
         setReceivedFolders(liveReceived);
@@ -225,11 +225,11 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
       }
     });
     return () => unsub();
-  }, [isOpen, currentUser, myCleanNumericId]);
+  }, [isOpen, isAuthenticated, myCleanNumericId]);
 
-  // Dual Sync 2: Automatic 4-second periodic polling loop (only if signed in)
+  // Dual Sync 2: Automatic 3-second periodic polling loop (only if signed in)
   useEffect(() => {
-    if (!isOpen || !currentUser || myCleanNumericId.length !== 16) return;
+    if (!isOpen || !isAuthenticated || myCleanNumericId.length !== 16) return;
 
     let isMounted = true;
     const pollInbox = async () => {
@@ -254,12 +254,12 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     };
 
     pollInbox();
-    const intervalId = setInterval(pollInbox, 4000);
+    const intervalId = setInterval(pollInbox, 3000);
     return () => {
       isMounted = false;
       clearInterval(intervalId);
     };
-  }, [isOpen, currentUser, myCleanNumericId]);
+  }, [isOpen, isAuthenticated, myCleanNumericId]);
 
   // Real-time listener on custom events when inbox is updated globally or hub is opened
   useEffect(() => {
