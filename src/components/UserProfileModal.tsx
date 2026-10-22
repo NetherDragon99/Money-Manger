@@ -76,6 +76,7 @@ export const UserProfileModal: React.FC = () => {
     setIsUserProfileModalOpen,
     settings,
     updateSettings,
+    signOutUser,
     t,
     showToast,
     triggerCloudBackupNow,
@@ -120,6 +121,15 @@ export const UserProfileModal: React.FC = () => {
     });
     return () => unsub();
   }, []);
+
+  // Sync local inputs when settings.userProfile changes or upon sign out
+  useEffect(() => {
+    if (settings.userProfile) {
+      setName(settings.userProfile.name || (auth.currentUser ? 'My Profile' : 'Guest'));
+      setAvatarEmoji(settings.userProfile.avatarEmoji || '👤');
+      setCustomAvatarUrl(settings.userProfile.customAvatarUrl || undefined);
+    }
+  }, [settings.userProfile]);
 
   // Photo editing & Cropper state
   const [photoToEdit, setPhotoToEdit] = useState<string | null>(null);
@@ -332,8 +342,13 @@ export const UserProfileModal: React.FC = () => {
 
   const handleSignOut = async () => {
     try {
-      await logoutUser();
-      showToast(isArabic ? 'تم تسجيل الخروج بنجاح' : 'Signed out successfully', 'info');
+      await signOutUser();
+      setName(isArabic ? 'حساب ضيف' : 'Guest');
+      setAvatarEmoji('👤');
+      setCustomAvatarUrl(undefined);
+      setCurrentUser(null);
+      setCopiedNumericId(false);
+      setIsUserProfileModalOpen(false);
     } catch (err: any) {
       showToast(err?.message || 'Error signing out', 'error');
     }

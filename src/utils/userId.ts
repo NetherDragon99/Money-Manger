@@ -5,6 +5,16 @@ import { ref, set, get } from 'firebase/database';
 export const PERMANENT_ID_STORAGE_KEY = 'app_permanent_16digit_id';
 const LEGACY_ID_STORAGE_KEY = 'pwa_finance_user_numeric_id';
 
+/**
+ * Clears all cached numeric IDs and identity tokens on sign-out
+ */
+export function clearUserIdentityState(): void {
+  try {
+    localStorage.removeItem(PERMANENT_ID_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_ID_STORAGE_KEY);
+  } catch {}
+}
+
 /** Strip everything except digits */
 export function cleanNumericId(id: string | undefined | null): string {
   return id ? String(id).replace(/\D/g, '') : '';

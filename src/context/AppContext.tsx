@@ -66,8 +66,8 @@ import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
 import { translations } from '../utils/translations';
 import { DEFAULT_SETTINGS } from '../utils/constants';
 import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomDialogModal';
-import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId, cleanNumericId } from '../utils/userId';
-import { auth, checkAndHandleGoogleRedirect, getCachedAuthUser, setCachedAuthUser, subscribeToCloudBackup } from '../utils/firebase';
+import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId, cleanNumericId, clearUserIdentityState } from '../utils/userId';
+import { auth, checkAndHandleGoogleRedirect, getCachedAuthUser, setCachedAuthUser, subscribeToCloudBackup, logoutUser } from '../utils/firebase';
 import {
   FullAppBackupPayload,
   executeDualCloudBackup,
@@ -279,6 +279,7 @@ interface AppContextType {
   // Settings & Reset
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   applyPeriodReset: (type: 'now' | 'custom' | 'revert', customDate?: string) => void;
+  signOutUser: () => Promise<void>;
 
   // Backup & Restore
   importFullData: (data: AppData) => boolean;
@@ -411,6 +412,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const isCloudHydratedRef = useRef(false);
   const isHydratingCloudRef = useRef(false);
   const lastRestoredUidRef = useRef<string | null>(null);
+  const unsubRemoteBackupRef = useRef<(() => void) | null>(null);
   const [pendingSyncConflict, setPendingSyncConflict] = useState<SyncConflictData | null>(null);
 
   // References to keep data accessible synchronously in async auth callbacks
@@ -1117,7 +1119,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // 4. ONLY prompts with "Merge vs. Replace" during a true initial transition from an unbound guest state with local transactions.
   useEffect(() => {
     let isMounted = true;
-    let unsubRemoteBackup: (() => void) | null = null;
 
     const syncIdentity = async (user: any) => {
       if (!user) {
@@ -1128,28 +1129,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           return;
         }
         localStorage.removeItem('mm_bound_account_uid');
+        localStorage.removeItem('mm_cached_authenticated_user');
+        localStorage.removeItem('google_drive_access_token');
+        clearUserIdentityState();
         lastRestoredUidRef.current = null;
         isCloudHydratedRef.current = false;
         setCloudBackupBlocked(false);
         setPendingSyncConflict(null);
-        if (unsubRemoteBackup) {
-          unsubRemoteBackup();
-          unsubRemoteBackup = null;
+        if (unsubRemoteBackupRef.current) {
+          unsubRemoteBackupRef.current();
+          unsubRemoteBackupRef.current = null;
         }
 
-        // Guest user: strictly ensure 16-digit ID is not generated, stored, or published
-        try {
-          localStorage.removeItem('app_permanent_16digit_id');
-        } catch {}
-        if (settings.userProfile?.numericId) {
-          setSettings((prev) => ({
+        // Guest user: immediately reset userProfile to clean default Guest profile
+        const cleanGuestProfile = {
+          name: 'Guest',
+          avatarEmoji: '👤',
+          customAvatarUrl: '',
+          numericId: '',
+          uid: undefined,
+        };
+        setSettings((prev) => {
+          const next = {
             ...prev,
-            userProfile: {
-              ...prev.userProfile,
-              numericId: '',
-            },
-          }));
-        }
+            userProfile: cleanGuestProfile,
+          };
+          saveSettings(next);
+          return next;
+        });
         return;
       }
 
@@ -1164,8 +1171,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         });
 
         // Real-time two-way silent synchronization listener on remote cloud backup changes
-        if (!unsubRemoteBackup) {
-          unsubRemoteBackup = subscribeToCloudBackup(user.uid, (remoteBackup) => {
+        if (!unsubRemoteBackupRef.current) {
+          unsubRemoteBackupRef.current = subscribeToCloudBackup(user.uid, (remoteBackup) => {
             if (!isMounted || !remoteBackup || typeof remoteBackup !== 'object') return;
             if (isCloudBackupBlockedStatus()) return;
 
@@ -1332,8 +1339,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     return () => {
       isMounted = false;
-      if (unsubRemoteBackup) {
-        unsubRemoteBackup();
+      if (unsubRemoteBackupRef.current) {
+        unsubRemoteBackupRef.current();
+        unsubRemoteBackupRef.current = null;
       }
       unsubAuth();
     };
@@ -1665,6 +1673,58 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       showToast(t('updatedSuccess'), 'success');
     }
     setIsResetPeriodModalOpen(false);
+  };
+
+  // Immediate Sign-Out: wipes cached auth, resets identity, and clears userProfile to clean Guest state
+  const signOutUser = async (): Promise<void> => {
+    try {
+      // 1. Unsubscribe active remote backup listener immediately
+      if (unsubRemoteBackupRef.current) {
+        unsubRemoteBackupRef.current();
+        unsubRemoteBackupRef.current = null;
+      }
+
+      // 2. Perform low-level auth & storage cleanup
+      await logoutUser();
+      clearUserIdentityState();
+
+      // 3. Reset internal cloud hydration and conflict refs
+      lastRestoredUidRef.current = null;
+      isCloudHydratedRef.current = false;
+      setCloudBackupBlocked(false);
+      setPendingSyncConflict(null);
+
+      // 4. Immediately reset userProfile state and storage back to clean Guest profile
+      const cleanGuestProfile = {
+        name: 'Guest',
+        avatarEmoji: '👤',
+        customAvatarUrl: '',
+        numericId: '',
+        uid: undefined,
+      };
+
+      setSettings((prev) => {
+        const next = {
+          ...prev,
+          userProfile: cleanGuestProfile,
+        };
+        saveSettings(next);
+        return next;
+      });
+
+      // 5. Notify all components
+      try {
+        window.dispatchEvent(new CustomEvent('app_user_signed_out'));
+      } catch {}
+
+      showToast(
+        settings.language === 'ar' ? 'تم تسجيل الخروج بنجاح' : 'Signed out successfully',
+        'info'
+      );
+    } catch (err: any) {
+      console.error('[AppContext] Error signing out user:', err);
+      showToast(err?.message || 'Failed to sign out', 'error');
+    }
   };
 
   // IMPORT / RESTORE (Supports both 100% full backups and granular customized exports)
@@ -2286,6 +2346,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     deleteSelectedCategories,
     updateSettings,
     applyPeriodReset,
+    signOutUser,
     importFullData,
     importSingleAccountData,
     importCustomData,

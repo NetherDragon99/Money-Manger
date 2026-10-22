@@ -30,6 +30,7 @@ import {
   Trash2,
   Copy,
   Loader2,
+  LogOut,
 } from 'lucide-react';
 import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from '../utils/security';
 import { format16DigitId } from '../utils/userId';
@@ -44,7 +45,7 @@ import {
   setAutoUpdateEnabled,
 } from '../utils/versionChecker';
 import { auth } from '../utils/firebase';
-import { signOut } from 'firebase/auth';
+import { signOut, type User as FirebaseUser } from 'firebase/auth';
 import { WeekStartDay } from '../types';
 import { WORLD_CURRENCIES, CurrencyOption } from '../utils/currencies';
 
@@ -61,6 +62,7 @@ export const Sidebar: React.FC = () => {
     lockApp,
     settings,
     updateSettings,
+    signOutUser,
     accounts,
     categories,
     transactions,
@@ -85,6 +87,20 @@ export const Sidebar: React.FC = () => {
   const [autoUpdateEnabled, setAutoUpdateState] = useState(() => isAutoUpdateEnabled());
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateStep, setUpdateStep] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(auth.currentUser);
+
+  // Keep auth state synchronized in Sidebar
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged((user) => {
+      setCurrentUser(user);
+    });
+    const handleSignedOut = () => setCurrentUser(null);
+    window.addEventListener('app_user_signed_out', handleSignedOut);
+    return () => {
+      unsub();
+      window.removeEventListener('app_user_signed_out', handleSignedOut);
+    };
+  }, []);
 
   // Sync auto-update state across components
   useEffect(() => {
@@ -298,7 +314,7 @@ export const Sidebar: React.FC = () => {
         >
           <div className="flex items-center gap-3.5 min-w-0 flex-1">
             <div className="w-13 h-13 rounded-2xl bg-zinc-900 border-2 border-blue-500/80 overflow-hidden flex items-center justify-center text-3xl shadow-lg group-hover:scale-105 transition shrink-0">
-              {settings.userProfile?.customAvatarUrl ? (
+              {currentUser && settings.userProfile?.customAvatarUrl ? (
                 <img
                   src={settings.userProfile.customAvatarUrl}
                   alt="Profile"
@@ -311,9 +327,9 @@ export const Sidebar: React.FC = () => {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <h3 className="font-bold text-white text-base group-hover:text-blue-400 transition truncate">
-                  {settings.userProfile?.name || 'My Profile'}
+                  {currentUser ? (settings.userProfile?.name || 'My Profile') : (isArabic ? 'حساب ضيف' : 'Guest')}
                 </h3>
-                {auth.currentUser ? (
+                {currentUser ? (
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0 font-medium">
                     {isArabic ? 'سحابي' : 'Cloud'}
                   </span>
@@ -323,7 +339,7 @@ export const Sidebar: React.FC = () => {
                   </span>
                 )}
               </div>
-              {auth.currentUser ? (
+              {currentUser && settings.userProfile?.numericId ? (
                 <div className="flex items-center gap-1.5 mt-0.5 text-xs text-zinc-400">
                   <span className="font-mono text-[11px] text-zinc-400">
                     {format16DigitId(settings.userProfile?.numericId || '0000000000000000')}
@@ -354,6 +370,20 @@ export const Sidebar: React.FC = () => {
               )}
             </div>
           </div>
+
+          {currentUser && (
+            <button
+              type="button"
+              onClick={async (e) => {
+                e.stopPropagation();
+                await signOutUser();
+              }}
+              className="p-2 rounded-xl bg-zinc-800/80 hover:bg-red-950/40 border border-zinc-750 hover:border-red-900/60 text-zinc-400 hover:text-red-400 transition cursor-pointer shrink-0 mr-1 rtl:mr-0 rtl:ml-1"
+              title={isArabic ? 'تسجيل الخروج' : 'Sign Out'}
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
 
           <button
             type="button"

@@ -244,7 +244,11 @@ export async function logoutUser(): Promise<void> {
   setCachedAuthUser(null);
   try {
     localStorage.removeItem('app_permanent_16digit_id');
+    localStorage.removeItem('pwa_finance_user_numeric_id');
     localStorage.removeItem('mm_bound_account_uid');
+    localStorage.removeItem(CACHED_AUTH_USER_KEY);
+    localStorage.removeItem(GOOGLE_DRIVE_TOKEN_KEY);
+    localStorage.removeItem('google_drive_access_token');
   } catch {}
   await fbSignOut(auth);
 }
