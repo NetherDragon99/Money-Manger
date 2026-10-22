@@ -249,7 +249,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     };
 
     pollInbox();
-    const intervalId = setInterval(pollInbox, 3000);
+    const intervalId = setInterval(pollInbox, 4000);
     return () => {
       isMounted = false;
       clearInterval(intervalId);

@@ -229,14 +229,14 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     };
 
     pollActiveShare();
-    const intervalId = setInterval(pollActiveShare, 3000);
+    const intervalId = setInterval(pollActiveShare, 4000);
     return () => {
       isMounted = false;
       clearInterval(intervalId);
     };
   }, [initialFolder.id]);
 
-  // Dual Sync 3: Real-time listener & 3-second periodic polling for incoming shares while Detail View is open
+  // Dual Sync 3: Real-time listener & 4-second periodic polling for incoming shares while Detail View is open
   useEffect(() => {
     if (myCleanNumericId.length !== 16) return;
     const unsub = subscribeToMyInbox(myCleanNumericId, (liveReceived) => {
@@ -256,7 +256,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     };
 
     pollInbox();
-    const intervalId = setInterval(pollInbox, 3000);
+    const intervalId = setInterval(pollInbox, 4000);
 
     return () => {
       isMounted = false;

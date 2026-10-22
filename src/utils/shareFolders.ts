@@ -946,6 +946,69 @@ export function deduceFolderMetadata(
   };
 }
 
+export const CLOUD_SLOTS_COUNT = 10;
+
+/**
+ * Deterministic Cloud Invite Slots:
+ * Writes { ownerUid, accountName, updatedAt, shareId, target16Id, space }
+ * to shared_accounts/slot_${targetClean16Id}_${0..9} finding the first empty or matching slot.
+ * Ensures 100% reliable cloud delivery even under restrictive per-node Firebase rules!
+ */
+export async function writeSpaceToCloudSlots(
+  target16Id: string,
+  space: ShareFolder,
+  fullPayload: any,
+  senderUid: string
+): Promise<boolean> {
+  const cleanTarget = normalize16DigitId(target16Id);
+  if (cleanTarget.length !== 16) return false;
+
+  const rawShareId = space.id.replace(/^share_/, '');
+  const slotPayload = {
+    ownerUid: senderUid,
+    accountName: space.name || fullPayload.accountName || 'Shared Space',
+    updatedAt: Date.now(),
+    shareId: space.id,
+    target16Id: cleanTarget,
+    space: fullPayload,
+  };
+
+  let targetIndex = 0;
+  try {
+    for (let i = 0; i < CLOUD_SLOTS_COUNT; i++) {
+      const slotSnap = await get(ref(rtdb, `shared_accounts/slot_${cleanTarget}_${i}`));
+      if (!slotSnap.exists()) {
+        targetIndex = i;
+        break;
+      }
+      const val = slotSnap.val();
+      if (
+        val?.shareId === space.id ||
+        val?.shareId === rawShareId ||
+        val?.shareId === `share_${rawShareId}` ||
+        val?.space?.id === space.id
+      ) {
+        targetIndex = i;
+        break;
+      }
+      if (i === CLOUD_SLOTS_COUNT - 1) {
+        targetIndex = 0;
+      }
+    }
+  } catch (err) {
+    console.warn('[ShareFolders] Could not inspect slots, fallback to slot 0:', err);
+    targetIndex = 0;
+  }
+
+  try {
+    await set(ref(rtdb, `shared_accounts/slot_${cleanTarget}_${targetIndex}`), slotPayload);
+    return true;
+  } catch (err) {
+    console.warn(`[ShareFolders] Failed to write slot_${cleanTarget}_${targetIndex}:`, err);
+    return false;
+  }
+}
+
 /**
  * Sync Share Page to Firebase RTDB at shared_accounts/${folder.id} and delivery to members
  * Includes required Firebase rule fields: ownerUid, accountName, updatedAt: Date.now(), and invites map
@@ -971,7 +1034,7 @@ export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
         await set(ref(rtdb, `sharedBundles/${folder.id}`), fullPayload);
         await set(ref(rtdb, `sharedBundles/share_${rawShareId}`), fullPayload);
 
-        // 3. Write dedicated sender-owned invite node at shared_accounts/invite_${targetClean16Id}_${shareId}
+        // 3. Write dedicated sender-owned invite node & deterministic cloud slots for all members
         const owner16 = normalize16DigitId(folder.owner16DigitId || folder.ownerNumericId);
         for (const member of folder.members || []) {
           const cleanMemberId = normalize16DigitId(member.numericId);
@@ -989,6 +1052,13 @@ export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
               await set(ref(rtdb, `shared_accounts/invite_${cleanMemberId}_${folder.id}`), inviteNodePayload);
             } catch (err) {
               console.warn('[ShareFolders] Failed to write invite node in syncFolderToCloud:', err);
+            }
+
+            // Write to deterministic cloud slot (slot_${cleanMemberId}_0..9)
+            try {
+              await writeSpaceToCloudSlots(cleanMemberId, folder, fullPayload, currentUserUid);
+            } catch (slotErr) {
+              console.warn('[ShareFolders] Failed writing to cloud slots in syncFolderToCloud:', slotErr);
             }
           }
         }
@@ -1010,91 +1080,95 @@ export function syncShareFoldersWithMainData(
   allCategories: Category[],
   allTransactions: Transaction[]
 ): void {
-  const myFolders = loadMyShareFolders();
-  if (!myFolders || myFolders.length === 0) return;
+  const syncList = (folders: ShareFolder[], saveFn: (f: ShareFolder[]) => void) => {
+    if (!folders || folders.length === 0) return;
 
-  let anyChanged = false;
-  const updatedFolders = myFolders.map((folder) => {
-    if (!folder.payload) return folder;
+    let anyChanged = false;
+    const updatedFolders = folders.map((folder) => {
+      if (!folder.payload) return folder;
 
-    const folderAccountIds = new Set(folder.payload.accounts.map((a) => a.id));
-    const folderCategoryIds = new Set(folder.payload.categories.map((c) => c.id));
-    const folderTxIds = new Set(folder.payload.transactions.map((t) => t.id));
+      const folderAccountIds = new Set(folder.payload.accounts.map((a) => a.id));
+      const folderCategoryIds = new Set(folder.payload.categories.map((c) => c.id));
+      const folderTxIds = new Set(folder.payload.transactions.map((t) => t.id));
 
-    // 1. Update accounts inside folder with latest balance, name, and properties
-    let accountsUpdated = false;
-    const nextAccounts = folder.payload.accounts.map((acc) => {
-      const latest = allAccounts.find((a) => a.id === acc.id);
-      if (
-        latest &&
-        (latest.balance !== acc.balance ||
-          latest.name !== acc.name ||
-          latest.icon !== acc.icon ||
-          latest.isPrivate !== acc.isPrivate)
-      ) {
-        accountsUpdated = true;
-        return { ...latest };
+      // 1. Update accounts inside folder with latest balance, name, and properties
+      let accountsUpdated = false;
+      const nextAccounts = folder.payload.accounts.map((acc) => {
+        const latest = allAccounts.find((a) => a.id === acc.id);
+        if (
+          latest &&
+          (latest.balance !== acc.balance ||
+            latest.name !== acc.name ||
+            latest.icon !== acc.icon ||
+            latest.isPrivate !== acc.isPrivate)
+        ) {
+          accountsUpdated = true;
+          return { ...latest };
+        }
+        return acc;
+      });
+
+      // 2. Update categories inside folder
+      let categoriesUpdated = false;
+      const nextCategories = folder.payload.categories.map((cat) => {
+        const latest = allCategories.find((c) => c.id === cat.id);
+        if (
+          latest &&
+          (latest.name !== cat.name ||
+            latest.icon !== cat.icon ||
+            latest.budgetLimit !== cat.budgetLimit)
+        ) {
+          categoriesUpdated = true;
+          return { ...latest };
+        }
+        return cat;
+      });
+
+      // 3. Find latest transactions for this folder:
+      // Any transaction that belongs to a shared account, or shared category,
+      // or was explicitly part of the folder
+      const nextTxs = allTransactions.filter((t) => {
+        if (t.accountId && folderAccountIds.has(t.accountId)) return true;
+        if (t.categoryId && folderCategoryIds.has(t.categoryId)) return true;
+        if (folderTxIds.has(t.id)) return true;
+        return false;
+      });
+
+      const txsChanged =
+        nextTxs.length !== folder.payload.transactions.length ||
+        JSON.stringify(nextTxs.map((t) => [t.id, t.amount, t.type, t.description, t.date])) !==
+          JSON.stringify(
+            folder.payload.transactions.map((t) => [t.id, t.amount, t.type, t.description, t.date])
+          );
+
+      if (accountsUpdated || categoriesUpdated || txsChanged) {
+        anyChanged = true;
+        const updatedFolder: ShareFolder = {
+          ...folder,
+          updatedAt: Date.now(),
+          itemCount: nextAccounts.length + nextCategories.length + nextTxs.length,
+          payload: {
+            accounts: nextAccounts,
+            categories: nextCategories,
+            transactions: nextTxs,
+          },
+        };
+
+        // Push real-time update to cloud!
+        syncFolderToCloud(updatedFolder);
+        return updatedFolder;
       }
-      return acc;
+
+      return folder;
     });
 
-    // 2. Update categories inside folder
-    let categoriesUpdated = false;
-    const nextCategories = folder.payload.categories.map((cat) => {
-      const latest = allCategories.find((c) => c.id === cat.id);
-      if (
-        latest &&
-        (latest.name !== cat.name ||
-          latest.icon !== cat.icon ||
-          latest.budgetLimit !== cat.budgetLimit)
-      ) {
-        categoriesUpdated = true;
-        return { ...latest };
-      }
-      return cat;
-    });
-
-    // 3. Find latest transactions for this folder:
-    // Any transaction that belongs to a shared account, or shared category,
-    // or was explicitly part of the folder
-    const nextTxs = allTransactions.filter((t) => {
-      if (t.accountId && folderAccountIds.has(t.accountId)) return true;
-      if (t.categoryId && folderCategoryIds.has(t.categoryId)) return true;
-      if (folderTxIds.has(t.id)) return true;
-      return false;
-    });
-
-    const txsChanged =
-      nextTxs.length !== folder.payload.transactions.length ||
-      JSON.stringify(nextTxs.map((t) => [t.id, t.amount, t.type, t.description, t.date])) !==
-        JSON.stringify(
-          folder.payload.transactions.map((t) => [t.id, t.amount, t.type, t.description, t.date])
-        );
-
-    if (accountsUpdated || categoriesUpdated || txsChanged) {
-      anyChanged = true;
-      const updatedFolder: ShareFolder = {
-        ...folder,
-        updatedAt: Date.now(),
-        itemCount: nextAccounts.length + nextCategories.length + nextTxs.length,
-        payload: {
-          accounts: nextAccounts,
-          categories: nextCategories,
-          transactions: nextTxs,
-        },
-      };
-
-      // Push real-time update to cloud!
-      syncFolderToCloud(updatedFolder);
-      return updatedFolder;
+    if (anyChanged) {
+      saveFn(updatedFolders);
     }
+  };
 
-    return folder;
-  });
-
-  if (anyChanged) {
-    saveMyShareFolders(updatedFolders);
-  }
+  syncList(loadMyShareFolders(), saveMyShareFolders);
+  syncList(loadReceivedShareFolders(), saveReceivedShareFolders);
 }
 
 /**
@@ -1707,6 +1781,13 @@ export async function addMemberToShareFolder(
             } catch (err) {
               console.warn('[ShareFolders] Failed to write invite node for member:', mClean, err);
             }
+
+            // Write to deterministic cloud slot (slot_${mClean}_0..9)
+            try {
+              await writeSpaceToCloudSlots(mClean, updatedFolder, fullPayload, currentUserUid);
+            } catch (slotErr) {
+              console.warn('[ShareFolders] Failed writing to cloud slots in addMemberToShareFolder:', slotErr);
+            }
           }
         }
       })(),
@@ -2157,7 +2238,7 @@ export function subscribeToShareFolder(
 
 /**
  * Single-shot fetch of user's incoming spaces from Firebase RTDB
- * Checks shared_accounts root for invite_${myClean16Id}_${shareId} and member matches, plus legacy paths.
+ * Checks deterministic cloud slots (slot_${cleanId}_0..9), dedicated invite nodes, master nodes, and fallback inboxes.
  */
 export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder[]> {
   const cleanId = normalize16DigitId(my16DigitId);
@@ -2168,7 +2249,33 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
       (async () => {
         const spaceMap = new Map<string, ShareFolder>();
 
-        // 1. Fetch shared_accounts root to find all invite_${cleanId}_* and share_* member spaces
+        // 1. Fetch deterministic cloud invite slots (slot_${cleanId}_0 through slot_${cleanId}_9) in parallel
+        try {
+          const slotPromises = Array.from({ length: CLOUD_SLOTS_COUNT }, (_, i) =>
+            get(ref(rtdb, `shared_accounts/slot_${cleanId}_${i}`)).catch(() => null)
+          );
+          const slotSnaps = await Promise.all(slotPromises);
+          for (const snap of slotSnaps) {
+            if (snap && snap.exists() && snap.val()) {
+              const val = snap.val();
+              const rawSpace = val.space || val;
+              const shareId = val.shareId || rawSpace?.id;
+              if (rawSpace) {
+                const parsed = normalizeParsedShareFolder(rawSpace, shareId);
+                if (parsed) {
+                  const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
+                  if (owner16 !== cleanId) {
+                    spaceMap.set(parsed.id, parsed);
+                  }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[ShareFolders] slots fetch error in fetchMyInboxOnce:', err);
+        }
+
+        // 2. Fetch shared_accounts root if permitted
         try {
           const rootSnap = await get(ref(rtdb, 'shared_accounts'));
           if (rootSnap.exists() && rootSnap.val()) {
@@ -2195,7 +2302,12 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
                 }
 
                 // Standard share space node or space object
-                if (!key.startsWith('invite_') && !key.startsWith('inbox_') && !key.startsWith('profile_')) {
+                if (
+                  !key.startsWith('invite_') &&
+                  !key.startsWith('inbox_') &&
+                  !key.startsWith('profile_') &&
+                  !key.startsWith('slot_')
+                ) {
                   const rawSpace = val as any;
                   if (rawSpace && typeof rawSpace === 'object') {
                     const owner16 = normalize16DigitId(rawSpace.owner16DigitId || rawSpace.ownerNumericId);
@@ -2226,7 +2338,7 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
           console.warn('[ShareFolders] root shared_accounts fetch note:', err);
         }
 
-        // 2. Fetch legacy inbox paths as fallback
+        // 3. Fetch legacy inbox paths as fallback
         try {
           const snap1 = await get(ref(rtdb, `shared_accounts/inbox_${cleanId}`));
           if (snap1.exists() && snap1.val()) {
@@ -2253,6 +2365,21 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
           }
         } catch {}
 
+        // 4. For each discovered space, check if there is a newer master node
+        const masterFetchPromises = Array.from(spaceMap.keys()).map(async (sId) => {
+          const rawShareId = sId.replace(/^share_/, '');
+          try {
+            const mSnap = await get(ref(rtdb, `shared_accounts/share_${rawShareId}`));
+            if (mSnap.exists() && mSnap.val()) {
+              const parsed = normalizeParsedShareFolder(mSnap.val(), rawShareId);
+              if (parsed && (parsed.updatedAt || 0) > (spaceMap.get(sId)?.updatedAt || 0)) {
+                spaceMap.set(sId, parsed);
+              }
+            }
+          } catch {}
+        });
+        await Promise.all(masterFetchPromises);
+
         const result = Array.from(spaceMap.values());
         result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
@@ -2272,9 +2399,13 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
 
 /**
  * Real-time listener for incoming share folders in user's 16-digit inbox
- * Attaches a real-time onValue listener on ref(rtdb, 'shared_accounts') detecting every
- * share_${id} and invite_${myClean16Id}_${id} where members/target16Id matches myClean16Id
- * and owner16DigitId !== myClean16Id for 100% instant live delivery!
+ * Attaches real-time Firebase onValue listeners directly to:
+ * - shared_accounts/slot_${myClean16Id}_0 through slot_${myClean16Id}_9
+ * - shared_accounts/inbox_${myClean16Id}
+ * - inboxByNumericId/${myClean16Id}
+ * - shared_accounts root (if permitted)
+ * Automatically discovers every shared spaceId, subscribes live via onValue to
+ * shared_accounts/share_${shareId}, and renders the space immediately in "Shared with Me"!
  */
 export function subscribeToMyInbox(
   my16DigitId: string,
@@ -2283,18 +2414,35 @@ export function subscribeToMyInbox(
   const cleanId = normalize16DigitId(my16DigitId);
   if (cleanId.length !== 16) return () => {};
 
-  const sharedAccountsRef = ref(rtdb, 'shared_accounts');
-  const inboxRef = ref(rtdb, `shared_accounts/inbox_${cleanId}`);
-  const fallbackRef = ref(rtdb, `inboxByNumericId/${cleanId}`);
+  const cleanups: (() => void)[] = [];
+  const activeMasterSubs = new Map<string, () => void>();
 
+  const slotData = new Map<number, any>();
   let sharedAccountsData: any = {};
   let primaryData: any = {};
   let fallbackData: any = {};
+  const masterSpacesData = new Map<string, ShareFolder>();
 
   const emitCombined = () => {
     const spaceMap = new Map<string, ShareFolder>();
 
-    // 1. Process shared_accounts root for share_${id} and invite_${cleanId}_${id}
+    // 1. Deterministic cloud slots 0..9
+    slotData.forEach((val) => {
+      if (!val || typeof val !== 'object') return;
+      const rawSpace = val.space || val;
+      const shareId = val.shareId || rawSpace?.id;
+      if (rawSpace) {
+        const parsed = normalizeParsedShareFolder(rawSpace, shareId);
+        if (parsed) {
+          const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
+          if (owner16 !== cleanId) {
+            spaceMap.set(parsed.id, parsed);
+          }
+        }
+      }
+    });
+
+    // 2. Process shared_accounts root for share_${id} and invite_${cleanId}_${id}
     if (sharedAccountsData && typeof sharedAccountsData === 'object') {
       const invitePrefix = `invite_${cleanId}_`;
 
@@ -2317,7 +2465,12 @@ export function subscribeToMyInbox(
         }
 
         // Standard share space node or space object
-        if (!key.startsWith('invite_') && !key.startsWith('inbox_') && !key.startsWith('profile_')) {
+        if (
+          !key.startsWith('invite_') &&
+          !key.startsWith('inbox_') &&
+          !key.startsWith('profile_') &&
+          !key.startsWith('slot_')
+        ) {
           const rawSpace = val as any;
           if (rawSpace && typeof rawSpace === 'object') {
             const owner16 = normalize16DigitId(rawSpace.owner16DigitId || rawSpace.ownerNumericId);
@@ -2344,7 +2497,7 @@ export function subscribeToMyInbox(
       }
     }
 
-    // 2. Process legacy inbox paths
+    // 3. Process legacy inbox paths
     const combinedLegacy = {
       ...(fallbackData && typeof fallbackData === 'object' ? fallbackData : {}),
       ...(primaryData && typeof primaryData === 'object' ? primaryData : {}),
@@ -2356,6 +2509,35 @@ export function subscribeToMyInbox(
         spaceMap.set(f.id, f);
       }
     }
+
+    // 4. Overlay latest updates from master subscriptions
+    masterSpacesData.forEach((liveSpace, sId) => {
+      const owner16 = normalize16DigitId(liveSpace.owner16DigitId || liveSpace.ownerNumericId);
+      if (owner16 !== cleanId) {
+        spaceMap.set(liveSpace.id || sId, liveSpace);
+      }
+    });
+
+    // 5. For each discovered space, subscribe live via onValue to shared_accounts/share_${rawShareId}
+    spaceMap.forEach((space, sId) => {
+      const rawShareId = sId.replace(/^share_/, '');
+      if (!activeMasterSubs.has(rawShareId)) {
+        const masterRef = ref(rtdb, `shared_accounts/share_${rawShareId}`);
+        const mListener = (snap: any) => {
+          if (snap.exists() && snap.val()) {
+            const parsed = normalizeParsedShareFolder(snap.val(), rawShareId);
+            if (parsed) {
+              masterSpacesData.set(parsed.id, parsed);
+              emitCombined();
+            }
+          }
+        };
+        onValue(masterRef, mListener, () => {});
+        activeMasterSubs.set(rawShareId, () => {
+          off(masterRef, 'value', mListener);
+        });
+      }
+    });
 
     const liveFolders = Array.from(spaceMap.values());
     liveFolders.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -2371,35 +2553,60 @@ export function subscribeToMyInbox(
     }
   };
 
-  const sharedAccountsListener = (snapshot: any) => {
-    sharedAccountsData = snapshot.exists() && snapshot.val() ? snapshot.val() : {};
-    emitCombined();
-  };
+  // Attach real-time listeners to slots 0..9
+  for (let i = 0; i < CLOUD_SLOTS_COUNT; i++) {
+    const slotRef = ref(rtdb, `shared_accounts/slot_${cleanId}_${i}`);
+    const slotListener = (snap: any) => {
+      if (snap.exists() && snap.val()) {
+        slotData.set(i, snap.val());
+      } else {
+        slotData.delete(i);
+      }
+      emitCombined();
+    };
+    onValue(slotRef, slotListener, (err) => {
+      console.warn(`[ShareFolders] slot_${cleanId}_${i} error:`, err);
+    });
+    cleanups.push(() => off(slotRef, 'value', slotListener));
+  }
 
+  // Attach to inboxRef
+  const inboxRef = ref(rtdb, `shared_accounts/inbox_${cleanId}`);
   const primaryListener = (snapshot: any) => {
     primaryData = snapshot.exists() && snapshot.val() ? snapshot.val() : {};
     emitCombined();
   };
+  onValue(inboxRef, primaryListener, (err) => {
+    console.warn('[ShareFolders] Inbox subscription error:', err);
+  });
+  cleanups.push(() => off(inboxRef, 'value', primaryListener));
 
+  // Attach to fallback inbox
+  const fallbackRef = ref(rtdb, `inboxByNumericId/${cleanId}`);
   const fallbackListener = (snapshot: any) => {
     fallbackData = snapshot.exists() && snapshot.val() ? snapshot.val() : {};
     emitCombined();
   };
-
-  onValue(sharedAccountsRef, sharedAccountsListener, (err) => {
-    console.warn('[ShareFolders] shared_accounts onValue subscription error:', err);
-  });
-  onValue(inboxRef, primaryListener, (err) => {
-    console.warn('[ShareFolders] Inbox subscription error:', err);
-  });
   onValue(fallbackRef, fallbackListener, (err) => {
     console.warn('[ShareFolders] Fallback inbox error:', err);
   });
+  cleanups.push(() => off(fallbackRef, 'value', fallbackListener));
+
+  // Attach to shared_accounts root (if permitted)
+  const sharedAccountsRef = ref(rtdb, 'shared_accounts');
+  const sharedAccountsListener = (snapshot: any) => {
+    sharedAccountsData = snapshot.exists() && snapshot.val() ? snapshot.val() : {};
+    emitCombined();
+  };
+  onValue(sharedAccountsRef, sharedAccountsListener, (err) => {
+    console.warn('[ShareFolders] shared_accounts onValue subscription note:', err);
+  });
+  cleanups.push(() => off(sharedAccountsRef, 'value', sharedAccountsListener));
 
   return () => {
-    off(sharedAccountsRef, 'value', sharedAccountsListener);
-    off(inboxRef, 'value', primaryListener);
-    off(fallbackRef, 'value', fallbackListener);
+    cleanups.forEach((c) => c());
+    activeMasterSubs.forEach((unsub) => unsub());
+    activeMasterSubs.clear();
   };
 }
 

@@ -785,7 +785,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!accounts || !transactions || !categories) return;
     const timer = setTimeout(() => {
       syncShareFoldersWithMainData(accounts, categories, transactions);
-    }, 400);
+    }, 200);
     return () => clearTimeout(timer);
   }, [accounts, categories, transactions]);
 

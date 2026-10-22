@@ -7,20 +7,24 @@
       }
     },
     "shared_accounts": {
-      ".read": true,
-      ".write": true
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$nodeId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
     },
     "numericIds": {
-      ".read": true,
-      ".write": true
+      ".read": "auth != null",
+      ".write": "auth != null"
     },
     "sharedBundles": {
-      ".read": true,
-      ".write": true
+      ".read": "auth != null",
+      ".write": "auth != null"
     },
     "inboxByNumericId": {
-      ".read": true,
-      ".write": true
+      ".read": "auth != null",
+      ".write": "auth != null"
     }
   }
 }
