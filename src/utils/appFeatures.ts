@@ -21,6 +21,28 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.36',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Device Account Binding, Two-Way Silent Cloud Sync, and Member UI Polish',
+      ar: 'ربط الحساب بالجهاز، المزامنة السحابية الصامتة بالاتجاهين، وتحسين واجهة الأعضاء',
+    },
+    highlights: {
+      en: [
+        'Persistent Device Account Binding: Eliminated repeated "Merge vs. Replace" modals on page reload or app update by binding signed-in devices via mm_bound_account_uid, strictly limiting the modal to true initial transitions from guest mode with local data.',
+        'True Two-Way Silent Real-Time Cloud Sync: Every data modification pushes the latest snapshot with timestamps and security rule fields to users/${uid}/cloud_backup and shared_accounts/backup_${uid} (and Google Drive if authorized), while reloads and remote changes silently pull newer data without interrupting the user.',
+        'Instant Real-Time 16-Digit Share Delivery: Resolved Firebase rule write collisions by dispatching dedicated sender-owned invite nodes (shared_accounts/invite_${targetClean16Id}_${shareId}) paired with root onValue listeners and 3-second polling to immediately hydrate "Shared with Me".',
+        'Streamlined Hub & Redesigned Member Cards: Completely removed manual paste link fields in favor of automated 16-digit sharing, and overhauled the Share Members card in Detail View into an unclipped two-row layout with 40x40px avatar circles and clear role badges.',
+      ],
+      ar: [
+        'ربط الحساب الدائم بالجهاز: منع ظهور نافذة "الدمج مقابل الاستبدال" نهائياً عند تحديث الصفحة أو إعادة تشغيل التطبيق عبر تخزين معرف الربط mm_bound_account_uid، وحصر النافذة في حالة الانتقال الأولي من وضع الضيف الذي يحتوي على معاملات محلية.',
+        'مزامنة سحابية صامتة ولحظية بالاتجاهين: كل تعديل على البيانات يقوم برفع لقطة البيانات فوراً مع الطابع الزمني وحقول الأمان إلى users/${uid}/cloud_backup وshared_accounts/backup_${uid} وجوجل درايف، مع سحب التغييرات الأحدث سحابياً تلقائياً ودون إزعاج المستخدم بنوافذ.',
+        'تسليم فوري للمشاركات بالمعرف الرقمي (16 رقماً): حل تعارض قواعد أمان فايربيس عبر إنشاء عقد دعوة مخصصة يملكها المرسل (shared_accounts/invite_${targetClean16Id}_${shareId}) مع ربط مستمع فوري لـ shared_accounts وتحديث كل 3 ثوانٍ للظهور الفوري في "تمت مشاركتها معي".',
+        'تبسيط مركز المشاركات وتحسين بطاقة الأعضاء: إزالة خانة لصق الروابط يدوياً للاعتماد الكامل على المعرف الرقمي الفوري، وإعادة تصميم بطاقة أعضاء الشير في صفحة التفاصيل لتكون من صفين دون أي اقتطاع للصور الدائرية بمقاس 40x40 مع شارات الأدوار الواضحة.',
+      ],
+    },
+  },
+  {
     version: '1.1.35',
     releaseDate: 'October 22, 2026',
     title: {

@@ -962,7 +962,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const now = Date.now();
     const uid = auth.currentUser?.uid || effectiveSettings.userProfile?.uid || '';
     return {
-      version: '1.1.35',
+      version: '1.1.36',
       backupDate: new Date().toISOString(),
       timestamp: now,
       updatedAt: now,
@@ -2014,7 +2014,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // Sync merged state to cloud
       const effectiveSettings = settingsRef.current;
       const mergedPayload: FullAppBackupPayload = {
-        version: '1.1.35',
+        version: '1.1.36',
         backupDate: new Date().toISOString(),
         timestamp: mergeTime,
         updatedAt: mergeTime,
