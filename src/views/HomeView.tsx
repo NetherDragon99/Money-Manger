@@ -27,6 +27,7 @@ import { GroupedTransactionList } from '../components/GroupedTransactionList';
 import { MiniDateTimePicker } from '../components/MiniDateTimePicker';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
+import { useLongPress } from '../hooks/useLongPress';
 
 export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
   const {
@@ -46,6 +47,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
     setIsResetPeriodModalOpen,
     setIsFilterModalOpen,
     selectedTxIds,
+    isTxMultiSelect,
     toggleBatchTxs,
     t,
   } = useApp();
@@ -208,6 +210,26 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
   const selectedCalendarDayTxs = useMemo(() => {
     return transactions.filter((tx) => tx.date === selectedCalendarDate);
   }, [transactions, selectedCalendarDate]);
+
+  const calendarDayTxIds = useMemo(() => selectedCalendarDayTxs.map((t) => t.id), [selectedCalendarDayTxs]);
+  const isAllCalendarDaySelected = calendarDayTxIds.length > 0 && calendarDayTxIds.every((id) => selectedTxIds.includes(id));
+
+  const { handlers: calendarDayHeaderHandlers } = useLongPress({
+    onLongPress: () => {
+      if (calendarDayTxIds.length === 0) return;
+      if (!isAllCalendarDaySelected) {
+        toggleBatchTxs(calendarDayTxIds);
+      } else {
+        toggleBatchTxs(calendarDayTxIds);
+        toggleBatchTxs(calendarDayTxIds);
+      }
+    },
+    onClick: () => {
+      if (isTxMultiSelect) {
+        toggleBatchTxs(calendarDayTxIds);
+      }
+    },
+  });
 
   const currencySymbol = settings.currencySymbol || '£';
 
@@ -701,29 +723,37 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
             {/* Selected Day Transactions Block below calendar in portrait, beside it in landscape/desktop */}
             <div className="lg:col-span-5 landscape:col-span-5 space-y-2 lg:sticky lg:top-20 landscape:sticky landscape:top-16">
               <div className="flex items-center justify-between px-1">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                <h4
+                  {...calendarDayHeaderHandlers}
+                  className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5 cursor-pointer select-none"
+                >
                   <CalendarIcon className="w-3.5 h-3.5 text-blue-400" />
                   <span>{selectedCalendarDate}</span>
                 </h4>
                 <div className="flex items-center gap-2">
-                  {selectedCalendarDayTxs.length > 0 && (
+                  {selectedCalendarDayTxs.length > 0 && isTxMultiSelect && (
                     <button
                       type="button"
-                      onClick={() => toggleBatchTxs(selectedCalendarDayTxs.map((t) => t.id))}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleBatchTxs(calendarDayTxIds);
+                      }}
                       className={`px-2 py-0.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition cursor-pointer ${
-                        selectedCalendarDayTxs.every((t) => selectedTxIds.includes(t.id))
+                        isAllCalendarDaySelected
                           ? 'bg-blue-600/30 border-blue-500 text-blue-300'
                           : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-white'
                       }`}
                       title={
-                        selectedCalendarDayTxs.every((t) => selectedTxIds.includes(t.id))
+                        isAllCalendarDaySelected
                           ? (settings.language === 'ar' ? 'إلغاء تحديد معاملات اليوم' : 'Deselect Day')
                           : (settings.language === 'ar' ? 'تحديد كافة معاملات اليوم' : 'Select Day')
                       }
                     >
                       <Check className="w-3 h-3" />
                       <span>
-                        {selectedCalendarDayTxs.every((t) => selectedTxIds.includes(t.id))
+                        {isAllCalendarDaySelected
                           ? (settings.language === 'ar' ? 'إلغاء التحديد' : 'Deselect')
                           : (settings.language === 'ar' ? 'تحديد الكل' : 'Select All')}
                       </span>

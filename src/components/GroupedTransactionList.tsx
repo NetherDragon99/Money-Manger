@@ -8,6 +8,251 @@ import {
   getDayHeaderTitle,
   formatCurrency,
 } from '../utils/dateCycle';
+import { useLongPress } from '../hooks/useLongPress';
+
+interface MonthHeaderRowProps {
+  monthKey: string;
+  monthTitle: string;
+  monthNet: number;
+  monthTxIds: string[];
+  isMonthCollapsed: boolean;
+  toggleMonth: (key: string) => void;
+  isTxMultiSelect: boolean;
+  selectedTxIds: string[];
+  toggleBatchTxs: (ids: string[]) => void;
+  currencySymbol: string;
+  isArabic: boolean;
+}
+
+const MonthHeaderRow: React.FC<MonthHeaderRowProps> = ({
+  monthKey,
+  monthTitle,
+  monthNet,
+  monthTxIds,
+  isMonthCollapsed,
+  toggleMonth,
+  isTxMultiSelect,
+  selectedTxIds,
+  toggleBatchTxs,
+  currencySymbol,
+  isArabic,
+}) => {
+  const isAllMonthSelected = monthTxIds.length > 0 && monthTxIds.every((id) => selectedTxIds.includes(id));
+  const isPartialMonthSelected = !isAllMonthSelected && monthTxIds.some((id) => selectedTxIds.includes(id));
+  const isMonthPositive = monthNet >= 0;
+
+  const { handlers } = useLongPress({
+    onLongPress: () => {
+      if (monthTxIds.length === 0) return;
+      if (!isAllMonthSelected) {
+        toggleBatchTxs(monthTxIds);
+      } else {
+        toggleBatchTxs(monthTxIds);
+        toggleBatchTxs(monthTxIds);
+      }
+    },
+    onClick: () => {
+      if (isTxMultiSelect) {
+        toggleBatchTxs(monthTxIds);
+      } else {
+        toggleMonth(monthKey);
+      }
+    },
+  });
+
+  return (
+    <div
+      {...handlers}
+      className="w-full flex items-center justify-between px-3.5 py-3 bg-zinc-900/90 hover:bg-zinc-800/90 text-left rtl:text-right transition border-b border-zinc-800/60 cursor-pointer select-none group"
+    >
+      <div className="flex items-center gap-2.5 font-bold text-white text-sm min-w-0">
+        {/* Select All Checkbox for Month: hidden by default until Global Multi-Select is active */}
+        {isTxMultiSelect && (
+          <button
+            type="button"
+            onTouchStart={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleBatchTxs(monthTxIds);
+            }}
+            className={`w-5 h-5 rounded-lg flex items-center justify-center transition border cursor-pointer shrink-0 ${
+              isAllMonthSelected
+                ? 'bg-blue-600 border-blue-500 text-white shadow-sm shadow-blue-600/50'
+                : isPartialMonthSelected
+                ? 'bg-blue-600/40 border-blue-500 text-white'
+                : 'bg-zinc-950 border-zinc-700 text-transparent hover:border-blue-400'
+            }`}
+            title={
+              isAllMonthSelected
+                ? (isArabic ? 'إلغاء تحديد الشهر بالكامل' : 'Deselect Entire Month')
+                : (isArabic ? 'تحديد الشهر بالكامل' : 'Select Entire Month')
+            }
+          >
+            {isPartialMonthSelected ? (
+              <Minus className="w-3.5 h-3.5 text-white" />
+            ) : (
+              <Check className={`w-3.5 h-3.5 ${isAllMonthSelected ? 'text-white' : 'opacity-0'}`} />
+            )}
+          </button>
+        )}
+
+        <button
+          type="button"
+          onTouchStart={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleMonth(monthKey);
+          }}
+          className="p-1 -m-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+        >
+          {isMonthCollapsed ? (
+            <ChevronRight className="w-4 h-4 rtl:rotate-180" />
+          ) : (
+            <ChevronDown className="w-4 h-4" />
+          )}
+        </button>
+
+        <span className="truncate">{monthTitle}</span>
+        <span className="text-[10px] text-zinc-500 font-mono font-normal">
+          ({monthTxIds.length})
+        </span>
+      </div>
+
+      <div
+        className={`text-xs font-mono font-bold shrink-0 ${
+          isMonthPositive ? 'text-emerald-400' : 'text-red-400'
+        }`}
+      >
+        {isMonthPositive ? '+' : ''}
+        {formatCurrency(monthNet, currencySymbol)}
+      </div>
+    </div>
+  );
+};
+
+interface DayHeaderRowProps {
+  dayKey: string;
+  dayTitle: string;
+  dayNet: number;
+  dayTxIds: string[];
+  isDayCollapsed: boolean;
+  toggleDay: (key: string) => void;
+  isTxMultiSelect: boolean;
+  selectedTxIds: string[];
+  toggleBatchTxs: (ids: string[]) => void;
+  currencySymbol: string;
+  isArabic: boolean;
+}
+
+const DayHeaderRow: React.FC<DayHeaderRowProps> = ({
+  dayKey,
+  dayTitle,
+  dayNet,
+  dayTxIds,
+  isDayCollapsed,
+  toggleDay,
+  isTxMultiSelect,
+  selectedTxIds,
+  toggleBatchTxs,
+  currencySymbol,
+  isArabic,
+}) => {
+  const isAllDaySelected = dayTxIds.length > 0 && dayTxIds.every((id) => selectedTxIds.includes(id));
+  const isPartialDaySelected = !isAllDaySelected && dayTxIds.some((id) => selectedTxIds.includes(id));
+  const isDayPositive = dayNet >= 0;
+
+  const { handlers } = useLongPress({
+    onLongPress: () => {
+      if (dayTxIds.length === 0) return;
+      if (!isAllDaySelected) {
+        toggleBatchTxs(dayTxIds);
+      } else {
+        toggleBatchTxs(dayTxIds);
+        toggleBatchTxs(dayTxIds);
+      }
+    },
+    onClick: () => {
+      if (isTxMultiSelect) {
+        toggleBatchTxs(dayTxIds);
+      } else {
+        toggleDay(dayKey);
+      }
+    },
+  });
+
+  return (
+    <div
+      {...handlers}
+      className="w-full flex items-center justify-between px-3 py-2 bg-zinc-900/50 hover:bg-zinc-800/50 text-left rtl:text-right transition border-b border-zinc-800/40 cursor-pointer select-none group"
+    >
+      <div className="flex items-center gap-2 text-xs font-semibold text-zinc-300 min-w-0">
+        {/* Select All Checkbox for Day: hidden by default until Global Multi-Select is active */}
+        {isTxMultiSelect && (
+          <button
+            type="button"
+            onTouchStart={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleBatchTxs(dayTxIds);
+            }}
+            className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition border cursor-pointer shrink-0 ${
+              isAllDaySelected
+                ? 'bg-blue-600 border-blue-500 text-white shadow-sm shadow-blue-600/50'
+                : isPartialDaySelected
+                ? 'bg-blue-600/40 border-blue-500 text-white'
+                : 'bg-zinc-950 border-zinc-700 text-transparent hover:border-blue-400'
+            }`}
+            title={
+              isAllDaySelected
+                ? (isArabic ? 'إلغاء تحديد اليوم بالكامل' : 'Deselect Entire Day')
+                : (isArabic ? 'تحديد اليوم بالكامل' : 'Select Entire Day')
+            }
+          >
+            {isPartialDaySelected ? (
+              <Minus className="w-3.5 h-3.5 text-white" />
+            ) : (
+              <Check className={`w-3.5 h-3.5 ${isAllDaySelected ? 'text-white' : 'opacity-0'}`} />
+            )}
+          </button>
+        )}
+
+        <button
+          type="button"
+          onTouchStart={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleDay(dayKey);
+          }}
+          className="p-1 -m-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+        >
+          {isDayCollapsed ? (
+            <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5" />
+          )}
+        </button>
+
+        <span className="truncate">{dayTitle}</span>
+        <span className="text-[10px] text-zinc-500 font-mono font-normal">
+          ({dayTxIds.length})
+        </span>
+      </div>
+
+      <div
+        className={`text-xs font-mono font-bold shrink-0 ${
+          isDayPositive ? 'text-emerald-400' : 'text-red-400'
+        }`}
+      >
+        {isDayPositive ? '+' : ''}
+        {formatCurrency(dayNet, currencySymbol)}
+      </div>
+    </div>
+  );
+};
 
 interface GroupedTransactionListProps {
   transactions: Transaction[];
@@ -124,76 +369,19 @@ export const GroupedTransactionList: React.FC<GroupedTransactionListProps> = ({
             className="rounded-2xl bg-zinc-950 border border-zinc-800/80 overflow-hidden shadow-lg"
           >
             {/* Month Header with Select All Checkbox */}
-            <div
-              onClick={() => {
-                if (isTxMultiSelect) {
-                  toggleBatchTxs(monthTxIds);
-                } else {
-                  toggleMonth(monthGroup.monthKey);
-                }
-              }}
-              className="w-full flex items-center justify-between px-3.5 py-3 bg-zinc-900/90 hover:bg-zinc-800/90 text-left rtl:text-right transition border-b border-zinc-800/60 cursor-pointer select-none group"
-            >
-              <div className="flex items-center gap-2.5 font-bold text-white text-sm min-w-0">
-                {/* Select All Checkbox for Month */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleBatchTxs(monthTxIds);
-                  }}
-                  className={`w-5 h-5 rounded-lg flex items-center justify-center transition border cursor-pointer shrink-0 ${
-                    isAllMonthSelected
-                      ? 'bg-blue-600 border-blue-500 text-white shadow-sm shadow-blue-600/50'
-                      : isPartialMonthSelected
-                      ? 'bg-blue-600/40 border-blue-500 text-white'
-                      : isTxMultiSelect
-                      ? 'bg-zinc-950 border-zinc-700 text-transparent hover:border-blue-400'
-                      : 'bg-zinc-900/80 border-zinc-700/80 text-transparent hover:border-blue-400 opacity-60 group-hover:opacity-100'
-                  }`}
-                  title={
-                    isAllMonthSelected
-                      ? (isArabic ? 'إلغاء تحديد الشهر بالكامل' : 'Deselect Entire Month')
-                      : (isArabic ? 'تحديد الشهر بالكامل' : 'Select Entire Month')
-                  }
-                >
-                  {isPartialMonthSelected ? (
-                    <Minus className="w-3.5 h-3.5 text-white" />
-                  ) : (
-                    <Check className={`w-3.5 h-3.5 ${isAllMonthSelected ? 'text-white' : 'opacity-0'}`} />
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleMonth(monthGroup.monthKey);
-                  }}
-                  className="p-1 -m-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
-                >
-                  {isMonthCollapsed ? (
-                    <ChevronRight className="w-4 h-4 rtl:rotate-180" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4" />
-                  )}
-                </button>
-
-                <span className="truncate">{monthTitle}</span>
-                <span className="text-[10px] text-zinc-500 font-mono font-normal">
-                  ({monthTxIds.length})
-                </span>
-              </div>
-
-              <div
-                className={`text-xs font-mono font-bold shrink-0 ${
-                  isMonthPositive ? 'text-emerald-400' : 'text-red-400'
-                }`}
-              >
-                {isMonthPositive ? '+' : ''}
-                {formatCurrency(monthGroup.monthNet, currencySymbol)}
-              </div>
-            </div>
+            <MonthHeaderRow
+              monthKey={monthGroup.monthKey}
+              monthTitle={monthTitle}
+              monthNet={monthGroup.monthNet}
+              monthTxIds={monthTxIds}
+              isMonthCollapsed={isMonthCollapsed}
+              toggleMonth={toggleMonth}
+              isTxMultiSelect={isTxMultiSelect}
+              selectedTxIds={selectedTxIds}
+              toggleBatchTxs={toggleBatchTxs}
+              currencySymbol={currencySymbol}
+              isArabic={isArabic}
+            />
 
             {/* Days list inside Month */}
             {!isMonthCollapsed && (
@@ -201,10 +389,7 @@ export const GroupedTransactionList: React.FC<GroupedTransactionListProps> = ({
                 {monthGroup.days.map((dayGroup) => {
                   const isDayCollapsed = Boolean(collapsedDays[dayGroup.dayKey]);
                   const dayTitle = getDayHeaderTitle(dayGroup.dayKey, settings.language);
-                  const isDayPositive = dayGroup.dayNet >= 0;
                   const dayTxIds = dayGroup.txs.map((t) => t.id);
-                  const isAllDaySelected = dayTxIds.length > 0 && dayTxIds.every((id) => selectedTxIds.includes(id));
-                  const isPartialDaySelected = !isAllDaySelected && dayTxIds.some((id) => selectedTxIds.includes(id));
 
                   return (
                     <div
@@ -212,76 +397,19 @@ export const GroupedTransactionList: React.FC<GroupedTransactionListProps> = ({
                       className="rounded-xl bg-zinc-900/40 border border-zinc-800/50 overflow-hidden"
                     >
                       {/* Day Header with Select All Checkbox */}
-                      <div
-                        onClick={() => {
-                          if (isTxMultiSelect) {
-                            toggleBatchTxs(dayTxIds);
-                          } else {
-                            toggleDay(dayGroup.dayKey);
-                          }
-                        }}
-                        className="w-full flex items-center justify-between px-3 py-2 bg-zinc-900/50 hover:bg-zinc-800/50 text-left rtl:text-right transition border-b border-zinc-800/40 cursor-pointer select-none group"
-                      >
-                        <div className="flex items-center gap-2 text-xs font-semibold text-zinc-300 min-w-0">
-                          {/* Select All Checkbox for Day */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleBatchTxs(dayTxIds);
-                            }}
-                            className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition border cursor-pointer shrink-0 ${
-                              isAllDaySelected
-                                ? 'bg-blue-600 border-blue-500 text-white shadow-sm shadow-blue-600/50'
-                                : isPartialDaySelected
-                                ? 'bg-blue-600/40 border-blue-500 text-white'
-                                : isTxMultiSelect
-                                ? 'bg-zinc-950 border-zinc-700 text-transparent hover:border-blue-400'
-                                : 'bg-zinc-900/80 border-zinc-700/80 text-transparent hover:border-blue-400 opacity-60 group-hover:opacity-100'
-                            }`}
-                            title={
-                              isAllDaySelected
-                                ? (isArabic ? 'إلغاء تحديد اليوم بالكامل' : 'Deselect Entire Day')
-                                : (isArabic ? 'تحديد اليوم بالكامل' : 'Select Entire Day')
-                            }
-                          >
-                            {isPartialDaySelected ? (
-                              <Minus className="w-3 h-3 text-white" />
-                            ) : (
-                              <Check className={`w-3 h-3 ${isAllDaySelected ? 'text-white' : 'opacity-0'}`} />
-                            )}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleDay(dayGroup.dayKey);
-                            }}
-                            className="p-0.5 -m-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white transition cursor-pointer"
-                          >
-                            {isDayCollapsed ? (
-                              <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />
-                            ) : (
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-
-                          <span className="truncate">{dayTitle}</span>
-                          <span className="text-[10px] text-zinc-500 font-mono">
-                            ({dayTxIds.length})
-                          </span>
-                        </div>
-
-                        <div
-                          className={`text-[11px] font-mono font-semibold shrink-0 ${
-                            isDayPositive ? 'text-emerald-400' : 'text-red-400'
-                          }`}
-                        >
-                          {isDayPositive ? '+' : ''}
-                          {formatCurrency(dayGroup.dayNet, currencySymbol)}
-                        </div>
-                      </div>
+                      <DayHeaderRow
+                        dayKey={dayGroup.dayKey}
+                        dayTitle={dayTitle}
+                        dayNet={dayGroup.dayNet}
+                        dayTxIds={dayTxIds}
+                        isDayCollapsed={isDayCollapsed}
+                        toggleDay={toggleDay}
+                        isTxMultiSelect={isTxMultiSelect}
+                        selectedTxIds={selectedTxIds}
+                        toggleBatchTxs={toggleBatchTxs}
+                        currencySymbol={currencySymbol}
+                        isArabic={isArabic}
+                      />
 
                       {/* Transactions for this Day */}
                       {!isDayCollapsed && (
