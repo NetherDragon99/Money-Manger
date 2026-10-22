@@ -21,6 +21,38 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.39',
+    releaseDate: 'October 23, 2026',
+    title: {
+      en: 'Dual Transfer Balances, Section Multi-Select, Cloud Merge Race Condition Fix & Live Share Delivery',
+      ar: 'أرصدة التحويل المزدوجة، التحديد المتعدد للأقسام، معالجة تزامن دمج السحابة والتسليم المباشر للمشاركات',
+    },
+    highlights: {
+      en: [
+        'Dual Account Balances on Transfers: Both source and destination accounts now record and display their exact balances before and after each transfer (fromBalanceBefore -> fromBalanceAfter & toBalanceBefore -> toBalanceAfter) on transaction cards and detail modals.',
+        'Day & Month Section-Level Multi-Select: Added bulk toggle checkboxes to Month and Day headers across Home, Account Details, and Shared Spaces to select or deselect all transactions in an entire section with one tap.',
+        'Cloud Sync Pre-Hydration & Empty Device Auto-Restore: Cloud backup data is strictly isolated in pending state before the user chooses Merge or Replace, and completely empty devices automatically restore cloud data instantly.',
+        'Deterministic Share Space Delivery: Guaranteed delivery to recipient "Shared with Me" tabs via direct profile lookups (shared_accounts/profile_shares_${targetClean16Id}_${shareId}), slot mapping, and real-time polling loops.',
+        'Direct 16-Digit ID Tap-to-Copy: Cleaned up the Sidebar profile card by removing cramped copy icons in favor of direct badge tapping with animated toast confirmation.',
+        'Persistent Google Drive Cloud Status: Persisted Drive permission resolution status inside the cloud profile so new device logins never re-prompt unnecessarily.',
+        'Decoupled Input State: Completely eliminated input cursor jumping and value resetting when editing usernames, budgets, accounts, or categories.',
+        'Read-Only Verified Member Profiles: Locked fetched username and avatar as read-only cards when inviting members by 16-digit ID to prevent alteration of user identities.',
+        'Installed PWA Landscape Rotation: Unlocked orientation in manifest, HTML link tags, and window screen orientation API for seamless horizontal tablet and phone usage.',
+      ],
+      ar: [
+        'أرصدة مزدوجة للتحويلات المالية: تسجيل وعرض أرصدة الحسابين (المصدر والوجهة) قبل وبعد كل عملية تحويل بدقة (قبل/بعد لكل حساب) على بطاقات المعاملات وشاشة التفاصيل.',
+        'تحديد متعدد لكامل الأيام والشهور: إضافة مربعات اختيار شاملة في ترويسات الأيام والشهور في الواجهة الرئيسية وتفاصيل الحساب والمساحات المشتركة لتحديد أو إلغاء تحديد كافة المعاملات بنقرة واحدة.',
+        'منع التحميل المسبق للسحابة والاستعادة التلقائية: عزل بيانات النسخ الاحتياطي السحابي تماماً قبل اختيار المستخدم للدمج أو الاستبدال، مع الاستعادة التلقائية الفورية للأجهزة الفارغة الجديدة.',
+        'تسليم مؤكد لمساحات الشير للمستلمين: ضمان ظهور المساحات المشتركة في قسم "تمت مشاركتها معي" عبر فهرسة الملفات المباشرة والخانات السحابية الحتمية مع حلقة مزامنة دورية.',
+        'نسخ المعرف المكون من 16 رقماً بلمسة مباشرة: تنظيف بطاقة المستخدم في الشريط الجانبي وإزالة أيقونات النسخ المزدحمة مع تفعيل النسخ المباشر بلمس المعرف وإظهار إشعار تأكيد.',
+        'حفظ حالة تخزين جوجل درايف سحابياً: مزامنة إذن الوصول لجوجل درايف داخل الملف الشخصي السحابي لعدم تكرار الطلب عند تسجيل الدخول من جهاز جديد.',
+        'عزل حالات الإدخال لمنع التراجع: القضاء التام على خلل ارتداد القيم ومسح النصوص أثناء الكتابة في الملف الشخصي والميزانية والحسابات والفئات.',
+        'بطاقات تحقق للقراءة فقط للأعضاء: قفل اسم وصورة المستخدم المستلم كبطاقة موثقة للقراءة فقط عند الدعوة بالمعرف المكون من 16 رقماً لحماية هوية المستخدمين.',
+        'دعم كامل للتدوير الأفقي لتطبيقات PWA: فك قفل التدوير في المانيفست وملفات التشغيل لدعم الاستخدام الأفقي السلس على الهواتف والأجهزة اللوحية.',
+      ],
+    },
+  },
+  {
     version: '1.1.38',
     releaseDate: 'October 23, 2026',
     title: {
