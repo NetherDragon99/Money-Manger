@@ -1086,6 +1086,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             ...prev,
             userProfile: {
               ...prev.userProfile,
+              uid: user.uid,
               numericId: clean16Id,
               name: finalName,
               avatarEmoji: finalAvatar,

@@ -22,7 +22,7 @@ import {
   Settings,
   Lock,
 } from 'lucide-react';
-import { auth, loginWithGoogle } from '../utils/firebase';
+import { auth, loginWithGoogle, getCachedAuthUser } from '../utils/firebase';
 import { User } from 'firebase/auth';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
@@ -80,14 +80,54 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   const myCleanNumericId = cleanNumericId(settings.userProfile?.numericId || '');
   const myName = settings.userProfile?.name || 'User';
 
-  const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
+  const resolveActiveUser = () => {
+    if (auth.currentUser) return auth.currentUser;
+    const cached = getCachedAuthUser();
+    if (cached?.uid) return cached;
+    if (settings.userProfile?.uid) {
+      return {
+        uid: settings.userProfile.uid,
+        displayName: settings.userProfile.name,
+        photoURL: settings.userProfile.customAvatarUrl,
+        email: '',
+      };
+    }
+    return null;
+  };
+
+  const [currentUser, setCurrentUser] = useState<any>(() => resolveActiveUser());
+
+  useEffect(() => {
+    const active = resolveActiveUser();
+    if (active) setCurrentUser(active);
+
+    const unsub = auth.onAuthStateChanged((user) => {
+      if (user) {
+        setCurrentUser(user);
+      } else {
+        const fallback = resolveActiveUser();
+        setCurrentUser(fallback);
+      }
+    });
+    return () => unsub();
+  }, [isOpen, settings.userProfile?.uid, settings.userProfile?.numericId]);
+
+  const isAuthenticated = Boolean(
+    currentUser?.uid ||
+    auth.currentUser?.uid ||
+    getCachedAuthUser()?.uid ||
+    settings.userProfile?.uid
+  );
 
   const [isSigningInWithGoogle, setIsSigningInWithGoogle] = useState(false);
 
   const handleGoogleLogin = async () => {
     try {
       setIsSigningInWithGoogle(true);
-      await loginWithGoogle();
+      const user = await loginWithGoogle();
+      if (user) {
+        setCurrentUser(user);
+      }
       showToast(isArabic ? 'تم تسجيل الدخول بنجاح!' : 'Signed in successfully!', 'success');
     } catch (err: any) {
       if (err?.message && err.message.includes('Redirecting')) {
@@ -505,7 +545,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
           </button>
         </div>
 
-        {!currentUser ? (
+        {!isAuthenticated ? (
           /* Guest Mode: Prominent Sign In Required Block */
           <div className="flex-1 overflow-y-auto p-6 sm:p-10 flex flex-col items-center justify-center text-center space-y-6">
             <div className="relative">

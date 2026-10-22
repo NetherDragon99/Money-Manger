@@ -15,7 +15,7 @@ import {
   Lock,
   Users,
 } from 'lucide-react';
-import { auth } from '../utils/firebase';
+import { auth, getCachedAuthUser } from '../utils/firebase';
 import { User } from 'firebase/auth';
 import { format16DigitId, cleanNumericId, format16DigitInput, getOrCreateNumericId } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
@@ -50,14 +50,44 @@ export const ShareFolderModal: React.FC = () => {
 
   const isArabic = settings.language === 'ar';
 
-  const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
+  const resolveActiveUser = () => {
+    if (auth.currentUser) return auth.currentUser;
+    const cached = getCachedAuthUser();
+    if (cached?.uid) return cached;
+    if (settings.userProfile?.uid) {
+      return {
+        uid: settings.userProfile.uid,
+        displayName: settings.userProfile.name,
+        photoURL: settings.userProfile.customAvatarUrl,
+        email: '',
+      };
+    }
+    return null;
+  };
+
+  const [currentUser, setCurrentUser] = useState<any>(() => resolveActiveUser());
 
   useEffect(() => {
+    const active = resolveActiveUser();
+    if (active) setCurrentUser(active);
+
     const unsub = auth.onAuthStateChanged((user) => {
-      setCurrentUser(user);
+      if (user) {
+        setCurrentUser(user);
+      } else {
+        const fallback = resolveActiveUser();
+        setCurrentUser(fallback);
+      }
     });
     return () => unsub();
-  }, []);
+  }, [shareModalState?.isOpen, settings.userProfile?.uid, settings.userProfile?.numericId]);
+
+  const isAuthenticated = Boolean(
+    currentUser?.uid ||
+    auth.currentUser?.uid ||
+    getCachedAuthUser()?.uid ||
+    settings.userProfile?.uid
+  );
   const accounts: Account[] = shareModalState?.accounts || [];
   const categories: Category[] = shareModalState?.categories || [];
   const transactions: Transaction[] = shareModalState?.transactions || [];
@@ -323,7 +353,7 @@ export const ShareFolderModal: React.FC = () => {
           </span>
         </div>
 
-        {!currentUser ? (
+        {!isAuthenticated ? (
           /* Guest Mode: Prominent Sign In Required Block */
           <div className="py-8 px-2 flex flex-col items-center justify-center text-center space-y-5">
             <div className="w-16 h-16 rounded-3xl bg-purple-600/20 border-2 border-purple-500/40 text-purple-400 flex items-center justify-center shadow-lg shadow-purple-950/40">
