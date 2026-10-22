@@ -932,7 +932,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const buildCurrentBackupPayload = (overrideSettings?: AppSettings): FullAppBackupPayload => {
     const effectiveSettings = overrideSettings || settings;
     return {
-      version: '1.1.32',
+      version: '1.1.33',
       backupDate: new Date().toISOString(),
       timestamp: Date.now(),
       accounts,

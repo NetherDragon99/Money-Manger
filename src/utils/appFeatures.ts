@@ -21,6 +21,34 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.33',
+    releaseDate: 'October 22, 2026',
+    title: {
+      en: 'Consolidated Sync & Resilience Release: Google-Only Auth, Dual-Layer Cloud Backup & Offline Persistence',
+      ar: 'إصدار المزامنة والاستقرار الشامل: حصر المصادقة بجوجل، النسخ السحابي المزدوج، والاستمرار دون إنترنت',
+    },
+    highlights: {
+      en: [
+        'Shared Space Ownership Separation: Fixed recipient space categorization so spaces shared with the user strictly appear in "Shared with Me" and spaces created by the user appear in "Shared by Me", with automatic local migration.',
+        'Google-Only Authentication: Disabled email, password, and phone/SMS authentication forms to establish Google Sign-In as the unified, secure, 1-click authentication provider across the entire app.',
+        'Automatic Google Drive Backup & Auto-Restore: Configured OAuth Drive scopes, captured access tokens, and engineered an automatic dual-layer cloud backup engine that saves the entire app state to Google Drive on data changes/login and auto-restores on sign-in.',
+        'Seamless Firebase Server Fallback: If Google Drive upload or fetch fails for any reason (missing/expired token or network issue), seamlessly falls back to saving and restoring from Firebase RTDB at users/${uid}/cloud_backup.',
+        'Streamlined Sidebar Menu: Completely removed manual backup and restore buttons and progress bars from the Sidebar and UserProfileModal since cloud backup and restoration are now 100% automated upon sign-in and data changes.',
+        'Offline Persistence & No Offline Sign-Out: Enabled browserLocalPersistence and mirrored authenticated sessions to localStorage (mm_cached_authenticated_user) so the app launches and operates 100% offline without ever signing out users unless they explicitly click Sign Out.',
+        'Offline Queuing & Workbox Service Worker: Automatically queues cloud backups and share updates when offline, flushing them on reconnect, and configured Workbox navigateFallback: "index.html" to ensure reliable zero-connection launches.',
+      ],
+      ar: [
+        'فصل ملكية مساحات المشاركة: إصلاح تصنيف المساحات لضمان ظهور المساحات المتشاركة مع المستخدم في "متشير معايا" وحصر مساحاته في "أنا مشيره" مع تصحيح ونقل تلقائي للمساحات المحلية.',
+        'حصر المصادقة بتسجيل الدخول عبر جوجل: إزالة نماذج تسجيل الدخول بالبريد ورقم الهاتف وكلمات المرور بالكامل واعتماد تسجيل الدخول بحساب جوجل كوسيلة المصادقة الموحدة والآمنة بنقرة واحدة.',
+        'نسخ احتياطي واستعادة تلقائية لجوجل درايف: تضمين صلاحيات Drive وحفظ رمز الوصول وبناء محرك نسخ سحابي تلقائي يحفظ كامل بيانات الحسابات والمعاملات والمساحات على Google Drive عند كل تغيير واستعادتها تلقائياً عند تسجيل الدخول.',
+        'خادم سحابي احتياطي بديل على فايربيس: عند تعذر الاتصال بجوجل درايف أو انتهاء صلاحية الرمز، يتم الحفظ والاستعادة بسلاسة ودون انقطاع عبر خادم فايربيس في users/${uid}/cloud_backup.',
+        'تبسيط قائمة الشريط الجانبي: إزالة جميع أزرار وأشرطة النسخ الاحتياطي اليدوي من القائمة الجانبية وملف المستخدم بعد أن أصبحت المزامنة والاستعادة آلية بنسبة 100%.',
+        'تشغيل التطبيق دون إنترنت ومنع تسجيل الخروج: تفعيل حفظ الجلسة في المتصفح وتخزين نسخة احتياطية من جلسة المستخدم محلياً لضمان عمل التطبيق بكامل وظائفه دون إنترنت وعدم تسجيل الخروج إلا عند النقر اليدوي على تسجيل الخروج.',
+        'طابور المزامنة دون اتصال وعامل الخدمة Workbox: حفظ التحديثات السحابية ومساحات المشاركة محلياً أثناء انقطاع الشبكة ومزامنتها فور عودة الاتصال، مع ضبط navigateFallback في Workbox لفتح التطبيق موثوقاً دون اتصال بالإنترنت.',
+      ],
+    },
+  },
+  {
     version: '1.1.32',
     releaseDate: 'October 22, 2026',
     title: {
