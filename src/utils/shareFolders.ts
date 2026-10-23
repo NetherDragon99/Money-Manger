@@ -1142,45 +1142,57 @@ export async function writeSpaceToCloudSlots(
   target16Id: string,
   space: ShareFolder,
   fullPayload: any,
-  senderUid: string
+  senderUid?: string
 ): Promise<boolean> {
   const cleanTarget = normalize16DigitId(target16Id);
   if (cleanTarget.length !== 16) return false;
 
   const rawShareId = space.id.replace(/^share_/, '');
   const effectiveUid = auth.currentUser?.uid || senderUid || 'authenticated_user';
-  const effectiveName = String(space.name || fullPayload.accountName || 'Shared Space').slice(0, 100);
+  const effectiveName = String(space.name || fullPayload?.accountName || 'Share').slice(0, 100);
+  const myClean16Id = normalize16DigitId(space.owner16DigitId || space.ownerNumericId);
 
-  const slotPayload = deepSanitizeForFirebase({
-    ownerUid: effectiveUid,
-    accountName: effectiveName,
-    updatedAt: Date.now(),
-    shareId: space.id,
-    rawShareId,
-    target16Id: cleanTarget,
-    space: fullPayload,
-  });
+  const fullSanitizedSpace = JSON.parse(JSON.stringify(fullPayload || space));
+
+  const slotPayload = JSON.parse(
+    JSON.stringify({
+      ownerUid: effectiveUid,
+      accountName: effectiveName,
+      updatedAt: Date.now(),
+      shareId: space.id,
+      rawShareId,
+      target16Id: cleanTarget,
+      sender16Id: myClean16Id,
+      space: fullSanitizedSpace,
+    })
+  );
 
   let targetIndex = 0;
   try {
     for (let i = 0; i < CLOUD_SLOTS_COUNT; i++) {
-      const slotSnap = await get(ref(rtdb, `shared_accounts/slot_${cleanTarget}_${i}`));
-      if (!slotSnap.exists()) {
-        targetIndex = i;
-        break;
-      }
-      const val = slotSnap.val();
-      if (
-        val?.shareId === space.id ||
-        val?.shareId === rawShareId ||
-        val?.shareId === `share_${rawShareId}` ||
-        val?.space?.id === space.id
-      ) {
-        targetIndex = i;
-        break;
-      }
-      if (i === CLOUD_SLOTS_COUNT - 1) {
-        targetIndex = 0;
+      try {
+        const slotSnap = await get(ref(rtdb, `shared_accounts/slot_${cleanTarget}_${i}`));
+        if (!slotSnap.exists()) {
+          targetIndex = i;
+          break;
+        }
+        const val = slotSnap.val();
+        if (
+          !val ||
+          val.ownerUid === effectiveUid ||
+          val.shareId === space.id ||
+          val.shareId === rawShareId ||
+          val.shareId === `share_${rawShareId}` ||
+          val.space?.id === space.id
+        ) {
+          targetIndex = i;
+          break;
+        }
+        if (i === CLOUD_SLOTS_COUNT - 1) {
+          targetIndex = 0;
+        }
+      } catch (checkErr) {
+        console.warn(`[ShareFolders] Slot ${i} inspection note:`, checkErr);
       }
     }
   } catch (err) {
@@ -1199,9 +1211,9 @@ export async function writeSpaceToCloudSlots(
 
 /**
  * Deliver Shared Space directly to target member using exact profile-style accessible nodes:
- * 1. Dedicated lookup node: shared_accounts/profile_shares_${targetClean16Id}_${shareId}
- * 2. Shared directory map: shared_accounts/profile_directory_${targetClean16Id}
- * 3. Deterministic cloud slots: shared_accounts/slot_${targetClean16Id}_0..9
+ * 1. Deterministic cloud slots: shared_accounts/slot_${targetClean16Id}_0..9
+ * 2. Dedicated lookup node: shared_accounts/profile_shares_${targetClean16Id}_${shareId}
+ * 3. Shared directory map: shared_accounts/profile_directory_${targetClean16Id}
  * 4. Dedicated invite & inbox node fallbacks
  */
 export async function deliverSpaceToTargetMember(
@@ -1219,21 +1231,32 @@ export async function deliverSpaceToTargetMember(
 
   const now = Date.now();
   const effectiveUid = auth.currentUser?.uid || senderUid || 'authenticated_user';
-  const effectiveName = String(space.name || fullPayload.accountName || 'Shared Space').slice(0, 100);
+  const effectiveName = String(space.name || fullPayload?.accountName || 'Share').slice(0, 100);
 
-  const profileSharePayload = deepSanitizeForFirebase({
-    ownerUid: effectiveUid,
-    accountName: effectiveName,
-    updatedAt: now,
-    target16Id: cleanTarget,
-    shareId: space.id,
-    rawShareId,
-    space: fullPayload,
-  });
+  const fullSanitizedSpace = JSON.parse(JSON.stringify(fullPayload || space));
 
-  // 1. Dedicated lookup node using exact profile-style accessible pattern:
+  // 1. Deterministic cloud slots (slot_${targetClean16Id}_0..9)
+  try {
+    await writeSpaceToCloudSlots(cleanTarget, space, fullSanitizedSpace, effectiveUid);
+  } catch (slotErr) {
+    console.warn(`[ShareFolders] Failed writing to cloud slots for ${cleanTarget}:`, slotErr);
+  }
+
+  // 2. Dedicated lookup node using exact profile-style accessible pattern:
   // shared_accounts/profile_shares_${targetClean16Id}_${shareId}
   try {
+    const profileSharePayload = JSON.parse(
+      JSON.stringify({
+        ownerUid: effectiveUid,
+        accountName: effectiveName,
+        updatedAt: now,
+        target16Id: cleanTarget,
+        sender16Id: owner16,
+        shareId: space.id,
+        rawShareId,
+        space: fullSanitizedSpace,
+      })
+    );
     await set(ref(rtdb, `shared_accounts/profile_shares_${cleanTarget}_${rawShareId}`), profileSharePayload);
     if (space.id !== rawShareId) {
       await set(ref(rtdb, `shared_accounts/profile_shares_${cleanTarget}_${space.id}`), profileSharePayload);
@@ -1242,47 +1265,61 @@ export async function deliverSpaceToTargetMember(
     console.warn(`[ShareFolders] Failed to write profile_shares for ${cleanTarget}:`, err);
   }
 
-  // 2. Shared directory map at shared_accounts/profile_directory_${targetClean16Id}
+  // 3. Shared directory map at shared_accounts/profile_directory_${targetClean16Id}
   try {
-    const dirEntry = deepSanitizeForFirebase({
-      shareId: space.id,
-      rawShareId,
-      name: effectiveName,
-      ownerUid: effectiveUid,
-      owner16DigitId: owner16,
-      ownerName: space.ownerName || fullPayload.ownerName || 'User',
-      updatedAt: now,
-    });
-    await update(ref(rtdb, `shared_accounts/profile_directory_${cleanTarget}`), deepSanitizeForFirebase({
-      ownerUid: effectiveUid,
-      accountName: 'Shared Directory',
-      updatedAt: now,
-      target16Id: cleanTarget,
-      [`shares/${rawShareId}`]: dirEntry,
-      [rawShareId]: space.id,
-      [`knownShareIds/${rawShareId}`]: true,
-    }));
+    const dirEntry = JSON.parse(
+      JSON.stringify({
+        shareId: space.id,
+        rawShareId,
+        name: effectiveName,
+        ownerUid: effectiveUid,
+        owner16DigitId: owner16,
+        ownerName: space.ownerName || fullPayload?.ownerName || 'User',
+        updatedAt: now,
+      })
+    );
+    await update(
+      ref(rtdb, `shared_accounts/profile_directory_${cleanTarget}`),
+      JSON.parse(
+        JSON.stringify({
+          ownerUid: effectiveUid,
+          accountName: 'Shared Directory',
+          updatedAt: now,
+          target16Id: cleanTarget,
+          [`shares/${rawShareId}`]: dirEntry,
+          [rawShareId]: space.id,
+          [`knownShareIds/${rawShareId}`]: true,
+        })
+      )
+    );
   } catch (err) {
     console.warn(`[ShareFolders] Failed to update profile_directory for ${cleanTarget}:`, err);
   }
 
-  // 3. Deterministic cloud slots (slot_${targetClean16Id}_0..9)
+  // 4. Dedicated invite & inbox node fallbacks (independent try/catches)
   try {
-    await writeSpaceToCloudSlots(cleanTarget, space, fullPayload, effectiveUid);
-  } catch (slotErr) {
-    console.warn(`[ShareFolders] Failed writing to cloud slots for ${cleanTarget}:`, slotErr);
-  }
+    const invitePayload = JSON.parse(
+      JSON.stringify({
+        ownerUid: effectiveUid,
+        accountName: effectiveName,
+        updatedAt: now,
+        target16Id: cleanTarget,
+        sender16Id: owner16,
+        shareId: space.id,
+        rawShareId,
+        space: fullSanitizedSpace,
+      })
+    );
+    await set(ref(rtdb, `shared_accounts/invite_${cleanTarget}_${rawShareId}`), invitePayload);
+    await set(ref(rtdb, `shared_accounts/invite_${cleanTarget}_${space.id}`), invitePayload);
+  } catch {}
 
-  // 4. Dedicated invite & inbox node fallbacks
   try {
-    await set(ref(rtdb, `shared_accounts/invite_${cleanTarget}_${rawShareId}`), profileSharePayload);
-    await set(ref(rtdb, `shared_accounts/invite_${cleanTarget}_${space.id}`), profileSharePayload);
+    await set(ref(rtdb, `shared_accounts/inbox_${cleanTarget}/${space.id}`), fullSanitizedSpace);
   } catch {}
+
   try {
-    await set(ref(rtdb, `shared_accounts/inbox_${cleanTarget}/${space.id}`), deepSanitizeForFirebase(fullPayload));
-  } catch {}
-  try {
-    await set(ref(rtdb, `inboxByNumericId/${cleanTarget}/${space.id}`), deepSanitizeForFirebase(fullPayload));
+    await set(ref(rtdb, `inboxByNumericId/${cleanTarget}/${space.id}`), fullSanitizedSpace);
   } catch {}
 }
 
@@ -1325,7 +1362,7 @@ export async function cleanupTargetMemberSpaceDelivery(
 
 /**
  * Sync Share Page to Firebase RTDB at shared_accounts/${folder.id} and delivery to members
- * Includes required Firebase rule fields: ownerUid, accountName, updatedAt: Date.now(), and invites map
+ * Uses independent try/catches to guarantee master write and slot delivery without aborting
  */
 export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
   // If offline, queue for sync as soon as network is restored
@@ -1334,34 +1371,56 @@ export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
     return;
   }
 
+  const rawShareId = folder.id.replace(/^share_/, '');
+  const currentUserUid = auth.currentUser?.uid || folder.ownerUid || 'authenticated_user';
+  const myClean16Id = normalize16DigitId(folder.owner16DigitId || folder.ownerNumericId);
+
+  const rawPayload = buildFullSharePayload(folder);
+  const fullSanitizedPayload = JSON.parse(
+    JSON.stringify({
+      ...rawPayload,
+      ownerUid: currentUserUid,
+      accountName: folder.name || 'Share',
+      updatedAt: Date.now(),
+      owner16DigitId: myClean16Id,
+    })
+  );
+
+  // 1. Independent try/catch for master space write
   try {
-    const fullPayload = deepSanitizeForFirebase(buildFullSharePayload(folder));
-    const rawShareId = folder.id.replace(/^share_/, '');
-    const currentUserUid = auth.currentUser?.uid || fullPayload.ownerUid;
-
-    await withTimeout(
-      (async () => {
-        // 1. Direct path & prefixed path
-        await set(ref(rtdb, `shared_accounts/share_${rawShareId}`), fullPayload);
-        await set(ref(rtdb, `shared_accounts/${folder.id}`), fullPayload);
-        // 2. Legacy fallback bundle paths
-        await set(ref(rtdb, `sharedBundles/${folder.id}`), fullPayload);
-        await set(ref(rtdb, `sharedBundles/share_${rawShareId}`), fullPayload);
-
-        // 3. Deliver to all members using profile-style lookup nodes, directory map, slots, and invites
-        const owner16 = normalize16DigitId(folder.owner16DigitId || folder.ownerNumericId);
-        for (const member of folder.members || []) {
-          const cleanMemberId = normalize16DigitId(member.numericId);
-          if (cleanMemberId.length === 16 && cleanMemberId !== owner16) {
-            await deliverSpaceToTargetMember(cleanMemberId, folder, fullPayload, currentUserUid);
-          }
-        }
-      })(),
-      10000,
-      'Failed to sync share folder to cloud within 10s'
-    );
+    await set(ref(rtdb, `shared_accounts/share_${rawShareId}`), fullSanitizedPayload);
   } catch (err) {
-    console.warn('[ShareFolders] Failed to sync folder to cloud:', err);
+    console.warn(`[ShareFolders] Failed to write master space share_${rawShareId}:`, err);
+  }
+
+  // 2. Independent try/catch for alias shared_accounts/${folder.id}
+  try {
+    await set(ref(rtdb, `shared_accounts/${folder.id}`), fullSanitizedPayload);
+  } catch (err) {
+    console.warn(`[ShareFolders] Failed to write shared_accounts/${folder.id}:`, err);
+  }
+
+  // 3. Independent try/catch for legacy fallback bundle paths
+  try {
+    await set(ref(rtdb, `sharedBundles/${folder.id}`), fullSanitizedPayload);
+  } catch {}
+  try {
+    await set(ref(rtdb, `sharedBundles/share_${rawShareId}`), fullSanitizedPayload);
+  } catch {}
+
+  // 4. Independent try/catch for member deliveries
+  const nonOwnerMembers = (folder.members || []).filter((m) => {
+    const cleanMid = normalize16DigitId(m.numericId);
+    return cleanMid.length === 16 && cleanMid !== myClean16Id;
+  });
+
+  for (const member of nonOwnerMembers) {
+    const cleanMemberId = normalize16DigitId(member.numericId);
+    try {
+      await deliverSpaceToTargetMember(cleanMemberId, folder, fullSanitizedPayload, currentUserUid);
+    } catch (memberErr) {
+      console.warn(`[ShareFolders] Failed delivering to member ${cleanMemberId}:`, memberErr);
+    }
   }
 }
 
@@ -2072,37 +2131,14 @@ export async function addMemberToShareFolder(
     saveReceivedShareFolders(received);
   }
 
-  const fullPayload = deepSanitizeForFirebase(buildFullSharePayload(updatedFolder));
-  const rawShareId = folderId.replace(/^share_/, '');
-  const currentUserUid = auth.currentUser?.uid || getCachedAuthUser()?.uid || fullPayload.ownerUid;
-
+  // Mandatory cloud sync on add member with isolated writes and slot matching
   let cloudSynced = true;
   try {
-    await withTimeout(
-      (async () => {
-        // 1. Immediately write full share payload to Firebase RTDB at shared_accounts/share_${shareId}
-        await set(ref(rtdb, `shared_accounts/share_${rawShareId}`), fullPayload);
-        await set(ref(rtdb, `shared_accounts/${folderId}`), fullPayload);
-        await set(ref(rtdb, `sharedBundles/${folderId}`), fullPayload);
-
-        // 2. Deliver space to all non-owner members across profile_shares, profile_directory, slots & invites
-        const owner16 = normalize16DigitId(updatedFolder.owner16DigitId || updatedFolder.ownerNumericId);
-        for (const m of updatedFolder.members) {
-          const mClean = normalize16DigitId(m.numericId);
-          if (mClean.length === 16 && mClean !== owner16) {
-            await deliverSpaceToTargetMember(mClean, updatedFolder, fullPayload, currentUserUid);
-          }
-        }
-      })(),
-      10000
-    );
+    await syncFolderToCloud(updatedFolder);
   } catch (err: any) {
     console.warn('[ShareFolders] Firebase delivery deferred or rules restricted:', err);
     cloudSynced = false;
   }
-
-  // Mandatory cloud sync on add member
-  await syncFolderToCloud(updatedFolder).catch(() => {});
 
   return { success: true, folder: updatedFolder, cloudSynced };
 }
@@ -2534,244 +2570,208 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
   if (cleanId.length !== 16) return [];
 
   try {
-    return await withTimeout(
-      (async () => {
-        const spaceMap = new Map<string, ShareFolder>();
-        const candidateShareIds = new Set<string>();
+    const spaceMap = new Map<string, ShareFolder>();
+    const candidateShareIds = new Set<string>();
+    const slotSpaces = new Map<string, any>();
 
-        // 1. Fetch profile_directory_${cleanId} directly
-        try {
-          const dirSnap = await get(ref(rtdb, `shared_accounts/profile_directory_${cleanId}`));
-          if (dirSnap.exists() && dirSnap.val()) {
-            const dirVal = dirSnap.val();
-            if (dirVal.shares && typeof dirVal.shares === 'object') {
-              for (const [key, val] of Object.entries(dirVal.shares)) {
-                const sid = (val as any)?.shareId || (val as any)?.rawShareId || key;
-                if (sid) candidateShareIds.add(sid);
-              }
-            }
-            for (const [key, val] of Object.entries(dirVal)) {
-              if (!['shares', 'ownerUid', 'accountName', 'updatedAt', 'target16Id', 'knownShareIds'].includes(key)) {
-                if (typeof val === 'string') candidateShareIds.add(val);
-                else candidateShareIds.add(key);
-              }
-            }
+    // 1. Build read promises for slots 0..9, inbox, profile_directory, and inboxByNumericId
+    const readRequests: { type: string; id?: string; index?: number; promise: Promise<any> }[] = [];
+
+    for (let i = 0; i < CLOUD_SLOTS_COUNT; i++) {
+      readRequests.push({
+        type: 'slot',
+        index: i,
+        promise: get(ref(rtdb, `shared_accounts/slot_${cleanId}_${i}`)),
+      });
+    }
+
+    readRequests.push({
+      type: 'inbox',
+      promise: get(ref(rtdb, `shared_accounts/inbox_${cleanId}`)),
+    });
+
+    readRequests.push({
+      type: 'profile_directory',
+      promise: get(ref(rtdb, `shared_accounts/profile_directory_${cleanId}`)),
+    });
+
+    readRequests.push({
+      type: 'inbox_by_id',
+      promise: get(ref(rtdb, `inboxByNumericId/${cleanId}`)),
+    });
+
+    // Execute all reads via Promise.allSettled (never Promise.all so single node errors never abort)
+    const settledResults = await Promise.allSettled(readRequests.map((r) => r.promise));
+
+    settledResults.forEach((res, idx) => {
+      if (res.status !== 'fulfilled' || !res.value || !res.value.exists()) return;
+      const snapVal = res.value.val();
+      if (!snapVal) return;
+
+      const req = readRequests[idx];
+
+      if (req.type === 'slot') {
+        const rawSpace = snapVal.space || snapVal;
+        const shareId = snapVal.shareId || rawSpace?.id;
+        if (shareId) {
+          candidateShareIds.add(shareId);
+          candidateShareIds.add(String(shareId).replace(/^share_/, ''));
+          if (rawSpace) {
+            slotSpaces.set(shareId, rawSpace);
+            slotSpaces.set(String(shareId).replace(/^share_/, ''), rawSpace);
           }
-        } catch (err) {
-          console.warn('[ShareFolders] profile_directory fetch note in fetchMyInboxOnce:', err);
         }
-
-        // 2. Fetch deterministic cloud invite slots (slot_${cleanId}_0 through slot_${cleanId}_9) in parallel
-        try {
-          const slotPromises = Array.from({ length: CLOUD_SLOTS_COUNT }, (_, i) =>
-            get(ref(rtdb, `shared_accounts/slot_${cleanId}_${i}`)).catch(() => null)
-          );
-          const slotSnaps = await Promise.all(slotPromises);
-          for (const snap of slotSnaps) {
-            if (snap && snap.exists() && snap.val()) {
-              const val = snap.val();
-              const rawSpace = val.space || val;
-              const shareId = val.shareId || rawSpace?.id;
-              if (shareId) candidateShareIds.add(shareId);
-              if (rawSpace) {
-                const parsed = normalizeParsedShareFolder(rawSpace, shareId);
-                if (parsed) {
-                  const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
-                  if (owner16 !== cleanId) {
-                    spaceMap.set(parsed.id, parsed);
-                  }
-                }
-              }
+      } else if (req.type === 'profile_directory') {
+        if (snapVal.shares && typeof snapVal.shares === 'object') {
+          for (const [key, val] of Object.entries(snapVal.shares)) {
+            const sid = (val as any)?.shareId || (val as any)?.rawShareId || key;
+            if (sid) {
+              candidateShareIds.add(sid);
+              candidateShareIds.add(String(sid).replace(/^share_/, ''));
             }
           }
-        } catch (err) {
-          console.warn('[ShareFolders] slots fetch error in fetchMyInboxOnce:', err);
         }
-
-        // 3. Include local known received shares to ensure fresh state
-        try {
-          const locallyReceived = loadReceivedShareFolders();
-          for (const rec of locallyReceived) {
-            if (rec?.id) candidateShareIds.add(rec.id);
-          }
-        } catch {}
-
-        // 4. Fetch candidate master nodes (share_${rawShareId} AND profile_shares_${cleanId}_${rawShareId}) in parallel
-        const candidatePromises = Array.from(candidateShareIds).map(async (rawId) => {
-          const cleanRawId = rawId.replace(/^share_/, '');
-          // Try master node first
-          try {
-            const mSnap = await get(ref(rtdb, `shared_accounts/share_${cleanRawId}`));
-            if (mSnap.exists() && mSnap.val()) {
-              const parsed = normalizeParsedShareFolder(mSnap.val(), cleanRawId);
-              if (parsed) {
-                const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
-                if (owner16 !== cleanId) {
-                  spaceMap.set(parsed.id, parsed);
-                  return;
-                }
-              }
-            }
-          } catch {}
-
-          // Fallback to dedicated profile_shares node
-          try {
-            const pSnap = await get(ref(rtdb, `shared_accounts/profile_shares_${cleanId}_${cleanRawId}`));
-            if (pSnap.exists() && pSnap.val()) {
-              const val = pSnap.val();
-              const rawSpace = val.space || val;
-              const parsed = normalizeParsedShareFolder(rawSpace, val.shareId || cleanRawId);
-              if (parsed) {
-                const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
-                if (owner16 !== cleanId) {
-                  spaceMap.set(parsed.id, parsed);
-                  return;
-                }
-              }
-            }
-          } catch {}
-
-          // Fallback to dedicated invite node
-          try {
-            const iSnap = await get(ref(rtdb, `shared_accounts/invite_${cleanId}_${cleanRawId}`));
-            if (iSnap.exists() && iSnap.val()) {
-              const val = iSnap.val();
-              const rawSpace = val.space || val;
-              const parsed = normalizeParsedShareFolder(rawSpace, val.shareId || cleanRawId);
-              if (parsed) {
-                const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
-                if (owner16 !== cleanId) {
-                  spaceMap.set(parsed.id, parsed);
-                }
-              }
-            }
-          } catch {}
-        });
-        await Promise.all(candidatePromises);
-
-        // 5. Fetch shared_accounts root if permitted
-        try {
-          const rootSnap = await get(ref(rtdb, 'shared_accounts'));
-          if (rootSnap.exists() && rootSnap.val()) {
-            const rootData = rootSnap.val();
-            if (typeof rootData === 'object') {
-              const invitePrefix = `invite_${cleanId}_`;
-              const profileSharePrefix = `profile_shares_${cleanId}_`;
-
-              for (const [key, val] of Object.entries(rootData)) {
-                if (!val || typeof val !== 'object') continue;
-
-                // Dedicated profile_shares or invite node
-                if (
-                  key.startsWith(profileSharePrefix) ||
-                  key.startsWith(invitePrefix) ||
-                  (val as any).target16Id === cleanId
-                ) {
-                  const rawSpace = (val as any).space || val;
-                  const parsed = normalizeParsedShareFolder(
-                    rawSpace,
-                    (val as any).shareId || key.replace(profileSharePrefix, '').replace(invitePrefix, '')
-                  );
-                  if (parsed) {
-                    const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
-                    if (owner16 !== cleanId) {
-                      spaceMap.set(parsed.id, parsed);
-                    }
-                  }
-                }
-
-                // Standard share space node or space object
-                if (
-                  !key.startsWith('invite_') &&
-                  !key.startsWith('inbox_') &&
-                  !key.startsWith('profile_') &&
-                  !key.startsWith('slot_')
-                ) {
-                  const rawSpace = val as any;
-                  if (rawSpace && typeof rawSpace === 'object') {
-                    const owner16 = normalize16DigitId(rawSpace.owner16DigitId || rawSpace.ownerNumericId);
-                    if (owner16 !== cleanId) {
-                      const membersList = Array.isArray(rawSpace.members)
-                        ? rawSpace.members
-                        : typeof rawSpace.members === 'object'
-                        ? Object.values(rawSpace.members)
-                        : [];
-                      const isMember =
-                        membersList.some((m: any) => normalize16DigitId(m.numericId) === cleanId) ||
-                        rawSpace.memberIds?.[cleanId] ||
-                        rawSpace.invited16Ids?.[cleanId] ||
-                        rawSpace.invites?.[cleanId];
-
-                      if (isMember) {
-                        const parsed = normalizeParsedShareFolder(rawSpace, key);
-                        if (parsed) {
-                          spaceMap.set(parsed.id, parsed);
-                        }
-                      }
-                    }
-                  }
-                }
-              }
+        for (const [key, val] of Object.entries(snapVal)) {
+          if (!['shares', 'ownerUid', 'accountName', 'updatedAt', 'target16Id', 'knownShareIds'].includes(key)) {
+            if (typeof val === 'string') {
+              candidateShareIds.add(val);
+              candidateShareIds.add(val.replace(/^share_/, ''));
+            } else if (val && typeof val === 'object' && (val as any).shareId) {
+              candidateShareIds.add((val as any).shareId);
+              candidateShareIds.add(String((val as any).shareId).replace(/^share_/, ''));
+            } else {
+              candidateShareIds.add(key);
+              candidateShareIds.add(key.replace(/^share_/, ''));
             }
           }
-        } catch (err) {
-          console.warn('[ShareFolders] root shared_accounts fetch note:', err);
         }
-
-        // 6. Fetch legacy inbox paths as fallback
-        try {
-          const snap1 = await get(ref(rtdb, `shared_accounts/inbox_${cleanId}`));
-          if (snap1.exists() && snap1.val()) {
-            const legacy1 = parseFoldersFromInboxData(snap1.val());
-            for (const f of legacy1) {
-              const owner16 = normalize16DigitId(f.owner16DigitId || f.ownerNumericId);
-              if (owner16 !== cleanId && !spaceMap.has(f.id)) {
-                spaceMap.set(f.id, f);
-              }
-            }
+      } else if (req.type === 'inbox' || req.type === 'inbox_by_id') {
+        const folders = parseFoldersFromInboxData(snapVal);
+        for (const f of folders) {
+          if (f?.id) {
+            candidateShareIds.add(f.id);
+            candidateShareIds.add(f.id.replace(/^share_/, ''));
+            slotSpaces.set(f.id, f);
+            slotSpaces.set(f.id.replace(/^share_/, ''), f);
           }
-        } catch {}
-
-        try {
-          const snap2 = await get(ref(rtdb, `inboxByNumericId/${cleanId}`));
-          if (snap2.exists() && snap2.val()) {
-            const legacy2 = parseFoldersFromInboxData(snap2.val());
-            for (const f of legacy2) {
-              const owner16 = normalize16DigitId(f.owner16DigitId || f.ownerNumericId);
-              if (owner16 !== cleanId && !spaceMap.has(f.id)) {
-                spaceMap.set(f.id, f);
-              }
-            }
-          }
-        } catch {}
-
-        // Merge with existing locally saved received folders so previously received shares are preserved
-        try {
-          const locallyReceived = loadReceivedShareFolders();
-          for (const localSpace of locallyReceived) {
-            if (localSpace && localSpace.id && !spaceMap.has(localSpace.id)) {
-              const owner16 = normalize16DigitId(localSpace.owner16DigitId || localSpace.ownerNumericId);
-              if (owner16 !== cleanId) {
-                spaceMap.set(localSpace.id, localSpace);
-              }
-            }
-          }
-        } catch {}
-
-        const result = Array.from(spaceMap.values());
-        result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-
-        if (result.length > 0) {
-          saveReceivedShareFolders(result);
         }
-        return result;
-      })(),
-      7000,
-      'Inbox fetch timed out'
-    );
+      }
+    });
+
+    // Also include locally cached received share IDs
+    try {
+      const locallyReceived = loadReceivedShareFolders();
+      for (const rec of locallyReceived) {
+        if (rec?.id) {
+          candidateShareIds.add(rec.id);
+          candidateShareIds.add(rec.id.replace(/^share_/, ''));
+          if (!slotSpaces.has(rec.id)) {
+            slotSpaces.set(rec.id, rec);
+          }
+        }
+      }
+    } catch {}
+
+    // 2. Fetch the latest live node from shared_accounts/share_${rawShareId} using Promise.allSettled
+    const fetchPromises = Array.from(candidateShareIds).map(async (sid) => {
+      const rawShareId = sid.replace(/^share_/, '');
+
+      // Try master node first: shared_accounts/share_${rawShareId}
+      try {
+        const mSnap = await get(ref(rtdb, `shared_accounts/share_${rawShareId}`));
+        if (mSnap.exists() && mSnap.val()) {
+          const parsed = normalizeParsedShareFolder(mSnap.val(), rawShareId);
+          if (parsed) {
+            const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
+            if (owner16 !== cleanId) {
+              return parsed;
+            }
+          }
+        }
+      } catch {}
+
+      // Fallback 1: shared_accounts/profile_shares_${cleanId}_${rawShareId}
+      try {
+        const pSnap = await get(ref(rtdb, `shared_accounts/profile_shares_${cleanId}_${rawShareId}`));
+        if (pSnap.exists() && pSnap.val()) {
+          const val = pSnap.val();
+          const rawSpace = val.space || val;
+          const parsed = normalizeParsedShareFolder(rawSpace, val.shareId || rawShareId);
+          if (parsed) {
+            const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
+            if (owner16 !== cleanId) {
+              return parsed;
+            }
+          }
+        }
+      } catch {}
+
+      // Fallback 2: shared_accounts/invite_${cleanId}_${rawShareId}
+      try {
+        const iSnap = await get(ref(rtdb, `shared_accounts/invite_${cleanId}_${rawShareId}`));
+        if (iSnap.exists() && iSnap.val()) {
+          const val = iSnap.val();
+          const rawSpace = val.space || val;
+          const parsed = normalizeParsedShareFolder(rawSpace, val.shareId || rawShareId);
+          if (parsed) {
+            const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
+            if (owner16 !== cleanId) {
+              return parsed;
+            }
+          }
+        }
+      } catch {}
+
+      // Fallback 3: embedded space object discovered from slot
+      const embedded = slotSpaces.get(sid) || slotSpaces.get(rawShareId);
+      if (embedded) {
+        const parsed = normalizeParsedShareFolder(embedded, rawShareId);
+        if (parsed) {
+          const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
+          if (owner16 !== cleanId) {
+            return parsed;
+          }
+        }
+      }
+
+      return null;
+    });
+
+    const settledShares = await Promise.allSettled(fetchPromises);
+    settledShares.forEach((res) => {
+      if (res.status === 'fulfilled' && res.value) {
+        spaceMap.set(res.value.id, res.value);
+      }
+    });
+
+    // Merge with any locally cached received folders not yet in map
+    try {
+      const locallyReceived = loadReceivedShareFolders();
+      for (const localSpace of locallyReceived) {
+        if (localSpace && localSpace.id && !spaceMap.has(localSpace.id)) {
+          const owner16 = normalize16DigitId(localSpace.owner16DigitId || localSpace.ownerNumericId);
+          if (owner16 !== cleanId) {
+            spaceMap.set(localSpace.id, localSpace);
+          }
+        }
+      }
+    } catch {}
+
+    const result = Array.from(spaceMap.values());
+    result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+    // Save discovered spaces to localStorage
+    if (result.length > 0) {
+      saveReceivedShareFolders(result);
+    }
+
+    // Trigger immediate live React state update via custom event
+    window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: result }));
+
+    return result;
   } catch (err) {
     console.warn('[ShareFolders] fetchMyInboxOnce error:', err);
-    return [];
+    return loadReceivedShareFolders();
   }
 }
 

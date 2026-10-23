@@ -868,7 +868,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: liveReceived }));
     });
 
-    // Background periodic poll every 10 seconds to catch incoming shares immediately
+    // Background periodic poll every 3 seconds to catch incoming shares immediately
     let isMounted = true;
     const backgroundPoll = async () => {
       try {
@@ -880,7 +880,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       } catch {}
     };
     backgroundPoll();
-    const pollInterval = setInterval(backgroundPoll, 10000);
+    const pollInterval = setInterval(backgroundPoll, 3000);
 
     return () => {
       isMounted = false;

@@ -496,14 +496,14 @@ export const AccountDetailsView: React.FC = () => {
       </div>
 
       {/* Floating Action Button (+): Pre-selects this specific account, responsive container */}
-      <div className="fixed bottom-6 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto pointer-events-none z-40 px-5 flex justify-end">
+      <div className="fixed bottom-6 md:bottom-8 right-4 md:right-8 rtl:right-auto rtl:left-4 md:rtl:left-8 end-4 md:end-8 pointer-events-none z-40">
         <button
           type="button"
           onClick={() => openAddTxModal(account.id)}
           aria-label="Add Transaction"
-          className="pointer-events-auto w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-500 active:scale-95 text-white flex items-center justify-center shadow-2xl shadow-blue-900/60 transition cursor-pointer border border-blue-400/40"
+          className="pointer-events-auto w-14 h-14 md:w-16 md:h-16 rounded-full bg-blue-600 hover:bg-blue-500 active:scale-95 text-white flex items-center justify-center shadow-2xl shadow-blue-900/60 transition cursor-pointer border border-blue-400/40"
         >
-          <Plus className="w-7 h-7 stroke-[2.5]" />
+          <Plus className="w-7 h-7 md:w-8 md:h-8 stroke-[2.5]" />
         </button>
       </div>
 

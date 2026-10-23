@@ -83,7 +83,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
             transform: isNavVisible ? 'translateY(0%)' : 'translateY(115%)',
             transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
           }}
-          className={`fixed bottom-20 md:bottom-24 landscape:bottom-14 left-0 right-0 w-full max-w-md md:max-w-3xl lg:max-w-5xl mx-auto pointer-events-none z-30 px-5 flex justify-end ${
+          className={`fixed bottom-24 md:bottom-28 landscape:bottom-20 right-4 md:right-8 rtl:right-auto rtl:left-4 md:rtl:left-8 end-4 md:end-8 pointer-events-none z-30 ${
             isNavVisible ? 'opacity-100' : 'opacity-0'
           }`}
         >
@@ -104,7 +104,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
           transform: isNavVisible ? 'translateY(0%)' : 'translateY(115%)',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`fixed bottom-0 left-0 right-0 z-30 bg-black/95 backdrop-blur-lg border-t border-zinc-800/80 safe-area-bottom ${
+        className={`fixed bottom-0 left-0 right-0 z-20 bg-black/95 backdrop-blur-lg border-t border-zinc-800/80 safe-area-bottom ${
           isNavVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >

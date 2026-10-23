@@ -471,14 +471,14 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
   };
 
   return (
-    <div className="w-full flex-1 flex flex-col overflow-hidden bg-black text-white select-none animate-in fade-in">
+    <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-hidden bg-black text-white select-none animate-in fade-in">
       {/* 1. Unified Header Bar Across All 5 Tabs */}
       <header
         style={{
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`sticky top-0 z-20 h-16 md:h-20 landscape:h-12 px-4 md:px-8 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 mb-1 ${
+        className={`sticky top-0 z-20 h-16 md:h-20 landscape:h-12 px-4 md:px-8 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 ${
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -516,8 +516,8 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
         </button>
       </header>
 
-      {/* Main Responsive Calculator Container: Tablet & Large-Screen Expanded Width & Height */}
-      <div className="w-full max-w-md md:max-w-4xl lg:max-w-6xl mx-auto h-[calc(100dvh-8rem)] md:h-[calc(100dvh-9rem)] flex flex-col lg:flex-row gap-3 md:gap-5 p-3 md:p-6 flex-1 min-h-0">
+      {/* Main Responsive Calculator Container: Explicit Height & Clearance for Navigation Bar */}
+      <div className="w-full max-w-md md:max-w-4xl lg:max-w-6xl mx-auto h-[calc(100dvh-9.5rem)] md:h-[calc(100dvh-11.5rem)] landscape:h-[calc(100dvh-7.5rem)] max-h-[calc(100dvh-9.5rem)] md:max-h-[calc(100dvh-11.5rem)] landscape:max-h-[calc(100dvh-7.5rem)] flex flex-col lg:flex-row gap-2.5 md:gap-4 p-2.5 md:p-5 flex-1 min-h-0">
         {/* 2. Display Screen with Proportional Height (25% to 30% on portrait, full height on lg:flex-row) */}
         <div className="calc-display-screen w-full lg:w-5/12 h-[28%] lg:h-full flex flex-col justify-between p-3.5 md:p-6 rounded-3xl bg-zinc-950/90 border border-zinc-800/90 shadow-2xl relative overflow-hidden shrink-0">
           {/* Animated In-Display History Tape */}
@@ -645,7 +645,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
         </div>
 
         {/* 3. Mathematical Keypad: Ergonomically Proportioned flex-1 Grid Filling Available Screen */}
-        <div className="w-full lg:w-7/12 flex-1 h-[72%] lg:h-full grid grid-cols-4 grid-rows-6 gap-2 md:gap-3.5 text-center min-h-0">
+        <div className="w-full lg:w-7/12 flex-1 h-[72%] lg:h-full grid grid-cols-4 grid-rows-6 gap-2 md:gap-3 text-center min-h-0">
           {/* Row 1: Clear, Square Root (√), Power (^), Divide (÷) */}
           <button
             type="button"

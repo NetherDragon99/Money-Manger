@@ -298,9 +298,10 @@ export const ShareFolderModal: React.FC = () => {
   };
 
   // 3. Save / Append Folder
-  const handleSaveOnly = () => {
+  const handleSaveOnly = async () => {
     const folder = getOrCreateFolder();
     if (folder) {
+      await syncFolderToCloud(folder).catch(() => {});
       showToast(
         isArabic
           ? `تم حفظ وتحديث صفحة المشاركة "${folder.name}" بنجاح!`

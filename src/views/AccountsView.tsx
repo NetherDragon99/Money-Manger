@@ -291,7 +291,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
   const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
 
   return (
-    <div className="w-full flex flex-col flex-1 pb-24 select-none">
+    <div className="w-full flex flex-col flex-1 pb-24">
       {/* 1. Unified Standard Top Header Bar Across All 5 Tabs */}
       <header
         style={{

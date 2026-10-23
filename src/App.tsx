@@ -157,6 +157,33 @@ const MainAppContent: React.FC = () => {
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
   const tabHistoryRef = useRef<TabType[]>(['home']);
 
+  // Capture PWA beforeinstallprompt event immediately in React state and window.deferredPwaPrompt
+  const [deferredPwaPrompt, setDeferredPwaPrompt] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      return (window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt || null;
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    const handleBeforeInstall = (e: any) => {
+      e.preventDefault?.();
+      (window as any).deferredPwaPrompt = e;
+      (window as any).deferredPWAInstallPrompt = e;
+      setDeferredPwaPrompt(e);
+      window.dispatchEvent(new CustomEvent('pwa-install-ready', { detail: e }));
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    if ((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt) {
+      setDeferredPwaPrompt((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    };
+  }, []);
+
   // Force unlock screen orientation to support landscape & portrait mode in installed PWAs and mobile browsers
   useEffect(() => {
     const unlockOrientation = () => {
@@ -737,7 +764,7 @@ const MainAppContent: React.FC = () => {
   }
 
   return (
-    <div className="w-full min-h-[100dvh] bg-zinc-950 flex justify-center text-white selection:bg-blue-600 selection:text-white">
+    <div className="w-full min-h-[100dvh] h-[100dvh] bg-zinc-950 flex justify-center text-white selection:bg-blue-600 selection:text-white">
       {/* Responsive Container Frame across Mobile, Tablet & Desktop (Landscape & Portrait adaptive) */}
       <div
         onScrollCapture={handleScrollCapture}
@@ -745,7 +772,7 @@ const MainAppContent: React.FC = () => {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        className="w-full max-w-none md:max-w-7xl landscape:max-w-none min-h-[100dvh] bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
+        className="w-full max-w-none md:max-w-7xl landscape:max-w-none min-h-[100dvh] h-[100dvh] bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
       >
         <OfflineBanner />
         <ToastContainer />
@@ -756,7 +783,7 @@ const MainAppContent: React.FC = () => {
         />
 
         {/* Main View Display with Isolated Per-Tab Heights */}
-        <div className="flex-1 flex flex-col relative overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col relative w-full">
           {selectedAccountId && (
             <div className="fixed inset-0 z-40 bg-black animate-in slide-in-from-right rtl:slide-in-from-left duration-250 flex flex-col overflow-y-auto overscroll-contain">
               <div className="w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto min-h-[100dvh] flex flex-col bg-black">
@@ -765,12 +792,12 @@ const MainAppContent: React.FC = () => {
             </div>
           )}
 
-          {/* Active Tab View Display: Only mount active tab at rest; dynamically mount adjacent tabs during horizontal swipe (Item 1) */}
+          {/* Active Tab View Display: Scroll Container Enforces Smooth Scrolling across ALL Breakpoints */}
           <div
-            className={`flex-1 flex flex-col relative ${
-              isAnyModalOpen ? 'overflow-y-hidden max-h-[100dvh] select-none' : ''
+            className={`flex-1 min-h-0 w-full flex flex-col relative overflow-y-auto overflow-x-hidden touch-pan-y overscroll-y-contain ${
+              isAnyModalOpen ? 'overflow-y-hidden max-h-[100dvh] select-none pointer-events-none' : ''
             }`}
-            style={isAnyModalOpen ? { touchAction: 'none' } : undefined}
+            style={isAnyModalOpen ? { touchAction: 'none' } : { touchAction: 'pan-y' }}
           >
             {(() => {
               const curIdx = TABS.indexOf(currentTab);
@@ -786,27 +813,27 @@ const MainAppContent: React.FC = () => {
               return (
                 <>
                   {shouldMount('home') && (
-                    <div className={currentTab === 'home' ? 'block' : 'hidden'}>
+                    <div className={currentTab === 'home' ? 'w-full min-h-0 flex-1 flex flex-col' : 'hidden'}>
                       <HomeView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('budget') && (
-                    <div className={currentTab === 'budget' ? 'block' : 'hidden'}>
+                    <div className={currentTab === 'budget' ? 'w-full min-h-0 flex-1 flex flex-col' : 'hidden'}>
                       <BudgetView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('insights') && (
-                    <div className={currentTab === 'insights' ? 'block' : 'hidden'}>
+                    <div className={currentTab === 'insights' ? 'w-full min-h-0 flex-1 flex flex-col' : 'hidden'}>
                       <InsightsView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('accounts') && (
-                    <div className={currentTab === 'accounts' ? 'block' : 'hidden'}>
+                    <div className={currentTab === 'accounts' ? 'w-full min-h-0 flex-1 flex flex-col' : 'hidden'}>
                       <AccountsView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('calculator') && (
-                    <div className={currentTab === 'calculator' ? 'h-full flex-1 flex flex-col overflow-hidden' : 'hidden'}>
+                    <div className={currentTab === 'calculator' ? 'h-full flex-1 min-h-0 flex flex-col overflow-hidden pb-20 md:pb-28 landscape:pb-14' : 'hidden'}>
                       <CalculatorView isBarsVisible={isBarsVisible} />
                     </div>
                   )}

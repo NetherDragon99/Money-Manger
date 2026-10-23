@@ -7,8 +7,9 @@ interface BeforeInstallPromptEvent extends Event {
 
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(() => {
-    if (typeof window !== 'undefined' && (window as unknown as { deferredPWAInstallPrompt?: BeforeInstallPromptEvent }).deferredPWAInstallPrompt) {
-      return (window as unknown as { deferredPWAInstallPrompt: BeforeInstallPromptEvent }).deferredPWAInstallPrompt;
+    if (typeof window !== 'undefined') {
+      const win = window as any;
+      return win.deferredPwaPrompt || win.deferredPWAInstallPrompt || null;
     }
     return null;
   });
@@ -31,25 +32,36 @@ export function usePWAInstall() {
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       const promptEvent = e as BeforeInstallPromptEvent;
-      (window as unknown as { deferredPWAInstallPrompt?: BeforeInstallPromptEvent }).deferredPWAInstallPrompt = promptEvent;
+      const win = window as any;
+      win.deferredPwaPrompt = promptEvent;
+      win.deferredPWAInstallPrompt = promptEvent;
       setDeferredPrompt(promptEvent);
     };
 
     const handleAppInstalled = () => {
       setIsInstalled(true);
       setDeferredPrompt(null);
-      (window as unknown as { deferredPWAInstallPrompt?: BeforeInstallPromptEvent }).deferredPWAInstallPrompt = undefined;
+      const win = window as any;
+      win.deferredPwaPrompt = null;
+      win.deferredPWAInstallPrompt = null;
     };
 
-    const handleEarlyPromptReady = () => {
-      if ((window as unknown as { deferredPWAInstallPrompt?: BeforeInstallPromptEvent }).deferredPWAInstallPrompt) {
-        setDeferredPrompt((window as unknown as { deferredPWAInstallPrompt: BeforeInstallPromptEvent }).deferredPWAInstallPrompt);
+    const handleEarlyPromptReady = (e?: any) => {
+      const win = window as any;
+      const promptEvent = e?.detail || win.deferredPwaPrompt || win.deferredPWAInstallPrompt;
+      if (promptEvent) {
+        setDeferredPrompt(promptEvent);
       }
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
     window.addEventListener('pwa-install-ready', handleEarlyPromptReady);
+
+    const win = window as any;
+    if (win.deferredPwaPrompt || win.deferredPWAInstallPrompt) {
+      setDeferredPrompt(win.deferredPwaPrompt || win.deferredPWAInstallPrompt);
+    }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -59,13 +71,14 @@ export function usePWAInstall() {
   }, []);
 
   const install = async () => {
+    const win = window as any;
     const promptEvent =
       deferredPrompt ||
       (typeof window !== 'undefined'
-        ? (window as unknown as { deferredPWAInstallPrompt?: BeforeInstallPromptEvent }).deferredPWAInstallPrompt
+        ? win.deferredPwaPrompt || win.deferredPWAInstallPrompt
         : null);
 
-    if (!promptEvent) return false;
+    if (!promptEvent || typeof promptEvent.prompt !== 'function') return false;
 
     try {
       await promptEvent.prompt();
@@ -73,7 +86,8 @@ export function usePWAInstall() {
       if (outcome === 'accepted') {
         setIsInstalled(true);
         setDeferredPrompt(null);
-        (window as unknown as { deferredPWAInstallPrompt?: BeforeInstallPromptEvent }).deferredPWAInstallPrompt = undefined;
+        win.deferredPwaPrompt = null;
+        win.deferredPWAInstallPrompt = null;
         return true;
       }
     } catch (err) {
@@ -83,9 +97,13 @@ export function usePWAInstall() {
   };
 
   return {
-    isInstallable: !!deferredPrompt || (typeof window !== 'undefined' && !!(window as unknown as { deferredPWAInstallPrompt?: unknown }).deferredPWAInstallPrompt),
+    isInstallable:
+      !!deferredPrompt ||
+      (typeof window !== 'undefined' &&
+        !!((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt)),
     isInstalled,
     isIOS,
     install,
+    deferredPrompt,
   };
 }

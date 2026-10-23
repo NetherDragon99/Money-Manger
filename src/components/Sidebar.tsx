@@ -88,6 +88,37 @@ export const Sidebar: React.FC = () => {
   const [updateStep, setUpdateStep] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(auth.currentUser);
 
+  // Capture PWA beforeinstallprompt event immediately in Sidebar React state
+  const [deferredPwaPrompt, setDeferredPwaPrompt] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      const win = window as any;
+      return win.deferredPwaPrompt || win.deferredPWAInstallPrompt || null;
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    const handlePrompt = (e: any) => {
+      e.preventDefault?.();
+      (window as any).deferredPwaPrompt = e;
+      (window as any).deferredPWAInstallPrompt = e;
+      setDeferredPwaPrompt(e);
+    };
+    const handleReady = (e: any) => {
+      const p = e?.detail || (window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt;
+      if (p) setDeferredPwaPrompt(p);
+    };
+    window.addEventListener('beforeinstallprompt', handlePrompt);
+    window.addEventListener('pwa-install-ready', handleReady);
+    if ((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt) {
+      setDeferredPwaPrompt((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt);
+    }
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handlePrompt);
+      window.removeEventListener('pwa-install-ready', handleReady);
+    };
+  }, []);
+
   // Keep auth state synchronized in Sidebar
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((user) => {

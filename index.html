@@ -22,12 +22,14 @@
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="alternate icon" type="image/png" href="./favicon.png" />
     <script>
-      // Capture beforeinstallprompt immediately so it is never missed
+      // Capture beforeinstallprompt immediately so it is never missed prior to hydration
+      window.deferredPwaPrompt = null;
       window.deferredPWAInstallPrompt = null;
       window.addEventListener('beforeinstallprompt', function (e) {
         e.preventDefault();
+        window.deferredPwaPrompt = e;
         window.deferredPWAInstallPrompt = e;
-        window.dispatchEvent(new CustomEvent('pwa-install-ready'));
+        window.dispatchEvent(new CustomEvent('pwa-install-ready', { detail: e }));
       });
     </script>
   </head>

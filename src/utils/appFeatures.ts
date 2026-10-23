@@ -21,6 +21,32 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.41',
+    releaseDate: 'October 23, 2026',
+    title: {
+      en: 'Fix Sender-Receiver Cloud Share Slot Sync, Tablet Scrolling, Calculator/FAB Nav Clearance & Direct 1-Click PWA Install',
+      ar: 'إصلاح مزامنة خانات المشاركة السحابية، التمرير على التابلت، خلوص الحاسبة والزر العائم من شريط التنقل وتثبيت PWA المباشر',
+    },
+    highlights: {
+      en: [
+        'Isolated Cloud Space Delivery & Deterministic Slot Publishing: Completely isolated individual Firebase writes with deep JSON sanitization, guaranteeing space delivery to recipient "Shared with Me" tabs across slots 0..9 without permission cascades.',
+        'Receiver Promise.allSettled Pipeline: Refactored fetchMyInboxOnce to read all cloud slots, directory maps, and inboxes with Promise.allSettled, merging live master nodes and updating React state instantly without page refresh.',
+        'Smooth Tablet & Large-Screen Vertical Scrolling: Removed non-scrollable flex wrapper overflow-hidden and enforced overflow-y-auto touch-pan-y overscroll-y-contain min-h-0 flex-1 across all screen sizes.',
+        'Calculator Keypad & Navigation Clearance: Recalculated container height and bottom clearance (h-[calc(100dvh-9.5rem)] md:h-[calc(100dvh-11.5rem)] pb-20 md:pb-28), keeping all keypad rows 100% visible and tappable.',
+        'Direct Responsive Floating Action Button (+): Anchored the floating "+" button cleanly to the bottom corner (bottom-24 md:bottom-28 right-4 md:right-8) strictly elevated above the navigation bar.',
+        'Instant 1-Click PWA Installation: Captured beforeinstallprompt in early inline head script into window.deferredPwaPrompt and component state; triggers native installation immediately on click without instructional modals.',
+      ],
+      ar: [
+        'تسليم مساحات السحابة المستقل ونشر الخانات الحتمية: عزل عمليات الكتابة في Firebase مع تعقيم JSON العميق، مما يضمن تسليم المساحة المشتركة لقسم "تمت مشاركتها معي" عبر الخانات 0..9 دون توقف.',
+        'مسار الاستلام عبر Promise.allSettled: إعادة بناء fetchMyInboxOnce لقراءة كافة الخانات والدليل والصناديق بالتوازي دون انقطاع، مع تحديث واجهة المستخدم لحظياً دون الحاجة لإعادة تحميل الصفحة.',
+        'تمرير رأسي سلس على التابلت والشاشات الكبيرة: إزالة overflow-hidden المقيد وتطبيق حاوية تمرير مرنة تدعم touch-pan-y و overscroll-y-contain لضمان التمرير باللمس وعجلة الماوس.',
+        'خلوص أزرار الحاسبة من شريط التنقل: تعديل حسابات ارتفاع الحاسبة لتوفير مساحة أمان علوية وسفلية تضمن ظهور كافة أزرار لوحة المفاتيح وسهولة لمسها دون تداخل.',
+        'تثبيت الزر العائم (+) في زاوية الشاشة المتجاوبة: تثبيت زر الإضافة في الزاوية السفلية بارتفاع كافٍ فوق شريط التنقل ليظل بارزاً وسهل الوصول على الهواتف والأجهزة اللوحية.',
+        'تثبيت تطبيق الويب التقدمي (PWA) بنقرة واحدة: التقاط حدث beforeinstallprompt مبكراً في ترويسة HTML وحالة React؛ تشغيل نافذة التثبيت الأصلية فوراً عند النقر بدون نوافذ إرشادية.',
+      ],
+    },
+  },
+  {
     version: '1.1.40',
     releaseDate: 'October 23, 2026',
     title: {
