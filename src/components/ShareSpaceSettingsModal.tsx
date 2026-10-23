@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Settings, Trash2, Check, Smile, Sparkles, AlertTriangle, Loader2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ShareFolder, updateShareFolderSettings, deleteShareFolder } from '../utils/shareFolders';
@@ -28,19 +28,23 @@ export const ShareSpaceSettingsModal: React.FC<ShareSpaceSettingsModalProps> = (
   const { settings, showToast, showConfirm } = useApp();
   const isArabic = settings.language === 'ar';
 
-  const [name, setName] = useState(folder.name || '');
-  const [selectedIcon, setSelectedIcon] = useState(folder.icon || '📁');
+  const [name, setName] = useState(() => folder?.name || '');
+  const [selectedIcon, setSelectedIcon] = useState(() => folder?.icon || '📁');
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Sync state when folder prop changes
+  // Initialize local form state strictly ONCE when the modal transitions from closed to open
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (folder) {
-      setName(folder.name || '');
-      setSelectedIcon(folder.icon || '📁');
+    if (isOpen && !wasOpenRef.current) {
+      wasOpenRef.current = true;
+      setName(folder?.name || '');
+      setSelectedIcon(folder?.icon || '📁');
+    } else if (!isOpen) {
+      wasOpenRef.current = false;
     }
-  }, [folder, isOpen]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

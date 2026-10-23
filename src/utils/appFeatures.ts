@@ -21,6 +21,30 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.44',
+    releaseDate: 'October 23, 2026',
+    title: {
+      en: 'Complete V3 Shared Spaces Engine Rebuild, Once-Ever Offline/Online Share Notifications, Modal Form Input Fix & Direct Native PWA Install',
+      ar: 'إعادة بناء شاملة لمحرك المساحات المشتركة V3، إشعارات المشاركة لمرة واحدة فقط (متصل/غير متصل)، إصلاح مدخلات النوافذ والتثبيت المباشر لـ PWA',
+    },
+    highlights: {
+      en: [
+        'Ground-Up V3 Rebuild of Shared Spaces Engine & Legacy Purge: Replaced legacy slot_*, inbox_*, and profile_directory_* nodes with a single canonical Firebase RTDB path shared_accounts/share_${space.id} and unified local cache (mm_spaces_v3_cache), guarded by a one-time clean migration (mm_share_v3_clean_reset).',
+        'Fix Space Creation & Settings Input Reset Bug: Removed live-prop useEffect hooks that overwrote local form state (name, icon, members, accounts, categories) while ShareFolderModal or ShareSpaceSettingsModal was open; form state now initializes strictly once on modal open and commits only on Save/Create/Add.',
+        'Strict Once-Ever Notification per Received Share (Live & Offline-to-Online): Eliminated the startup time-window block and implemented permanent dual-tracking in localStorage (mm_notified_shares_v3) and Firebase RTDB (users/${uid}/notifiedShares/${space.id} & member.notified = true), while strictly excluding space owners.',
+        'Direct Synchronous Native PWA App Installation: Invokes window.deferredPwaPrompt.prompt() as the very first synchronous statement inside the Install click handler in Sidebar.tsx before any React state update, with clean Web-Shortcut fallback when beforeinstallprompt is unavailable.',
+        'Offline-First Space Persistence & Timestamp-Guarded Sync: Writes created/edited spaces immediately to mm_spaces_v3_cache and queues offline cloud pushes; merges remote onValue updates only when remote.updatedAt > local.updatedAt (never while a modal is open) and permanently purges deleted spaces.',
+      ],
+      ar: [
+        'إعادة بناء شاملة لمحرك المساحات المشتركة (V3) وتنظيف البيانات القديمة: استبدال كافة العقد القديمة بمسار سحابي موحد shared_accounts/share_${space.id} وذاكرة محلية موحدة (mm_spaces_v3_cache) مع ترحيل تلقائي لمرة واحدة (mm_share_v3_clean_reset).',
+        'إصلاح مشكلة إعادة تعيين الاسم والأيقونة وإضافة الأعضاء أثناء التعديل: إزالة تأثيرات التحديث الخلفي التي كانت تمسح المدخلات أثناء فتح نافذة إنشاء أو إعدادات المساحة؛ لتتم تهيئة الحقول مرة واحدة فقط عند فتح النافذة وحفظها عند الضغط على زر الحفظ.',
+        'إشعار واحد فقط مدى الحياة لكل مشاركة واردة (أثناء الاتصال أو بعد فتح التطبيق): إلغاء حظر الوقت المؤقت وتطبيق تتبع مزدوج دائم في التخزين المحلي (mm_notified_shares_v3) وسحابة Firebase (users/${uid}/notifiedShares و member.notified) مع استبعاد مالك المساحة نهائياً.',
+        'التثبيت المباشر والفوري لتطبيق PWA على جميع الأجهزة: استدعاء prompt() كأول سطر برمجي متزامن فور نقر زر التثبيت في القائمة الجانبية قبل أي تحديث لحالة الواجهة، مع تنزيل اختصار مباشر في حال عدم توفر نافذة التثبيت التلقائية.',
+        'حفظ فوري يعمل 100% بدون إنترنت ومزامنة ذكية للحذف: حفظ الإنشاء والتعديلات فوراً في mm_spaces_v3_cache وجدولة الرفع السحابي عند عودة الاتصال، ودمج التحديثات السحابية فقط عندما تكون أحدث زمنياً وعدم الكتابة أثناء فتح النوافذ، مع الحذف النهائي الفوري.',
+      ],
+    },
+  },
+  {
     version: '1.1.43',
     releaseDate: 'October 23, 2026',
     title: {

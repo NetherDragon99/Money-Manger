@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
 import {
@@ -33,6 +33,7 @@ import {
   ShareFolder,
   UserProfileCard,
   markShareCreatedByMe,
+  upsertSpaceInV3Cache,
 } from '../utils/shareFolders';
 
 const POPULAR_SHARE_ICONS = ['📁', '💼', '🏠', '👥', '🛒', '✈️', '💰', '🍽️', '🚗', '🎓', '🏥', '🎉', '🎁', '⚡', '🌟', '💎'];
@@ -91,22 +92,40 @@ export const ShareFolderModal: React.FC = () => {
     getCachedAuthUser()?.uid ||
     settings.userProfile?.uid
   );
-  const accounts: Account[] = shareModalState?.accounts || [];
-  const categories: Category[] = shareModalState?.categories || [];
-  const transactions: Transaction[] = shareModalState?.transactions || [];
+
+  // Local form state initialized strictly ONCE when modal transitions from closed to open
+  const [selectedAccounts, setSelectedAccounts] = useState<Account[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
+  const [selectedTransactions, setSelectedTransactions] = useState<Transaction[]>([]);
+  const [existingFolders, setExistingFolders] = useState<ShareFolder[]>([]);
+  const [folderMode, setFolderMode] = useState<'new' | 'existing'>('new');
+  const [customFolderName, setCustomFolderName] = useState('');
+  const [customFolderIcon, setCustomFolderIcon] = useState('📁');
+  const [selectedExistingId, setSelectedExistingId] = useState('');
+
+  // Direct Send via 16-digit ID
+  const [recipient16DigitId, setRecipient16DigitId] = useState('');
+  const [selectedRecipientUser, setSelectedRecipientUser] = useState<UserProfileCard | null>(null);
+  const [isVerifyingRecipient, setIsVerifyingRecipient] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+
+  const myNumericId = cleanNumericId(settings.userProfile?.numericId || '') || getOrCreateNumericId();
+  const myName = settings.userProfile?.name || 'User';
+
+  const accounts = selectedAccounts;
+  const categories = selectedCategories;
+  const transactions = selectedTransactions;
 
   // Automatically fetch and deduplicate all transactions belonging to selected accounts and categories
   const resolvedTransactions = useMemo(() => {
-    const selectedAccIds = new Set(accounts.map((a) => a.id));
-    const selectedCatIds = new Set(categories.map((c) => c.id));
+    const selectedAccIds = new Set(selectedAccounts.map((a) => a.id));
+    const selectedCatIds = new Set(selectedCategories.map((c) => c.id));
     const txMap = new Map<string, Transaction>();
 
-    // 1. Explicitly selected transactions
-    for (const tx of transactions) {
+    for (const tx of selectedTransactions) {
       txMap.set(tx.id, tx);
     }
 
-    // 2. Fetch all transactions belonging to selected accounts
     if (selectedAccIds.size > 0 && allAppTransactions) {
       for (const tx of allAppTransactions) {
         if (
@@ -118,7 +137,6 @@ export const ShareFolderModal: React.FC = () => {
       }
     }
 
-    // 3. Fetch all transactions belonging to selected categories
     if (selectedCatIds.size > 0 && allAppTransactions) {
       for (const tx of allAppTransactions) {
         if (tx.categoryId && selectedCatIds.has(tx.categoryId)) {
@@ -128,60 +146,45 @@ export const ShareFolderModal: React.FC = () => {
     }
 
     return Array.from(txMap.values()).map((t) =>
-      enrichShareTransaction(t, accounts, allAppTransactions)
+      enrichShareTransaction(t, selectedAccounts, allAppTransactions)
     );
-  }, [accounts, categories, transactions, allAppTransactions]);
+  }, [selectedAccounts, selectedCategories, selectedTransactions, allAppTransactions]);
 
-  const totalItems = accounts.length + categories.length + resolvedTransactions.length;
+  const totalItems = selectedAccounts.length + selectedCategories.length + resolvedTransactions.length;
 
   const autoMeta = useMemo(
-    () => deduceFolderMetadata(accounts, categories, resolvedTransactions, isArabic),
-    [accounts, categories, resolvedTransactions, isArabic]
+    () => deduceFolderMetadata(selectedAccounts, selectedCategories, resolvedTransactions, isArabic),
+    [selectedAccounts, selectedCategories, resolvedTransactions, isArabic]
   );
 
-  const [existingFolders, setExistingFolders] = useState<ShareFolder[]>([]);
-  const [folderMode, setFolderMode] = useState<'new' | 'existing'>('new');
-  const [customFolderName, setCustomFolderName] = useState('');
-  const [customFolderIcon, setCustomFolderIcon] = useState('');
-  const [selectedExistingId, setSelectedExistingId] = useState('');
+  // Initialize local form state strictly ONCE when modal transitions from closed to open
+  const wasOpenRef = useRef(false);
+  const isModalOpen = Boolean(shareModalState?.isOpen);
 
-  // Direct Send via 16-digit ID
-  const [recipient16DigitId, setRecipient16DigitId] = useState('');
-  const [selectedRecipientUser, setSelectedRecipientUser] = useState<UserProfileCard | null>(null);
-  const [isVerifyingRecipient, setIsVerifyingRecipient] = useState(false);
-  const [isSending, setIsSending] = useState(false);
-
-  const myNumericId = settings.userProfile?.numericId || '0000000000000000';
-  const myName = settings.userProfile?.name || 'User';
-
-  // Strictly reset all fields on every modal open so each share starts 100% fresh & register profile to cloud
   useEffect(() => {
-    if (shareModalState?.isOpen) {
+    if (isModalOpen && !wasOpenRef.current) {
+      wasOpenRef.current = true;
+      const initAccs = shareModalState?.accounts || [];
+      const initCats = shareModalState?.categories || [];
+      const initTxs = shareModalState?.transactions || [];
+
+      setSelectedAccounts(initAccs);
+      setSelectedCategories(initCats);
+      setSelectedTransactions(initTxs);
+
+      const initialMeta = deduceFolderMetadata(initAccs, initCats, initTxs, isArabic);
       const folders = loadMyShareFolders();
       setExistingFolders(folders);
-      setFolderMode('new'); // ALWAYS default to clean, brand-new share!
+      setFolderMode('new');
       setRecipient16DigitId('');
       setSelectedRecipientUser(null);
-      setCustomFolderName(autoMeta.name);
-      setCustomFolderIcon(autoMeta.icon);
+      setCustomFolderName(initialMeta.name);
+      setCustomFolderIcon(initialMeta.icon);
       setSelectedExistingId(folders[0]?.id || '');
-
-      // Trigger profile cloud-registration immediately on open if signed in
-      const user = auth.currentUser || currentUser;
-      if (user) {
-        const clean16 = cleanNumericId(myNumericId) || getOrCreateNumericId();
-        if (clean16.length === 16) {
-          publishUserProfileCard({
-            numericId: clean16,
-            name: myName,
-            avatar: settings.userProfile?.avatarEmoji || '👤',
-            photoURL: settings.userProfile?.customAvatarUrl || user.photoURL || '',
-            uid: user.uid,
-          });
-        }
-      }
+    } else if (!isModalOpen) {
+      wasOpenRef.current = false;
     }
-  }, [shareModalState?.isOpen, autoMeta.name, autoMeta.icon, currentUser, myNumericId, myName, settings.userProfile]);
+  }, [isModalOpen]);
 
   if (!shareModalState || !shareModalState.isOpen) {
     return null;
@@ -210,15 +213,20 @@ export const ShareFolderModal: React.FC = () => {
       if (created) {
         created.isCreatedByMe = true;
         markShareCreatedByMe(created.id);
+        upsertSpaceInV3Cache(created);
       }
       return created;
     } else {
       if (!selectedExistingId) return null;
-      return appendToExistingShareFolder(selectedExistingId, {
+      const appended = appendToExistingShareFolder(selectedExistingId, {
         accounts,
         categories,
         transactions: resolvedTransactions,
       });
+      if (appended) {
+        upsertSpaceInV3Cache(appended);
+      }
+      return appended;
     }
   };
 

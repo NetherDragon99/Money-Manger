@@ -53,6 +53,7 @@ if (typeof window !== 'undefined') {
 
 const PENDING_BACKUP_KEY = 'mm_offline_pending_backup';
 const PENDING_SHARES_KEY = 'mm_offline_pending_shares';
+const PENDING_SHARE_DELETES_KEY = 'mm_offline_pending_share_deletes';
 
 /**
  * Queue a cloud backup payload while offline
@@ -74,15 +75,70 @@ export function queueOfflineCloudBackup(uid: string, payload: any): void {
  */
 export function queueOfflineShareUpdate(folder: any): void {
   try {
+    if (!folder || !folder.id) return;
+    const cleanId = String(folder.id).replace(/^share_/, '').trim();
     const raw = localStorage.getItem(PENDING_SHARES_KEY);
     const list: any[] = raw ? JSON.parse(raw) : [];
-    const filtered = list.filter((f) => f.id !== folder.id);
-    filtered.push(folder);
+    const filtered = list.filter((f) => String(f?.id || '').replace(/^share_/, '').trim() !== cleanId);
+    filtered.push({ ...folder, id: cleanId });
     localStorage.setItem(PENDING_SHARES_KEY, JSON.stringify(filtered));
-    console.log('[PersistQueue] Queued share folder update offline:', folder.id);
+    console.log('[PersistQueue] Queued share folder update offline:', cleanId);
   } catch (err) {
     console.warn('[PersistQueue] Failed to queue offline share:', err);
   }
+}
+
+/**
+ * Check whether a space ID is currently queued for offline cloud sync
+ */
+export function isSpacePendingOfflineSync(shareId: string): boolean {
+  try {
+    const cleanId = String(shareId || '').replace(/^share_/, '').trim();
+    if (!cleanId) return false;
+    const raw = localStorage.getItem(PENDING_SHARES_KEY);
+    if (!raw) return false;
+    const list: any[] = JSON.parse(raw);
+    return Array.isArray(list) && list.some((f) => String(f?.id || '').replace(/^share_/, '').trim() === cleanId);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove a space ID from the offline share update queue (e.g. after successful cloud sync or deletion)
+ */
+export function removeSpaceFromOfflineQueue(shareId: string): void {
+  try {
+    const cleanId = String(shareId || '').replace(/^share_/, '').trim();
+    if (!cleanId) return;
+    const raw = localStorage.getItem(PENDING_SHARES_KEY);
+    if (!raw) return;
+    const list: any[] = JSON.parse(raw);
+    if (!Array.isArray(list)) return;
+    const next = list.filter((f) => String(f?.id || '').replace(/^share_/, '').trim() !== cleanId);
+    if (next.length === 0) {
+      localStorage.removeItem(PENDING_SHARES_KEY);
+    } else {
+      localStorage.setItem(PENDING_SHARES_KEY, JSON.stringify(next));
+    }
+  } catch {}
+}
+
+/**
+ * Queue a space deletion while offline so shared_accounts/share_${id} is removed when back online
+ */
+export function queueOfflineShareDelete(shareId: string): void {
+  try {
+    const cleanId = String(shareId || '').replace(/^share_/, '').trim();
+    if (!cleanId) return;
+    removeSpaceFromOfflineQueue(cleanId);
+    const raw = localStorage.getItem(PENDING_SHARE_DELETES_KEY);
+    const list: string[] = raw ? JSON.parse(raw) : [];
+    if (!list.includes(cleanId)) {
+      list.push(cleanId);
+      localStorage.setItem(PENDING_SHARE_DELETES_KEY, JSON.stringify(list));
+    }
+  } catch {}
 }
 
 /**
@@ -110,7 +166,24 @@ export async function flushOfflineQueue(): Promise<void> {
     console.warn('[PersistQueue] Error flushing offline backup:', err);
   }
 
-  // 2. Flush offline pending share updates
+  // 2. Flush offline pending share deletions first
+  try {
+    const rawDeletes = localStorage.getItem(PENDING_SHARE_DELETES_KEY);
+    if (rawDeletes) {
+      const deleteIds: string[] = JSON.parse(rawDeletes);
+      if (Array.isArray(deleteIds) && deleteIds.length > 0) {
+        const { deleteShareFolder } = await import('./shareFolders');
+        for (const id of deleteIds) {
+          await deleteShareFolder(id).catch(() => {});
+        }
+        localStorage.removeItem(PENDING_SHARE_DELETES_KEY);
+      }
+    }
+  } catch (err) {
+    console.warn('[PersistQueue] Error flushing offline share deletes:', err);
+  }
+
+  // 3. Flush offline pending share updates
   try {
     const rawShares = localStorage.getItem(PENDING_SHARES_KEY);
     if (rawShares) {
@@ -119,7 +192,7 @@ export async function flushOfflineQueue(): Promise<void> {
         console.log(`[PersistQueue] Network online: Flushing ${shares.length} offline pending share updates...`);
         const { syncFolderToCloud } = await import('./shareFolders');
         for (const folder of shares) {
-          await syncFolderToCloud(folder).catch((e) =>
+          await syncFolderToCloud(folder, true).catch((e) =>
             console.warn('[PersistQueue] Share flush item note:', e)
           );
         }

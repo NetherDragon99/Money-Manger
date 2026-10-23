@@ -12,31 +12,89 @@ export const PWAInstallButton: React.FC<{ compact?: boolean; deferredPrompt?: an
   const { isInstalled } = usePWAInstall();
   const { settings, showToast } = useApp();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [showProgressModal, setShowProgressModal] = useState(false);
 
-  const handleInstallToHomeScreen = (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-
-    // (1) Synchronously invoke prompt() on the EXACT millisecond of user click gesture
-    const win = typeof window !== 'undefined' ? (window as any) : null;
-    const promptEvent =
-      win?.deferredPwaPrompt ||
-      win?.deferredPWAInstallPrompt ||
-      deferredPrompt;
-
-    if (promptEvent && typeof promptEvent.prompt === 'function') {
-      try {
-        if (!(promptEvent as any).__prompted) {
-          (promptEvent as any).__prompted = true;
-          promptEvent.prompt();
-        }
-      } catch (err) {
-        console.warn('Direct PWA prompt invocation error:', err);
+  const handleInstallToHomeScreen = () => {
+    const p = (window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt || deferredPrompt;
+    if (p) {
+      p.prompt();
+      if (p.userChoice && typeof p.userChoice.then === 'function') {
+        p.userChoice
+          .then((choice: any) => {
+            (window as any).deferredPwaPrompt = null;
+            (window as any).deferredPWAInstallPrompt = null;
+            if (choice?.outcome === 'accepted') {
+              showToast(
+                settings.language === 'ar'
+                  ? 'تم تثبيت التطبيق بنجاح على جهازك!'
+                  : 'App installed successfully to your device!',
+                'success'
+              );
+            }
+          })
+          .catch(() => {});
       }
+      return;
     }
 
-    // (2) Concurrently run the 0% -> 100% offline pre-caching progress bar
-    setShowProgressModal(true);
+    const isArabic = settings.language === 'ar';
+    const isStandalone =
+      typeof window !== 'undefined' &&
+      (window.matchMedia('(display-mode: standalone)').matches ||
+        window.matchMedia('(display-mode: fullscreen)').matches ||
+        Boolean((window.navigator as any).standalone));
+
+    if (isStandalone || isInstalled) {
+      showToast(
+        isArabic
+          ? 'التطبيق مثبت بالفعل ويعمل كتطبيق مستقل على جهازك!'
+          : 'App is already installed and running as a standalone app on your device!',
+        'success'
+      );
+      return;
+    }
+
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : '';
+    if (/iphone|ipad|ipod/.test(ua)) {
+      showToast(
+        isArabic
+          ? 'لتثبيت التطبيق على iPhone/iPad: اضغط زر المشاركة (Share) في المتصفح ثم اختر "إضافة إلى الشاشة الرئيسية (Add to Home Screen)".'
+          : 'To install on iOS: tap the browser Share button and select "Add to Home Screen".',
+        'info',
+        undefined,
+        6500
+      );
+      return;
+    }
+
+    try {
+      const appUrl = window.location.origin + window.location.pathname;
+      const isWindows = /win/i.test(navigator.platform || ua);
+      const blob = isWindows
+        ? new Blob([`[InternetShortcut]\r\nURL=${appUrl}\r\nIconIndex=0\r\n`], { type: 'application/internet-shortcut' })
+        : new Blob(
+            [
+              `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${appUrl}"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Personal Finance Tracker</title></head><body style="background:#000;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><a href="${appUrl}" style="color:#3b82f6;font-size:18px;font-weight:bold;text-decoration:none">Open Personal Finance Tracker</a><script>window.location.replace(${JSON.stringify(appUrl)});</script></body></html>`,
+            ],
+            { type: 'text/html;charset=utf-8' }
+          );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = isWindows ? 'Money-Manager.url' : 'Money-Manager-App.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch {}
+
+    showToast(
+      isArabic
+        ? 'تم تنزيل اختصار التطبيق المباشر! لتثبيته كتطبيق كامل، افتح قائمة المتصفح (⋮) واختر "تثبيت التطبيق / الإضافة إلى الشاشة الرئيسية".'
+        : 'Direct Web-Shortcut downloaded! To install as a native app, open your browser menu (⋮) and tap "Install App / Add to Home Screen".',
+      'info',
+      undefined,
+      6500
+    );
   };
 
   const handleManualUpdateCheck = async () => {
@@ -102,13 +160,6 @@ export const PWAInstallButton: React.FC<{ compact?: boolean; deferredPrompt?: an
           <span>{settings.language === 'ar' ? 'تثبيت التطبيق' : 'Install App'}</span>
         </button>
       )}
-
-      {/* Interactive PWA Pre-Cache Progress Modal */}
-      <PWAInstallProgressModal
-        isOpen={showProgressModal}
-        onClose={() => setShowProgressModal(false)}
-        isArabic={settings.language === 'ar'}
-      />
     </div>
   );
 };

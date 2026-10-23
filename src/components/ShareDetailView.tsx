@@ -624,20 +624,26 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     deleteFromPersonal: boolean;
   } | null>(null);
 
-  // Dual Sync 1: Subscribe to real-time updates for this folder from Firebase RTDB
+  // Subscribe to real-time updates for this space at canonical shared_accounts/share_${space.id}
   useEffect(() => {
     if (!initialFolder.id) return;
     const unsub = subscribeToShareFolder(initialFolder.id, (liveFolder) => {
       if (liveFolder) {
-        setFolder((prev) => ({
-          ...liveFolder,
-          ownerNumericId: liveFolder.ownerNumericId || prev.ownerNumericId,
-          owner16DigitId: liveFolder.owner16DigitId || prev.owner16DigitId || liveFolder.ownerNumericId || prev.ownerNumericId,
-          ownerUid: liveFolder.ownerUid || prev.ownerUid,
-          ownerName: liveFolder.ownerName || prev.ownerName,
-          ownerAvatar: liveFolder.ownerAvatar || prev.ownerAvatar,
-          ownerPhotoURL: liveFolder.ownerPhotoURL || prev.ownerPhotoURL,
-        }));
+        setFolder((prev) => {
+          // Never allow an older cloud snapshot to overwrite a newer local edit (name, icon, members)
+          if ((prev.updatedAt || 0) > (liveFolder.updatedAt || 0)) {
+            return prev;
+          }
+          return {
+            ...liveFolder,
+            ownerNumericId: liveFolder.ownerNumericId || prev.ownerNumericId,
+            owner16DigitId: liveFolder.owner16DigitId || prev.owner16DigitId || liveFolder.ownerNumericId || prev.ownerNumericId,
+            ownerUid: liveFolder.ownerUid || prev.ownerUid,
+            ownerName: liveFolder.ownerName || prev.ownerName,
+            ownerAvatar: liveFolder.ownerAvatar || prev.ownerAvatar,
+            ownerPhotoURL: liveFolder.ownerPhotoURL || prev.ownerPhotoURL,
+          };
+        });
       } else {
         showToast(
           isArabic ? 'تم حذف مساحة المشاركة من قِبل المالك' : 'This shared space was deleted by the owner',
@@ -648,70 +654,6 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     });
     return () => unsub();
   }, [initialFolder.id, isArabic, onExit, showToast]);
-
-  // Dual Sync 2: Automatic 3-second periodic polling loop fetching active shared_accounts/share_${shareId}
-  useEffect(() => {
-    if (!initialFolder.id) return;
-
-    let isMounted = true;
-    const pollActiveShare = async () => {
-      try {
-        const live = await fetchShareFolderFromCloud(initialFolder.id);
-        if (isMounted) {
-          if (!live) {
-            showToast(
-              isArabic ? 'تم حذف مساحة المشاركة من قِبل المالك' : 'This shared space was deleted by the owner',
-              'info'
-            );
-            onExit();
-            return;
-          }
-          setFolder((prev) => {
-            if (
-              live.updatedAt !== prev.updatedAt ||
-              live.members.length !== prev.members.length ||
-              live.payload.transactions.length !== prev.payload.transactions.length ||
-              live.payload.accounts.length !== prev.payload.accounts.length
-            ) {
-              return {
-                ...live,
-                ownerNumericId: live.ownerNumericId || prev.ownerNumericId,
-                owner16DigitId: live.owner16DigitId || prev.owner16DigitId || live.ownerNumericId || prev.ownerNumericId,
-                ownerUid: live.ownerUid || prev.ownerUid,
-                ownerName: live.ownerName || prev.ownerName,
-                ownerAvatar: live.ownerAvatar || prev.ownerAvatar,
-                ownerPhotoURL: live.ownerPhotoURL || prev.ownerPhotoURL,
-              };
-            }
-            return prev;
-          });
-        }
-      } catch (err) {
-        // Quiet poll error handling
-      }
-    };
-
-    pollActiveShare();
-    const intervalId = setInterval(pollActiveShare, 4000);
-    return () => {
-      isMounted = false;
-      clearInterval(intervalId);
-    };
-  }, [initialFolder.id]);
-
-  // Real-time listener for incoming shares while Detail View is open (zero-bandwidth when idle)
-  useEffect(() => {
-    if (myCleanNumericId.length !== 16) return;
-    const unsub = subscribeToMyInbox(myCleanNumericId, (liveReceived) => {
-      if (liveReceived && Array.isArray(liveReceived)) {
-        saveReceivedShareFolders(liveReceived);
-      }
-    });
-
-    return () => {
-      unsub();
-    };
-  }, [myCleanNumericId]);
 
   // Real-time listener for share space deletion events
   useEffect(() => {

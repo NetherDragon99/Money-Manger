@@ -57,6 +57,10 @@ import {
   markShareIdsNotifiedPerm,
   getDismissedShareIds,
   normalizeShareId,
+  loadAllSpacesV3,
+  isSpaceOwnedByUser,
+  isSpaceSharedWithUser,
+  extractMember16Ids,
 } from '../utils/shareFolders';
 import { ShareDetailView } from './ShareDetailView';
 
@@ -199,158 +203,129 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   const [isVerifyingInvite, setIsVerifyingInvite] = useState(false);
   const [isSendingInvite, setIsSendingInvite] = useState(false);
 
-  // Automatically publish user's public lookup card on open (only if signed in)
+  // Hydrate spaces & publish user lookup card strictly ONCE when hub transitions from closed to open
+  const wasHubOpenRef = useRef(false);
   useEffect(() => {
-    const user = auth.currentUser || currentUser;
-    if (isOpen && user) {
-      const clean16 = myCleanNumericId || getOrCreateNumericId();
-      if (clean16.length === 16) {
-        publishUserProfileCard({
-          numericId: clean16,
-          name: myName,
-          avatar: settings.userProfile?.avatarEmoji || '👤',
-          photoURL: settings.userProfile?.customAvatarUrl || user.photoURL || '',
-          uid: user.uid,
-        });
-      }
-    }
-  }, [isOpen, currentUser, myCleanNumericId, myName, settings.userProfile]);
-
-  // Dual Sync 1: Real-time inbox listener on Firebase RTDB (only if signed in)
-  useEffect(() => {
-    if (!isOpen || !isAuthenticated || myCleanNumericId.length !== 16) return;
-    const unsub = subscribeToMyInbox(myCleanNumericId, (liveReceived) => {
-      if (liveReceived && Array.isArray(liveReceived)) {
-        const dismissed = getDismissedShareIds();
-        const filtered = liveReceived.filter((f) => f && f.id && !dismissed.has(normalizeShareId(f.id)));
-        // Mark all viewed/received folders as seen so notification toasts are never triggered for them
-        const hashesToMark: string[] = [];
-        const idsToMark: string[] = [];
-        for (const f of filtered) {
-          if (f && f.id) {
-            hashesToMark.push(f.id);
-            hashesToMark.push(computeShareNotificationHash(f));
-            idsToMark.push(f.id);
-          }
-        }
-        markShareNotificationsSeen(hashesToMark);
-        markShareIdsNotifiedPerm(idsToMark);
-        setReceivedFolders(filtered);
-        saveReceivedShareFolders(filtered);
-      }
-    });
-    return () => unsub();
-  }, [isOpen, isAuthenticated, myCleanNumericId]);
-
-  // Dual Sync 2: Quiet periodic polling loop (only if signed in, 8s interval)
-  useEffect(() => {
-    if (!isOpen || !isAuthenticated || myCleanNumericId.length !== 16) return;
-
-    let isMounted = true;
-    const pollInbox = async () => {
-      try {
-        const live = await fetchMyInboxOnce(myCleanNumericId);
-        if (isMounted && live && Array.isArray(live)) {
-          setReceivedFolders((prev) => {
-            const liveMap = new Map<string, ShareFolder>();
-            for (const f of prev) {
-              if (f && f.id) liveMap.set(f.id, f);
-            }
-            for (const f of live) {
-              if (f && f.id) liveMap.set(f.id, f);
-            }
-            const merged = Array.from(liveMap.values());
-            merged.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-
-            const prevSig = prev.map((f) => `${f.id}_${f.updatedAt || 0}_${f.members?.length || 0}`).join('|');
-            const mergedSig = merged.map((f) => `${f.id}_${f.updatedAt || 0}_${f.members?.length || 0}`).join('|');
-
-            if (prevSig !== mergedSig || prev.length !== merged.length) {
-              saveReceivedShareFolders(merged);
-              return merged;
-            }
-            return prev;
-          });
-        }
-      } catch (err) {
-        // Quiet poll error handling
-      }
-    };
-
-    pollInbox();
-    const intervalId = setInterval(pollInbox, 15000);
-    return () => {
-      isMounted = false;
-      clearInterval(intervalId);
-    };
-  }, [isOpen, isAuthenticated, myCleanNumericId]);
-
-  // Real-time listener on custom events when inbox is updated globally or hub is opened
-  useEffect(() => {
-    const handleUpdated = (e: any) => {
-      if (e?.detail && Array.isArray(e.detail)) {
-        setReceivedFolders(e.detail);
-      }
-    };
-    const handleOpenHub = (e: any) => {
-      if (e?.detail?.tab) {
-        setActiveTab(e.detail.tab);
-      }
-      if (e?.detail?.folderId) {
-        const received = loadReceivedShareFolders();
-        const found = received.find((f) => f.id === e.detail.folderId);
-        if (found) {
-          setActiveShareDetailFolder(found);
-        }
-      }
-    };
-    window.addEventListener('received_shares_updated', handleUpdated);
-    window.addEventListener('open_shared_accounts_hub', handleOpenHub);
-    return () => {
-      window.removeEventListener('received_shares_updated', handleUpdated);
-      window.removeEventListener('open_shared_accounts_hub', handleOpenHub);
-    };
-  }, []);
-
-  // (3) Automatically repair and migrate locally cached shared spaces on open or identity change
-  useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasHubOpenRef.current) {
+      wasHubOpenRef.current = true;
       const { myFolders: migratedMy, receivedFolders: migratedReceived } = repairAndMigrateSharedSpaces(
         myCleanNumericId,
         currentUser?.uid
       );
       setMyFolders(migratedMy);
       setReceivedFolders(migratedReceived);
-      markShareIdsNotifiedPerm(migratedReceived.map((f) => f.id));
-    }
-  }, [isOpen, myCleanNumericId, currentUser]);
 
-  // (2) Strictly render a space in "Shared by Me" ONLY if (cleanId(space.owner16DigitId) === myClean16Id && !space.isReceivedShare)
-  const displayedMyFolders = useMemo(() => {
-    return myFolders.filter((space) => {
-      const owner16 = cleanNumericId(space.owner16DigitId || space.ownerNumericId);
-      return Boolean(myCleanNumericId && owner16 === myCleanNumericId && !space.isReceivedShare);
+      const user = auth.currentUser || currentUser;
+      if (user) {
+        const clean16 = myCleanNumericId || getOrCreateNumericId();
+        if (clean16.length === 16) {
+          publishUserProfileCard({
+            numericId: clean16,
+            name: myName,
+            avatar: settings.userProfile?.avatarEmoji || '👤',
+            photoURL: settings.userProfile?.customAvatarUrl || user.photoURL || '',
+            uid: user.uid,
+          });
+        }
+      }
+    } else if (!isOpen) {
+      wasHubOpenRef.current = false;
+    }
+  }, [isOpen]);
+
+  // Real-time V3 listener on Firebase RTDB shared_accounts (only if signed in)
+  useEffect(() => {
+    if (!isOpen || !isAuthenticated || myCleanNumericId.length !== 16) return;
+    const unsub = subscribeToMyInbox(myCleanNumericId, (liveReceived) => {
+      const { myFolders: latestMy, receivedFolders: latestReceived } = repairAndMigrateSharedSpaces(
+        myCleanNumericId,
+        currentUser?.uid
+      );
+      setMyFolders(latestMy);
+      if (liveReceived && Array.isArray(liveReceived)) {
+        const dismissed = getDismissedShareIds();
+        const filtered = liveReceived.filter((f) => f && f.id && !dismissed.has(normalizeShareId(f.id)));
+        setReceivedFolders(filtered);
+      } else {
+        setReceivedFolders(latestReceived);
+      }
     });
-  }, [myFolders, myCleanNumericId]);
+    fetchMyInboxOnce(myCleanNumericId).catch(() => {});
+    return () => unsub();
+  }, [isOpen, isAuthenticated, myCleanNumericId, currentUser?.uid]);
 
-  // (3) Render all other spaces in "Shared with Me"
-  const displayedReceivedFolders = useMemo(() => {
-    const combinedMap = new Map<string, ShareFolder>();
-    const dismissed = getDismissedShareIds();
-    for (const f of receivedFolders) {
-      if (f && f.id && !dismissed.has(normalizeShareId(f.id))) combinedMap.set(f.id, f);
+  // Real-time listener on custom events when unified V3 cache or inbox is updated
+  useEffect(() => {
+    const refreshFromCache = () => {
+      const { myFolders: latestMy, receivedFolders: latestReceived } = repairAndMigrateSharedSpaces(
+        myCleanNumericId,
+        currentUser?.uid
+      );
+      setMyFolders(latestMy);
+      setReceivedFolders(latestReceived);
+    };
+    const handleUpdated = (e: any) => {
+      if (e?.detail && Array.isArray(e.detail)) {
+        setReceivedFolders(e.detail);
+      }
+      setMyFolders(loadMyShareFolders());
+    };
+    const handleOpenHub = (e: any) => {
+      if (e?.detail?.tab) {
+        setActiveTab(e.detail.tab);
+      }
+      if (e?.detail?.folderId) {
+        const all = loadAllSpacesV3();
+        const found = all.find((f) => normalizeShareId(f.id) === normalizeShareId(e.detail.folderId));
+        if (found) {
+          setActiveShareDetailFolder(found);
+        }
+      }
+    };
+    window.addEventListener('spaces_v3_updated', refreshFromCache);
+    window.addEventListener('received_shares_updated', handleUpdated);
+    window.addEventListener('open_shared_accounts_hub', handleOpenHub);
+    return () => {
+      window.removeEventListener('spaces_v3_updated', refreshFromCache);
+      window.removeEventListener('received_shares_updated', handleUpdated);
+      window.removeEventListener('open_shared_accounts_hub', handleOpenHub);
+    };
+  }, [myCleanNumericId, currentUser?.uid]);
+
+  // Strictly sort "Shared by Me": (space.ownerUid === currentUser.uid || cleanId(space.owner16DigitId) === myClean16Id)
+  const displayedMyFolders = useMemo(() => {
+    const allMap = new Map<string, ShareFolder>();
+    for (const f of [...myFolders, ...receivedFolders]) {
+      if (f && f.id) allMap.set(normalizeShareId(f.id), f);
     }
-    for (const f of myFolders) {
-      if (!f || !f.id) continue;
-      if (dismissed.has(normalizeShareId(f.id))) continue;
-      const owner16 = cleanNumericId(f.owner16DigitId || f.ownerNumericId);
-      const isStrictMy = Boolean(myCleanNumericId && owner16 === myCleanNumericId && !f.isReceivedShare);
-      if (!isStrictMy) {
-        combinedMap.set(f.id, { ...f, isReceivedShare: true });
+    const activeUid = currentUser?.uid || auth.currentUser?.uid || settings.userProfile?.uid || '';
+    return Array.from(allMap.values()).filter((space) => {
+      const owner16 = cleanNumericId(space.owner16DigitId || space.ownerNumericId);
+      const isOwnedByUid = Boolean(activeUid && space.ownerUid && space.ownerUid === activeUid);
+      const isOwnedBy16Id = Boolean(myCleanNumericId && owner16 && owner16 === myCleanNumericId);
+      return isOwnedByUid || isOwnedBy16Id;
+    });
+  }, [myFolders, receivedFolders, myCleanNumericId, currentUser?.uid, settings.userProfile?.uid]);
+
+  // Strictly sort "Shared with Me": spaces where member16Ids includes myClean16Id and ownerUid !== currentUser.uid
+  const displayedReceivedFolders = useMemo(() => {
+    const allMap = new Map<string, ShareFolder>();
+    const dismissed = getDismissedShareIds();
+    for (const f of [...receivedFolders, ...myFolders]) {
+      if (f && f.id && !dismissed.has(normalizeShareId(f.id))) {
+        allMap.set(normalizeShareId(f.id), f);
       }
     }
-    return Array.from(combinedMap.values());
-  }, [receivedFolders, myFolders, myCleanNumericId]);
+    const activeUid = currentUser?.uid || auth.currentUser?.uid || settings.userProfile?.uid || '';
+    return Array.from(allMap.values()).filter((space) => {
+      const owner16 = cleanNumericId(space.owner16DigitId || space.ownerNumericId);
+      const isOwnedByUid = Boolean(activeUid && space.ownerUid && space.ownerUid === activeUid);
+      const isOwnedBy16Id = Boolean(myCleanNumericId && owner16 && owner16 === myCleanNumericId);
+      if (isOwnedByUid || isOwnedBy16Id) return false;
+      const member16Ids = extractMember16Ids(space);
+      return Boolean(myCleanNumericId && member16Ids.includes(myCleanNumericId));
+    });
+  }, [receivedFolders, myFolders, myCleanNumericId, currentUser?.uid, settings.userProfile?.uid]);
 
   if (!isOpen) return null;
 
@@ -425,8 +400,11 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     setIsSendingInvite(false);
 
     if (res.success && res.folder) {
-      await syncShareFolderToCloud(res.folder).catch(() => {});
-      setMyFolders(loadMyShareFolders());
+      const updatedFolder = res.folder;
+      setMyFolders((prev) =>
+        prev.map((f) => (normalizeShareId(f.id) === normalizeShareId(updatedFolder.id) ? updatedFolder : f))
+      );
+      await syncShareFolderToCloud(updatedFolder, true).catch(() => {});
       setInvite16Id('');
       setInviteSelectedUser(null);
       setInvitingFolderId(null);
@@ -1056,8 +1034,12 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
           onClose={handleCloseEditSpace}
           folder={activeSettingsSpace}
           onUpdated={(updated) => {
-            const next = loadMyShareFolders();
-            setMyFolders(next);
+            setMyFolders((prev) => {
+              const exists = prev.some((f) => normalizeShareId(f.id) === normalizeShareId(updated.id));
+              return exists
+                ? prev.map((f) => (normalizeShareId(f.id) === normalizeShareId(updated.id) ? updated : f))
+                : [updated, ...prev];
+            });
             handleCloseEditSpace();
           }}
           onDeleted={() => {

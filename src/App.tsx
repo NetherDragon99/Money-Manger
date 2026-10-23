@@ -176,26 +176,27 @@ const MainAppContent: React.FC = () => {
       window.dispatchEvent(new CustomEvent('pwa-install-ready', { detail: e }));
     };
 
+    const handleAppInstalled = () => {
+      (window as any).deferredPwaPrompt = null;
+      (window as any).deferredPWAInstallPrompt = null;
+      setDeferredPwaPrompt(null);
+      showToast(
+        settings.language === 'ar'
+          ? 'تم تثبيت التطبيق بنجاح على جهازك!'
+          : 'App installed successfully to your device!',
+        'success'
+      );
+    };
+
     const handleTriggerInstall = () => {
-      // Synchronously invoke prompt() on user gesture if dispatched from click
-      const promptEvent =
-        (window as any).deferredPwaPrompt ||
-        (window as any).deferredPWAInstallPrompt ||
-        deferredPwaPrompt;
-      if (promptEvent && typeof promptEvent.prompt === 'function') {
-        try {
-          if (!(promptEvent as any).__prompted) {
-            (promptEvent as any).__prompted = true;
-            promptEvent.prompt();
-          }
-        } catch (e) {
-          console.warn('Install prompt error:', e);
-        }
+      const p = (window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt;
+      if (p) {
+        p.prompt();
       }
-      setIsPwaInstallModalOpen(true);
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleAppInstalled);
     window.addEventListener('trigger-pwa-install', handleTriggerInstall);
 
     if ((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt) {
@@ -204,9 +205,10 @@ const MainAppContent: React.FC = () => {
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleAppInstalled);
       window.removeEventListener('trigger-pwa-install', handleTriggerInstall);
     };
-  }, []);
+  }, [settings.language, showToast]);
 
   // Force unlock screen orientation to support landscape & portrait mode in installed PWAs and mobile browsers
   useEffect(() => {

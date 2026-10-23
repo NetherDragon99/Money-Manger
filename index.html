@@ -38,17 +38,12 @@
       });
       // Synchronous helper to invoke prompt directly on user click gesture
       window.triggerDirectPwaInstall = function () {
-        var p = window.deferredPwaPrompt || window.deferredPWAInstallPrompt;
-        if (p && typeof p.prompt === 'function') {
-          try {
-            if (!p.__prompted) {
-              p.__prompted = true;
-              p.prompt();
-            }
-          } catch (err) {
-            console.warn('Direct PWA prompt error:', err);
-          }
+        const p = window.deferredPwaPrompt || window.deferredPWAInstallPrompt;
+        if (p) {
+          p.prompt();
+          return true;
         }
+        return false;
       };
     </script>
   </head>

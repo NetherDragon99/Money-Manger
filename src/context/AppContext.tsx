@@ -8,7 +8,7 @@ import React, {
   useCallback,
   useRef,
 } from 'react';
-import { debouncedPersist } from '../utils/persistQueue';
+import { debouncedPersist, flushOfflineQueue } from '../utils/persistQueue';
 
 /**
  * Wraps every mutator in a permanently stable callback (useCallback with [] deps) that always
@@ -113,6 +113,12 @@ import {
   repairAndMigrateSharedSpaces,
   saveShareFolder,
   propagateUserProfileToAllSharedSpaces,
+  executeOneTimeV3ShareCleanReset,
+  syncCloudNotifiedSharesToLocal,
+  isShareNotifiedEverywhere,
+  recordShareNotifiedEverywhere,
+  isSpaceOwnedByUser,
+  setShareModalOpenState,
 } from '../utils/shareFolders';
 
 export interface ToastItem {
@@ -614,6 +620,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setShareModalState({ isOpen: false });
   };
 
+  // Keep global modal-open flag synced so remote onValue listeners never overwrite active modal edits
+  useEffect(() => {
+    const anyShareEditModalOpen = Boolean(shareModalState.isOpen || isEditingSpace);
+    if (typeof window !== 'undefined') {
+      (window as any).__mmShareModalOpen = anyShareEditModalOpen;
+    }
+    setShareModalOpenState(anyShareEditModalOpen);
+  }, [shareModalState.isOpen, isEditingSpace]);
+
   // Remaining Balance Modal (Item 8)
   const [remainingBalanceModalState, setRemainingBalanceModalState] = useState<{
     isOpen: boolean;
@@ -865,120 +880,97 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Active global real-time listener for incoming shares to user's 16-digit ID
   // Delivers instant incoming shares without requiring the recipient to refresh!
   useEffect(() => {
+    // Execute one-time V3 clean reset of legacy share keys & Firebase nodes
+    executeOneTimeV3ShareCleanReset().catch(() => {});
+
     const isAuthed = Boolean(auth.currentUser?.uid || getCachedAuthUser()?.uid || settings.userProfile?.uid);
     const rawId = settings.userProfile?.numericId || (isAuthed ? getOrCreateNumericId() : '');
     const cleanId = cleanNumericId(rawId || '');
     if (cleanId.length !== 16) return;
 
-    // Run automatic startup migration on existing cached localStorage shares to move
-    // any space whose ownerUid !== currentUser.uid or isReceivedShare === true back to "Shared with Me"
     const currentUid = auth.currentUser?.uid || getCachedAuthUser()?.uid || settings.userProfile?.uid;
     repairAndMigrateSharedSpaces(cleanId, currentUid);
 
-    // Track known / seen share notification hashes in persistent mm_seen_share_notifications
-    // and track normalized share IDs in mm_notified_share_ids_perm
-    const initialReceived = loadReceivedShareFolders();
-    const initialHashes: string[] = [];
-    const initialShareIds: string[] = [];
-    for (const f of initialReceived) {
-      if (f && f.id) {
-        initialHashes.push(f.id);
-        initialHashes.push(computeShareNotificationHash(f));
-        initialShareIds.push(f.id);
-      }
-    }
-    markShareNotificationsSeen(initialHashes);
-    markShareIdsNotifiedPerm(initialShareIds);
-
-    // Initial onValue hydration guard: DO NOT fire any toasts during initial loading
-    let isInitialHydration = true;
-    const hydrationTimer = setTimeout(() => {
-      isInitialHydration = false;
-    }, 2500);
+    let isDisposed = false;
+    // Hydrate permanent cloud notifiedShares map into local 'mm_notified_shares_v3'
+    const cloudNotifiedReady = syncCloudNotifiedSharesToLocal(currentUid).catch(() => {});
 
     const unsub = subscribeToMyInbox(cleanId, (rawLiveReceived) => {
-      if (!Array.isArray(rawLiveReceived)) return;
+      if (!Array.isArray(rawLiveReceived) || isDisposed) return;
       const dismissedIds = getDismissedShareIds();
       const liveReceived = rawLiveReceived.filter((f) => f && f.id && !dismissedIds.has(normalizeShareId(f.id)));
 
-      // 1. During initial onValue hydration, mark all existing folders as seen and never fire toasts
-      if (isInitialHydration) {
-        const hashesToMark: string[] = [];
-        const idsToMark: string[] = [];
-        for (const folder of liveReceived) {
-          if (folder && folder.id) {
-            hashesToMark.push(folder.id);
-            hashesToMark.push(computeShareNotificationHash(folder));
-            idsToMark.push(folder.id);
-          }
-        }
-        markShareNotificationsSeen(hashesToMark);
-        markShareIdsNotifiedPerm(idsToMark);
-        saveReceivedShareFolders(liveReceived);
-        window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: liveReceived }));
-        return;
-      }
-
-      // 2. Post-hydration: ONLY fire once when a genuinely new unseen share invitation arrives
-      // Check permanent array of seen share IDs in localStorage ('mm_notified_share_ids_perm')
-      const notifiedPermSet = getNotifiedShareIdsPerm();
-      const seenHashes = getSeenShareNotificationHashes();
-      for (const folder of liveReceived) {
-        if (!folder || !folder.id) continue;
-        const cleanShareId = normalizeShareId(folder.id);
-        if (!cleanShareId) continue;
-
-        // If the normalized share.id is already in 'mm_notified_share_ids_perm' - NEVER fire a toast or notification!
-        if (notifiedPermSet.has(cleanShareId)) {
-          continue;
-        }
-
-        const hash = computeShareNotificationHash(folder);
-        if (seenHashes.has(folder.id) || seenHashes.has(hash)) {
-          markShareIdsNotifiedPerm([cleanShareId]);
-          notifiedPermSet.add(cleanShareId);
-          continue;
-        }
-
-        // ONLY fire the notification the very first time a brand-new unseen share.id arrives,
-        // and immediately append that share.id to 'mm_notified_share_ids_perm' in localStorage
-        markShareIdsNotifiedPerm([cleanShareId]);
-        notifiedPermSet.add(cleanShareId);
-        markShareNotificationsSeen([folder.id, hash]);
-        seenHashes.add(folder.id);
-        seenHashes.add(hash);
-
-        // Show interactive real-time notification toast exactly once
-        showToast(
-          settings.language === 'ar'
-            ? `📬 وصلتك مشاركة جديدة من "${folder.ownerName}": "${folder.name}"!`
-            : `📬 New share received from "${folder.ownerName}": "${folder.name}"!`,
-          'info',
-          {
-            label: settings.language === 'ar' ? 'عرض المشاركة' : 'View Share',
-            onClick: () => {
-              setIsSharedHubModalOpen(true);
-              window.dispatchEvent(
-                new CustomEvent('open_shared_accounts_hub', {
-                  detail: { tab: 'shared_with_me', folderId: folder.id },
-                })
-              );
-            },
-          },
-          7000
-        );
-      }
-
       saveReceivedShareFolders(liveReceived);
       window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: liveReceived }));
+
+      // Strict once-ever notification check (works both live & when opening app later after being offline,
+      // with NO time-window restriction):
+      cloudNotifiedReady.then(() => {
+        if (isDisposed) return;
+        for (const folder of liveReceived) {
+          if (!folder || !folder.id) continue;
+          const cleanShareId = normalizeShareId(folder.id);
+          if (!cleanShareId) continue;
+
+          // (1) NEVER notify if space.ownerUid === currentUser.uid or cleanId(space.owner16DigitId) === myClean16Id
+          const folderOwner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId || '');
+          if (
+            (currentUid && folder.ownerUid && folder.ownerUid === currentUid) ||
+            (folderOwner16 && folderOwner16 === cleanId) ||
+            isSpaceOwnedByUser(folder, cleanId, currentUid)
+          ) {
+            continue;
+          }
+
+          // (2) & (3) Check both localStorage ('mm_notified_shares_v3') and cloud (users/${uid}/notifiedShares & member.notified)
+          if (isShareNotifiedEverywhere(folder, cleanId, currentUid)) {
+            continue;
+          }
+
+          // Immediately record space.id in both 'mm_notified_shares_v3' and Firebase RTDB so it never notifies a second time
+          recordShareNotifiedEverywhere(folder, cleanId, currentUid).catch(() => {});
+
+          // Show interactive notification toast strictly ONCE in history for this share
+          showToast(
+            settings.language === 'ar'
+              ? `📬 وصلتك مشاركة جديدة من "${folder.ownerName}": "${folder.name}"!`
+              : `📬 New share received from "${folder.ownerName}": "${folder.name}"!`,
+            'info',
+            {
+              label: settings.language === 'ar' ? 'عرض المشاركة' : 'View Share',
+              onClick: () => {
+                setIsSharedHubModalOpen(true);
+                window.dispatchEvent(
+                  new CustomEvent('open_shared_accounts_hub', {
+                    detail: { tab: 'shared_with_me', folderId: folder.id },
+                  })
+                );
+              },
+            },
+            7000
+          );
+        }
+      });
     });
 
     // Low-bandwidth optimization: rely strictly on event-driven Firebase onValue listeners (zero bandwidth when idle)
-    // Run one initial silent check on mount without continuous polling loops
-    fetchMyInboxOnce(cleanId).catch(() => {});
+    // Run one initial silent check on mount and flush any offline queue when reconnecting
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      flushOfflineQueue()
+        .then(() => fetchMyInboxOnce(cleanId))
+        .catch(() => {});
+    }
+
+    const handleReconnect = () => {
+      flushOfflineQueue()
+        .then(() => fetchMyInboxOnce(cleanId))
+        .catch(() => {});
+    };
+    window.addEventListener('online', handleReconnect);
 
     return () => {
-      clearTimeout(hydrationTimer);
+      isDisposed = true;
+      window.removeEventListener('online', handleReconnect);
       unsub();
     };
   }, [settings.userProfile?.numericId, settings.userProfile?.uid, settings.language]);
