@@ -21,6 +21,28 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.45',
+    releaseDate: 'October 23, 2026',
+    title: {
+      en: 'Restored Deterministic Cloud Slots (0..9) + Master Share Engine, Strict Once-In-History Share Notifications & Pure Native PWA WebAPK Install',
+      ar: 'استعادة محرك خانات المشاركة السحابية (0..9) + العقدة الرئيسية، إشعارات المشاركة لمرة واحدة مدى الحياة والتثبيت الأصلي الكامل لتطبيق PWA',
+    },
+    highlights: {
+      en: [
+        'Restored Deterministic Cloud Slots (0..9) + Master Share Engine: Eliminated root shared_accounts reads/listeners (which trigger PERMISSION_DENIED) and restored direct per-slot delivery (shared_accounts/slot_${target16Id}_0..9) paired with master space sync at shared_accounts/share_${space.id}.',
+        'Strict Ownership Split & Dual Offline Persistence: Persists owned spaces in mm_my_owned_spaces and received spaces in mm_received_spaces for 100% offline reliability, strictly rendering spaces where cleanId(space.owner16DigitId) === myClean16Id in "Shared by Me" and !== myClean16Id in "Shared with Me".',
+        'Strictly Once-In-History Share Notifications (Live & Offline-to-Online): Added permanent dual-registry tracking in localStorage (mm_notified_share_ids_forever) and Firebase RTDB (users/${uid}/notifiedShares/${cleanShareId} = true) with synchronous pre-tick locking, blocking owner self-notifications and re-notifications on edits or refreshes.',
+        'Pure Native PWA WebAPK Installation & Zero Shortcut File Downloads: Completely removed all .html/.url Blob download code; clicking Install synchronously triggers promptEvent.prompt() while Workbox and the Service Worker pre-cache all app assets for 100% standalone offline execution.',
+      ],
+      ar: [
+        'استعادة محرك الخانات السحابية القياسية (0..9) والعقدة الرئيسية للمشاركة: إلغاء قراءة الجذر العام لـ shared_accounts واستعادة التسليم المباشر عبر الخانات (shared_accounts/slot_${target16Id}_0..9) مع الربط اللحظي بالعقدة الرئيسية shared_accounts/share_${space.id}.',
+        'فصل صارم للملكية وحفظ مزدوج بدون إنترنت: حفظ المساحات المملوكة في mm_my_owned_spaces والمساحات المستلمة في mm_received_spaces للعمل بدون إنترنت، مع عرض المساحات المطابقة لمعرّف المالك في "أنا مشيره" والمختلفة في "متشير معايا" بدقة تامة.',
+        'إشعار واحد فقط مدى الحياة لكل مشاركة مستلمة (مباشر أو بعد فتح التطبيق): سجل دائم في التخزين المحلي (mm_notified_share_ids_forever) وسحابة Firebase (users/${uid}/notifiedShares/${cleanShareId} = true) مع قفل متزامن فوري يمنع تكرار الإشعار عند التحديث أو التعديل أو للمالك.',
+        'تثبيت أصلي مباشر لتطبيق PWA وإلغاء تنزيل ملفات الاختصار نهائياً: حذف كافة أكواد تنزيل ملفات .html و.url؛ لتعمل نقرة التثبيت على إطلاق نافذة التثبيت الأصلية للنظام مباشرةً مع التخزين المسبق الكامل عبر Service Worker للعمل 100% بدون إنترنت.',
+      ],
+    },
+  },
+  {
     version: '1.1.44',
     releaseDate: 'October 23, 2026',
     title: {

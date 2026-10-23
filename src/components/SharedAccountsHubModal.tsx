@@ -55,6 +55,8 @@ import {
   markShareNotificationsSeen,
   computeShareNotificationHash,
   markShareIdsNotifiedPerm,
+  markShareIdsNotifiedForever,
+  recordShareNotifiedSynchronously,
   getDismissedShareIds,
   normalizeShareId,
   loadAllSpacesV3,
@@ -292,7 +294,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     };
   }, [myCleanNumericId, currentUser?.uid]);
 
-  // Strictly sort "Shared by Me": (space.ownerUid === currentUser.uid || cleanId(space.owner16DigitId) === myClean16Id)
+  // Strictly sort "Shared by Me": cleanId(space.owner16DigitId) === myClean16Id
   const displayedMyFolders = useMemo(() => {
     const allMap = new Map<string, ShareFolder>();
     for (const f of [...myFolders, ...receivedFolders]) {
@@ -301,13 +303,14 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     const activeUid = currentUser?.uid || auth.currentUser?.uid || settings.userProfile?.uid || '';
     return Array.from(allMap.values()).filter((space) => {
       const owner16 = cleanNumericId(space.owner16DigitId || space.ownerNumericId);
-      const isOwnedByUid = Boolean(activeUid && space.ownerUid && space.ownerUid === activeUid);
-      const isOwnedBy16Id = Boolean(myCleanNumericId && owner16 && owner16 === myCleanNumericId);
-      return isOwnedByUid || isOwnedBy16Id;
+      if (myCleanNumericId && owner16) {
+        return owner16 === myCleanNumericId;
+      }
+      return isSpaceOwnedByUser(space, myCleanNumericId, activeUid);
     });
   }, [myFolders, receivedFolders, myCleanNumericId, currentUser?.uid, settings.userProfile?.uid]);
 
-  // Strictly sort "Shared with Me": spaces where member16Ids includes myClean16Id and ownerUid !== currentUser.uid
+  // Strictly sort "Shared with Me": cleanId(space.owner16DigitId) !== myClean16Id
   const displayedReceivedFolders = useMemo(() => {
     const allMap = new Map<string, ShareFolder>();
     const dismissed = getDismissedShareIds();
@@ -319,13 +322,23 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     const activeUid = currentUser?.uid || auth.currentUser?.uid || settings.userProfile?.uid || '';
     return Array.from(allMap.values()).filter((space) => {
       const owner16 = cleanNumericId(space.owner16DigitId || space.ownerNumericId);
-      const isOwnedByUid = Boolean(activeUid && space.ownerUid && space.ownerUid === activeUid);
-      const isOwnedBy16Id = Boolean(myCleanNumericId && owner16 && owner16 === myCleanNumericId);
-      if (isOwnedByUid || isOwnedBy16Id) return false;
-      const member16Ids = extractMember16Ids(space);
-      return Boolean(myCleanNumericId && member16Ids.includes(myCleanNumericId));
+      if (myCleanNumericId && owner16) {
+        return owner16 !== myCleanNumericId;
+      }
+      return isSpaceSharedWithUser(space, myCleanNumericId, activeUid);
     });
   }, [receivedFolders, myFolders, myCleanNumericId, currentUser?.uid, settings.userProfile?.uid]);
+
+  // Whenever the user opens the "Shared with Me" tab, permanently mark displayed received shares as notified
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'shared_with_me' || displayedReceivedFolders.length === 0) return;
+    const activeUid = currentUser?.uid || auth.currentUser?.uid || settings.userProfile?.uid || '';
+    for (const folder of displayedReceivedFolders) {
+      if (folder?.id) {
+        recordShareNotifiedSynchronously(folder, myCleanNumericId, activeUid);
+      }
+    }
+  }, [isOpen, activeTab, displayedReceivedFolders, myCleanNumericId, currentUser?.uid, settings.userProfile?.uid]);
 
   if (!isOpen) return null;
 

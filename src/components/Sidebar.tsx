@@ -138,12 +138,44 @@ export const Sidebar: React.FC = () => {
     };
   }, []);
 
+  const warmUpOfflineServiceWorkerCache = () => {
+    if (typeof window === 'undefined' || !('caches' in window)) return;
+    const coreUrls = [
+      './',
+      './index.html',
+      './manifest.webmanifest',
+      './manifest.json',
+      './version.json',
+      './favicon.png',
+      './icon.svg',
+      './apple-touch-icon.png',
+      './pwa-192x192.png',
+      './pwa-512x512.png',
+      './pwa-maskable-512x512.png',
+    ];
+    const domUrls = Array.from(
+      document.querySelectorAll<HTMLLinkElement | HTMLScriptElement>('link[rel="stylesheet"], script[src]')
+    )
+      .map((el) => (el as any).src || (el as any).href)
+      .filter(Boolean);
+
+    caches
+      .open('app-offline-cache')
+      .then((cache) => {
+        for (const url of [...coreUrls, ...domUrls]) {
+          cache.add(url).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  };
+
   const handleDirectInstallClick = () => {
-    const p = (window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt;
-    if (p) {
-      p.prompt();
-      if (p.userChoice && typeof p.userChoice.then === 'function') {
-        p.userChoice
+    const promptEvent = (window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt || deferredPwaPrompt;
+    if (promptEvent && typeof promptEvent.prompt === 'function') {
+      promptEvent.prompt();
+      warmUpOfflineServiceWorkerCache();
+      if (promptEvent.userChoice && typeof promptEvent.userChoice.then === 'function') {
+        promptEvent.userChoice
           .then((choice: any) => {
             (window as any).deferredPwaPrompt = null;
             (window as any).deferredPWAInstallPrompt = null;
@@ -162,6 +194,8 @@ export const Sidebar: React.FC = () => {
       }
       return;
     }
+
+    warmUpOfflineServiceWorkerCache();
 
     // Fallback when browser does not provide beforeinstallprompt (already installed or iOS/unsupported WebView)
     const isStandalone =
@@ -195,36 +229,7 @@ export const Sidebar: React.FC = () => {
       return;
     }
 
-    // Trigger clean direct Web-Shortcut download and clear status toast without faking installation
-    try {
-      const appUrl = window.location.origin + window.location.pathname;
-      const isWindows = /win/i.test(navigator.platform || ua);
-      const blob = isWindows
-        ? new Blob([`[InternetShortcut]\r\nURL=${appUrl}\r\nIconIndex=0\r\n`], { type: 'application/internet-shortcut' })
-        : new Blob(
-            [
-              `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${appUrl}"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Personal Finance Tracker</title></head><body style="background:#000;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><a href="${appUrl}" style="color:#3b82f6;font-size:18px;font-weight:bold;text-decoration:none">Open Personal Finance Tracker</a><script>window.location.replace(${JSON.stringify(appUrl)});</script></body></html>`,
-            ],
-            { type: 'text/html;charset=utf-8' }
-          );
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = isWindows ? 'Money-Manager.url' : 'Money-Manager-App.html';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-    } catch {}
-
-    showToast(
-      isArabic
-        ? 'تم تنزيل اختصار التطبيق المباشر! لتثبيته كتطبيق كامل، افتح قائمة المتصفح (⋮) واختر "تثبيت التطبيق / الإضافة إلى الشاشة الرئيسية".'
-        : 'Direct Web-Shortcut downloaded! To install as a native app, open your browser menu (⋮) and tap "Install App / Add to Home Screen".',
-      'info',
-      undefined,
-      6500
-    );
+    window.dispatchEvent(new CustomEvent('open-pwa-offline-modal'));
   };
 
   // Keep auth state synchronized in Sidebar
@@ -1088,7 +1093,7 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar Footer: Version (v1.1.44) & Refresh Button */}
+        {/* Sidebar Footer: Version (v1.1.45) & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-zinc-300">Version: Beta v{CURRENT_APP_VERSION}</span>

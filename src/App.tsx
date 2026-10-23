@@ -190,14 +190,19 @@ const MainAppContent: React.FC = () => {
 
     const handleTriggerInstall = () => {
       const p = (window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt;
-      if (p) {
+      if (p && typeof p.prompt === 'function') {
         p.prompt();
       }
+    };
+
+    const handleOpenOfflineModal = () => {
+      setIsPwaInstallModalOpen(true);
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
     window.addEventListener('appinstalled', handleAppInstalled);
     window.addEventListener('trigger-pwa-install', handleTriggerInstall);
+    window.addEventListener('open-pwa-offline-modal', handleOpenOfflineModal);
 
     if ((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt) {
       setDeferredPwaPrompt((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt);
@@ -207,6 +212,7 @@ const MainAppContent: React.FC = () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
       window.removeEventListener('appinstalled', handleAppInstalled);
       window.removeEventListener('trigger-pwa-install', handleTriggerInstall);
+      window.removeEventListener('open-pwa-offline-modal', handleOpenOfflineModal);
     };
   }, [settings.language, showToast]);
 
@@ -317,26 +323,6 @@ const MainAppContent: React.FC = () => {
     settings.userProfile?.avatarEmoji,
     settings.userProfile?.customAvatarUrl,
   ]);
-
-  // Real-time listener for incoming bundles on my 16-digit Numeric ID (Item 7)
-  useEffect(() => {
-    const myNumericId = settings.userProfile?.numericId;
-    if (!myNumericId) return;
-
-    const unsub = listenToMyNumericIdInbox(myNumericId, (folders) => {
-      if (Array.isArray(folders) && folders.length > 0) {
-        const latest = folders[folders.length - 1];
-        showToast(
-          settings.language === 'ar'
-            ? `وصلك مجلد مشاركة جديد من ${latest.ownerName}: "${latest.name}"!`
-            : `New share folder received from ${latest.ownerName}: "${latest.name}"!`,
-          'success'
-        );
-      }
-    });
-
-    return () => unsub();
-  }, [settings.userProfile?.numericId, settings.language]);
 
   const isExitingAppRef = useRef(false);
   const navStateRef = useRef({

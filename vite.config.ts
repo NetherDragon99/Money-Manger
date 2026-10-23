@@ -15,19 +15,29 @@ export default defineConfig(({ command }) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.png', 'apple-touch-icon.png', 'icon.svg', 'version.json', 'manifest.json', 'manifest.webmanifest'],
+        injectRegister: 'auto',
+        includeAssets: [
+          'favicon.png',
+          'apple-touch-icon.png',
+          'icon.svg',
+          'version.json',
+          'pwa-192x192.png',
+          'pwa-512x512.png',
+          'pwa-maskable-512x512.png',
+        ],
         manifest: {
-          id: '/?app=mm-responsive-v2',
+          id: '/',
           name: 'Personal Finance Tracker',
           short_name: 'FinanceApp',
-          description: 'An offline-first, OLED dark-themed personal finance tracker PWA with running balances, multi-account management, custom cycles, and budgeting.',
+          description:
+            'An offline-first, OLED dark-themed personal finance tracker PWA with running balances, multi-account management, custom cycles, and budgeting.',
           theme_color: '#000000',
           background_color: '#000000',
           display: 'standalone',
           display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
           orientation: 'any',
-          start_url: base,
-          scope: base,
+          start_url: '/',
+          scope: '/',
           categories: ['finance', 'productivity', 'utilities'],
           prefer_related_applications: false,
           icons: [
@@ -36,6 +46,12 @@ export default defineConfig(({ command }) => {
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
+            },
+            {
+              src: 'pwa-192x192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'maskable',
             },
             {
               src: 'pwa-512x512.png',
@@ -52,7 +68,7 @@ export default defineConfig(({ command }) => {
           ],
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest,json}'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,json,woff2}'],
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,

@@ -105,6 +105,9 @@ import {
   computeShareNotificationHash,
   markShareNotificationsSeen,
   normalizeShareId,
+  getNotifiedShareIdsForever,
+  markShareIdsNotifiedForever,
+  isShareIdNotifiedForever,
   getNotifiedShareIdsPerm,
   markShareIdsNotifiedPerm,
   isShareIdNotifiedPerm,
@@ -117,6 +120,8 @@ import {
   syncCloudNotifiedSharesToLocal,
   isShareNotifiedEverywhere,
   recordShareNotifiedEverywhere,
+  recordShareNotifiedSynchronously,
+  shouldNotifyIncomingShareOnce,
   isSpaceOwnedByUser,
   setShareModalOpenState,
 } from '../utils/shareFolders';
@@ -328,6 +333,7 @@ interface AppContextType {
     action?: { label: string; onClick: () => void },
     duration?: number
   ) => void;
+  dismissToast: (id: string) => void;
 
   // Custom Dialogs (Replaces browser confirm/prompt/alert)
   showConfirm: (options: ConfirmDialogOptions) => Promise<boolean>;
@@ -822,6 +828,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }, duration);
   }, []);
 
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
   // Translation helper
   const t = useCallback(
     (key: keyof typeof translations.en): string => {
@@ -888,49 +898,64 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const cleanId = cleanNumericId(rawId || '');
     if (cleanId.length !== 16) return;
 
-    const currentUid = auth.currentUser?.uid || getCachedAuthUser()?.uid || settings.userProfile?.uid;
-    repairAndMigrateSharedSpaces(cleanId, currentUid);
+    const resolveActiveUid = () =>
+      auth.currentUser?.uid || getCachedAuthUser()?.uid || settings.userProfile?.uid || '';
+
+    repairAndMigrateSharedSpaces(cleanId, resolveActiveUid());
 
     let isDisposed = false;
-    // Hydrate permanent cloud notifiedShares map into local 'mm_notified_shares_v3'
-    const cloudNotifiedReady = syncCloudNotifiedSharesToLocal(currentUid).catch(() => {});
+    // Hydrate permanent cloud notifiedShares map into local 'mm_notified_share_ids_forever'
+    let cloudNotifiedReady = syncCloudNotifiedSharesToLocal(resolveActiveUid()).catch(() => {});
 
-    const unsub = subscribeToMyInbox(cleanId, (rawLiveReceived) => {
-      if (!Array.isArray(rawLiveReceived) || isDisposed) return;
+    const unsubAuthForNotifications = auth.onAuthStateChanged((user) => {
+      if (user?.uid && !isDisposed) {
+        cloudNotifiedReady = syncCloudNotifiedSharesToLocal(user.uid).catch(() => {});
+      }
+    });
+
+    const handleDiscoveredShares = (incomingList: ShareFolder[]) => {
+      if (!Array.isArray(incomingList) || isDisposed) return;
       const dismissedIds = getDismissedShareIds();
-      const liveReceived = rawLiveReceived.filter((f) => f && f.id && !dismissedIds.has(normalizeShareId(f.id)));
+      const liveReceived = incomingList.filter(
+        (f) => f && f.id && f.deleted !== true && !dismissedIds.has(normalizeShareId(f.id))
+      );
 
       saveReceivedShareFolders(liveReceived);
       window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: liveReceived }));
 
-      // Strict once-ever notification check (works both live & when opening app later after being offline,
-      // with NO time-window restriction):
-      cloudNotifiedReady.then(() => {
+      cloudNotifiedReady.then(async () => {
         if (isDisposed) return;
         for (const folder of liveReceived) {
-          if (!folder || !folder.id) continue;
+          if (!folder || !folder.id || isDisposed) continue;
           const cleanShareId = normalizeShareId(folder.id);
           if (!cleanShareId) continue;
 
-          // (1) NEVER notify if space.ownerUid === currentUser.uid or cleanId(space.owner16DigitId) === myClean16Id
+          const activeUid = resolveActiveUid();
           const folderOwner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId || '');
+
+          // (1) NEVER notify if cleanId(space.owner16DigitId) === myClean16Id or space.ownerUid === currentUser.uid
           if (
-            (currentUid && folder.ownerUid && folder.ownerUid === currentUid) ||
+            (activeUid && folder.ownerUid && folder.ownerUid === activeUid) ||
             (folderOwner16 && folderOwner16 === cleanId) ||
-            isSpaceOwnedByUser(folder, cleanId, currentUid)
+            isSpaceOwnedByUser(folder, cleanId, activeUid)
           ) {
+            markShareIdsNotifiedForever([cleanShareId]);
             continue;
           }
 
-          // (2) & (3) Check both localStorage ('mm_notified_shares_v3') and cloud (users/${uid}/notifiedShares & member.notified)
-          if (isShareNotifiedEverywhere(folder, cleanId, currentUid)) {
+          // (2) Fast synchronous check against 'mm_notified_share_ids_forever'
+          if (isShareIdNotifiedForever(cleanShareId)) {
             continue;
           }
 
-          // Immediately record space.id in both 'mm_notified_shares_v3' and Firebase RTDB so it never notifies a second time
-          recordShareNotifiedEverywhere(folder, cleanId, currentUid).catch(() => {});
+          // (3) & (4) Atomic check against 'mm_notified_share_ids_forever' and users/${uid}/notifiedShares/${cleanShareId};
+          // if NOT present, immediately writes cleanShareId to BOTH 'mm_notified_share_ids_forever' and Firebase before returning true
+          const shouldFire = await shouldNotifyIncomingShareOnce(folder, cleanId, activeUid);
+          if (!shouldFire || isDisposed) continue;
 
-          // Show interactive notification toast strictly ONCE in history for this share
+          // Guarantee synchronous lock in 'mm_notified_share_ids_forever' and Firebase before firing toast
+          recordShareNotifiedSynchronously(folder, cleanId, activeUid);
+
           showToast(
             settings.language === 'ar'
               ? `📬 وصلتك مشاركة جديدة من "${folder.ownerName}": "${folder.name}"!`
@@ -951,19 +976,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           );
         }
       });
+    };
+
+    const unsub = subscribeToMyInbox(cleanId, (rawLiveReceived) => {
+      handleDiscoveredShares(rawLiveReceived);
     });
 
-    // Low-bandwidth optimization: rely strictly on event-driven Firebase onValue listeners (zero bandwidth when idle)
     // Run one initial silent check on mount and flush any offline queue when reconnecting
     if (typeof navigator === 'undefined' || navigator.onLine) {
       flushOfflineQueue()
         .then(() => fetchMyInboxOnce(cleanId))
+        .then((polledShares) => {
+          if (Array.isArray(polledShares)) {
+            handleDiscoveredShares(polledShares);
+          }
+        })
         .catch(() => {});
     }
 
     const handleReconnect = () => {
       flushOfflineQueue()
         .then(() => fetchMyInboxOnce(cleanId))
+        .then((polledShares) => {
+          if (Array.isArray(polledShares)) {
+            handleDiscoveredShares(polledShares);
+          }
+        })
         .catch(() => {});
     };
     window.addEventListener('online', handleReconnect);
@@ -971,6 +1009,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => {
       isDisposed = true;
       window.removeEventListener('online', handleReconnect);
+      unsubAuthForNotifications();
       unsub();
     };
   }, [settings.userProfile?.numericId, settings.userProfile?.uid, settings.language]);
@@ -1167,6 +1206,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }));
     }
     if (d.sharedSpaces) {
+      if (Array.isArray(d.sharedSpaces.notifiedShareIds)) {
+        markShareIdsNotifiedForever(d.sharedSpaces.notifiedShareIds);
+      }
       if (Array.isArray(d.sharedSpaces.myFolders)) {
         saveMyShareFolders(d.sharedSpaces.myFolders);
       }
@@ -2656,6 +2698,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     triggerCloudBackupNow,
     triggerCloudRestoreNow,
     showToast,
+    dismissToast,
     showConfirm,
     showPrompt,
     closeCustomDialog,

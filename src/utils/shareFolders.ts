@@ -115,10 +115,14 @@ export interface ShareFolder {
   notifiedMembers?: Record<string, boolean>;
 }
 
+export const MY_OWNED_SPACES_KEY = 'mm_my_owned_spaces';
+export const RECEIVED_SPACES_KEY = 'mm_received_spaces';
 export const SPACES_V3_CACHE_KEY = 'mm_spaces_v3_cache';
 export const SHARE_V3_CLEAN_RESET_KEY = 'mm_share_v3_clean_reset';
 export const SHARE_V3_CLOUD_PURGE_KEY = 'mm_share_v3_cloud_purge_done';
+export const NOTIFIED_SHARE_IDS_FOREVER_KEY = 'mm_notified_share_ids_forever';
 export const NOTIFIED_SHARES_V3_KEY = 'mm_notified_shares_v3';
+export const CLOUD_SLOTS_COUNT = 10;
 const STORAGE_KNOWN_CONTACTS_KEY = 'pwa_finance_known_contacts_v1';
 
 export const SEEN_NOTIFICATIONS_STORAGE_KEY = 'mm_seen_share_notifications';
@@ -167,84 +171,60 @@ export function deepSanitizeForFirebase<T>(val: T): T {
 }
 
 /**
- * One-Time Startup Migration & Legacy Purge (guarded by localStorage.getItem('mm_share_v3_clean_reset')).
- * 1. Wipes all old corrupted local share keys so the device starts 100% clean.
- * 2. Deletes legacy nodes under Firebase RTDB shared_accounts (slot_*, inbox_*, profile_directory_*,
- *    profile_shares_*, invite_*, dismissed_*, and pre-v3 corrupted share nodes) while preserving user profile cards.
+ * Safe startup migration into 'mm_my_owned_spaces' and 'mm_received_spaces'.
+ * Never reads the root 'shared_accounts' collection (which is rejected by Firebase RTDB security rules).
  */
 export async function executeOneTimeV3ShareCleanReset(): Promise<void> {
   if (typeof localStorage === 'undefined') return;
+  try {
+    const hasOwnedKey = localStorage.getItem(MY_OWNED_SPACES_KEY) !== null;
+    const hasReceivedKey = localStorage.getItem(RECEIVED_SPACES_KEY) !== null;
+    if (!hasOwnedKey || !hasReceivedKey) {
+      const { myClean16Id } = resolveCurrentIdentity();
+      const rawV3 = localStorage.getItem(SPACES_V3_CACHE_KEY);
+      const rawLegacyOwned = localStorage.getItem('pwa_finance_share_folders_v3');
+      const rawLegacyReceived = localStorage.getItem('pwa_finance_received_share_folders_v3');
 
-  const isLocalResetDone = localStorage.getItem(SHARE_V3_CLEAN_RESET_KEY) === 'true';
-  if (!isLocalResetDone) {
-    try {
-      const legacyLocalKeys = [
-        'pwa_finance_share_folders_v3',
-        'pwa_finance_received_share_folders_v3',
-        'pwa_finance_share_folders_v2',
-        'pwa_finance_received_share_folders_v2',
-        'pwa_finance_share_folders_v1',
-        'pwa_finance_received_share_folders_v1',
-        'mm_seen_share_notifications',
-        'mm_notified_share_ids_perm',
-        'mm_my_created_share_ids',
-        'mm_dismissed_share_ids',
-        'mm_offline_share_sync_queue',
-      ];
-      for (const key of legacyLocalKeys) {
-        localStorage.removeItem(key);
-      }
-      localStorage.setItem(SPACES_V3_CACHE_KEY, JSON.stringify([]));
-      localStorage.setItem(SHARE_V3_CLEAN_RESET_KEY, 'true');
-    } catch (err) {
-      console.warn('[ShareFolders] Local V3 clean reset error:', err);
-    }
-  }
+      const ownedMap = new Map<string, any>();
+      const receivedMap = new Map<string, any>();
 
-  // Also execute one-time cloud legacy node cleanup when online & authenticated
-  const isCloudPurgeDone = localStorage.getItem(SHARE_V3_CLOUD_PURGE_KEY) === 'true';
-  if (!isCloudPurgeDone && typeof navigator !== 'undefined' && navigator.onLine) {
-    const uid = auth.currentUser?.uid || getCachedAuthUser()?.uid;
-    if (!uid) return;
-
-    try {
-      const snap = await get(ref(rtdb, 'shared_accounts'));
-      if (snap.exists() && snap.val()) {
-        const data = snap.val();
-        const removePromises: Promise<any>[] = [];
-
-        for (const key of Object.keys(data)) {
-          // Keep user profile lookup cards intact
-          if (key.startsWith('profile_') && !key.startsWith('profile_directory_') && !key.startsWith('profile_shares_')) {
-            continue;
+      const ingestList = (rawStr: string | null) => {
+        if (!rawStr) return;
+        try {
+          const arr = JSON.parse(rawStr);
+          if (!Array.isArray(arr)) return;
+          for (const item of arr) {
+            if (!item || !item.id || item.deleted === true) continue;
+            const cleanId = normalizeShareId(item.id);
+            if (!cleanId) continue;
+            const owner16 = normalize16DigitId(item.owner16DigitId || item.ownerNumericId);
+            if (myClean16Id && owner16 && owner16 === myClean16Id) {
+              ownedMap.set(cleanId, { ...item, id: cleanId, isCreatedByMe: true, isReceivedShare: false });
+            } else if (owner16 && myClean16Id && owner16 !== myClean16Id) {
+              receivedMap.set(cleanId, { ...item, id: cleanId, isCreatedByMe: false, isReceivedShare: true });
+            } else if (item.isCreatedByMe === true && item.isReceivedShare !== true) {
+              ownedMap.set(cleanId, { ...item, id: cleanId, isCreatedByMe: true, isReceivedShare: false });
+            } else if (item.isReceivedShare === true) {
+              receivedMap.set(cleanId, { ...item, id: cleanId, isCreatedByMe: false, isReceivedShare: true });
+            }
           }
-          const nodeVal = data[key];
-          const isLegacyNode =
-            key.startsWith('slot_') ||
-            key.startsWith('inbox_') ||
-            key.startsWith('profile_directory_') ||
-            key.startsWith('profile_shares_') ||
-            key.startsWith('invite_') ||
-            key.startsWith('dismissed_') ||
-            !key.startsWith('share_') ||
-            !nodeVal ||
-            nodeVal.v3Schema !== true;
+        } catch {}
+      };
 
-          if (isLegacyNode) {
-            removePromises.push(remove(ref(rtdb, `shared_accounts/${key}`)).catch(() => {}));
-          }
-        }
+      ingestList(rawLegacyOwned);
+      ingestList(rawLegacyReceived);
+      ingestList(rawV3);
 
-        // Also clean legacy root collections if accessible
-        removePromises.push(remove(ref(rtdb, 'sharedBundles')).catch(() => {}));
-        removePromises.push(remove(ref(rtdb, 'inboxByNumericId')).catch(() => {}));
-
-        await Promise.allSettled(removePromises);
+      if (!hasOwnedKey) {
+        localStorage.setItem(MY_OWNED_SPACES_KEY, JSON.stringify(Array.from(ownedMap.values())));
       }
-      localStorage.setItem(SHARE_V3_CLOUD_PURGE_KEY, 'true');
-    } catch (err) {
-      console.warn('[ShareFolders] Cloud V3 legacy cleanup note:', err);
+      if (!hasReceivedKey) {
+        localStorage.setItem(RECEIVED_SPACES_KEY, JSON.stringify(Array.from(receivedMap.values())));
+      }
     }
+    localStorage.setItem(SHARE_V3_CLEAN_RESET_KEY, 'true');
+  } catch (err) {
+    console.warn('[ShareFolders] Storage migration note:', err);
   }
 }
 
@@ -256,7 +236,7 @@ function resolveCurrentIdentity(custom16Id?: string, customUid?: string): { myUi
   let myClean16Id = normalize16DigitId(custom16Id);
   if (myClean16Id.length !== 16) {
     try {
-      const rawSettings = localStorage.getItem('pwa_finance_settings_v1');
+      const rawSettings = localStorage.getItem('pwa_finance_settings_v1') || localStorage.getItem('pwa_finance_settings');
       if (rawSettings) {
         const parsed = JSON.parse(rawSettings);
         const prof16 = normalize16DigitId(parsed?.userProfile?.numericId);
@@ -273,7 +253,7 @@ function resolveCurrentIdentity(custom16Id?: string, customUid?: string): { myUi
 /**
  * Strict UI & Cache Sorting Rule 1:
  * Returns true if the space belongs in "Shared by Me":
- * (space.ownerUid === currentUser.uid || cleanId(space.owner16DigitId) === myClean16Id)
+ * cleanId(space.owner16DigitId) === myClean16Id
  */
 export function isSpaceOwnedByUser(
   space: Partial<ShareFolder> | null | undefined,
@@ -285,10 +265,10 @@ export function isSpaceOwnedByUser(
   const spaceOwner16 = normalize16DigitId(space.owner16DigitId || space.ownerNumericId);
   const spaceOwnerUid = String(space.ownerUid || '').trim();
 
-  if (myUid && spaceOwnerUid && spaceOwnerUid === myUid) {
-    return true;
+  if (resolved16 && resolved16.length === 16 && spaceOwner16 && spaceOwner16.length === 16) {
+    return spaceOwner16 === resolved16;
   }
-  if (resolved16 && resolved16.length === 16 && spaceOwner16 && spaceOwner16 === resolved16) {
+  if (myUid && spaceOwnerUid && spaceOwnerUid === myUid && space.isReceivedShare !== true) {
     return true;
   }
   return false;
@@ -297,7 +277,7 @@ export function isSpaceOwnedByUser(
 /**
  * Strict UI & Cache Sorting Rule 2:
  * Returns true if the space belongs in "Shared with Me":
- * member16Ids includes myClean16Id and ownerUid !== currentUser.uid (and owner16DigitId !== myClean16Id)
+ * cleanId(space.owner16DigitId) !== myClean16Id
  */
 export function isSpaceSharedWithUser(
   space: Partial<ShareFolder> | null | undefined,
@@ -308,13 +288,16 @@ export function isSpaceSharedWithUser(
   const { myUid, myClean16Id: resolved16 } = resolveCurrentIdentity(myClean16Id, currentUserUid);
   if (!resolved16 || resolved16.length !== 16) return false;
 
-  // Must NOT be owned by current user
+  const spaceOwner16 = normalize16DigitId(space.owner16DigitId || space.ownerNumericId);
+  if (spaceOwner16 && spaceOwner16.length === 16) {
+    return spaceOwner16 !== resolved16;
+  }
+
   if (isSpaceOwnedByUser(space, resolved16, myUid)) {
     return false;
   }
 
-  const member16Ids = extractMember16Ids(space);
-  return member16Ids.includes(resolved16);
+  return true;
 }
 
 /**
@@ -405,67 +388,71 @@ export function enrichShareTransaction(
 }
 
 /**
- * Load all cached spaces from unified V3 localStorage ('mm_spaces_v3_cache')
+ * Load all cached spaces from 'mm_my_owned_spaces' and 'mm_received_spaces'
  */
 export function loadAllSpacesV3(): ShareFolder[] {
   if (typeof localStorage === 'undefined') return [];
-  // Ensure one-time migration has run before reading
-  if (localStorage.getItem(SHARE_V3_CLEAN_RESET_KEY) !== 'true') {
+  if (
+    localStorage.getItem(MY_OWNED_SPACES_KEY) === null &&
+    localStorage.getItem(RECEIVED_SPACES_KEY) === null
+  ) {
     executeOneTimeV3ShareCleanReset().catch(() => {});
   }
-  try {
-    const raw = localStorage.getItem(SPACES_V3_CACHE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const dismissed = getDismissedShareIds();
-    const result: ShareFolder[] = [];
-    for (const item of parsed) {
-      if (!item || item.deleted === true) continue;
-      const norm = normalizeParsedShareFolder(item, item.id);
-      if (norm && !dismissed.has(normalizeShareId(norm.id))) {
-        result.push(norm);
-      }
+  const owned = loadMyShareFolders();
+  const received = loadReceivedShareFolders();
+  const map = new Map<string, ShareFolder>();
+  for (const s of [...owned, ...received]) {
+    if (s && s.id) {
+      map.set(normalizeShareId(s.id), s);
     }
-    result.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
-    return result;
-  } catch {
-    return [];
   }
+  const result = Array.from(map.values());
+  result.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+  return result;
 }
 
 /**
- * Save all spaces to unified V3 localStorage ('mm_spaces_v3_cache')
+ * Save spaces by partitioning strictly into 'mm_my_owned_spaces' and 'mm_received_spaces'
  */
 export function saveAllSpacesV3(spaces: ShareFolder[]): void {
   if (typeof localStorage === 'undefined') return;
   try {
-    const map = new Map<string, ShareFolder>();
+    const owned: ShareFolder[] = [];
+    const received: ShareFolder[] = [];
     const dismissed = getDismissedShareIds();
-    for (const s of spaces) {
+
+    for (const s of spaces || []) {
       if (!s || !s.id || s.deleted === true) continue;
       const cleanId = normalizeShareId(s.id);
       if (!cleanId || dismissed.has(cleanId)) continue;
       const normalized = normalizeParsedShareFolder(s, cleanId);
-      if (normalized) {
-        map.set(cleanId, normalized);
+      if (!normalized) continue;
+
+      if (isSpaceOwnedByUser(normalized)) {
+        owned.push({ ...normalized, isCreatedByMe: true, isReceivedShare: false });
+      } else {
+        received.push({ ...normalized, isCreatedByMe: false, isReceivedShare: true });
       }
     }
-    const list = Array.from(map.values());
-    list.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
-    localStorage.setItem(SPACES_V3_CACHE_KEY, JSON.stringify(list));
+
+    saveMyShareFolders(owned);
+    saveReceivedShareFolders(received);
+    localStorage.setItem(SPACES_V3_CACHE_KEY, JSON.stringify([...owned, ...received]));
   } catch (err) {
-    console.warn('[ShareFolders] Failed to save mm_spaces_v3_cache:', err);
+    console.warn('[ShareFolders] Failed to save spaces:', err);
   }
 }
 
 /**
- * Immediately upserts a single space into 'mm_spaces_v3_cache'
+ * Immediately upserts a single space into 'mm_my_owned_spaces' or 'mm_received_spaces'
  */
 export function upsertSpaceInV3Cache(space: ShareFolder): ShareFolder {
   const cleanId = normalizeShareId(space.id);
-  const all = loadAllSpacesV3();
-  const existing = all.find((s) => normalizeShareId(s.id) === cleanId);
+  const ownedList = loadMyShareFolders();
+  const receivedList = loadReceivedShareFolders();
+  const existing =
+    ownedList.find((s) => normalizeShareId(s.id) === cleanId) ||
+    receivedList.find((s) => normalizeShareId(s.id) === cleanId);
 
   const mergedMembers = Array.isArray(space.members)
     ? space.members.map((m) => {
@@ -493,11 +480,37 @@ export function upsertSpaceInV3Cache(space: ShareFolder): ShareFolder {
       },
       cleanId
     ) || space;
-  const next = all.filter((s) => normalizeShareId(s.id) !== cleanId);
-  next.unshift(normalized);
-  saveAllSpacesV3(next);
+
+  if (isSpaceOwnedByUser(normalized)) {
+    const nextOwned = [
+      { ...normalized, isCreatedByMe: true, isReceivedShare: false },
+      ...ownedList.filter((s) => normalizeShareId(s.id) !== cleanId),
+    ];
+    saveMyShareFolders(nextOwned);
+    const cleanedRec = receivedList.filter((s) => normalizeShareId(s.id) !== cleanId);
+    if (cleanedRec.length !== receivedList.length) {
+      saveReceivedShareFolders(cleanedRec);
+    }
+  } else {
+    const nextReceived = [
+      { ...normalized, isCreatedByMe: false, isReceivedShare: true },
+      ...receivedList.filter((s) => normalizeShareId(s.id) !== cleanId),
+    ];
+    saveReceivedShareFolders(nextReceived);
+    const cleanedOwned = ownedList.filter((s) => normalizeShareId(s.id) !== cleanId);
+    if (cleanedOwned.length !== ownedList.length) {
+      saveMyShareFolders(cleanedOwned);
+    }
+  }
+
+  const allNext = [...loadMyShareFolders(), ...loadReceivedShareFolders()];
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(SPACES_V3_CACHE_KEY, JSON.stringify(allNext));
+    } catch {}
+  }
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('spaces_v3_updated', { detail: next }));
+    window.dispatchEvent(new CustomEvent('spaces_v3_updated', { detail: allNext }));
   }
   return normalized;
 }
@@ -890,50 +903,7 @@ export async function fetchUserProfileCard(numericId: string): Promise<UserProfi
     }
   } catch {}
 
-  // 3. Fallback check: scan shared_accounts entries for matching owner16DigitId or member numericId
-  try {
-    const sharedSnap = await get(ref(rtdb, 'shared_accounts'));
-    if (sharedSnap.exists() && sharedSnap.val()) {
-      const entries = sharedSnap.val();
-      for (const key of Object.keys(entries)) {
-        const item = entries[key];
-        if (!item || typeof item !== 'object') continue;
-        const candidateId = normalize16DigitId(
-          item.numericId || item.owner16DigitId || item.ownerNumericId
-        );
-        if (candidateId === clean16Id) {
-          const card: UserProfileCard = {
-            numericId: clean16Id,
-            name: item.name || item.ownerName || item.accountName || `User ${clean16Id.slice(0, 4)}`,
-            avatar: item.avatar || item.ownerAvatar || '👤',
-            photoURL: item.photoURL || item.ownerPhotoURL || '',
-            uid: item.uid || item.ownerUid,
-            updatedAt: item.updatedAt || Date.now(),
-          };
-          saveKnownContact(card);
-          return card;
-        }
-        if (Array.isArray(item.members)) {
-          const member = item.members.find(
-            (m: any) => normalize16DigitId(m?.numericId) === clean16Id
-          );
-          if (member) {
-            const card: UserProfileCard = {
-              numericId: clean16Id,
-              name: member.name || `User ${clean16Id.slice(0, 4)}`,
-              avatar: member.avatar || '👤',
-              photoURL: member.photoURL || '',
-              updatedAt: member.addedAt || Date.now(),
-            };
-            saveKnownContact(card);
-            return card;
-          }
-        }
-      }
-    }
-  } catch {}
-
-  // 4. Fallback check: local known contacts cache
+  // 3. Fallback check: local known contacts cache (NEVER read root 'shared_accounts')
   const cached = getKnownContact(clean16Id);
   if (cached) {
     return cached;
@@ -967,146 +937,304 @@ export function subscribeToUserProfileCard(
 }
 
 /**
- * Load user's owned Share Spaces ("Shared by Me") from unified 'mm_spaces_v3_cache'
- * Filtered strictly by: (space.ownerUid === currentUser.uid || cleanId(space.owner16DigitId) === myClean16Id)
+ * Load user's owned Share Spaces ("Shared by Me") from localStorage ('mm_my_owned_spaces')
+ * Filtered strictly by: cleanId(space.owner16DigitId) === myClean16Id
  */
 export function loadMyShareFolders(): ShareFolder[] {
-  const all = loadAllSpacesV3();
-  return all.filter((space) => isSpaceOwnedByUser(space));
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    let raw = localStorage.getItem(MY_OWNED_SPACES_KEY);
+    if (raw === null) {
+      executeOneTimeV3ShareCleanReset().catch(() => {});
+      raw = localStorage.getItem(MY_OWNED_SPACES_KEY) || localStorage.getItem(SPACES_V3_CACHE_KEY);
+    }
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const dismissed = getDismissedShareIds();
+    const map = new Map<string, ShareFolder>();
+    for (const item of parsed) {
+      if (!item || item.deleted === true) continue;
+      const norm = normalizeParsedShareFolder(item, item.id);
+      if (norm && !dismissed.has(normalizeShareId(norm.id)) && isSpaceOwnedByUser(norm)) {
+        map.set(normalizeShareId(norm.id), { ...norm, isCreatedByMe: true, isReceivedShare: false });
+      }
+    }
+    const list = Array.from(map.values());
+    list.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    return list;
+  } catch {
+    return [];
+  }
 }
 
 /**
- * Persist user's owned Share Spaces into unified 'mm_spaces_v3_cache'
- * Preserves any "Shared with Me" spaces in the unified cache.
+ * Persist user's owned Share Spaces into localStorage ('mm_my_owned_spaces')
  */
 export function saveMyShareFolders(folders: ShareFolder[]): void {
-  const all = loadAllSpacesV3();
-  const received = all.filter((space) => !isSpaceOwnedByUser(space));
-  const normalizedOwned = (folders || []).map((f) => ({
-    ...f,
-    isCreatedByMe: true,
-    isReceivedShare: false,
-  }));
-  saveAllSpacesV3([...normalizedOwned, ...received]);
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const dismissed = getDismissedShareIds();
+    const map = new Map<string, ShareFolder>();
+    const ownedIds: string[] = [];
+    for (const f of folders || []) {
+      if (!f || !f.id || f.deleted === true) continue;
+      const cleanId = normalizeShareId(f.id);
+      if (!cleanId || dismissed.has(cleanId)) continue;
+      const norm = normalizeParsedShareFolder(f, cleanId);
+      if (norm && isSpaceOwnedByUser(norm)) {
+        map.set(cleanId, { ...norm, isCreatedByMe: true, isReceivedShare: false });
+        ownedIds.push(cleanId);
+      }
+    }
+    if (ownedIds.length > 0) {
+      markShareIdsNotifiedForever(ownedIds);
+    }
+    const list = Array.from(map.values());
+    list.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    localStorage.setItem(MY_OWNED_SPACES_KEY, JSON.stringify(list));
+  } catch (err) {
+    console.warn('[ShareFolders] Failed to save mm_my_owned_spaces:', err);
+  }
 }
 
 /**
- * Load received Share Spaces ("Shared with Me") from unified 'mm_spaces_v3_cache'
- * Filtered strictly by: member16Ids.includes(myClean16Id) && space.ownerUid !== currentUser.uid
+ * Load received Share Spaces ("Shared with Me") from localStorage ('mm_received_spaces')
+ * Filtered strictly by: cleanId(space.owner16DigitId) !== myClean16Id
  */
 export function loadReceivedShareFolders(): ShareFolder[] {
-  const all = loadAllSpacesV3();
-  return all.filter((space) => isSpaceSharedWithUser(space));
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    let raw = localStorage.getItem(RECEIVED_SPACES_KEY);
+    if (raw === null) {
+      executeOneTimeV3ShareCleanReset().catch(() => {});
+      raw = localStorage.getItem(RECEIVED_SPACES_KEY) || localStorage.getItem(SPACES_V3_CACHE_KEY);
+    }
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const dismissed = getDismissedShareIds();
+    const map = new Map<string, ShareFolder>();
+    for (const item of parsed) {
+      if (!item || item.deleted === true) continue;
+      const norm = normalizeParsedShareFolder(item, item.id);
+      if (norm && !dismissed.has(normalizeShareId(norm.id)) && isSpaceSharedWithUser(norm)) {
+        map.set(normalizeShareId(norm.id), { ...norm, isCreatedByMe: false, isReceivedShare: true });
+      }
+    }
+    const list = Array.from(map.values());
+    list.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    return list;
+  } catch {
+    return [];
+  }
 }
 
 /**
- * Persist received Share Spaces into unified 'mm_spaces_v3_cache'
- * Preserves any owned ("Shared by Me") spaces in the unified cache.
+ * Persist received Share Spaces into localStorage ('mm_received_spaces')
  */
 export function saveReceivedShareFolders(folders: ShareFolder[]): void {
-  const all = loadAllSpacesV3();
-  const owned = all.filter((space) => isSpaceOwnedByUser(space));
-  const ownedIds = new Set(owned.map((o) => normalizeShareId(o.id)));
-  const normalizedReceived = (folders || [])
-    .filter((f) => f && f.id && !ownedIds.has(normalizeShareId(f.id)) && !isSpaceOwnedByUser(f))
-    .map((f) => ({
-      ...f,
-      isCreatedByMe: false,
-      isReceivedShare: true,
-    }));
-  saveAllSpacesV3([...owned, ...normalizedReceived]);
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const dismissed = getDismissedShareIds();
+    const map = new Map<string, ShareFolder>();
+    for (const f of folders || []) {
+      if (!f || !f.id || f.deleted === true) continue;
+      const cleanId = normalizeShareId(f.id);
+      if (!cleanId || dismissed.has(cleanId)) continue;
+      const norm = normalizeParsedShareFolder(f, cleanId);
+      if (norm && isSpaceSharedWithUser(norm)) {
+        map.set(cleanId, { ...norm, isCreatedByMe: false, isReceivedShare: true });
+      }
+    }
+    const list = Array.from(map.values());
+    list.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    localStorage.setItem(RECEIVED_SPACES_KEY, JSON.stringify(list));
+  } catch (err) {
+    console.warn('[ShareFolders] Failed to save mm_received_spaces:', err);
+  }
 }
 
-const inMemoryNotifiedSharesV3 = new Set<string>();
+const inMemoryNotifiedSharesForever = new Set<string>();
+const cloudNotifiedSharesCache = new Set<string>();
+const inFlightNotificationLocks = new Set<string>();
+let cloudNotifiedHydratedForUid: string | null = null;
+let hasMigratedForeverRegistry = false;
 
 /**
- * Loads the permanent Set of notified share IDs from localStorage ('mm_notified_shares_v3'
- * and legacy 'mm_notified_share_ids_perm'). All IDs are normalized without 'share_' prefix.
+ * Loads the permanent Set of notified share IDs from localStorage ('mm_notified_share_ids_forever'
+ * plus legacy 'mm_notified_shares_v3' and 'mm_notified_share_ids_perm').
+ * All IDs are normalized without 'share_' prefix.
  */
-export function getNotifiedSharesV3(): Set<string> {
-  if (typeof localStorage === 'undefined') return new Set(inMemoryNotifiedSharesV3);
+export function getNotifiedShareIdsForever(): Set<string> {
+  if (typeof localStorage === 'undefined') return new Set(inMemoryNotifiedSharesForever);
   try {
-    const rawV3 = localStorage.getItem(NOTIFIED_SHARES_V3_KEY);
-    if (rawV3) {
-      const parsed = JSON.parse(rawV3);
+    const rawForever = localStorage.getItem(NOTIFIED_SHARE_IDS_FOREVER_KEY);
+    if (rawForever) {
+      const parsed = JSON.parse(rawForever);
       if (Array.isArray(parsed)) {
         for (const item of parsed) {
           const clean = normalizeShareId(item);
-          if (clean) inMemoryNotifiedSharesV3.add(clean);
+          if (clean) inMemoryNotifiedSharesForever.add(clean);
         }
       }
     }
-    const rawLegacy = localStorage.getItem(PERMANENT_NOTIFIED_SHARE_IDS_KEY);
-    if (rawLegacy) {
-      const parsedLegacy = JSON.parse(rawLegacy);
-      if (Array.isArray(parsedLegacy)) {
-        for (const item of parsedLegacy) {
-          const clean = normalizeShareId(item);
-          if (clean) inMemoryNotifiedSharesV3.add(clean);
+
+    if (!hasMigratedForeverRegistry) {
+      hasMigratedForeverRegistry = true;
+      let addedFromLegacy = false;
+      for (const legacyKey of [NOTIFIED_SHARES_V3_KEY, PERMANENT_NOTIFIED_SHARE_IDS_KEY, MY_CREATED_SHARE_IDS_KEY]) {
+        const rawLeg = localStorage.getItem(legacyKey);
+        if (rawLeg) {
+          try {
+            const parsedLeg = JSON.parse(rawLeg);
+            if (Array.isArray(parsedLeg)) {
+              for (const item of parsedLeg) {
+                const clean = normalizeShareId(item);
+                if (clean && !inMemoryNotifiedSharesForever.has(clean)) {
+                  inMemoryNotifiedSharesForever.add(clean);
+                  addedFromLegacy = true;
+                }
+              }
+            }
+          } catch {}
         }
+      }
+      if (addedFromLegacy || rawForever === null) {
+        const list = Array.from(inMemoryNotifiedSharesForever).slice(-1000);
+        localStorage.setItem(NOTIFIED_SHARE_IDS_FOREVER_KEY, JSON.stringify(list));
       }
     }
   } catch {}
-  return new Set(inMemoryNotifiedSharesV3);
+  return new Set(inMemoryNotifiedSharesForever);
+}
+
+export function getNotifiedSharesV3(): Set<string> {
+  return getNotifiedShareIdsForever();
 }
 
 export function getNotifiedShareIdsPerm(): Set<string> {
-  return getNotifiedSharesV3();
+  return getNotifiedShareIdsForever();
+}
+
+export function isShareIdNotifiedForever(id?: string | null): boolean {
+  const clean = normalizeShareId(id);
+  if (!clean) return true;
+  if (inMemoryNotifiedSharesForever.has(clean) || cloudNotifiedSharesCache.has(clean)) return true;
+  return getNotifiedShareIdsForever().has(clean);
 }
 
 export function isShareIdNotifiedPerm(id?: string | null): boolean {
-  const clean = normalizeShareId(id);
-  if (!clean) return true;
-  return getNotifiedSharesV3().has(clean);
-}
-
-export function markShareIdsNotifiedPerm(ids: (string | undefined | null)[] | Set<string>): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    const seen = getNotifiedSharesV3();
-    ids.forEach((id) => {
-      const clean = normalizeShareId(id);
-      if (clean) {
-        seen.add(clean);
-        inMemoryNotifiedSharesV3.add(clean);
-      }
-    });
-    const list = Array.from(seen).slice(-500);
-    localStorage.setItem(NOTIFIED_SHARES_V3_KEY, JSON.stringify(list));
-    localStorage.setItem(PERMANENT_NOTIFIED_SHARE_IDS_KEY, JSON.stringify(list));
-  } catch {}
+  return isShareIdNotifiedForever(id);
 }
 
 /**
- * Syncs users/${uid}/notifiedShares from Firebase RTDB into local 'mm_notified_shares_v3'
+ * Synchronously writes normalized share IDs (without 'share_' prefix) to in-memory Set
+ * and localStorage ('mm_notified_share_ids_forever') before any next tick.
+ */
+export function markShareIdsNotifiedForever(ids: (string | undefined | null)[] | Set<string>): void {
+  const seen = getNotifiedShareIdsForever();
+  ids.forEach((id) => {
+    const clean = normalizeShareId(id);
+    if (clean) {
+      seen.add(clean);
+      inMemoryNotifiedSharesForever.add(clean);
+    }
+  });
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const list = Array.from(seen).slice(-1000);
+      const serialized = JSON.stringify(list);
+      localStorage.setItem(NOTIFIED_SHARE_IDS_FOREVER_KEY, serialized);
+      localStorage.setItem(NOTIFIED_SHARES_V3_KEY, serialized);
+      localStorage.setItem(PERMANENT_NOTIFIED_SHARE_IDS_KEY, serialized);
+    } catch {}
+  }
+}
+
+export function markShareIdsNotifiedPerm(ids: (string | undefined | null)[] | Set<string>): void {
+  markShareIdsNotifiedForever(ids);
+}
+
+/**
+ * Waits briefly for auth.currentUser if Firebase Auth is still hydrating on cold boot
+ */
+async function waitForAuthenticatedUid(fallbackUid?: string, timeoutMs: number = 1200): Promise<string> {
+  if (auth.currentUser?.uid) return auth.currentUser.uid;
+  if (!fallbackUid && !getCachedAuthUser()?.uid) return '';
+  return new Promise<string>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        unsub();
+        resolve(auth.currentUser?.uid || fallbackUid || getCachedAuthUser()?.uid || '');
+      }
+    }, timeoutMs);
+    const unsub = auth.onAuthStateChanged((user) => {
+      if (user?.uid && !settled) {
+        settled = true;
+        clearTimeout(timer);
+        unsub();
+        resolve(user.uid);
+      }
+    });
+  });
+}
+
+/**
+ * Syncs users/${uid}/notifiedShares from Firebase RTDB into local 'mm_notified_share_ids_forever'
+ * AND pushes any locally notified share IDs up to users/${uid}/notifiedShares so both stay mirrored.
  */
 export async function syncCloudNotifiedSharesToLocal(customUid?: string): Promise<Set<string>> {
-  const uid = customUid || auth.currentUser?.uid || getCachedAuthUser()?.uid || '';
-  if (!uid) return getNotifiedSharesV3();
+  const targetUid = await waitForAuthenticatedUid(customUid);
+  if (!targetUid) return getNotifiedShareIdsForever();
   try {
-    const snap = await get(ref(rtdb, `users/${uid}/notifiedShares`));
+    const snap = await get(ref(rtdb, `users/${targetUid}/notifiedShares`));
+    const remoteSet = new Set<string>();
     if (snap.exists() && snap.val() && typeof snap.val() === 'object') {
       const val = snap.val();
       const cloudIds: string[] = [];
       for (const [key, isNotified] of Object.entries(val)) {
         if (isNotified) {
           const clean = normalizeShareId(key);
-          if (clean) cloudIds.push(clean);
+          if (clean) {
+            cloudIds.push(clean);
+            remoteSet.add(clean);
+            cloudNotifiedSharesCache.add(clean);
+          }
         }
       }
       if (cloudIds.length > 0) {
-        markShareIdsNotifiedPerm(cloudIds);
+        markShareIdsNotifiedForever(cloudIds);
+      }
+    }
+    cloudNotifiedHydratedForUid = targetUid;
+
+    // Mirror any local 'mm_notified_share_ids_forever' entries that are missing in Firebase RTDB
+    if (auth.currentUser?.uid === targetUid) {
+      const localAll = getNotifiedShareIdsForever();
+      const missingInCloud: Record<string, boolean> = {};
+      let hasMissing = false;
+      localAll.forEach((cid) => {
+        if (cid && !remoteSet.has(cid)) {
+          missingInCloud[cid] = true;
+          cloudNotifiedSharesCache.add(cid);
+          hasMissing = true;
+        }
+      });
+      if (hasMissing) {
+        update(ref(rtdb, `users/${targetUid}/notifiedShares`), missingInCloud).catch(() => {});
       }
     }
   } catch {}
-  return getNotifiedSharesV3();
+  return getNotifiedShareIdsForever();
 }
 
 /**
  * Checks whether a space has ALREADY been notified (or should never be notified because user is owner):
  * (1) Returns true if space.ownerUid === currentUser.uid or cleanId(space.owner16DigitId) === myClean16Id
- * (2) Returns true if normalized space.id is in 'mm_notified_shares_v3'
- * (3) Returns true if recipient's member entry has member.notified === true or space.notifiedMembers[myClean16Id] === true
+ * (2) Returns true if normalized space.id is in 'mm_notified_share_ids_forever' or cloudNotifiedSharesCache
  */
 export function isShareNotifiedEverywhere(
   space: Partial<ShareFolder> | null | undefined,
@@ -1125,23 +1253,25 @@ export function isShareNotifiedEverywhere(
   if (
     (effectiveUid && space.ownerUid && space.ownerUid === effectiveUid) ||
     (cleanMy16 && cleanOwner16 && cleanOwner16 === cleanMy16) ||
-    isSpaceOwnedByUser(space, cleanMy16, effectiveUid)
+    isSpaceOwnedByUser(space, cleanMy16, effectiveUid) ||
+    isShareCreatedByMe(cleanSid)
   ) {
+    markShareIdsNotifiedForever([cleanSid]);
     return true;
   }
 
-  // (2) Check local 'mm_notified_shares_v3'
-  if (getNotifiedSharesV3().has(cleanSid)) {
+  // (2) Check local 'mm_notified_share_ids_forever' and cloud cache
+  if (isShareIdNotifiedForever(cleanSid)) {
     return true;
   }
 
-  // (3) Check cloud member.notified flag or space.notifiedMembers map
+  // (3) Check legacy member.notified flag or space.notifiedMembers map if present
   if (cleanMy16) {
     const myMember = (space.members || []).find(
       (m) => normalize16DigitId(m.numericId) === cleanMy16
     );
     if (myMember?.notified === true || Boolean(space.notifiedMembers?.[cleanMy16])) {
-      markShareIdsNotifiedPerm([cleanSid]);
+      markShareIdsNotifiedForever([cleanSid]);
       return true;
     }
   }
@@ -1150,72 +1280,109 @@ export function isShareNotifiedEverywhere(
 }
 
 /**
- * Immediately records space.id as notified in BOTH localStorage ('mm_notified_shares_v3')
- * AND Firebase RTDB (users/${uid}/notifiedShares/${space.id} = true and member.notified = true).
+ * Immediately records cleanShareId in BOTH localStorage ('mm_notified_share_ids_forever')
+ * AND Firebase RTDB at users/${currentUser.uid}/notifiedShares/${cleanShareId} = true
+ * synchronously before any next tick.
  */
+export function recordShareNotifiedSynchronously(
+  spaceOrShareId: Partial<ShareFolder> | string,
+  _myClean16Id?: string,
+  currentUid?: string
+): void {
+  const rawId = typeof spaceOrShareId === 'string' ? spaceOrShareId : spaceOrShareId?.id;
+  const cleanSid = normalizeShareId(rawId);
+  if (!cleanSid) return;
+
+  // 1. Synchronously write to 'mm_notified_share_ids_forever' and in-memory Set before any next tick
+  cloudNotifiedSharesCache.add(cleanSid);
+  markShareIdsNotifiedForever([cleanSid]);
+  if (typeof spaceOrShareId === 'object' && spaceOrShareId) {
+    markShareNotificationsSeen([cleanSid, spaceOrShareId.id || cleanSid, computeShareNotificationHash(spaceOrShareId)]);
+  } else {
+    markShareNotificationsSeen([cleanSid]);
+  }
+
+  // 2. Immediately trigger write to Firebase RTDB: users/${uid}/notifiedShares/${cleanSid} = true
+  const effectiveUid = auth.currentUser?.uid || currentUid || getCachedAuthUser()?.uid || '';
+  if (effectiveUid) {
+    set(ref(rtdb, `users/${effectiveUid}/notifiedShares/${cleanSid}`), true).catch(() => {});
+  }
+  if (!auth.currentUser?.uid) {
+    // Ensure write completes as soon as Firebase Auth finishes initializing
+    waitForAuthenticatedUid(effectiveUid, 4000)
+      .then((authedUid) => {
+        if (authedUid) {
+          set(ref(rtdb, `users/${authedUid}/notifiedShares/${cleanSid}`), true).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }
+}
+
 export async function recordShareNotifiedEverywhere(
   space: ShareFolder,
   myClean16Id: string,
   currentUid?: string
 ): Promise<void> {
-  if (!space || !space.id) return;
+  recordShareNotifiedSynchronously(space, myClean16Id, currentUid);
+}
+
+/**
+ * Atomic, race-free gate for incoming share notifications:
+ * - Never notifies if owner16DigitId === myClean16Id or ownerUid === currentUser.uid
+ * - Checks 'mm_notified_share_ids_forever' and users/${uid}/notifiedShares/${cleanShareId}
+ * - Locks cleanShareId synchronously so concurrent slot/master/poll events can never fire twice
+ * - If not notified, immediately writes cleanShareId to BOTH 'mm_notified_share_ids_forever' and Firebase before returning true
+ */
+export async function shouldNotifyIncomingShareOnce(
+  space: ShareFolder,
+  myClean16Id: string,
+  currentUid?: string
+): Promise<boolean> {
+  if (!space || !space.id || space.deleted === true) return false;
   const cleanSid = normalizeShareId(space.id);
-  if (!cleanSid) return;
+  if (!cleanSid) return false;
 
-  const cleanMy16 = normalize16DigitId(myClean16Id);
-  const effectiveUid = currentUid || auth.currentUser?.uid || getCachedAuthUser()?.uid || '';
-  const now = Date.now();
+  // 1. Fast synchronous check (owner check + local 'mm_notified_share_ids_forever' + cloud cache)
+  if (isShareNotifiedEverywhere(space, myClean16Id, currentUid)) {
+    return false;
+  }
 
-  // 1. Immediately record in 'mm_notified_shares_v3' (synchronous localStorage + in-memory Set)
-  markShareIdsNotifiedPerm([cleanSid]);
-  markShareNotificationsSeen([cleanSid, space.id, computeShareNotificationHash(space)]);
+  // 2. Synchronous in-flight lock so concurrent slot_0..9 / share_${id} / poll callbacks cannot race
+  if (inFlightNotificationLocks.has(cleanSid)) {
+    return false;
+  }
+  inFlightNotificationLocks.add(cleanSid);
 
-  // 2. Update local V3 cache member entry with notified: true
-  const updatedMembers = (space.members || []).map((m) =>
-    normalize16DigitId(m.numericId) === cleanMy16
-      ? { ...m, notified: true, notifiedAt: now }
-      : m
-  );
-  const updatedNotifiedMembers = {
-    ...(space.notifiedMembers || {}),
-    ...(cleanMy16 ? { [cleanMy16]: true } : {}),
-  };
-  upsertSpaceInV3Cache({
-    ...space,
-    members: updatedMembers,
-    notifiedMembers: updatedNotifiedMembers,
-  });
-
-  // 3. Persist to Firebase RTDB: users/${uid}/notifiedShares/${space.id} = true AND member.notified = true
   try {
-    if (effectiveUid) {
-      await set(ref(rtdb, `users/${effectiveUid}/notifiedShares/${cleanSid}`), true).catch(() => {});
-    }
-    if (cleanMy16.length === 16) {
-      const canonicalPath = getCanonicalSharePath(cleanSid);
-      const snap = await get(ref(rtdb, canonicalPath));
-      if (snap.exists() && snap.val()) {
-        const cloudVal = snap.val();
-        const cloudMembers = Array.isArray(cloudVal.members) ? cloudVal.members : [];
-        let memberFound = false;
-        const nextCloudMembers = cloudMembers.map((cm: any) => {
-          if (normalize16DigitId(cm?.numericId) === cleanMy16) {
-            memberFound = true;
-            return { ...cm, notified: true, notifiedAt: now };
+    const effectiveUid = auth.currentUser?.uid || currentUid || getCachedAuthUser()?.uid || '';
+
+    // 3. If cloud notifiedShares hasn't been checked for this user yet and we have a UID, check Firebase RTDB
+    if (effectiveUid && (typeof navigator === 'undefined' || navigator.onLine)) {
+      if (cloudNotifiedHydratedForUid !== effectiveUid) {
+        await syncCloudNotifiedSharesToLocal(effectiveUid);
+      } else if (auth.currentUser?.uid) {
+        try {
+          const itemSnap = await get(ref(rtdb, `users/${auth.currentUser.uid}/notifiedShares/${cleanSid}`));
+          if (itemSnap.exists() && itemSnap.val() === true) {
+            recordShareNotifiedSynchronously(space, myClean16Id, auth.currentUser.uid);
+            return false;
           }
-          return cm;
-        });
-        const updates: Record<string, any> = {
-          [`notifiedMembers/${cleanMy16}`]: true,
-        };
-        if (memberFound) {
-          updates.members = nextCloudMembers;
-        }
-        await update(ref(rtdb, canonicalPath), deepSanitizeForFirebase(updates)).catch(() => {});
+        } catch {}
       }
     }
-  } catch (err) {
-    console.warn('[ShareFolders] Failed recording cloud notified flag:', err);
+
+    // Re-check after cloud hydration
+    if (isShareNotifiedEverywhere(space, myClean16Id, effectiveUid)) {
+      return false;
+    }
+
+    // 4. Not present in 'mm_notified_share_ids_forever' or users/${uid}/notifiedShares:
+    // Immediately write cleanShareId to BOTH 'mm_notified_share_ids_forever' and Firebase BEFORE returning true!
+    recordShareNotifiedSynchronously(space, myClean16Id, effectiveUid);
+    return true;
+  } finally {
+    inFlightNotificationLocks.delete(cleanSid);
   }
 }
 
@@ -1246,6 +1413,7 @@ export function markShareCreatedByMe(id?: string | null): void {
     set.add(clean);
     const list = Array.from(set).slice(-500);
     localStorage.setItem(MY_CREATED_SHARE_IDS_KEY, JSON.stringify(list));
+    markShareIdsNotifiedForever([clean]);
   } catch {}
 }
 
@@ -1290,22 +1458,26 @@ export async function dismissShareId(shareId: string, _my16DigitId?: string): Pr
 }
 
 /**
- * Purges a deleted or dismissed space from 'mm_spaces_v3_cache' and dispatches UI events.
+ * Purges a deleted or dismissed space from 'mm_my_owned_spaces', 'mm_received_spaces', and 'mm_spaces_v3_cache' and dispatches UI events.
  */
 export function purgeDeletedShareSpace(shareId: string): void {
   const cleanSid = normalizeShareId(shareId);
   if (!cleanSid) return;
 
-  const all = loadAllSpacesV3();
-  const next = all.filter((f) => normalizeShareId(f.id) !== cleanSid);
-  if (next.length !== all.length) {
-    saveAllSpacesV3(next);
+  const owned = loadMyShareFolders().filter((f) => normalizeShareId(f.id) !== cleanSid);
+  const received = loadReceivedShareFolders().filter((f) => normalizeShareId(f.id) !== cleanSid);
+  saveMyShareFolders(owned);
+  saveReceivedShareFolders(received);
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(SPACES_V3_CACHE_KEY, JSON.stringify([...owned, ...received]));
+    } catch {}
   }
 
   if (typeof window !== 'undefined') {
-    const nextReceived = next.filter((s) => isSpaceSharedWithUser(s));
+    const next = [...owned, ...received];
     window.dispatchEvent(new CustomEvent('spaces_v3_updated', { detail: next }));
-    window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: nextReceived }));
+    window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: received }));
     window.dispatchEvent(new CustomEvent('share_space_purged', { detail: { shareId: cleanSid } }));
   }
 }
@@ -1347,9 +1519,9 @@ export function isShareNotificationSeen(hash: string): boolean {
 }
 
 /**
- * Partition & repair spaces in 'mm_spaces_v3_cache' strictly by:
- * - "Shared by Me": (space.ownerUid === currentUser.uid || cleanId(space.owner16DigitId) === myClean16Id)
- * - "Shared with Me": member16Ids.includes(myClean16Id) && space.ownerUid !== currentUser.uid
+ * Partition & repair spaces in 'mm_my_owned_spaces' and 'mm_received_spaces' strictly by:
+ * - "Shared by Me": cleanId(space.owner16DigitId) === myClean16Id
+ * - "Shared with Me": cleanId(space.owner16DigitId) !== myClean16Id
  */
 export function repairAndMigrateSharedSpaces(
   myNumericId?: string,
@@ -1357,12 +1529,16 @@ export function repairAndMigrateSharedSpaces(
 ): { myFolders: ShareFolder[]; receivedFolders: ShareFolder[] } {
   const { myUid, myClean16Id } = resolveCurrentIdentity(myNumericId, currentUserUid);
   const all = loadAllSpacesV3();
+  const dismissed = getDismissedShareIds();
 
   const myFolders: ShareFolder[] = [];
   const receivedFolders: ShareFolder[] = [];
 
   for (const space of all) {
     if (!space || !space.id || space.deleted === true) continue;
+    const cleanSid = normalizeShareId(space.id);
+    if (dismissed.has(cleanSid)) continue;
+
     if (isSpaceOwnedByUser(space, myClean16Id, myUid)) {
       myFolders.push({
         ...space,
@@ -1377,6 +1553,9 @@ export function repairAndMigrateSharedSpaces(
       });
     }
   }
+
+  saveMyShareFolders(myFolders);
+  saveReceivedShareFolders(receivedFolders);
 
   return { myFolders, receivedFolders };
 }
@@ -1852,37 +2031,265 @@ export function computeFolderContentSignature(folder: ShareFolder): string {
 }
 
 /**
- * Sync Share Space to the ONE canonical path: shared_accounts/share_${space.id}
- * Persists locally in 'mm_spaces_v3_cache' immediately and syncs to Firebase whenever online.
+ * Writes a space into the first available deterministic slot (0..9) for targetClean16Id:
+ * shared_accounts/slot_${targetClean16Id}_${i}
+ */
+export async function writeSpaceToCloudSlots(
+  targetClean16Id: string,
+  space: ShareFolder,
+  fullSanitizedSpace: any,
+  senderUid?: string
+): Promise<boolean> {
+  const cleanTarget = normalize16DigitId(targetClean16Id);
+  if (cleanTarget.length !== 16) return false;
+
+  const rawShareId = normalizeShareId(space.id);
+  const myClean16Id = normalize16DigitId(space.owner16DigitId || space.ownerNumericId || getOrCreateNumericId());
+  if (cleanTarget === myClean16Id) return false;
+
+  const effectiveUid = auth.currentUser?.uid || senderUid || space.ownerUid || 'authenticated_user';
+  const now = Date.now();
+
+  const slotPayload = JSON.parse(
+    JSON.stringify({
+      ...fullSanitizedSpace,
+      ownerUid: effectiveUid,
+      accountName: space.name || 'Share',
+      updatedAt: now,
+      shareId: space.id,
+      rawShareId,
+      target16Id: cleanTarget,
+      sender16Id: myClean16Id,
+      space: fullSanitizedSpace,
+    })
+  );
+
+  let targetIndex = 0;
+  for (let i = 0; i < CLOUD_SLOTS_COUNT; i++) {
+    try {
+      const slotSnap = await get(ref(rtdb, `shared_accounts/slot_${cleanTarget}_${i}`));
+      if (!slotSnap.exists()) {
+        targetIndex = i;
+        break;
+      }
+      const val = slotSnap.val();
+      if (
+        !val ||
+        val.shareId === space.id ||
+        val.shareId === rawShareId ||
+        val.shareId === `share_${rawShareId}` ||
+        val.space?.id === space.id ||
+        val.space?.id === rawShareId ||
+        val.ownerUid === effectiveUid
+      ) {
+        targetIndex = i;
+        break;
+      }
+      if (i === CLOUD_SLOTS_COUNT - 1) {
+        targetIndex = 0;
+      }
+    } catch {
+      // Continue inspecting next slot
+    }
+  }
+
+  try {
+    await set(ref(rtdb, `shared_accounts/slot_${cleanTarget}_${targetIndex}`), slotPayload);
+    return true;
+  } catch (err) {
+    console.warn(`[ShareFolders] Failed to write slot_${cleanTarget}_${targetIndex}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Cleans up a member's deterministic slots (0..9) for a deleted or revoked shareId
+ */
+export async function clearMemberSlotsForShare(
+  targetClean16Id: string,
+  shareId: string,
+  markTombstone = false
+): Promise<void> {
+  const cleanTarget = normalize16DigitId(targetClean16Id);
+  const rawShareId = normalizeShareId(shareId);
+  if (cleanTarget.length !== 16 || !rawShareId) return;
+
+  const effectiveUid = auth.currentUser?.uid || 'authenticated_user';
+
+  for (let i = 0; i < CLOUD_SLOTS_COUNT; i++) {
+    try {
+      const slotRef = ref(rtdb, `shared_accounts/slot_${cleanTarget}_${i}`);
+      const snap = await get(slotRef);
+      if (snap.exists() && snap.val()) {
+        const val = snap.val();
+        const candidateId = normalizeShareId(val.shareId || val.rawShareId || val.space?.id || val.id);
+        if (candidateId === rawShareId) {
+          try {
+            await remove(slotRef);
+          } catch {
+            if (markTombstone) {
+              await set(slotRef, {
+                ownerUid: effectiveUid,
+                accountName: 'Deleted',
+                updatedAt: Date.now(),
+                shareId: rawShareId,
+                target16Id: cleanTarget,
+                deleted: true,
+              }).catch(() => {});
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  try {
+    await remove(ref(rtdb, `shared_accounts/profile_shares_${cleanTarget}_${rawShareId}`));
+  } catch {}
+  try {
+    await remove(ref(rtdb, `shared_accounts/invite_${cleanTarget}_${rawShareId}`));
+  } catch {}
+}
+
+/**
+ * Sync Share Space to master node shared_accounts/share_${space.id} AND deterministic member slots (0..9).
+ * Persists locally in 'mm_my_owned_spaces' / 'mm_received_spaces' immediately and syncs to Firebase when online.
  */
 export async function syncFolderToCloud(folder: ShareFolder, forceWrite = false): Promise<void> {
   if (!folder || !folder.id) return;
 
-  // Always ensure space is persisted in local cache ('mm_spaces_v3_cache') and React state first
+  // Always ensure space is persisted in local cache ('mm_my_owned_spaces' / 'mm_received_spaces') first
   const savedLocal = upsertSpaceInV3Cache(folder);
-  const canonicalPayload = buildFullSharePayload(savedLocal);
+  const rawPayload = buildFullSharePayload(savedLocal);
+  const rawShareId = normalizeShareId(rawPayload.id);
+  const myClean16 = normalize16DigitId(getOrCreateNumericId());
+  const folderOwner16 = normalize16DigitId(rawPayload.owner16DigitId || rawPayload.ownerNumericId || myClean16);
+  const isMeOwner = isSpaceOwnedByUser(rawPayload, myClean16);
+  const effectiveOwnerUid = isMeOwner
+    ? auth.currentUser?.uid || rawPayload.ownerUid || 'authenticated_user'
+    : rawPayload.ownerUid || auth.currentUser?.uid || 'authenticated_user';
+
+  const fullSanitizedSpace = JSON.parse(
+    JSON.stringify({
+      ...rawPayload,
+      id: rawShareId,
+      ownerUid: effectiveOwnerUid,
+      accountName: savedLocal.name || 'Share',
+      updatedAt: Date.now(),
+      owner16DigitId: folderOwner16,
+      ownerNumericId: folderOwner16,
+      ownerName: rawPayload.ownerName || 'User',
+      ownerAvatar: rawPayload.ownerAvatar || '👤',
+      member16Ids: rawPayload.member16Ids || [],
+      members: rawPayload.members || [],
+      accounts: rawPayload.accounts || [],
+      categories: rawPayload.categories || [],
+      transactions: rawPayload.transactions || [],
+    })
+  );
 
   // If offline, queue for sync as soon as network is restored
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    queueOfflineShareUpdate(canonicalPayload);
+    queueOfflineShareUpdate(fullSanitizedSpace);
     return;
   }
 
-  const currentSig = computeFolderContentSignature(canonicalPayload);
-  const lastSig = lastSyncedFolderSignatures.get(canonicalPayload.id);
+  const currentSig = computeFolderContentSignature(fullSanitizedSpace);
+  const lastSig = lastSyncedFolderSignatures.get(rawShareId);
   if (!forceWrite && lastSig && lastSig === currentSig) {
     return;
   }
-  lastSyncedFolderSignatures.set(canonicalPayload.id, currentSig);
+  lastSyncedFolderSignatures.set(rawShareId, currentSig);
 
-  const canonicalPath = getCanonicalSharePath(canonicalPayload.id);
-
+  // 1. Write master space to shared_accounts/share_${space.id}
+  let masterSynced = false;
   try {
-    await set(ref(rtdb, canonicalPath), canonicalPayload);
-    removeSpaceFromOfflineQueue(canonicalPayload.id);
+    await set(ref(rtdb, `shared_accounts/share_${rawShareId}`), fullSanitizedSpace);
+    masterSynced = true;
+    removeSpaceFromOfflineQueue(rawShareId);
   } catch (err) {
-    console.warn(`[ShareFolders] Failed to write canonical space ${canonicalPath}:`, err);
-    queueOfflineShareUpdate(canonicalPayload);
+    console.warn(`[ShareFolders] Failed to write master space share_${rawShareId}:`, err);
+    queueOfflineShareUpdate(fullSanitizedSpace);
+  }
+
+  // 2. Also write alias shared_accounts/${folder.id} if different
+  if (folder.id !== `share_${rawShareId}`) {
+    try {
+      await set(ref(rtdb, `shared_accounts/${folder.id}`), fullSanitizedSpace);
+    } catch {}
+  }
+
+  // 3. Independent try/catch for each invited member's clean 16-digit ID on slot_${targetClean16Id}_0..9
+  const member16Set = new Set<string>();
+  for (const m of fullSanitizedSpace.members || []) {
+    const cleanMid = normalize16DigitId(m?.numericId);
+    if (cleanMid.length === 16 && cleanMid !== folderOwner16) {
+      member16Set.add(cleanMid);
+    }
+  }
+  for (const mid of fullSanitizedSpace.member16Ids || []) {
+    const cleanMid = normalize16DigitId(mid);
+    if (cleanMid.length === 16 && cleanMid !== folderOwner16) {
+      member16Set.add(cleanMid);
+    }
+  }
+
+  for (const targetClean16Id of Array.from(member16Set)) {
+    try {
+      let targetIndex = 0;
+      for (let i = 0; i < CLOUD_SLOTS_COUNT; i++) {
+        try {
+          const snap = await get(ref(rtdb, `shared_accounts/slot_${targetClean16Id}_${i}`));
+          if (
+            !snap.exists() ||
+            snap.val()?.shareId === rawShareId ||
+            snap.val()?.shareId === folder.id ||
+            snap.val()?.shareId === `share_${rawShareId}` ||
+            snap.val()?.ownerUid === (auth.currentUser?.uid || effectiveOwnerUid)
+          ) {
+            targetIndex = i;
+            break;
+          }
+        } catch {}
+      }
+
+      const slotEntry = JSON.parse(
+        JSON.stringify({
+          ...fullSanitizedSpace,
+          ownerUid: auth.currentUser?.uid || effectiveOwnerUid,
+          accountName: savedLocal.name || 'Share',
+          updatedAt: Date.now(),
+          shareId: rawShareId,
+          target16Id: targetClean16Id,
+          sender16Id: folderOwner16,
+          space: fullSanitizedSpace,
+        })
+      );
+
+      await set(ref(rtdb, `shared_accounts/slot_${targetClean16Id}_${targetIndex}`), slotEntry);
+    } catch (slotErr) {
+      console.warn(`[ShareFolders] Failed slot delivery for ${targetClean16Id}:`, slotErr);
+    }
+
+    // Extra child-key fallback: profile_shares_${targetClean16Id}_${rawShareId}
+    try {
+      const profShareEntry = JSON.parse(
+        JSON.stringify({
+          ownerUid: auth.currentUser?.uid || effectiveOwnerUid,
+          accountName: savedLocal.name || 'Share',
+          updatedAt: Date.now(),
+          shareId: rawShareId,
+          target16Id: targetClean16Id,
+          sender16Id: folderOwner16,
+          space: fullSanitizedSpace,
+        })
+      );
+      await set(ref(rtdb, `shared_accounts/profile_shares_${targetClean16Id}_${rawShareId}`), profShareEntry);
+    } catch {}
+  }
+
+  if (masterSynced) {
+    removeSpaceFromOfflineQueue(rawShareId);
   }
 }
 
@@ -2371,11 +2778,29 @@ export function updateShareFolderSettings(
 }
 
 /**
- * Delete a Share Space permanently from local cache and canonical path shared_accounts/share_${space.id}
+ * Delete a Share Space permanently from local cache, master node shared_accounts/share_${space.id},
+ * and all member delivery slots (slot_${member16Id}_0..9)
  */
-export async function deleteShareFolder(folderId: string, _folderData?: ShareFolder): Promise<void> {
+export async function deleteShareFolder(folderId: string, folderData?: ShareFolder): Promise<void> {
   const cleanShareId = normalizeShareId(folderId);
   if (!cleanShareId) return;
+
+  const existingSpace =
+    folderData ||
+    loadMyShareFolders().find((f) => normalizeShareId(f.id) === cleanShareId) ||
+    loadReceivedShareFolders().find((f) => normalizeShareId(f.id) === cleanShareId);
+
+  const memberIdsToClean = new Set<string>();
+  if (existingSpace) {
+    for (const m of existingSpace.members || []) {
+      const cid = normalize16DigitId(m.numericId);
+      if (cid.length === 16) memberIdsToClean.add(cid);
+    }
+    for (const mid of existingSpace.member16Ids || []) {
+      const cid = normalize16DigitId(mid);
+      if (cid.length === 16) memberIdsToClean.add(cid);
+    }
+  }
 
   removeSpaceFromOfflineQueue(cleanShareId);
   await dismissShareId(cleanShareId);
@@ -2388,23 +2813,27 @@ export async function deleteShareFolder(folderId: string, _folderData?: ShareFol
   }
 
   const canonicalPath = getCanonicalSharePath(cleanShareId);
+  const effectiveUid = auth.currentUser?.uid || 'authenticated_user';
   try {
-    await remove(ref(rtdb, canonicalPath));
+    await set(ref(rtdb, canonicalPath), {
+      id: cleanShareId,
+      deleted: true,
+      updatedAt: Date.now(),
+      ownerUid: effectiveUid,
+      accountName: 'Deleted',
+    });
+    await remove(ref(rtdb, canonicalPath)).catch(() => {});
   } catch (err) {
-    // Fallback to tombstone if remove is restricted by security rules
-    try {
-      await set(ref(rtdb, canonicalPath), {
-        id: cleanShareId,
-        deleted: true,
-        updatedAt: Date.now(),
-        ownerUid: auth.currentUser?.uid || 'authenticated_user',
-        accountName: 'Deleted',
-        v3Schema: true,
-      });
-    } catch (e2) {
-      console.warn(`[ShareFolders] Failed deleting ${canonicalPath}:`, e2);
-      queueOfflineShareDelete(cleanShareId);
-    }
+    console.warn(`[ShareFolders] Failed deleting ${canonicalPath}:`, err);
+    queueOfflineShareDelete(cleanShareId);
+  }
+
+  try {
+    await remove(ref(rtdb, `shared_accounts/${cleanShareId}`)).catch(() => {});
+  } catch {}
+
+  for (const member16 of Array.from(memberIdsToClean)) {
+    await clearMemberSlotsForShare(member16, cleanShareId, true).catch(() => {});
   }
 }
 
@@ -2575,6 +3004,7 @@ export async function removeMemberFromShareFolder(
   };
 
   const saved = upsertSpaceInV3Cache(updatedFolder);
+  await clearMemberSlotsForShare(cleanMemberId, cleanFolderId, false).catch(() => {});
   await syncFolderToCloud(saved, true);
   return { success: true, folder: saved };
 }
@@ -2591,6 +3021,7 @@ export async function removeAllMembersFromShareFolder(
   if (!folder) return { success: false };
 
   const owner16 = normalize16DigitId(folder.owner16DigitId || folder.ownerNumericId);
+  const removedMembers = folder.members.filter((m) => normalize16DigitId(m.numericId) !== owner16);
   const ownerMembers = folder.members.filter((m) => normalize16DigitId(m.numericId) === owner16);
 
   const updatedFolder: ShareFolder = {
@@ -2601,6 +3032,9 @@ export async function removeAllMembersFromShareFolder(
   };
 
   const saved = upsertSpaceInV3Cache(updatedFolder);
+  for (const rm of removedMembers) {
+    await clearMemberSlotsForShare(normalize16DigitId(rm.numericId), cleanFolderId, false).catch(() => {});
+  }
   await syncFolderToCloud(saved, true);
   return { success: true, folder: saved };
 }
@@ -2655,6 +3089,7 @@ export async function leaveShareFolder(
 
   await dismissShareId(cleanShareId, cleanId);
   purgeDeletedShareSpace(cleanShareId);
+  await clearMemberSlotsForShare(cleanId, cleanShareId, false).catch(() => {});
 
   try {
     const cloudRef = ref(rtdb, getCanonicalSharePath(cleanShareId));
@@ -2814,116 +3249,139 @@ export function subscribeToShareFolder(
 }
 
 /**
- * Merges a cloud snapshot of `shared_accounts` with local `'mm_spaces_v3_cache'`,
- * preserving any offline-created owned spaces and syncing them up to Firebase.
- */
-function reconcileCloudSharedAccountsSnapshot(
-  sharedAccountsVal: any,
-  myClean16Id: string,
-  currentUid?: string
-): { ownedSpaces: ShareFolder[]; receivedSpaces: ShareFolder[]; allSpaces: ShareFolder[] } {
-  const { myUid, myClean16Id: resolved16 } = resolveCurrentIdentity(myClean16Id, currentUid);
-  const dismissedIds = getDismissedShareIds();
-
-  // Never overwrite local cache while a share creation or settings modal is open
-  if (isShareModalCurrentlyOpen()) {
-    const { myFolders, receivedFolders } = repairAndMigrateSharedSpaces(resolved16, myUid);
-    return {
-      ownedSpaces: myFolders,
-      receivedSpaces: receivedFolders,
-      allSpaces: [...myFolders, ...receivedFolders],
-    };
-  }
-
-  const cloudOwnedMap = new Map<string, ShareFolder>();
-  const cloudReceivedMap = new Map<string, ShareFolder>();
-  const deletedCloudIds = new Set<string>();
-
-  if (sharedAccountsVal && typeof sharedAccountsVal === 'object') {
-    for (const [key, rawVal] of Object.entries(sharedAccountsVal)) {
-      if (!key.startsWith('share_')) continue;
-      if (!rawVal || typeof rawVal !== 'object') continue;
-      const val = rawVal as any;
-      const cleanSid = normalizeShareId(val.id || key);
-      if (!cleanSid) continue;
-
-      if (val.deleted === true) {
-        deletedCloudIds.add(cleanSid);
-        continue;
-      }
-      if (dismissedIds.has(cleanSid)) continue;
-
-      const parsed = normalizeParsedShareFolder(val, cleanSid);
-      if (!parsed) continue;
-
-      if (isSpaceOwnedByUser(parsed, resolved16, myUid)) {
-        cloudOwnedMap.set(cleanSid, { ...parsed, isCreatedByMe: true, isReceivedShare: false });
-      } else if (isSpaceSharedWithUser(parsed, resolved16, myUid)) {
-        cloudReceivedMap.set(cleanSid, { ...parsed, isCreatedByMe: false, isReceivedShare: true });
-      }
-    }
-  }
-
-  // Merge with local 'mm_spaces_v3_cache':
-  // - Only apply remote updates when remote.updatedAt > local.updatedAt
-  // - Preserve offline-created/modified owned spaces and push them to cloud when online
-  const localSpaces = loadAllSpacesV3();
-  const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
-
-  for (const localSpace of localSpaces) {
-    const cleanSid = normalizeShareId(localSpace.id);
-    if (!cleanSid || deletedCloudIds.has(cleanSid) || dismissedIds.has(cleanSid)) continue;
-
-    if (isSpaceOwnedByUser(localSpace, resolved16, myUid)) {
-      const cloudVer = cloudOwnedMap.get(cleanSid);
-      if (!cloudVer) {
-        // Owned space exists locally on device: keep it if offline, pending offline sync, or created by me
-        if (!isOnline || isSpacePendingOfflineSync(cleanSid) || isShareCreatedByMe(cleanSid)) {
-          cloudOwnedMap.set(cleanSid, { ...localSpace, isCreatedByMe: true, isReceivedShare: false });
-          if (isOnline) {
-            syncFolderToCloud(localSpace, true).catch(() => {});
-          }
-        }
-      } else if ((cloudVer.updatedAt || 0) <= (localSpace.updatedAt || 0)) {
-        // Only merge remote when remote.updatedAt > local.updatedAt; otherwise keep localSpace
-        cloudOwnedMap.set(cleanSid, { ...localSpace, isCreatedByMe: true, isReceivedShare: false });
-        if (isOnline && (localSpace.updatedAt || 0) > (cloudVer.updatedAt || 0)) {
-          syncFolderToCloud(localSpace, true).catch(() => {});
-        }
-      }
-    } else if (isSpaceSharedWithUser(localSpace, resolved16, myUid)) {
-      const cloudVer = cloudReceivedMap.get(cleanSid);
-      if (cloudVer && (cloudVer.updatedAt || 0) <= (localSpace.updatedAt || 0)) {
-        // Only merge remote when remote.updatedAt > local.updatedAt
-        cloudReceivedMap.set(cleanSid, { ...localSpace, isCreatedByMe: false, isReceivedShare: true });
-        if (isOnline && (localSpace.updatedAt || 0) > (cloudVer.updatedAt || 0)) {
-          syncFolderToCloud(localSpace, true).catch(() => {});
-        }
-      }
-    }
-  }
-
-  const ownedSpaces = Array.from(cloudOwnedMap.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  const receivedSpaces = Array.from(cloudReceivedMap.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  const allSpaces = [...ownedSpaces, ...receivedSpaces];
-
-  saveAllSpacesV3(allSpaces);
-  return { ownedSpaces, receivedSpaces, allSpaces };
-}
-
-/**
- * Single-shot fetch of user's spaces from the unified Firebase RTDB `shared_accounts` collection
+ * Single-shot fetch of user's incoming shares using Promise.allSettled on deterministic slots (0..9):
+ * shared_accounts/slot_${myClean16Id}_0 through shared_accounts/slot_${myClean16Id}_9
+ * and master share nodes shared_accounts/share_${shareId}.
+ * NEVER reads the root 'shared_accounts' collection!
  */
 export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder[]> {
   await executeOneTimeV3ShareCleanReset();
   const cleanId = normalize16DigitId(my16DigitId || getOrCreateNumericId());
   if (cleanId.length !== 16) return loadReceivedShareFolders();
+  if (isShareModalCurrentlyOpen()) return loadReceivedShareFolders();
+
+  const dismissedIds = getDismissedShareIds();
+  const candidateShareIds = new Set<string>();
+  const embeddedSlotSpaces = new Map<string, any>();
 
   try {
-    const snap = await get(ref(rtdb, 'shared_accounts'));
-    const val = snap.exists() ? snap.val() : {};
-    const { receivedSpaces, allSpaces } = reconcileCloudSharedAccountsSnapshot(val, cleanId);
+    // 1. Discover incoming shares across slot_${cleanId}_0..9 using Promise.allSettled
+    const slotPromises = Array.from({ length: CLOUD_SLOTS_COUNT }, (_, i) =>
+      get(ref(rtdb, `shared_accounts/slot_${cleanId}_${i}`))
+    );
+    const slotResults = await Promise.allSettled(slotPromises);
 
+    slotResults.forEach((res) => {
+      if (res.status !== 'fulfilled' || !res.value.exists()) return;
+      const val = res.value.val();
+      if (!val || typeof val !== 'object') return;
+      const rawSpace = val.space || val;
+      const rawId = normalizeShareId(val.shareId || val.rawShareId || rawSpace?.id || val.id);
+      if (!rawId) return;
+
+      if (val.deleted === true || rawSpace?.deleted === true) {
+        purgeDeletedShareSpace(rawId);
+        return;
+      }
+      if (dismissedIds.has(rawId)) return;
+
+      candidateShareIds.add(rawId);
+      if (rawSpace && typeof rawSpace === 'object') {
+        embeddedSlotSpaces.set(rawId, rawSpace);
+      }
+    });
+
+    // Also include already-known received share IDs from localStorage ('mm_received_spaces')
+    const localReceived = loadReceivedShareFolders();
+    const localReceivedMap = new Map<string, ShareFolder>();
+    for (const rec of localReceived) {
+      const cid = normalizeShareId(rec.id);
+      if (cid && !dismissedIds.has(cid)) {
+        candidateShareIds.add(cid);
+        localReceivedMap.set(cid, rec);
+        if (!embeddedSlotSpaces.has(cid)) {
+          embeddedSlotSpaces.set(cid, rec);
+        }
+      }
+    }
+
+    // 2. Fetch master nodes shared_accounts/share_${shareId} using Promise.allSettled
+    const masterPromises = Array.from(candidateShareIds).map(async (rawShareId) => {
+      if (dismissedIds.has(rawShareId)) return null;
+
+      try {
+        const mSnap = await get(ref(rtdb, `shared_accounts/share_${rawShareId}`));
+        if (mSnap.exists() && mSnap.val()) {
+          const val = mSnap.val();
+          if (val.deleted === true) {
+            purgeDeletedShareSpace(rawShareId);
+            return null;
+          }
+          const parsed = normalizeParsedShareFolder(val, rawShareId);
+          if (parsed && isSpaceSharedWithUser(parsed, cleanId)) {
+            const localVer = localReceivedMap.get(rawShareId);
+            if (localVer && (parsed.updatedAt || 0) <= (localVer.updatedAt || 0)) {
+              return { ...localVer, isCreatedByMe: false, isReceivedShare: true };
+            }
+            return { ...parsed, isCreatedByMe: false, isReceivedShare: true };
+          }
+        }
+      } catch {}
+
+      // Fallback to profile_shares_${cleanId}_${rawShareId}
+      try {
+        const pSnap = await get(ref(rtdb, `shared_accounts/profile_shares_${cleanId}_${rawShareId}`));
+        if (pSnap.exists() && pSnap.val()) {
+          const val = pSnap.val();
+          const rawSpace = val.space || val;
+          if (val.deleted === true || rawSpace?.deleted === true) {
+            purgeDeletedShareSpace(rawShareId);
+            return null;
+          }
+          const parsed = normalizeParsedShareFolder(rawSpace, rawShareId);
+          if (parsed && isSpaceSharedWithUser(parsed, cleanId)) {
+            return { ...parsed, isCreatedByMe: false, isReceivedShare: true };
+          }
+        }
+      } catch {}
+
+      // Fallback to embedded space from slot_${cleanId}_0..9
+      const embedded = embeddedSlotSpaces.get(rawShareId);
+      if (embedded) {
+        if (embedded.deleted === true) {
+          purgeDeletedShareSpace(rawShareId);
+          return null;
+        }
+        const parsed = normalizeParsedShareFolder(embedded, rawShareId);
+        if (parsed && isSpaceSharedWithUser(parsed, cleanId)) {
+          return { ...parsed, isCreatedByMe: false, isReceivedShare: true };
+        }
+      }
+
+      return null;
+    });
+
+    const settledMasters = await Promise.allSettled(masterPromises);
+    const finalReceivedMap = new Map<string, ShareFolder>();
+
+    settledMasters.forEach((res) => {
+      if (res.status === 'fulfilled' && res.value) {
+        finalReceivedMap.set(normalizeShareId(res.value.id), res.value);
+      }
+    });
+
+    const receivedSpaces = Array.from(finalReceivedMap.values()).filter(
+      (f) => !dismissedIds.has(normalizeShareId(f.id)) && isSpaceSharedWithUser(f, cleanId)
+    );
+    receivedSpaces.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+    saveReceivedShareFolders(receivedSpaces);
+    const allSpaces = [...loadMyShareFolders(), ...receivedSpaces];
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(SPACES_V3_CACHE_KEY, JSON.stringify(allSpaces));
+      } catch {}
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('spaces_v3_updated', { detail: allSpaces }));
       window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: receivedSpaces }));
@@ -2936,9 +3394,10 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
 }
 
 /**
- * Real-time event-driven listener on unified `shared_accounts` collection.
- * Automatically reconciles owned ("Shared by Me") and joined ("Shared with Me") spaces
- * into `'mm_spaces_v3_cache'` and emits incoming shares to the callback.
+ * Real-time receiver listener using individual child onValue listeners directly on:
+ * - shared_accounts/slot_${myClean16Id}_0 through shared_accounts/slot_${myClean16Id}_9
+ * - and each discovered shared_accounts/share_${shareId}.
+ * NEVER attaches a listener to the root ref(db, 'shared_accounts')!
  */
 export function subscribeToMyInbox(
   my16DigitId: string,
@@ -2948,17 +3407,66 @@ export function subscribeToMyInbox(
   const cleanId = normalize16DigitId(my16DigitId || getOrCreateNumericId());
   if (cleanId.length !== 16) return () => {};
 
-  const sharedAccountsRef = ref(rtdb, 'shared_accounts');
+  const cleanups: (() => void)[] = [];
+  const activeMasterSubs = new Map<string, () => void>();
+  const slotSpacesMap = new Map<number, ShareFolder | null>();
+  const masterSpacesMap = new Map<string, ShareFolder>();
+
+  let emitTimer: any = null;
   let lastEmittedSig = '';
 
-  const listener = (snapshot: any) => {
+  const emitCombined = () => {
     if (isShareModalCurrentlyOpen()) return;
-    const val = snapshot.exists() && snapshot.val() ? snapshot.val() : {};
-    const { receivedSpaces, allSpaces } = reconcileCloudSharedAccountsSnapshot(val, cleanId);
 
-    const sig = allSpaces.map((s) => `${s.id}_${s.updatedAt || 0}_${s.members?.length || 0}`).join('|');
+    const dismissedIds = getDismissedShareIds();
+    const combinedMap = new Map<string, ShareFolder>();
+
+    // 1. Start with locally cached received spaces so offline spaces are preserved
+    for (const localRec of loadReceivedShareFolders()) {
+      const cid = normalizeShareId(localRec.id);
+      if (cid && !dismissedIds.has(cid) && isSpaceSharedWithUser(localRec, cleanId)) {
+        combinedMap.set(cid, { ...localRec, isCreatedByMe: false, isReceivedShare: true });
+      }
+    }
+
+    // 2. Merge slot embedded spaces (when newer than local or not yet in local)
+    slotSpacesMap.forEach((slotFolder) => {
+      if (!slotFolder || !slotFolder.id) return;
+      const cid = normalizeShareId(slotFolder.id);
+      if (!cid || dismissedIds.has(cid) || !isSpaceSharedWithUser(slotFolder, cleanId)) return;
+      const existing = combinedMap.get(cid);
+      if (!existing || (slotFolder.updatedAt || 0) > (existing.updatedAt || 0)) {
+        combinedMap.set(cid, { ...slotFolder, isCreatedByMe: false, isReceivedShare: true });
+      }
+    });
+
+    // 3. Merge live master spaces from shared_accounts/share_${shareId} (when newer than existing)
+    masterSpacesMap.forEach((masterFolder, rawId) => {
+      const cid = normalizeShareId(masterFolder.id || rawId);
+      if (!cid || dismissedIds.has(cid) || !isSpaceSharedWithUser(masterFolder, cleanId)) return;
+      const existing = combinedMap.get(cid);
+      if (!existing || (masterFolder.updatedAt || 0) >= (existing.updatedAt || 0)) {
+        combinedMap.set(cid, { ...masterFolder, isCreatedByMe: false, isReceivedShare: true });
+      }
+    });
+
+    const receivedSpaces = Array.from(combinedMap.values()).sort(
+      (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)
+    );
+
+    const sig = receivedSpaces
+      .map((s) => `${s.id}_${s.updatedAt || 0}_${s.members?.length || 0}_${s.itemCount || 0}`)
+      .join('|');
+
     if (sig !== lastEmittedSig) {
       lastEmittedSig = sig;
+      saveReceivedShareFolders(receivedSpaces);
+      const allSpaces = [...loadMyShareFolders(), ...receivedSpaces];
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem(SPACES_V3_CACHE_KEY, JSON.stringify(allSpaces));
+        } catch {}
+      }
       callback(receivedSpaces);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('spaces_v3_updated', { detail: allSpaces }));
@@ -2967,12 +3475,153 @@ export function subscribeToMyInbox(
     }
   };
 
-  onValue(sharedAccountsRef, listener, (err) => {
-    console.warn('[ShareFolders] shared_accounts onValue subscription error:', err);
+  const scheduleEmit = () => {
+    if (emitTimer) clearTimeout(emitTimer);
+    emitTimer = setTimeout(emitCombined, 50);
+  };
+
+  cleanups.push(() => {
+    if (emitTimer) clearTimeout(emitTimer);
   });
 
+  const subscribeMasterShare = (shareId: string) => {
+    const rawShareId = normalizeShareId(shareId);
+    if (!rawShareId || activeMasterSubs.has(rawShareId) || isShareDismissed(rawShareId)) return;
+
+    const masterRef = ref(rtdb, `shared_accounts/share_${rawShareId}`);
+    const masterListener = (snap: any) => {
+      if (isShareModalCurrentlyOpen()) return;
+      if (snap.exists() && snap.val()) {
+        const val = snap.val();
+        if (val.deleted === true) {
+          masterSpacesMap.delete(rawShareId);
+          purgeDeletedShareSpace(rawShareId);
+          scheduleEmit();
+          return;
+        }
+        if (isShareDismissed(rawShareId)) return;
+        const parsed = normalizeParsedShareFolder(val, rawShareId);
+        if (parsed && isSpaceSharedWithUser(parsed, cleanId)) {
+          masterSpacesMap.set(rawShareId, { ...parsed, isCreatedByMe: false, isReceivedShare: true });
+          scheduleEmit();
+        }
+      } else if (!snap.exists()) {
+        masterSpacesMap.delete(rawShareId);
+        purgeDeletedShareSpace(rawShareId);
+        scheduleEmit();
+      }
+    };
+
+    onValue(masterRef, masterListener, () => {});
+
+    const profShareRef = ref(rtdb, `shared_accounts/profile_shares_${cleanId}_${rawShareId}`);
+    const profListener = (pSnap: any) => {
+      if (isShareModalCurrentlyOpen()) return;
+      if (pSnap.exists() && pSnap.val()) {
+        const val = pSnap.val();
+        const rawSpace = val.space || val;
+        if (val.deleted === true || rawSpace?.deleted === true) {
+          masterSpacesMap.delete(rawShareId);
+          purgeDeletedShareSpace(rawShareId);
+          scheduleEmit();
+          return;
+        }
+        if (isShareDismissed(rawShareId)) return;
+        const parsed = normalizeParsedShareFolder(rawSpace, rawShareId);
+        if (parsed && isSpaceSharedWithUser(parsed, cleanId)) {
+          const prev = masterSpacesMap.get(rawShareId);
+          if (!prev || (parsed.updatedAt || 0) >= (prev.updatedAt || 0)) {
+            masterSpacesMap.set(rawShareId, { ...parsed, isCreatedByMe: false, isReceivedShare: true });
+            scheduleEmit();
+          }
+        }
+      }
+    };
+
+    onValue(profShareRef, profListener, () => {});
+
+    activeMasterSubs.set(rawShareId, () => {
+      off(masterRef, 'value', masterListener);
+      off(profShareRef, 'value', profListener);
+    });
+  };
+
+  // Subscribe to existing received spaces in localStorage ('mm_received_spaces')
+  for (const rec of loadReceivedShareFolders()) {
+    if (rec?.id) {
+      subscribeMasterShare(rec.id);
+    }
+  }
+
+  // Also subscribe to owned spaces' master nodes so co-editor updates sync back in real time
+  for (const owned of loadMyShareFolders()) {
+    const rawOwnedId = normalizeShareId(owned.id);
+    if (!rawOwnedId) continue;
+    const ownedRef = ref(rtdb, `shared_accounts/share_${rawOwnedId}`);
+    const ownedListener = (snap: any) => {
+      if (isShareModalCurrentlyOpen()) return;
+      if (snap.exists() && snap.val()) {
+        const val = snap.val();
+        if (val.deleted === true) return;
+        const parsed = normalizeParsedShareFolder(val, rawOwnedId);
+        if (parsed && isSpaceOwnedByUser(parsed, cleanId)) {
+          const localOwned = loadMyShareFolders().find((f) => normalizeShareId(f.id) === rawOwnedId);
+          if (!localOwned || (parsed.updatedAt || 0) > (localOwned.updatedAt || 0)) {
+            upsertSpaceInV3Cache({ ...parsed, isCreatedByMe: true, isReceivedShare: false });
+          }
+        }
+      }
+    };
+    onValue(ownedRef, ownedListener, () => {});
+    cleanups.push(() => off(ownedRef, 'value', ownedListener));
+  }
+
+  // Attach individual child onValue listeners directly on shared_accounts/slot_${cleanId}_0..9
+  for (let i = 0; i < CLOUD_SLOTS_COUNT; i++) {
+    const slotRef = ref(rtdb, `shared_accounts/slot_${cleanId}_${i}`);
+    const slotListener = (snap: any) => {
+      if (isShareModalCurrentlyOpen()) return;
+      if (snap.exists() && snap.val()) {
+        const val = snap.val();
+        const rawSpace = val.space || val;
+        const rawShareId = normalizeShareId(val.shareId || val.rawShareId || rawSpace?.id || val.id);
+
+        if (val.deleted === true || rawSpace?.deleted === true) {
+          slotSpacesMap.set(i, null);
+          if (rawShareId) {
+            masterSpacesMap.delete(rawShareId);
+            purgeDeletedShareSpace(rawShareId);
+          }
+          scheduleEmit();
+          return;
+        }
+
+        if (!rawShareId || isShareDismissed(rawShareId)) {
+          slotSpacesMap.set(i, null);
+          return;
+        }
+
+        subscribeMasterShare(rawShareId);
+
+        const parsed = normalizeParsedShareFolder(rawSpace, rawShareId);
+        if (parsed && isSpaceSharedWithUser(parsed, cleanId)) {
+          slotSpacesMap.set(i, { ...parsed, isCreatedByMe: false, isReceivedShare: true });
+          scheduleEmit();
+        }
+      } else {
+        slotSpacesMap.set(i, null);
+        scheduleEmit();
+      }
+    };
+
+    onValue(slotRef, slotListener, () => {});
+    cleanups.push(() => off(slotRef, 'value', slotListener));
+  }
+
   return () => {
-    off(sharedAccountsRef, 'value', listener);
+    cleanups.forEach((fn) => fn());
+    activeMasterSubs.forEach((unsub) => unsub());
+    activeMasterSubs.clear();
   };
 }
 
