@@ -471,14 +471,14 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
   };
 
   return (
-    <div className="min-h-[calc(100dvh-4.25rem)] sm:min-h-[calc(100dvh-4.75rem)] w-full max-w-lg md:max-w-2xl landscape:max-w-5xl mx-auto flex flex-col justify-between overflow-y-auto bg-black text-white px-3.5 pt-1 pb-2 select-none animate-in fade-in">
-      {/* 1. Unified Header Bar Across All 5 Tabs (Standardized h-16) */}
+    <div className="w-full flex-1 flex flex-col overflow-hidden bg-black text-white select-none animate-in fade-in">
+      {/* 1. Unified Header Bar Across All 5 Tabs */}
       <header
         style={{
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        className={`sticky top-0 z-20 h-16 landscape:h-12 px-4 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 -mx-3.5 -mt-1 mb-2 landscape:mb-1 ${
+        className={`sticky top-0 z-20 h-16 md:h-20 landscape:h-12 px-4 md:px-8 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 mb-1 ${
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -487,14 +487,14 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
             type="button"
             onClick={() => setIsSidebarOpen(true)}
             aria-label="Open Menu"
-            className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
+            className="w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="w-5 h-5 md:w-6 md:h-6" />
           </button>
           <div>
-            <h2 className="text-base sm:text-lg font-black tracking-tight flex items-center gap-1.5">
+            <h2 className="text-base sm:text-lg md:text-2xl font-black tracking-tight flex items-center gap-1.5 md:gap-2">
               <span>{isArabic ? 'الحاسبة المالية' : 'Calculator'}</span>
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+              <span className="text-[10px] md:text-xs font-bold px-1.5 md:px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
                 PRO
               </span>
             </h2>
@@ -504,304 +504,304 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
         <button
           type="button"
           onClick={() => setShowHistory(!showHistory)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 ${
+          className={`flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-1.5 md:py-2 rounded-xl md:rounded-2xl border text-xs md:text-sm font-semibold transition cursor-pointer active:scale-95 ${
             showHistory
               ? 'bg-blue-600 border-blue-500 text-white shadow-md'
               : 'bg-zinc-900 hover:bg-zinc-850 border-zinc-800 text-zinc-300'
           }`}
         >
-          <History className="w-3.5 h-3.5" />
+          <History className="w-3.5 h-3.5 md:w-4 md:h-4" />
           <span>{isArabic ? 'السجل' : 'History'}</span>
-          {showHistory ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          {showHistory ? <ChevronUp className="w-3 h-3 md:w-4 md:h-4" /> : <ChevronDown className="w-3 h-3 md:w-4 md:h-4" />}
         </button>
       </header>
 
-      {/* Responsive Two-Column Landscape Grid Container */}
-      <div className="flex-1 flex flex-col justify-between landscape:grid landscape:grid-cols-12 landscape:gap-4 landscape:items-stretch landscape:my-auto">
-        {/* 2. Display Screen with Smooth Animated History Drawer */}
-        <div className="calc-display-screen flex-1 flex flex-col justify-end p-4 rounded-3xl bg-zinc-950/90 border border-zinc-800/90 shadow-2xl relative overflow-hidden my-2 landscape:my-0 landscape:col-span-5 landscape:h-full">
-        {/* Animated In-Display History Tape */}
-        <div
-          className={`calc-history-drawer absolute inset-0 bg-zinc-950/98 backdrop-blur-md p-3.5 flex flex-col justify-between z-20 transition-all duration-300 ease-in-out overscroll-contain ${
-            showHistory
-              ? 'translate-y-0 opacity-100 pointer-events-auto'
-              : '-translate-y-full opacity-0 pointer-events-none'
-          }`}
-        >
-          <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
-              {isArabic ? 'سجل العمليات الحسابية' : 'Calculation History'}
+      {/* Main Responsive Calculator Container: Tablet & Large-Screen Expanded Width & Height */}
+      <div className="w-full max-w-md md:max-w-4xl lg:max-w-6xl mx-auto h-[calc(100dvh-8rem)] md:h-[calc(100dvh-9rem)] flex flex-col lg:flex-row gap-3 md:gap-5 p-3 md:p-6 flex-1 min-h-0">
+        {/* 2. Display Screen with Proportional Height (25% to 30% on portrait, full height on lg:flex-row) */}
+        <div className="calc-display-screen w-full lg:w-5/12 h-[28%] lg:h-full flex flex-col justify-between p-3.5 md:p-6 rounded-3xl bg-zinc-950/90 border border-zinc-800/90 shadow-2xl relative overflow-hidden shrink-0">
+          {/* Animated In-Display History Tape */}
+          <div
+            className={`calc-history-drawer absolute inset-0 bg-zinc-950/98 backdrop-blur-md p-3.5 md:p-6 flex flex-col justify-between z-20 transition-all duration-300 ease-in-out overscroll-contain ${
+              showHistory
+                ? 'translate-y-0 opacity-100 pointer-events-auto'
+                : '-translate-y-full opacity-0 pointer-events-none'
+            }`}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-2 md:pb-3">
+              <span className="text-[11px] md:text-sm font-bold uppercase tracking-wider text-zinc-400">
+                {isArabic ? 'سجل العمليات الحسابية' : 'Calculation History'}
+              </span>
+              {history.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistory([]);
+                    localStorage.removeItem('calc_history');
+                    showToast(isArabic ? 'تم مسح السجل' : 'History cleared', 'info');
+                  }}
+                  className="text-[10px] md:text-xs text-red-400 hover:underline cursor-pointer"
+                >
+                  {isArabic ? 'مسح الكل' : 'Clear All'}
+                </button>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-1.5 md:space-y-2.5 my-2 md:my-3 pr-1 overscroll-contain">
+              {history.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-xs md:text-base text-zinc-500">
+                  {isArabic ? 'لا توجد عمليات سابقة' : 'No previous calculations'}
+                </div>
+              ) : (
+                history.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => {
+                      setExpression(String(item.result));
+                      setResult(item.result);
+                      setCursorPos(String(item.result).length);
+                      setShowHistory(false);
+                    }}
+                    className="calc-history-item flex items-center justify-between p-2 md:p-3.5 rounded-xl md:rounded-2xl bg-zinc-900/70 hover:bg-zinc-850 cursor-pointer transition text-xs md:text-base font-mono border border-transparent"
+                  >
+                    <div className="text-zinc-400 truncate max-w-[180px] md:max-w-xs">{item.expression}</div>
+                    <div className="text-blue-400 font-bold">= {item.result.toLocaleString()}</div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowHistory(false)}
+              className="w-full py-2 md:py-3 rounded-xl md:rounded-2xl bg-zinc-900 border border-zinc-800 text-xs md:text-sm font-semibold text-zinc-300 hover:text-white transition cursor-pointer"
+            >
+              {isArabic ? 'إغلاق السجل' : 'Close History'}
+            </button>
+          </div>
+
+          {/* Compact 1-Line Preview of Latest Calculation */}
+          {recentHistory.length > 0 && !showHistory && (
+            <div
+              onClick={() => setShowHistory(true)}
+              className="cursor-pointer text-xs md:text-sm font-mono text-zinc-500 truncate pb-0.5 md:pb-1 hover:text-zinc-400 transition flex items-center justify-end gap-1.5"
+            >
+              <span>{recentHistory[0].expression}</span>
+              <span className="text-zinc-600">=</span>
+              <span className="text-blue-400/80">{recentHistory[0].result}</span>
+            </div>
+          )}
+
+          {/* Live Calculation Display with Mathematical Typography and Cursor */}
+          <div className="text-right space-y-1 md:space-y-2">
+            {/* Active Expression with cursor */}
+            <div
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const ratio = Math.max(0, Math.min(1, clickX / (rect.width || 1)));
+                const newPos = Math.round(ratio * expression.length);
+                setCursorPos(newPos);
+              }}
+              className="calc-display-expression text-sm sm:text-base md:text-xl lg:text-2xl font-mono text-zinc-300 tracking-wider min-h-[1.75rem] md:min-h-[2.25rem] flex items-center justify-end overflow-x-auto overflow-y-hidden py-0.5 cursor-pointer hover:bg-zinc-900/30 rounded-lg px-1 transition"
+            >
+              {renderExpressionWithCursor()}
+            </div>
+
+            {/* Large Bold Live Result */}
+            <div className="calc-display-result text-2xl sm:text-3xl md:text-5xl lg:text-6xl font-black font-mono tracking-tight text-white truncate">
+              {result !== 0 ? result.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0'}
+            </div>
+          </div>
+
+          {/* Arrow Navigation Bar between Numbers */}
+          <div className="flex items-center justify-between pt-1.5 md:pt-3 border-t border-zinc-850/80 mt-1 md:mt-2 text-zinc-400">
+            <span className="text-[10px] md:text-xs font-mono text-zinc-500">
+              {isArabic ? 'المؤشر' : 'Cursor'}: {activeCursor}/{expression.length}
             </span>
-            {history.length > 0 && (
+            <div className="flex items-center gap-1.5 md:gap-3">
               <button
                 type="button"
-                onClick={() => {
-                  setHistory([]);
-                  localStorage.removeItem('calc_history');
-                  showToast(isArabic ? 'تم مسح السجل' : 'History cleared', 'info');
-                }}
-                className="text-[10px] text-red-400 hover:underline cursor-pointer"
+                onClick={handleCursorLeft}
+                disabled={activeCursor === 0}
+                className="px-2.5 md:px-4 py-1 md:py-2 rounded-xl md:rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition flex items-center gap-1.5 text-xs md:text-sm font-bold active:scale-95 cursor-pointer shadow-sm"
+                title="Move Cursor Left"
               >
-                {isArabic ? 'مسح الكل' : 'Clear All'}
+                <span className="text-xs md:text-base font-black select-none">◀</span>
+                <span className="text-[10px] md:text-xs uppercase font-semibold">{isArabic ? 'يسار' : 'Left'}</span>
               </button>
-            )}
+              <button
+                type="button"
+                onClick={handleCursorRight}
+                disabled={!canMoveRight}
+                className="px-2.5 md:px-4 py-1 md:py-2 rounded-xl md:rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition flex items-center gap-1.5 text-xs md:text-sm font-bold active:scale-95 cursor-pointer shadow-sm"
+                title="Move Cursor Right"
+              >
+                <span className="text-[10px] md:text-xs uppercase font-semibold">{isArabic ? 'يمين' : 'Right'}</span>
+                <span className="text-xs md:text-base font-black select-none">▶</span>
+              </button>
+            </div>
           </div>
+        </div>
 
-          <div className="flex-1 overflow-y-auto space-y-1.5 my-2 pr-1 overscroll-contain">
-            {history.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-zinc-500">
-                {isArabic ? 'لا توجد عمليات سابقة' : 'No previous calculations'}
-              </div>
-            ) : (
-              history.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => {
-                    setExpression(String(item.result));
-                    setResult(item.result);
-                    setCursorPos(String(item.result).length);
-                    setShowHistory(false);
-                  }}
-                  className="calc-history-item flex items-center justify-between p-2 rounded-xl bg-zinc-900/70 hover:bg-zinc-850 cursor-pointer transition text-xs font-mono border border-transparent"
-                >
-                  <div className="text-zinc-400 truncate max-w-[200px]">{item.expression}</div>
-                  <div className="text-blue-400 font-bold">= {item.result.toLocaleString()}</div>
-                </div>
-              ))
-            )}
-          </div>
-
+        {/* 3. Mathematical Keypad: Ergonomically Proportioned flex-1 Grid Filling Available Screen */}
+        <div className="w-full lg:w-7/12 flex-1 h-[72%] lg:h-full grid grid-cols-4 grid-rows-6 gap-2 md:gap-3.5 text-center min-h-0">
+          {/* Row 1: Clear, Square Root (√), Power (^), Divide (÷) */}
           <button
             type="button"
-            onClick={() => setShowHistory(false)}
-            className="w-full py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-semibold text-zinc-300 hover:text-white transition"
+            onClick={handleClear}
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-xl md:text-3xl lg:text-4xl font-mono font-bold text-amber-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
           >
-            {isArabic ? 'إغلاق السجل' : 'Close History'}
+            C
           </button>
-        </div>
-
-        {/* Compact 1-Line Preview of Latest Calculation */}
-        {recentHistory.length > 0 && !showHistory && (
-          <div
-            onClick={() => setShowHistory(true)}
-            className="cursor-pointer text-xs font-mono text-zinc-500 truncate pb-1 hover:text-zinc-400 transition flex items-center justify-end gap-1.5"
+          <button
+            type="button"
+            onClick={() => handleInput('√')}
+            title="Square Root"
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-xl md:text-3xl lg:text-4xl font-serif font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
           >
-            <span>{recentHistory[0].expression}</span>
-            <span className="text-zinc-600">=</span>
-            <span className="text-blue-400/80">{recentHistory[0].result}</span>
-          </div>
-        )}
-
-        {/* Live Calculation Display with True Mathematical Typography and Cursor */}
-        <div className="text-right space-y-1.5">
-          {/* Active Expression with cursor */}
-          <div
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const clickX = e.clientX - rect.left;
-              const ratio = Math.max(0, Math.min(1, clickX / (rect.width || 1)));
-              const newPos = Math.round(ratio * expression.length);
-              setCursorPos(newPos);
-            }}
-            className="calc-display-expression text-sm sm:text-base font-mono text-zinc-300 tracking-wider min-h-[1.75rem] flex items-center justify-end overflow-x-auto overflow-y-hidden py-0.5 cursor-pointer hover:bg-zinc-900/30 rounded-lg px-1 transition"
+            <svg className="w-5 h-5 md:w-8 md:h-8 fill-none stroke-current stroke-[2.5]" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13h3l3 8 5-16h7" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleInput('^')}
+            title="Power / Exponent"
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-xl md:text-3xl lg:text-4xl font-mono font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
           >
-            {renderExpressionWithCursor()}
-          </div>
+            <span>xʸ</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleInput('÷')}
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-2xl md:text-4xl lg:text-5xl font-black text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          >
+            ÷
+          </button>
 
-          {/* Large Bold Live Result */}
-          <div className="calc-display-result text-3xl sm:text-4xl font-black font-mono tracking-tight text-white truncate">
-            {result !== 0 ? result.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0'}
-          </div>
-        </div>
+          {/* Row 2: Left Paren, Right Paren, Percent (%), Multiply (×) */}
+          <button
+            type="button"
+            onClick={() => handleInput('(')}
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-xl md:text-3xl lg:text-4xl font-mono font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          >
+            (
+          </button>
+          <button
+            type="button"
+            onClick={() => handleInput(')')}
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-xl md:text-3xl lg:text-4xl font-mono font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          >
+            )
+          </button>
+          <button
+            type="button"
+            onClick={() => handleInput('%')}
+            title="Percentage"
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-xl md:text-3xl lg:text-4xl font-mono font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          >
+            %
+          </button>
+          <button
+            type="button"
+            onClick={() => handleInput('×')}
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-2xl md:text-4xl lg:text-5xl font-black text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          >
+            ×
+          </button>
 
-        {/* Arrow Navigation Bar between Numbers (Item 6: ◀ and ▶) */}
-        <div className="flex items-center justify-between pt-2 border-t border-zinc-850/80 mt-2 text-zinc-400">
-          <span className="text-[10px] font-mono text-zinc-500">
-            {isArabic ? 'المؤشر' : 'Cursor'}: {activeCursor}/{expression.length}
-          </span>
-          <div className="flex items-center gap-2">
+          {/* Row 3: 7, 8, 9, Minus (−) */}
+          {['7', '8', '9'].map((digit) => (
             <button
+              key={digit}
               type="button"
-              onClick={handleCursorLeft}
-              disabled={activeCursor === 0}
-              className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition flex items-center gap-1.5 text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
-              title="Move Cursor Left"
+              onClick={() => handleInput(digit)}
+              className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl md:text-3xl lg:text-4xl font-mono font-bold text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
             >
-              <span className="text-sm font-black select-none">◀</span>
-              <span className="text-[10px] uppercase font-semibold">{isArabic ? 'يسار' : 'Left'}</span>
+              {digit}
             </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => handleInput('−')}
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-2xl md:text-4xl lg:text-5xl font-black text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          >
+            −
+          </button>
+
+          {/* Row 4: 4, 5, 6, Plus (+) */}
+          {['4', '5', '6'].map((digit) => (
             <button
+              key={digit}
               type="button"
-              onClick={handleCursorRight}
-              disabled={!canMoveRight}
-              className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition flex items-center gap-1.5 text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
-              title="Move Cursor Right"
+              onClick={() => handleInput(digit)}
+              className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl md:text-3xl lg:text-4xl font-mono font-bold text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
             >
-              <span className="text-[10px] uppercase font-semibold">{isArabic ? 'يمين' : 'Right'}</span>
-              <span className="text-sm font-black select-none">▶</span>
+              {digit}
             </button>
-          </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => handleInput('+')}
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-2xl md:text-4xl lg:text-5xl font-black text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          >
+            +
+          </button>
+
+          {/* Row 5: 1, 2, 3, Backspace (⌫) */}
+          {['1', '2', '3'].map((digit) => (
+            <button
+              key={digit}
+              type="button"
+              onClick={() => handleInput(digit)}
+              className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl md:text-3xl lg:text-4xl font-mono font-bold text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+            >
+              {digit}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={handleBackspace}
+            aria-label="Backspace"
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-850 hover:bg-zinc-800 border border-zinc-750 text-zinc-300 hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          >
+            <Delete className="w-5 h-5 md:w-8 md:h-8" />
+          </button>
+
+          {/* Row 6: 0, Decimal (.), Convert to Tx (+Tx), Equals (=) */}
+          <button
+            type="button"
+            onClick={() => handleInput('0')}
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl md:text-3xl lg:text-4xl font-mono font-bold text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          >
+            0
+          </button>
+          <button
+            type="button"
+            onClick={() => handleInput('.')}
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl md:text-3xl lg:text-4xl font-mono font-bold text-zinc-300 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+          >
+            .
+          </button>
+          <button
+            type="button"
+            onClick={handleCreateTransaction}
+            title={isArabic ? 'تحويل المبلغ لمعاملة جديدة' : 'Create Transaction from Amount'}
+            className="w-full h-full rounded-2xl md:rounded-3xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 font-bold active:scale-95 transition cursor-pointer flex items-center justify-center gap-1 md:gap-2 shadow-sm text-sm md:text-xl lg:text-2xl"
+          >
+            <PlusCircle className="w-4 h-4 md:w-6 md:h-6" />
+            <span>Tx</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleEquals}
+            className="calc-equals-btn w-full h-full rounded-2xl md:rounded-3xl bg-emerald-600 hover:bg-emerald-500 text-white text-2xl md:text-4xl lg:text-5xl font-black font-mono active:scale-95 transition cursor-pointer flex items-center justify-center shadow-lg shadow-emerald-600/50 border border-emerald-400/50"
+          >
+            <span className="leading-none select-none text-white">=</span>
+          </button>
         </div>
       </div>
-
-      {/* 3. Mathematical Keypad: Ergonomically Proportioned with Clean SVG & Typography */}
-      <div className="grid grid-cols-4 gap-2 landscape:gap-1.5 text-center shrink-0 landscape:col-span-7 landscape:my-auto">
-        {/* Row 1: Clear, Square Root (√), Power (^), Divide (÷) */}
-        <button
-          type="button"
-          onClick={handleClear}
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-amber-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          C
-        </button>
-        <button
-          type="button"
-          onClick={() => handleInput('√')}
-          title="Square Root"
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-lg font-serif font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          <svg className="w-5 h-5 fill-none stroke-current stroke-[2.5]" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 13h3l3 8 5-16h7" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={() => handleInput('^')}
-          title="Power / Exponent"
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          <span>xʸ</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => handleInput('÷')}
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          ÷
-        </button>
-
-        {/* Row 2: Left Paren, Right Paren, Percent (%), Multiply (×) */}
-        <button
-          type="button"
-          onClick={() => handleInput('(')}
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          (
-        </button>
-        <button
-          type="button"
-          onClick={() => handleInput(')')}
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          )
-        </button>
-        <button
-          type="button"
-          onClick={() => handleInput('%')}
-          title="Percentage"
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-base font-bold text-cyan-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          %
-        </button>
-        <button
-          type="button"
-          onClick={() => handleInput('×')}
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          ×
-        </button>
-
-        {/* Row 3: 7, 8, 9, Minus (−) */}
-        {['7', '8', '9'].map((digit) => (
-          <button
-            key={digit}
-            type="button"
-            onClick={() => handleInput(digit)}
-            className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-          >
-            {digit}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => handleInput('−')}
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          −
-        </button>
-
-        {/* Row 4: 4, 5, 6, Plus (+) */}
-        {['4', '5', '6'].map((digit) => (
-          <button
-            key={digit}
-            type="button"
-            onClick={() => handleInput(digit)}
-            className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-          >
-            {digit}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => handleInput('+')}
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xl font-bold text-blue-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          +
-        </button>
-
-        {/* Row 5: 1, 2, 3, Backspace (⌫) */}
-        {['1', '2', '3'].map((digit) => (
-          <button
-            key={digit}
-            type="button"
-            onClick={() => handleInput(digit)}
-            className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-          >
-            {digit}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={handleBackspace}
-          aria-label="Backspace"
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-850 hover:bg-zinc-800 border border-zinc-750 text-zinc-300 hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          <Delete className="w-5 h-5" />
-        </button>
-
-        {/* Row 6: 0, Decimal (.), Convert to Tx (+Tx), Equals (=) */}
-        <button
-          type="button"
-          onClick={() => handleInput('0')}
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-white active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          0
-        </button>
-        <button
-          type="button"
-          onClick={() => handleInput('.')}
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xl font-bold font-mono text-zinc-300 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
-        >
-          .
-        </button>
-        <button
-          type="button"
-          onClick={handleCreateTransaction}
-          title={isArabic ? 'تحويل المبلغ لمعاملة جديدة' : 'Create Transaction from Amount'}
-          className="h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 font-bold active:scale-95 transition cursor-pointer flex items-center justify-center gap-1 shadow-sm text-xs"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>Tx</span>
-        </button>
-        <button
-          type="button"
-          onClick={handleEquals}
-          className="calc-equals-btn h-12 sm:h-13 landscape:h-10 rounded-2xl landscape:rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-2xl font-black font-mono active:scale-95 transition cursor-pointer flex items-center justify-center shadow-lg shadow-emerald-600/50 border border-emerald-400/50"
-        >
-          <span className="text-2xl font-black leading-none select-none text-white">=</span>
-        </button>
-      </div>
-    </div>
     </div>
   );
 };

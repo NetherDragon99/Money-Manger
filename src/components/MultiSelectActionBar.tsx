@@ -181,7 +181,7 @@ export const MultiSelectActionBar: React.FC = () => {
 
   return (
     <>
-      <div className="fixed bottom-20 left-0 right-0 z-40 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto px-4 pointer-events-none animate-in slide-in-from-bottom-5 duration-200">
+      <div className="fixed bottom-20 md:bottom-24 landscape:bottom-14 left-0 right-0 z-40 w-full max-w-md md:max-w-3xl lg:max-w-5xl mx-auto px-4 pointer-events-none animate-in slide-in-from-bottom-5 duration-200">
         <div className="pointer-events-auto p-2.5 rounded-2xl bg-zinc-900/95 border border-zinc-750 shadow-2xl backdrop-blur-xl flex items-center justify-between gap-3 text-white">
           {/* Count Badge & Cancel */}
           <div className="flex items-center gap-2 pl-1 rtl:pr-1 min-w-0">
