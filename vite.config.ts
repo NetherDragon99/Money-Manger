@@ -17,7 +17,7 @@ export default defineConfig(({ command }) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.png', 'apple-touch-icon.png', 'icon.svg', 'version.json', 'manifest.json', 'manifest.webmanifest'],
         manifest: {
-          id: base,
+          id: '/?app=mm-responsive-v2',
           name: 'Personal Finance Tracker',
           short_name: 'FinanceApp',
           description: 'An offline-first, OLED dark-themed personal finance tracker PWA with running balances, multi-account management, custom cycles, and budgeting.',

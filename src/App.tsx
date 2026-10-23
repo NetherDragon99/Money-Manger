@@ -159,17 +159,31 @@ const MainAppContent: React.FC = () => {
 
   // Force unlock screen orientation to support landscape & portrait mode in installed PWAs and mobile browsers
   useEffect(() => {
-    try {
-      if (typeof screen !== 'undefined' && screen.orientation) {
-        const unlock = (screen.orientation as any).unlock;
-        if (typeof unlock === 'function') {
-          const promise = unlock.call(screen.orientation);
-          if (promise && typeof promise.catch === 'function') {
-            promise.catch(() => {});
+    const unlockOrientation = () => {
+      try {
+        if (typeof screen !== 'undefined') {
+          if (screen.orientation && typeof (screen.orientation as any).unlock === 'function') {
+            const res = (screen.orientation as any).unlock();
+            if (res && typeof res.catch === 'function') res.catch(() => {});
+          } else if (typeof (screen as any).unlockOrientation === 'function') {
+            (screen as any).unlockOrientation();
+          } else if (typeof (screen as any).mozUnlockOrientation === 'function') {
+            (screen as any).mozUnlockOrientation();
+          } else if (typeof (screen as any).msUnlockOrientation === 'function') {
+            (screen as any).msUnlockOrientation();
           }
         }
-      }
-    } catch {}
+      } catch {}
+    };
+
+    unlockOrientation();
+
+    window.addEventListener('orientationchange', unlockOrientation);
+    window.addEventListener('resize', unlockOrientation);
+    return () => {
+      window.removeEventListener('orientationchange', unlockOrientation);
+      window.removeEventListener('resize', unlockOrientation);
+    };
   }, []);
 
   useEffect(() => {
@@ -723,7 +737,7 @@ const MainAppContent: React.FC = () => {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-zinc-950 flex justify-center text-white selection:bg-blue-600 selection:text-white">
+    <div className="w-full min-h-[100dvh] bg-zinc-950 flex justify-center text-white selection:bg-blue-600 selection:text-white">
       {/* Responsive Container Frame across Mobile, Tablet & Desktop (Landscape & Portrait adaptive) */}
       <div
         onScrollCapture={handleScrollCapture}

@@ -1,5 +1,5 @@
 {
-  "id": "./",
+  "id": "/?app=mm-responsive-v2",
   "name": "Personal Finance Tracker",
   "short_name": "FinanceApp",
   "description": "An offline-first, OLED dark-themed personal finance tracker PWA with running balances, multi-account management, custom cycles, and budgeting.",
