@@ -21,6 +21,30 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.40',
+    releaseDate: 'October 23, 2026',
+    title: {
+      en: 'Deep Fix for Shared With Me Delivery, Owner Avatar Sync, Long-Press Section Select & Tablet Responsive UI',
+      ar: 'إصلاح شامل لتسليم المشاركات المشتركة معي، مزامنة صورة المالك، التحديد بالضغط المطول وتجاوب أجهزة التابلت',
+    },
+    highlights: {
+      en: [
+        'Deep Shared With Me Space Delivery: Guaranteed cross-device delivery of shared spaces to recipient "Shared with Me" tabs via direct profile lookup slots (profile_shares, profile_directory, and slot mapping) with real-time onValue listeners and sanitization of undefined fields.',
+        'Owner Profile Photo Sync: Share space owners now clearly display their actual Google profile avatar / custom photo alongside their name across space headers, member lists, and "Shared with Me" cards.',
+        'Long-Press Section Multi-Select: Hidden checkboxes on Day and Month headers by default during normal browsing; regular tap toggles accordion expand/collapse, while long-press enters Multi-Select mode and selects the entire section.',
+        'Tablet Landscape Orientation Support: Removed orientation restrictions across WebAPK manifests, HTML link tags, and window screen orientation API, enabling unrestricted landscape rotation on tablets and phones.',
+        'Responsive Tablet Bottom Navigation & Calculator View: Replaced cramped mobile sizing with proportional tablet layouts—Navigation bar scales to h-20 with larger icons and typography, and Calculator expands to full responsive width with large touch-friendly buttons.',
+      ],
+      ar: [
+        'إصلاح شامل لتسليم المشاركات المشتركة معي: ضمان تسليم المساحات المشتركة عبر الأجهزة لقسم "تمت مشاركتها معي" للمستلم عبر خانات الملف الشخصي الحتمية ومستمعات onValue الفورية وتعقيم الحقول غير المعرفة.',
+        'مزامنة صورة الملف الشخصي للمالك: يظهر مالك المساحة المشتركة الآن بصورته الشخصية الحقيقية بجانب اسمه في ترويسة الصفحة وقوائم الأعضاء وبطاقات المشاركة.',
+        'التحديد المتعدد للأقسام بالضغط المطول: إخفاء مربعات الاختيار في ترويسات الأيام والشهور افتراضياً، حيث تقوم النقرة العادية بالفتح والطي، بينما يقوم الضغط المطول بتفعيل وضع التحديد وتحديد كافة معاملات القسم.',
+        'دعم الوضع الأفقي لأجهزة التابلت: إزالة قيود الاتجاه الرأسي عبر ملفات manifest ووسوم HTML وواجهة برمجة تطبيقات اتجاه الشاشة لتوفير دوران أفقي سلس.',
+        'تجاوب شريط التنقل السفلي والحاسبة للأجهزة اللوحية: ترقية المقاسات الضيقة بتنسيق متجاوب للأجهزة اللوحية—شريط تنقل بارتفاع h-20 بأيقونات ونصوص أكبر، وتوسيع الحاسبة لتشغل العرض الكامل بأزرار عريضة وسهلة اللمس.',
+      ],
+    },
+  },
+  {
     version: '1.1.39',
     releaseDate: 'October 23, 2026',
     title: {
