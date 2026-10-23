@@ -36,6 +36,15 @@ html, body, #root {
   background: #3f3f46;
 }
 
+/* Hide scrollbars utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Modal Overscroll Containment (Bug Fix for Background Scroll Lock) */
 .modal-backdrop-anim,
 .modal-backdrop-closing,

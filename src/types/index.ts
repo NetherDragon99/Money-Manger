@@ -38,6 +38,11 @@ export interface Transaction {
   fromBalanceAfter?: number;
   toBalanceBefore?: number;
   toBalanceAfter?: number;
+  fromAccountName?: string;
+  fromAccountIcon?: string;
+  toAccountName?: string;
+  toAccountIcon?: string;
+  note?: string;
   balanceBefore?: number;
   balanceAfter?: number;
 }

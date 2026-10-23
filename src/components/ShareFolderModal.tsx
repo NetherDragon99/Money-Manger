@@ -27,6 +27,7 @@ import {
   syncShareFolderToCloud,
   loadMyShareFolders,
   deduceFolderMetadata,
+  enrichShareTransaction,
   generateShareUrl,
   publishUserProfileCard,
   ShareFolder,
@@ -125,7 +126,9 @@ export const ShareFolderModal: React.FC = () => {
       }
     }
 
-    return Array.from(txMap.values());
+    return Array.from(txMap.values()).map((t) =>
+      enrichShareTransaction(t, accounts, allAppTransactions)
+    );
   }, [accounts, categories, transactions, allAppTransactions]);
 
   const totalItems = accounts.length + categories.length + resolvedTransactions.length;

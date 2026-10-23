@@ -2,6 +2,7 @@ import { rtdb, auth, getCachedAuthUser } from './firebase';
 import { ref, set, get, remove, onValue, off, update } from 'firebase/database';
 import { cleanNumericId, format16DigitId, getOrCreateNumericId } from './userId';
 import { Account, Category, Transaction } from '../types';
+import { getTransferHistoricalBalances } from './balanceEngine';
 import { encodeShareSnapshot } from './sharing';
 import { queueOfflineShareUpdate } from './persistQueue';
 
@@ -99,6 +100,73 @@ export function deepSanitizeForFirebase<T>(val: T): T {
     console.warn('[ShareFolders] deepSanitizeForFirebase serialization fallback:', err);
     return val;
   }
+}
+
+/**
+ * Ensures transfer transactions preserve and embed their full metadata
+ * (type: 'transfer', accountId, toAccountId, fromAccountName, toAccountName,
+ * fromBalanceBefore, fromBalanceAfter, toBalanceBefore, toBalanceAfter, amount, date, note)
+ * when serializing transactions into a Share Space or updating live shares.
+ */
+export function enrichShareTransaction(
+  tx: Transaction,
+  availableAccounts?: Account[],
+  allTransactions?: Transaction[]
+): Transaction {
+  if (!tx) return tx;
+  const enriched: Transaction = { ...tx };
+
+  if (enriched.type === 'transfer') {
+    const accList = availableAccounts || [];
+    const fromAcc = accList.find((a) => a.id === enriched.accountId);
+    const toAcc = enriched.toAccountId ? accList.find((a) => a.id === enriched.toAccountId) : undefined;
+
+    if (!enriched.fromAccountName && fromAcc) {
+      enriched.fromAccountName = fromAcc.name;
+    }
+    if (!enriched.fromAccountIcon && fromAcc) {
+      enriched.fromAccountIcon = fromAcc.icon;
+    }
+    if (!enriched.toAccountName && toAcc) {
+      enriched.toAccountName = toAcc.name;
+    }
+    if (!enriched.toAccountIcon && toAcc) {
+      enriched.toAccountIcon = toAcc.icon;
+    }
+
+    // Embed note
+    if (!enriched.note && enriched.description) {
+      enriched.note = enriched.description;
+    } else if (!enriched.description && enriched.note) {
+      enriched.description = enriched.note;
+    }
+
+    // Historical before & after balances
+    if (
+      enriched.fromBalanceBefore === undefined ||
+      enriched.fromBalanceAfter === undefined ||
+      enriched.toBalanceBefore === undefined ||
+      enriched.toBalanceAfter === undefined
+    ) {
+      if (allTransactions && allTransactions.length > 0 && accList.length > 0) {
+        try {
+          const hist = getTransferHistoricalBalances(enriched, accList, allTransactions);
+          if (hist) {
+            if (enriched.fromBalanceBefore === undefined) enriched.fromBalanceBefore = hist.fromBalanceBefore;
+            if (enriched.fromBalanceAfter === undefined) enriched.fromBalanceAfter = hist.fromBalanceAfter;
+            if (enriched.toBalanceBefore === undefined) enriched.toBalanceBefore = hist.toBalanceBefore;
+            if (enriched.toBalanceAfter === undefined) enriched.toBalanceAfter = hist.toBalanceAfter;
+            if (!enriched.fromAccountName) enriched.fromAccountName = hist.fromAccountName;
+            if (!enriched.fromAccountIcon) enriched.fromAccountIcon = hist.fromAccountIcon;
+            if (!enriched.toAccountName) enriched.toAccountName = hist.toAccountName;
+            if (!enriched.toAccountIcon) enriched.toAccountIcon = hist.toAccountIcon;
+          }
+        } catch {}
+      }
+    }
+  }
+
+  return enriched;
 }
 
 /**
@@ -334,6 +402,184 @@ export async function publishUserProfileCard(profile: {
       updatedAt: Date.now(),
     }));
   } catch {}
+
+  // Automatically propagate updated identity (Name & Photo) across all shared spaces (Owner and Member)
+  try {
+    await propagateUserProfileToAllSharedSpaces({
+      numericId: clean16Id,
+      name: userName,
+      avatar: avatarEmoji,
+      photoURL: userAvatar,
+      uid: currentUid,
+    });
+  } catch (propErr) {
+    console.warn('[ShareFolders] Failed to propagate user profile to shared spaces:', propErr);
+  }
+}
+
+/**
+ * Live Profile Name & Photo Propagation Across All Shared Spaces:
+ * Whenever a user updates their Name or Profile Photo/Avatar, immediately propagate the updated
+ * name and photoURL across every Shared Space where the user is the Owner (updating ownerName and ownerAvatar)
+ * or a Member (updating their member entry inside space.members) in Firebase RTDB at shared_accounts/share_${shareId}
+ * and active delivery slots in real time.
+ */
+export async function propagateUserProfileToAllSharedSpaces(profile: {
+  numericId: string;
+  name: string;
+  avatar?: string;
+  photoURL?: string;
+  uid?: string;
+}): Promise<void> {
+  const clean16Id = normalize16DigitId(profile.numericId);
+  if (clean16Id.length !== 16) return;
+
+  const currentUid = auth.currentUser?.uid || profile.uid || '';
+  const userName = (profile.name || 'User').trim();
+  const avatarEmoji = profile.avatar || '👤';
+  const photoURL = profile.photoURL || '';
+
+  // 1. Update spaces where user is the Owner
+  try {
+    const myFolders = loadMyShareFolders();
+    let myFoldersChanged = false;
+    const updatedMyFolders = myFolders.map((folder) => {
+      const isOwner =
+        (folder.owner16DigitId && normalize16DigitId(folder.owner16DigitId) === clean16Id) ||
+        (folder.ownerNumericId && normalize16DigitId(folder.ownerNumericId) === clean16Id) ||
+        (currentUid && folder.ownerUid === currentUid);
+
+      if (isOwner) {
+        if (
+          folder.ownerName !== userName ||
+          folder.ownerAvatar !== avatarEmoji ||
+          (folder as any).ownerPhoto !== photoURL ||
+          folder.ownerPhotoURL !== photoURL
+        ) {
+          myFoldersChanged = true;
+          return {
+            ...folder,
+            ownerName: userName,
+            ownerAvatar: avatarEmoji,
+            ownerPhoto: photoURL,
+            ownerPhotoURL: photoURL,
+            updatedAt: Date.now(),
+          };
+        }
+      }
+      return folder;
+    });
+
+    if (myFoldersChanged) {
+      saveMyShareFolders(updatedMyFolders);
+      for (const folder of updatedMyFolders) {
+        const isOwner =
+          (folder.owner16DigitId && normalize16DigitId(folder.owner16DigitId) === clean16Id) ||
+          (folder.ownerNumericId && normalize16DigitId(folder.ownerNumericId) === clean16Id) ||
+          (currentUid && folder.ownerUid === currentUid);
+        if (isOwner) {
+          await syncFolderToCloud(folder, true).catch((err) =>
+            console.warn(`[ShareFolders] Failed syncing owner profile update for space ${folder.id}:`, err)
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[ShareFolders] Failed propagating profile to owned spaces:', err);
+  }
+
+  // 2. Update spaces where user is a Member
+  try {
+    const receivedFolders = loadReceivedShareFolders();
+    let receivedChanged = false;
+    const updatedReceivedFolders: ShareFolder[] = [];
+
+    for (const folder of receivedFolders) {
+      let folderMemberUpdated = false;
+      const updatedMembers = (folder.members || []).map((m) => {
+        const isThisMember =
+          (m.numericId && normalize16DigitId(m.numericId) === clean16Id) ||
+          (currentUid && (m as any).uid === currentUid);
+
+        if (isThisMember) {
+          if (
+            m.name !== userName ||
+            m.avatar !== avatarEmoji ||
+            (m as any).photoURL !== photoURL
+          ) {
+            folderMemberUpdated = true;
+            return {
+              ...m,
+              name: userName,
+              avatar: avatarEmoji,
+              photoURL: photoURL,
+              updatedAt: Date.now(),
+            };
+          }
+        }
+        return m;
+      });
+
+      if (folderMemberUpdated) {
+        receivedChanged = true;
+        const updatedFolder: ShareFolder = {
+          ...folder,
+          members: updatedMembers,
+          updatedAt: Date.now(),
+        };
+        updatedReceivedFolders.push(updatedFolder);
+
+        // Propagate to Firebase RTDB master space under shared_accounts/share_${folder.id}
+        try {
+          const rawShareId = folder.id.replace(/^share_/, '');
+          const masterShareRef = ref(rtdb, `shared_accounts/share_${rawShareId}`);
+          const snap = await get(masterShareRef);
+          if (snap.exists() && snap.val()) {
+            const cloudSpace = snap.val();
+            const cloudMembers = Array.isArray(cloudSpace.members) ? cloudSpace.members : [];
+            let cloudChanged = false;
+            const newCloudMembers = cloudMembers.map((cm: any) => {
+              if (
+                (cm.numericId && normalize16DigitId(cm.numericId) === clean16Id) ||
+                (currentUid && cm.uid === currentUid)
+              ) {
+                cloudChanged = true;
+                return {
+                  ...cm,
+                  name: userName,
+                  avatar: avatarEmoji,
+                  photoURL: photoURL,
+                  updatedAt: Date.now(),
+                };
+              }
+              return cm;
+            });
+            if (cloudChanged) {
+              await update(masterShareRef, {
+                members: newCloudMembers,
+                updatedAt: Date.now(),
+              });
+            }
+          }
+        } catch (mErr) {
+          console.warn(`[ShareFolders] Failed updating member profile in cloud space ${folder.id}:`, mErr);
+        }
+      } else {
+        updatedReceivedFolders.push(folder);
+      }
+    }
+
+    if (receivedChanged) {
+      saveReceivedShareFolders(updatedReceivedFolders);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('received_shares_updated', { detail: updatedReceivedFolders })
+        );
+      }
+    }
+  } catch (err) {
+    console.warn('[ShareFolders] Failed propagating profile to member spaces:', err);
+  }
 }
 
 /**
@@ -600,6 +846,60 @@ export function saveReceivedShareFolders(folders: ShareFolder[]): void {
   }
 }
 
+export const SEEN_NOTIFICATIONS_STORAGE_KEY = 'mm_seen_share_notifications';
+
+/**
+ * Loads the Set of seen share notification hashes from localStorage (mm_seen_share_notifications).
+ */
+export function getSeenShareNotificationHashes(): Set<string> {
+  if (typeof localStorage === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(SEEN_NOTIFICATIONS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return new Set(parsed);
+    if (typeof parsed === 'object' && parsed !== null) return new Set(Object.keys(parsed));
+  } catch {
+    // fallback safely
+  }
+  return new Set();
+}
+
+/**
+ * Computes a stable share notification state hash.
+ * Hashes folder id and owner to ensure subsequent syncs/edits do not re-trigger notifications.
+ */
+export function computeShareNotificationHash(folder: Partial<ShareFolder>): string {
+  if (!folder || !folder.id) return '';
+  const owner = folder.owner16DigitId || folder.ownerNumericId || folder.ownerUid || folder.ownerName || '';
+  return `share_invite_${folder.id}_${owner}`;
+}
+
+/**
+ * Persists seen share notification hashes into mm_seen_share_notifications in localStorage.
+ */
+export function markShareNotificationsSeen(hashes: string[] | Set<string>): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const seen = getSeenShareNotificationHashes();
+    hashes.forEach((h) => {
+      if (h) seen.add(h);
+    });
+    // Keep at most 300 entries to prevent localStorage bloat
+    const list = Array.from(seen).slice(-300);
+    localStorage.setItem(SEEN_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(list));
+  } catch {}
+}
+
+/**
+ * Checks whether a share notification hash has already been seen.
+ */
+export function isShareNotificationSeen(hash: string): boolean {
+  if (!hash) return true;
+  const seen = getSeenShareNotificationHashes();
+  return seen.has(hash);
+}
+
 /**
  * Automatically migrate / repair any existing locally cached shared spaces
  * whose owner16DigitId does not match myClean16Id (and ownerUid !== currentUser.uid),
@@ -636,10 +936,21 @@ export function repairAndMigrateSharedSpaces(
     const isOwnerByUid = currentUid && folder.ownerUid && folder.ownerUid === currentUid;
     const isOwner = isOwnerBy16 || isOwnerByUid;
 
+    const repairedFolder: ShareFolder = {
+      ...folder,
+      payload: {
+        accounts: folder.payload?.accounts || [],
+        categories: folder.payload?.categories || [],
+        transactions: (folder.payload?.transactions || []).map((t) =>
+          enrichShareTransaction(t, folder.payload?.accounts)
+        ),
+      },
+    };
+
     if (isOwner) {
-      nextMy.push(folder);
+      nextMy.push(repairedFolder);
     } else {
-      nextReceived.push(folder);
+      nextReceived.push(repairedFolder);
     }
   }
 
@@ -821,22 +1132,26 @@ export function normalizeParsedShareFolder(val: any, fallbackId?: string): Share
     }));
   }
 
+  const rawAccounts: Account[] = Array.isArray(val.payload?.accounts)
+    ? val.payload.accounts
+    : Array.isArray(val.accounts)
+    ? val.accounts
+    : [];
+
+  const rawTransactions: Transaction[] = Array.isArray(val.payload?.transactions)
+    ? val.payload.transactions
+    : Array.isArray(val.transactions)
+    ? val.transactions
+    : [];
+
   const payload: ShareFolderPayload = {
-    accounts: Array.isArray(val.payload?.accounts)
-      ? val.payload.accounts
-      : Array.isArray(val.accounts)
-      ? val.accounts
-      : [],
+    accounts: rawAccounts,
     categories: Array.isArray(val.payload?.categories)
       ? val.payload.categories
       : Array.isArray(val.categories)
       ? val.categories
       : [],
-    transactions: Array.isArray(val.payload?.transactions)
-      ? val.payload.transactions
-      : Array.isArray(val.transactions)
-      ? val.transactions
-      : [],
+    transactions: rawTransactions.map((t) => enrichShareTransaction(t, rawAccounts)),
   };
 
   const name = val.name || val.accountName || 'Shared Account';
@@ -1360,16 +1675,47 @@ export async function cleanupTargetMemberSpaceDelivery(
   } catch {}
 }
 
+const lastSyncedFolderSignatures = new Map<string, string>();
+
+/**
+ * Computes a concise signature of all content fields in a ShareFolder.
+ * Used to avoid redundant network writes to Firebase when no fields have actually changed.
+ */
+export function computeFolderContentSignature(folder: ShareFolder): string {
+  if (!folder) return '';
+  const txsSig = (folder.payload?.transactions || [])
+    .map((t) => `${t.id}_${t.amount}_${t.type}_${t.date}_${t.accountId}_${t.toAccountId || ''}_${t.categoryName || ''}`)
+    .join(';');
+  const accsSig = (folder.payload?.accounts || [])
+    .map((a) => `${a.id}_${a.balance}_${a.name}_${a.icon || ''}`)
+    .join(';');
+  const catsSig = (folder.payload?.categories || [])
+    .map((c) => `${c.id}_${c.name}_${c.icon || ''}`)
+    .join(';');
+  const membersSig = (folder.members || [])
+    .map((m) => `${m.numericId}_${m.name}_${m.role}_${m.avatar || ''}_${(m as any).photoURL || ''}`)
+    .join(';');
+  return `${folder.id}|${folder.name}|${folder.icon || ''}|${folder.ownerName}|${folder.ownerAvatar || ''}|${(folder as any).ownerPhoto || ''}|${folder.ownerPhotoURL || ''}|${folder.owner16DigitId || ''}|${membersSig}|${accsSig}|${catsSig}|${txsSig}`;
+}
+
 /**
  * Sync Share Page to Firebase RTDB at shared_accounts/${folder.id} and delivery to members
  * Uses independent try/catches to guarantee master write and slot delivery without aborting
  */
-export async function syncFolderToCloud(folder: ShareFolder): Promise<void> {
+export async function syncFolderToCloud(folder: ShareFolder, forceWrite = false): Promise<void> {
   // If offline, queue for sync as soon as network is restored
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     queueOfflineShareUpdate(folder);
     return;
   }
+
+  // Bandwidth optimization: only push cloud writes when actual data fields change
+  const currentSig = computeFolderContentSignature(folder);
+  const lastSig = lastSyncedFolderSignatures.get(folder.id);
+  if (!forceWrite && lastSig && lastSig === currentSig) {
+    return;
+  }
+  lastSyncedFolderSignatures.set(folder.id, currentSig);
 
   const rawShareId = folder.id.replace(/^share_/, '');
   const currentUserUid = auth.currentUser?.uid || folder.ownerUid || 'authenticated_user';
@@ -1547,7 +1893,8 @@ export function createNewShareFolder(params: {
 }): ShareFolder {
   const accounts = params.accounts || [];
   const categories = params.categories || [];
-  const transactions = params.transactions || [];
+  const rawTransactions = params.transactions || [];
+  const transactions = rawTransactions.map((t) => enrichShareTransaction(t, accounts));
 
   const autoMeta = deduceFolderMetadata(accounts, categories, transactions, params.isArabic);
   const name = params.customName?.trim() || autoMeta.name;
@@ -1635,7 +1982,8 @@ export function appendToExistingShareFolder(
     if (!combinedCategories.some((c) => c.id === cat.id)) combinedCategories.push(cat);
   });
   newItems.transactions?.forEach((tx) => {
-    if (!combinedTransactions.some((t) => t.id === tx.id)) combinedTransactions.push(tx);
+    const enriched = enrichShareTransaction(tx, combinedAccounts);
+    if (!combinedTransactions.some((t) => t.id === enriched.id)) combinedTransactions.push(enriched);
   });
 
   const updatedFolder: ShareFolder = {
@@ -1683,12 +2031,13 @@ export function addTransactionToShareFolder(
   const isOwner = (myCleanId && folderOwner16 && folderOwner16 === myCleanId) ||
                   (auth.currentUser?.uid && targetFolder.ownerUid === auth.currentUser.uid);
 
+  const enrichedTx = enrichShareTransaction(tx, targetFolder.payload.accounts);
   const txs = [...targetFolder.payload.transactions];
-  const existingTxIdx = txs.findIndex((t) => t.id === tx.id);
+  const existingTxIdx = txs.findIndex((t) => t.id === enrichedTx.id);
   if (existingTxIdx !== -1) {
-    txs[existingTxIdx] = tx;
+    txs[existingTxIdx] = enrichedTx;
   } else {
-    txs.unshift(tx);
+    txs.unshift(enrichedTx);
   }
 
   const updatedFolder: ShareFolder = {
@@ -1766,9 +2115,10 @@ export function updateItemInShareFolder(
     if (idx !== -1) nextCategories[idx] = updatedItem as Category;
     else nextCategories.push(updatedItem as Category);
   } else {
-    const idx = nextTransactions.findIndex((t) => t.id === updatedItem.id);
-    if (idx !== -1) nextTransactions[idx] = updatedItem as Transaction;
-    else nextTransactions.unshift(updatedItem as Transaction);
+    const enrichedTx = enrichShareTransaction(updatedItem as Transaction, nextAccounts);
+    const idx = nextTransactions.findIndex((t) => t.id === enrichedTx.id);
+    if (idx !== -1) nextTransactions[idx] = enrichedTx;
+    else nextTransactions.unshift(enrichedTx);
   }
 
   const updatedFolder: ShareFolder = {
@@ -2760,13 +3110,19 @@ export async function fetchMyInboxOnce(my16DigitId: string): Promise<ShareFolder
     const result = Array.from(spaceMap.values());
     result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-    // Save discovered spaces to localStorage
-    if (result.length > 0) {
-      saveReceivedShareFolders(result);
-    }
+    // Only dispatch update if discovered spaces actually changed from local cache
+    const prevCached = loadReceivedShareFolders();
+    const prevSig = prevCached.map((f) => `${f.id}_${f.updatedAt || 0}`).join('|');
+    const newSig = result.map((f) => `${f.id}_${f.updatedAt || 0}`).join('|');
 
-    // Trigger immediate live React state update via custom event
-    window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: result }));
+    if (prevSig !== newSig || prevCached.length !== result.length) {
+      if (result.length > 0) {
+        saveReceivedShareFolders(result);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: result }));
+      }
+    }
 
     return result;
   } catch (err) {
@@ -2804,6 +3160,20 @@ export function subscribeToMyInbox(
   let fallbackData: any = {};
   const masterSpacesData = new Map<string, ShareFolder>();
 
+  let emitTimer: any = null;
+  let lastEmittedSignature = '';
+
+  const scheduleEmit = () => {
+    if (emitTimer) clearTimeout(emitTimer);
+    emitTimer = setTimeout(() => {
+      emitCombined();
+    }, 60);
+  };
+
+  cleanups.push(() => {
+    if (emitTimer) clearTimeout(emitTimer);
+  });
+
   const subscribeMaster = (id: string) => {
     const rawShareId = id.replace(/^share_/, '');
     if (!rawShareId || activeMasterSubs.has(rawShareId)) return;
@@ -2817,7 +3187,7 @@ export function subscribeToMyInbox(
           const owner16 = normalize16DigitId(parsed.owner16DigitId || parsed.ownerNumericId);
           if (owner16 !== cleanId) {
             masterSpacesData.set(parsed.id, parsed);
-            emitCombined();
+            scheduleEmit();
           }
         }
       }
@@ -2837,7 +3207,7 @@ export function subscribeToMyInbox(
             const existingMaster = masterSpacesData.get(parsed.id);
             if (!existingMaster || (parsed.updatedAt || 0) >= (existingMaster.updatedAt || 0)) {
               masterSpacesData.set(parsed.id, parsed);
-              emitCombined();
+              scheduleEmit();
             }
           }
         }
@@ -2858,7 +3228,7 @@ export function subscribeToMyInbox(
             const existingMaster = masterSpacesData.get(parsed.id);
             if (!existingMaster || (parsed.updatedAt || 0) >= (existingMaster.updatedAt || 0)) {
               masterSpacesData.set(parsed.id, parsed);
-              emitCombined();
+              scheduleEmit();
             }
           }
         }
@@ -3009,6 +3379,13 @@ export function subscribeToMyInbox(
     const liveFolders = Array.from(spaceMap.values());
     liveFolders.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
+    // Deduplicate notifications/dispatches: only notify if the dataset actually changed
+    const currentSignature = liveFolders.map((f) => `${f.id}_${f.updatedAt || 0}`).join('|');
+    if (currentSignature === lastEmittedSignature) {
+      return;
+    }
+    lastEmittedSignature = currentSignature;
+
     // Immediately update local storage and notify UI
     saveReceivedShareFolders(liveFolders);
     callback(liveFolders);
@@ -3049,7 +3426,7 @@ export function subscribeToMyInbox(
         }
       }
     }
-    emitCombined();
+    scheduleEmit();
   };
   onValue(dirRef, dirListener, (err) => {
     console.warn('[ShareFolders] profile_directory onValue note:', err);
@@ -3068,7 +3445,7 @@ export function subscribeToMyInbox(
       } else {
         slotData.delete(i);
       }
-      emitCombined();
+      scheduleEmit();
     };
     onValue(slotRef, slotListener, (err) => {
       console.warn(`[ShareFolders] slot_${cleanId}_${i} error:`, err);
@@ -3080,7 +3457,7 @@ export function subscribeToMyInbox(
   const inboxRef = ref(rtdb, `shared_accounts/inbox_${cleanId}`);
   const primaryListener = (snapshot: any) => {
     primaryData = snapshot.exists() && snapshot.val() ? snapshot.val() : {};
-    emitCombined();
+    scheduleEmit();
   };
   onValue(inboxRef, primaryListener, (err) => {
     console.warn('[ShareFolders] Inbox subscription error:', err);
@@ -3091,7 +3468,7 @@ export function subscribeToMyInbox(
   const fallbackRef = ref(rtdb, `inboxByNumericId/${cleanId}`);
   const fallbackListener = (snapshot: any) => {
     fallbackData = snapshot.exists() && snapshot.val() ? snapshot.val() : {};
-    emitCombined();
+    scheduleEmit();
   };
   onValue(fallbackRef, fallbackListener, (err) => {
     console.warn('[ShareFolders] Fallback inbox error:', err);
@@ -3102,7 +3479,7 @@ export function subscribeToMyInbox(
   const sharedAccountsRef = ref(rtdb, 'shared_accounts');
   const sharedAccountsListener = (snapshot: any) => {
     sharedAccountsData = snapshot.exists() && snapshot.val() ? snapshot.val() : {};
-    emitCombined();
+    scheduleEmit();
   };
   onValue(sharedAccountsRef, sharedAccountsListener, (err) => {
     console.warn('[ShareFolders] shared_accounts onValue subscription note:', err);

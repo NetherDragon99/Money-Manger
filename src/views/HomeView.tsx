@@ -13,6 +13,7 @@ import {
   Search,
   X,
   Check,
+  Wallet,
 } from 'lucide-react';
 import { PeriodFilterType, DateRange, Transaction } from '../types';
 import {
@@ -49,8 +50,11 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
     selectedTxIds,
     isTxMultiSelect,
     toggleBatchTxs,
+    setCurrentTab,
     t,
   } = useApp();
+
+  const isArabic = settings.language === 'ar';
 
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
   const [showCustomRangePicker, setShowCustomRangePicker] = useState(false);
@@ -67,6 +71,10 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
   // Filter out private accounts for Home summary!
   const publicAccountIds = useMemo(() => {
     return new Set(accounts.filter((a) => !a.isPrivate).map((a) => a.id));
+  }, [accounts]);
+
+  const publicAccounts = useMemo(() => {
+    return accounts.filter((a) => !a.isPrivate);
   }, [accounts]);
 
   // Active Date Range for the period
@@ -562,43 +570,110 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
         {/* VIEW A: DAILY */}
         {homeSubView === 'daily' && (
           <div className="space-y-4 landscape:space-y-0 landscape:grid landscape:grid-cols-12 landscape:gap-5 landscape:items-start">
-            {/* Public Summary Block: INCOME (Green), EXPENSE (Red), BALANCE (Gold/White).
-                Crucial: Calculated ONLY from Public accounts (isPrivate === false)! */}
-            <div className="landscape:col-span-5 p-6 landscape:p-4 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden">
-              <div className="md:grid md:grid-cols-3 md:items-center md:gap-6 landscape:block landscape:space-y-3">
-                <div className="text-center md:text-start landscape:text-start md:col-span-1 space-y-1">
-                  <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                    {t('totalBalance')} ({t('publicAccounts')})
-                  </span>
-                  <div className="text-3xl sm:text-4xl landscape:text-2xl font-black font-mono text-white tracking-tight">
-                    {formatCurrency(publicBalance, currencySymbol)}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 mt-6 md:mt-0 pt-5 md:pt-0 border-t md:border-t-0 md:border-s md:border-zinc-800/80 md:ps-6 md:col-span-2 landscape:mt-3 landscape:pt-3 landscape:border-t landscape:border-zinc-800/80 landscape:border-s-0 landscape:ps-0">
-                  {/* Total Income */}
-                  <div className="text-left rtl:text-right">
-                    <div className="flex items-center gap-1 text-xs font-bold text-emerald-400">
-                      <ArrowDown className="w-3.5 h-3.5" />
-                      <span>{t('totalIncome')}</span>
-                    </div>
-                    <div className="text-base sm:text-lg landscape:text-base font-black font-mono text-emerald-400 mt-1">
-                      {formatCurrency(publicIncome, currencySymbol)}
+            {/* Left Summary Column: Sticky on md/landscape with Quick Accounts Balance Breakdown */}
+            <div className="landscape:col-span-5 space-y-4 md:sticky landscape:sticky top-4 self-start max-h-[calc(100dvh-6rem)] overflow-y-auto no-scrollbar">
+              {/* Public Summary Block: INCOME (Green), EXPENSE (Red), BALANCE (Gold/White).
+                  Crucial: Calculated ONLY from Public accounts (isPrivate === false)! */}
+              <div className="p-6 landscape:p-4 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden">
+                <div className="md:grid md:grid-cols-3 md:items-center md:gap-6 landscape:block landscape:space-y-3">
+                  <div className="text-center md:text-start landscape:text-start md:col-span-1 space-y-1">
+                    <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                      {t('totalBalance')} ({t('publicAccounts')})
+                    </span>
+                    <div className="text-3xl sm:text-4xl landscape:text-2xl font-black font-mono text-white tracking-tight">
+                      {formatCurrency(publicBalance, currencySymbol)}
                     </div>
                   </div>
 
-                  {/* Total Expense */}
-                  <div className="text-right rtl:text-left">
-                    <div className="flex items-center justify-end rtl:justify-start gap-1 text-xs font-bold text-red-400">
-                      <span>{t('totalExpense')}</span>
-                      <ArrowUp className="w-3.5 h-3.5" />
+                  <div className="grid grid-cols-2 gap-4 mt-6 md:mt-0 pt-5 md:pt-0 border-t md:border-t-0 md:border-s md:border-zinc-800/80 md:ps-6 md:col-span-2 landscape:mt-3 landscape:pt-3 landscape:border-t landscape:border-zinc-800/80 landscape:border-s-0 landscape:ps-0">
+                    {/* Total Income */}
+                    <div className="text-left rtl:text-right">
+                      <div className="flex items-center gap-1 text-xs font-bold text-emerald-400">
+                        <ArrowDown className="w-3.5 h-3.5" />
+                        <span>{t('totalIncome')}</span>
+                      </div>
+                      <div className="text-base sm:text-lg landscape:text-base font-black font-mono text-emerald-400 mt-1">
+                        {formatCurrency(publicIncome, currencySymbol)}
+                      </div>
                     </div>
-                    <div className="text-base sm:text-lg landscape:text-base font-black font-mono text-red-400 mt-1">
-                      {formatCurrency(publicExpense, currencySymbol)}
+
+                    {/* Total Expense */}
+                    <div className="text-right rtl:text-left">
+                      <div className="flex items-center justify-end rtl:justify-start gap-1 text-xs font-bold text-red-400">
+                        <span>{t('totalExpense')}</span>
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="text-base sm:text-lg landscape:text-base font-black font-mono text-red-400 mt-1">
+                        {formatCurrency(publicExpense, currencySymbol)}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
+
+              {/* Compact Quick Accounts Balance Breakdown */}
+              {publicAccounts.length > 0 && (
+                <div className="p-4 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-xl space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-zinc-800/60">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                        <Wallet className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-white leading-tight">
+                          {isArabic ? 'أرصدة الحسابات' : 'Accounts Balance'}
+                        </h4>
+                        <span className="text-[10px] text-zinc-500 font-medium">
+                          {publicAccounts.length} {isArabic ? 'حسابات عامة نشطة' : 'active public accounts'}
+                        </span>
+                      </div>
+                    </div>
+                    {setCurrentTab && (
+                      <button
+                        type="button"
+                        onClick={() => setCurrentTab('accounts')}
+                        className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 transition"
+                      >
+                        {isArabic ? 'إدارة' : 'Manage'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Compact Accounts List */}
+                  <div className="space-y-1.5 max-h-60 overflow-y-auto no-scrollbar pr-0.5">
+                    {publicAccounts.map((account) => {
+                      const isNegative = account.balance < 0;
+                      return (
+                        <div
+                          key={account.id}
+                          onClick={() => setCurrentTab && setCurrentTab('accounts')}
+                          className="flex items-center justify-between px-3 py-2 rounded-2xl bg-zinc-950/60 hover:bg-zinc-800/80 border border-zinc-800/50 transition cursor-pointer group"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="text-base shrink-0 group-hover:scale-110 transition-transform">
+                              {account.icon || '💳'}
+                            </span>
+                            <span className="text-xs font-semibold text-zinc-200 truncate group-hover:text-white transition-colors">
+                              {account.name}
+                            </span>
+                          </div>
+                          <span
+                            className={`text-xs font-bold font-mono shrink-0 rtl:mr-2 ltr:ml-2 ${
+                              isNegative
+                                ? 'text-rose-400'
+                                : account.balance > 0
+                                ? 'text-emerald-400'
+                                : 'text-zinc-400'
+                            }`}
+                          >
+                            {formatCurrency(account.balance, currencySymbol, settings.language)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Collapsible Month & Day Transaction Blocks with Account Badge Hidden */}

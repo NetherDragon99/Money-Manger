@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import {
   Search,
   Check,
@@ -54,9 +54,25 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
   >('idle');
   const [knownContactsList, setKnownContactsList] = useState<UserProfileCard[]>([]);
   const searchTimeoutRef = useRef<any>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const pendingCursorPosRef = useRef<number | null>(null);
 
   const cleanTyped = cleanNumericId(typedId);
   const cleanMyId = cleanNumericId(currentUserId || '');
+
+  // Synchronously restore cursor position after React re-renders formatted 4-digit groups
+  useLayoutEffect(() => {
+    if (pendingCursorPosRef.current !== null && inputRef.current) {
+      const pos = pendingCursorPosRef.current;
+      inputRef.current.setSelectionRange(pos, pos);
+      // Double-check via requestAnimationFrame to ensure browser rendering pass didn't reset it
+      requestAnimationFrame(() => {
+        if (inputRef.current && pendingCursorPosRef.current === pos) {
+          inputRef.current.setSelectionRange(pos, pos);
+        }
+      });
+    }
+  });
 
   // Load cached contacts on mount
   useEffect(() => {
@@ -118,9 +134,25 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
     }
   };
 
-  // Instant auto-search when 16 digits are entered (normalized via .replace(/\D/g, ''))
-  const handleInputChange = (rawVal: string) => {
-    const { clean } = format16DigitInput(rawVal, typedId);
+  // Instant auto-search when 16 digits are entered (with mid-string cursor preservation)
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawVal = e.target.value;
+    const selectionStart = e.target.selectionStart ?? rawVal.length;
+    const nativeEvent = e.nativeEvent as InputEvent | undefined;
+    const isBackspace =
+      nativeEvent?.inputType === 'deleteContentBackward' ||
+      rawVal.length < format16DigitId(typedId).length;
+    const isDeleteForward = nativeEvent?.inputType === 'deleteContentForward';
+
+    const { clean, newCursorPos } = format16DigitInput(
+      rawVal,
+      selectionStart,
+      isBackspace,
+      cleanTyped,
+      isDeleteForward
+    );
+
+    pendingCursorPosRef.current = newCursorPos;
     setTypedId(clean);
 
     if (searchTimeoutRef.current) {
@@ -143,6 +175,7 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
       const text = await navigator.clipboard.readText();
       const clean = cleanNumericId(text).slice(0, 16);
       if (clean) {
+        pendingCursorPosRef.current = format16DigitId(clean).length;
         setTypedId(clean);
         if (clean.length === 16) {
           performSearch(clean);
@@ -253,13 +286,14 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
       {/* 16-Digit Partitioned Input with Quick Actions */}
       <div className="relative flex items-center">
         <input
+          ref={inputRef}
           type="text"
           autoFocus={autoFocus}
           inputMode="numeric"
           maxLength={19}
           placeholder="4829 1038 4756 1928"
           value={format16DigitId(typedId)}
-          onChange={(e) => handleInputChange(e.target.value)}
+          onChange={handleInputChange}
           className={`w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-center text-sm sm:text-base tracking-wider placeholder-zinc-600 focus:outline-none transition ${borderFocusClass}`}
         />
 
@@ -279,6 +313,7 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
             <button
               type="button"
               onClick={() => {
+                pendingCursorPosRef.current = 0;
                 setTypedId('');
                 setSearchStatus('idle');
                 setFoundUser(null);

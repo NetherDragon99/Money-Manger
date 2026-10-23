@@ -32,29 +32,83 @@ export function format16DigitId(id: string): string {
 
 /**
  * Format raw user input into 4-digit partitioned chunks (e.g. `4829 1038 4756 1928`)
- * Automatically partitions digits into 4-character blocks as the user types
- * and handles natural backspacing across chunk spaces smoothly.
+ * Automatically partitions digits into 4-character blocks separated by spaces
+ * and computes the exact cursor position at the corresponding digit offset.
  */
 export function format16DigitInput(
   rawInput: string,
-  prevCleanVal?: string
-): { formatted: string; clean: string } {
-  const digits = cleanNumericId(rawInput).slice(0, 16);
+  selectionStartOrPrevClean?: number | string,
+  isBackspace?: boolean,
+  prevCleanVal?: string,
+  isDeleteForward?: boolean
+): { formatted: string; clean: string; newCursorPos: number } {
+  const selectionStart =
+    typeof selectionStartOrPrevClean === 'number'
+      ? selectionStartOrPrevClean
+      : rawInput.length;
+  const prevClean =
+    typeof selectionStartOrPrevClean === 'string'
+      ? selectionStartOrPrevClean
+      : prevCleanVal || '';
+
+  // 1. Record the count of raw digits before selectionStart
+  let rawDigitsBefore = rawInput.slice(0, selectionStart).replace(/\D/g, '').length;
+  let clean = cleanNumericId(rawInput).slice(0, 16);
+
+  // 2. Natural backspacing / deletion over a space separator:
+  // If a backspace removed a space rather than a digit, remove the preceding digit
   if (
-    prevCleanVal &&
-    digits.length === prevCleanVal.length &&
-    rawInput.length < format16DigitId(prevCleanVal).length
+    isBackspace &&
+    prevClean &&
+    clean.length === prevClean.length &&
+    rawInput.length < format16DigitId(prevClean).length
   ) {
-    const shortened = digits.slice(0, -1);
-    return {
-      formatted: format16DigitId(shortened),
-      clean: shortened,
-    };
+    if (rawDigitsBefore > 0) {
+      clean = (clean.slice(0, rawDigitsBefore - 1) + clean.slice(rawDigitsBefore)).slice(0, 16);
+      rawDigitsBefore = Math.max(0, rawDigitsBefore - 1);
+    }
   }
-  return {
-    formatted: format16DigitId(digits),
-    clean: digits,
-  };
+
+  // If a forward delete removed a space rather than a digit, remove the following digit
+  if (
+    isDeleteForward &&
+    prevClean &&
+    clean.length === prevClean.length &&
+    rawInput.length < format16DigitId(prevClean).length
+  ) {
+    if (rawDigitsBefore < clean.length) {
+      clean = (clean.slice(0, rawDigitsBefore) + clean.slice(rawDigitsBefore + 1)).slice(0, 16);
+    }
+  }
+
+  // 3. Format into 4-digit groups separated by spaces (XXXX XXXX XXXX XXXX)
+  const formatted = format16DigitId(clean);
+
+  // 4. Calculate new cursor position matching the raw digits count
+  let newCursorPos = 0;
+  if (rawDigitsBefore === 0) {
+    newCursorPos = 0;
+  } else {
+    let digitsCount = 0;
+    for (let i = 0; i < formatted.length; i++) {
+      if (/\d/.test(formatted[i])) {
+        digitsCount++;
+        if (digitsCount === rawDigitsBefore) {
+          newCursorPos = i + 1;
+          // If the character immediately following is a space, advance past it
+          if (newCursorPos < formatted.length && formatted[newCursorPos] === ' ') {
+            newCursorPos++;
+          }
+          break;
+        }
+      }
+    }
+    if (digitsCount < rawDigitsBefore) {
+      newCursorPos = formatted.length;
+    }
+  }
+
+  return { formatted, clean, newCursorPos };
 }
 
 /** Random 16-digit numeric ID (first digit never 0) */

@@ -52,6 +52,8 @@ import {
   getMemberInitials,
   UserProfileCard,
   resolveOwnerPhoto,
+  markShareNotificationsSeen,
+  computeShareNotificationHash,
 } from '../utils/shareFolders';
 import { ShareDetailView } from './ShareDetailView';
 
@@ -216,6 +218,15 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     if (!isOpen || !isAuthenticated || myCleanNumericId.length !== 16) return;
     const unsub = subscribeToMyInbox(myCleanNumericId, (liveReceived) => {
       if (liveReceived && Array.isArray(liveReceived)) {
+        // Mark all viewed/received folders as seen so notification toasts are never triggered for them
+        const hashesToMark: string[] = [];
+        for (const f of liveReceived) {
+          if (f && f.id) {
+            hashesToMark.push(f.id);
+            hashesToMark.push(computeShareNotificationHash(f));
+          }
+        }
+        markShareNotificationsSeen(hashesToMark);
         setReceivedFolders(liveReceived);
         saveReceivedShareFolders(liveReceived);
       }
@@ -223,7 +234,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     return () => unsub();
   }, [isOpen, isAuthenticated, myCleanNumericId]);
 
-  // Dual Sync 2: Automatic 3-second periodic polling loop (only if signed in)
+  // Dual Sync 2: Quiet periodic polling loop (only if signed in, 8s interval)
   useEffect(() => {
     if (!isOpen || !isAuthenticated || myCleanNumericId.length !== 16) return;
 
@@ -259,7 +270,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     };
 
     pollInbox();
-    const intervalId = setInterval(pollInbox, 3000);
+    const intervalId = setInterval(pollInbox, 15000);
     return () => {
       isMounted = false;
       clearInterval(intervalId);
@@ -918,7 +929,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                   {displayedReceivedFolders.map((folder) => {
                     const myEntry = folder.members?.find((m) => cleanNumericId(m.numericId) === myCleanNumericId);
                     const isPending = myEntry?.status === 'pending';
-                    const isEditor = myEntry?.role === 'editor';
+                    const isEditor = (myEntry?.role as any) === 'edit' || myEntry?.role === 'editor';
 
                     return (
                       <div

@@ -3,55 +3,16 @@ import { usePWAInstall } from '../hooks/usePWAInstall';
 import { Download, Check, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { checkForAppUpdates, applyLatestAppUpdate } from '../utils/versionChecker';
+import { PWAInstallProgressModal } from './PWAInstallProgressModal';
 
 export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
-  const { isInstalled, install } = usePWAInstall();
+  const { isInstalled } = usePWAInstall();
   const { settings, showToast } = useApp();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [showProgressModal, setShowProgressModal] = useState(false);
 
-  const handleInstallToHomeScreen = async () => {
-    try {
-      const win = typeof window !== 'undefined' ? (window as any) : null;
-      const promptEvent = win?.deferredPwaPrompt || win?.deferredPWAInstallPrompt;
-
-      if (promptEvent && typeof promptEvent.prompt === 'function') {
-        await promptEvent.prompt();
-        const choice = await promptEvent.userChoice;
-        if (choice?.outcome === 'accepted') {
-          showToast(
-            settings.language === 'ar'
-              ? 'تم تثبيت التطبيق بنجاح كـ تطبيق مستقل!'
-              : 'App installed successfully as a standalone app!',
-            'success'
-          );
-          if (win) {
-            win.deferredPwaPrompt = null;
-            win.deferredPWAInstallPrompt = null;
-          }
-          return;
-        }
-      } else {
-        const accepted = await install();
-        if (accepted) {
-          showToast(
-            settings.language === 'ar'
-              ? 'تم تثبيت التطبيق بنجاح!'
-              : 'App installed successfully!',
-            'success'
-          );
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('Install prompt error:', err);
-    }
-
-    showToast(
-      settings.language === 'ar'
-        ? 'يمكنك تثبيت التطبيق مباشرة من خيارات المتصفح (⋮) -> تثبيت التطبيق.'
-        : 'You can install the app directly via browser options (⋮) -> Install App.',
-      'info'
-    );
+  const handleInstallToHomeScreen = () => {
+    setShowProgressModal(true);
   };
 
   const handleManualUpdateCheck = async () => {
@@ -117,6 +78,13 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
           <span>{settings.language === 'ar' ? 'تثبيت التطبيق' : 'Install App'}</span>
         </button>
       )}
+
+      {/* Interactive PWA Pre-Cache Progress Modal */}
+      <PWAInstallProgressModal
+        isOpen={showProgressModal}
+        onClose={() => setShowProgressModal(false)}
+        isArabic={settings.language === 'ar'}
+      />
     </div>
   );
 };

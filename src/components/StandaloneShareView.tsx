@@ -680,9 +680,14 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                                     const fromAcc = tx.accountId ? accountMap.get(tx.accountId) : undefined;
                                     const toAcc = tx.toAccountId ? accountMap.get(tx.toAccountId) : undefined;
 
+                                    const fromName = tx.fromAccountName || fromAcc?.name || (isArabic ? 'حساب' : 'Account');
+                                    const toName = tx.toAccountName || toAcc?.name || (isArabic ? 'حساب' : 'Account');
+                                    const fromIcon = tx.fromAccountIcon || fromAcc?.icon || '🏦';
+                                    const toIcon = tx.toAccountIcon || toAcc?.icon || '🏦';
+
                                     let title = '';
                                     if (isTransfer) {
-                                      title = `${fromAcc?.name || 'Account'} > ${toAcc?.name || 'Account'}`;
+                                      title = `${isArabic ? 'تحويل' : 'Transfer'}: ${fromName} → ${toName}`;
                                     } else if (tx.description && tx.description.trim() !== '') {
                                       title = tx.description;
                                     } else {
@@ -709,53 +714,87 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                                         role="button"
                                         tabIndex={0}
                                         onClick={() => setViewingTx(tx)}
-                                        className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800/90 border border-zinc-800/80 transition cursor-pointer select-none active:scale-[0.99] group shadow-sm"
+                                        className="flex flex-col p-3.5 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800/90 border border-zinc-800/80 transition cursor-pointer select-none active:scale-[0.99] group shadow-sm"
                                       >
-                                        {/* Left: Category Icon */}
-                                        <div className="flex items-center gap-3 min-w-0">
-                                          <div
-                                            className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
-                                              isIncome
-                                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                                : isExpense
-                                                ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                                : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                                            }`}
-                                          >
-                                            {isTransfer ? '⇄' : tx.categoryIcon || '💵'}
+                                        <div className="flex items-center justify-between w-full">
+                                          {/* Left: Category Icon */}
+                                          <div className="flex items-center gap-3 min-w-0">
+                                            <div
+                                              className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
+                                                isIncome
+                                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                                  : isExpense
+                                                  ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                                  : 'bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold'
+                                              }`}
+                                            >
+                                              {isTransfer ? '⇄' : tx.categoryIcon || '💵'}
+                                            </div>
+
+                                            {/* Center: Title & Metadata Subtitle */}
+                                            <div className="min-w-0 text-left rtl:text-right">
+                                              <div className="text-sm font-bold text-white truncate max-w-[180px] sm:max-w-xs group-hover:text-blue-300 transition">
+                                                {title}
+                                              </div>
+                                              <div className="text-xs text-zinc-400 truncate mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                                {isTransfer && (
+                                                  <span className="text-blue-400 font-semibold">{isArabic ? 'تحويل' : 'Transfer'}</span>
+                                                )}
+                                                {timeFormatted && <span>{timeFormatted}</span>}
+                                                {tx.categoryName && (
+                                                  <>
+                                                    <span className="text-zinc-600">•</span>
+                                                    <span className="text-zinc-300">{tx.categoryName}</span>
+                                                  </>
+                                                )}
+                                                {fromAcc && (
+                                                  <>
+                                                    <span className="text-zinc-600">•</span>
+                                                    <span className="px-1.5 py-0.2 rounded-md bg-zinc-800 text-[10px] text-zinc-300 border border-zinc-700">
+                                                      {fromAcc.icon || '🏦'} {fromAcc.name}
+                                                    </span>
+                                                  </>
+                                                )}
+                                              </div>
+                                            </div>
                                           </div>
 
-                                          {/* Center: Title & Metadata Subtitle */}
-                                          <div className="min-w-0 text-left rtl:text-right">
-                                            <div className="text-sm font-bold text-white truncate max-w-[180px] sm:max-w-xs group-hover:text-blue-300 transition">
-                                              {title}
-                                            </div>
-                                            <div className="text-xs text-zinc-400 truncate mt-0.5 flex items-center gap-1.5 flex-wrap">
-                                              {timeFormatted && <span>{timeFormatted}</span>}
-                                              {tx.categoryName && (
-                                                <>
-                                                  <span className="text-zinc-600">•</span>
-                                                  <span className="text-zinc-300">{tx.categoryName}</span>
-                                                </>
-                                              )}
-                                              {fromAcc && (
-                                                <>
-                                                  <span className="text-zinc-600">•</span>
-                                                  <span className="px-1.5 py-0.2 rounded-md bg-zinc-800 text-[10px] text-zinc-300 border border-zinc-700">
-                                                    {fromAcc.icon || '🏦'} {fromAcc.name}
-                                                  </span>
-                                                </>
-                                              )}
+                                          {/* Right: Amount */}
+                                          <div className="text-right rtl:text-left shrink-0 pl-2 rtl:pr-2">
+                                            <div className={`text-sm font-mono font-bold ${amountColorClass}`}>
+                                              {amountSign}{formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
                                             </div>
                                           </div>
                                         </div>
 
-                                        {/* Right: Amount */}
-                                        <div className="text-right rtl:text-left shrink-0 pl-2 rtl:pr-2">
-                                          <div className={`text-sm font-mono font-bold ${amountColorClass}`}>
-                                            {amountSign}{formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
+                                        {/* Transfer: Before & After Balances for BOTH accounts */}
+                                        {isTransfer && (tx.fromBalanceBefore !== undefined || tx.toBalanceBefore !== undefined) && (
+                                          <div className="mt-2.5 pt-2 border-t border-zinc-800/60 flex flex-wrap items-center gap-1.5 sm:gap-2.5 text-[10px] font-mono">
+                                            {tx.fromBalanceBefore !== undefined && tx.fromBalanceAfter !== undefined && (
+                                              <div className="flex items-center gap-1 bg-zinc-950/90 border border-zinc-800/80 px-2 py-0.5 rounded-lg max-w-full">
+                                                <span className="text-xs shrink-0">{fromIcon}</span>
+                                                <span className="font-semibold text-zinc-300 truncate max-w-[85px] sm:max-w-[110px]">
+                                                  {fromName}:
+                                                </span>
+                                                <span className="text-zinc-400">{formatCurrency(tx.fromBalanceBefore, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+                                                <span className="text-red-400 font-bold">→</span>
+                                                <span className="font-bold text-red-400">{formatCurrency(tx.fromBalanceAfter, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+                                              </div>
+                                            )}
+
+                                            {tx.toBalanceBefore !== undefined && tx.toBalanceAfter !== undefined && (
+                                              <div className="flex items-center gap-1 bg-zinc-950/90 border border-zinc-800/80 px-2 py-0.5 rounded-lg max-w-full">
+                                                <span className="text-xs shrink-0">{toIcon}</span>
+                                                <span className="font-semibold text-zinc-300 truncate max-w-[85px] sm:max-w-[110px]">
+                                                  {toName}:
+                                                </span>
+                                                <span className="text-zinc-400">{formatCurrency(tx.toBalanceBefore, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+                                                <span className="text-emerald-400 font-bold">→</span>
+                                                <span className="font-bold text-emerald-400">{formatCurrency(tx.toBalanceAfter, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+                                              </div>
+                                            )}
                                           </div>
-                                        </div>
+                                        )}
                                       </div>
                                     );
                                   })}
@@ -859,7 +898,7 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                 </div>
 
                 {/* Destination Account if Transfer */}
-                {viewingTx.type === 'transfer' && viewingTx.toAccountId && (
+                {viewingTx.type === 'transfer' && (
                   <div className="flex items-center justify-between py-1 border-b border-zinc-800/40">
                     <span className="text-zinc-400 flex items-center gap-1.5">
                       <Landmark className="w-3.5 h-3.5 text-blue-500" />
@@ -867,15 +906,54 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                     </span>
                     <span className="font-semibold text-white flex items-center gap-1">
                       {(() => {
-                        const toAcc = accountMap.get(viewingTx.toAccountId);
+                        const toAcc = viewingTx.toAccountId ? accountMap.get(viewingTx.toAccountId) : undefined;
+                        const icon = viewingTx.toAccountIcon || toAcc?.icon || '🏦';
+                        const name = viewingTx.toAccountName || toAcc?.name || (isArabic ? 'حساب' : 'Account');
                         return (
                           <>
-                            <span>{toAcc?.icon || '🏦'}</span>
-                            <span>{toAcc?.name || (isArabic ? 'حساب' : 'Account')}</span>
+                            <span>{icon}</span>
+                            <span>{name}</span>
                           </>
                         );
                       })()}
                     </span>
+                  </div>
+                )}
+
+                {/* Transfer Dual Balances in Details Modal */}
+                {viewingTx.type === 'transfer' && (viewingTx.fromBalanceBefore !== undefined || viewingTx.toBalanceBefore !== undefined) && (
+                  <div className="py-2 border-b border-zinc-800/40 space-y-1.5">
+                    <span className="text-xs text-zinc-400 font-semibold block">
+                      {isArabic ? 'أرصدة الحسابات قبل وبعد التحويل:' : 'Balances Before & After Transfer:'}
+                    </span>
+                    <div className="space-y-1.5 text-xs font-mono">
+                      {viewingTx.fromBalanceBefore !== undefined && viewingTx.fromBalanceAfter !== undefined && (
+                        <div className="flex items-center justify-between p-2 rounded-xl bg-zinc-900 border border-zinc-800">
+                          <span className="text-zinc-300 font-semibold flex items-center gap-1">
+                            <span>{viewingTx.fromAccountIcon || accountMap.get(viewingTx.accountId)?.icon || '🏦'}</span>
+                            <span>{viewingTx.fromAccountName || accountMap.get(viewingTx.accountId)?.name || (isArabic ? 'من حساب' : 'From Account')}</span>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <span className="text-zinc-400">{formatCurrency(viewingTx.fromBalanceBefore, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+                            <span className="text-red-400">→</span>
+                            <span className="font-bold text-red-400">{formatCurrency(viewingTx.fromBalanceAfter, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+                          </span>
+                        </div>
+                      )}
+                      {viewingTx.toBalanceBefore !== undefined && viewingTx.toBalanceAfter !== undefined && (
+                        <div className="flex items-center justify-between p-2 rounded-xl bg-zinc-900 border border-zinc-800">
+                          <span className="text-zinc-300 font-semibold flex items-center gap-1">
+                            <span>{viewingTx.toAccountIcon || (viewingTx.toAccountId ? accountMap.get(viewingTx.toAccountId)?.icon : '🏦') || '🏦'}</span>
+                            <span>{viewingTx.toAccountName || (viewingTx.toAccountId ? accountMap.get(viewingTx.toAccountId)?.name : (isArabic ? 'إلى حساب' : 'To Account')) || (isArabic ? 'إلى حساب' : 'To Account')}</span>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <span className="text-zinc-400">{formatCurrency(viewingTx.toBalanceBefore, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+                            <span className="text-emerald-400">→</span>
+                            <span className="font-bold text-emerald-400">{formatCurrency(viewingTx.toBalanceAfter, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 

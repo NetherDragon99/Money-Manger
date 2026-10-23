@@ -32,7 +32,7 @@ import {
   requestGoogleDriveStorageAccess,
 } from '../utils/firebase';
 import { format16DigitId, cleanNumericId, getOrCreateNumericId } from '../utils/userId';
-import { publishUserProfileCard } from '../utils/shareFolders';
+import { publishUserProfileCard, propagateUserProfileToAllSharedSpaces } from '../utils/shareFolders';
 import { persistDriveResolutionStatus } from '../utils/autoBackup';
 import { User } from 'firebase/auth';
 
@@ -425,14 +425,18 @@ export const UserProfileModal: React.FC = () => {
       },
     });
 
-    if (currentUser && my16 && my16.length === 16) {
-      publishUserProfileCard({
-        numericId: my16,
-        name: cleanName,
-        avatar: avatarEmoji || '👤',
-        photoURL: customAvatarUrl || '',
-        uid: currentUser.uid,
-      });
+    const targetUid = currentUser?.uid || auth.currentUser?.uid || settings.userProfile?.uid || '';
+    const profileToPublish = {
+      numericId: my16,
+      name: cleanName,
+      avatar: avatarEmoji || '👤',
+      photoURL: customAvatarUrl || '',
+      uid: targetUid,
+    };
+
+    if (my16 && my16.length === 16) {
+      publishUserProfileCard(profileToPublish);
+      propagateUserProfileToAllSharedSpaces(profileToPublish);
     }
 
     showToast(

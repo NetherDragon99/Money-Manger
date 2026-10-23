@@ -27,6 +27,8 @@ import {
   Calendar,
   Filter,
   Folder,
+  Wallet,
+  FolderDown,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
@@ -103,12 +105,7 @@ const ShareMonthHeaderRow: React.FC<ShareMonthHeaderRowProps> = ({
   const { handlers } = useLongPress({
     onLongPress: () => {
       if (monthTxIds.length === 0) return;
-      if (!isAllMonthSelected) {
-        toggleBatchTxs(monthTxIds);
-      } else {
-        toggleBatchTxs(monthTxIds);
-        toggleBatchTxs(monthTxIds);
-      }
+      toggleBatchTxs(monthTxIds);
     },
     onClick: () => {
       if (isTxMultiSelect) {
@@ -224,12 +221,7 @@ const ShareDayHeaderRow: React.FC<ShareDayHeaderRowProps> = ({
   const { handlers } = useLongPress({
     onLongPress: () => {
       if (dayTxIds.length === 0) return;
-      if (!isAllDaySelected) {
-        toggleBatchTxs(dayTxIds);
-      } else {
-        toggleBatchTxs(dayTxIds);
-        toggleBatchTxs(dayTxIds);
-      }
+      toggleBatchTxs(dayTxIds);
     },
     onClick: () => {
       if (isTxMultiSelect) {
@@ -312,6 +304,205 @@ const ShareDayHeaderRow: React.FC<ShareDayHeaderRowProps> = ({
   );
 };
 
+interface ShareTxRowProps {
+  tx: Transaction;
+  folderAccounts: Account[];
+  isTxMultiSelect: boolean;
+  isSelected: boolean;
+  canEdit: boolean;
+  currencySymbol: string;
+  isArabic: boolean;
+  onToggleSelect: (id: string) => void;
+  onStartMultiSelect: (id: string) => void;
+  onDeleteClick: (tx: Transaction, title: string, icon?: string) => void;
+}
+
+const ShareTxRow: React.FC<ShareTxRowProps> = ({
+  tx,
+  folderAccounts,
+  isTxMultiSelect,
+  isSelected,
+  canEdit,
+  currencySymbol,
+  isArabic,
+  onToggleSelect,
+  onStartMultiSelect,
+  onDeleteClick,
+}) => {
+  const isTransfer = tx.type === 'transfer';
+
+  const fromAcc = folderAccounts.find((a) => a.id === tx.accountId);
+  const toAcc = tx.toAccountId ? folderAccounts.find((a) => a.id === tx.toAccountId) : undefined;
+
+  const fromName = tx.fromAccountName || fromAcc?.name || (isArabic ? 'حساب' : 'Account');
+  const toName = tx.toAccountName || toAcc?.name || (isArabic ? 'حساب' : 'Account');
+  const fromIcon = tx.fromAccountIcon || fromAcc?.icon || '🏦';
+  const toIcon = tx.toAccountIcon || toAcc?.icon || '🏦';
+
+  let title = '';
+  if (isTransfer) {
+    title = `${isArabic ? 'تحويل' : 'Transfer'}: ${fromName} → ${toName}`;
+  } else if (tx.description && tx.description.trim() !== '') {
+    title = tx.description;
+  } else {
+    title = tx.categoryName || (isArabic ? 'معاملة مالية' : 'Transaction');
+  }
+
+  const { handlers } = useLongPress({
+    onLongPress: () => {
+      if (isTxMultiSelect) {
+        onToggleSelect(tx.id);
+      } else {
+        onStartMultiSelect(tx.id);
+      }
+    },
+    onClick: () => {
+      if (isTxMultiSelect) {
+        onToggleSelect(tx.id);
+      }
+    },
+  });
+
+  return (
+    <div
+      {...handlers}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        if (isTxMultiSelect) {
+          onToggleSelect(tx.id);
+        } else {
+          onStartMultiSelect(tx.id);
+        }
+      }}
+      className={`p-2.5 rounded-xl border flex flex-col transition group select-none ${
+        isSelected
+          ? 'bg-blue-950/40 border-blue-500/80 shadow-md shadow-blue-950/50 cursor-pointer'
+          : isTxMultiSelect
+          ? 'bg-zinc-900/80 hover:bg-zinc-850 border-zinc-800/60 cursor-pointer'
+          : 'bg-zinc-900/80 hover:bg-zinc-850 border-zinc-800/60'
+      }`}
+    >
+      <div className="flex items-center justify-between w-full">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {isTxMultiSelect && (
+            <div
+              className={`w-5 h-5 rounded-lg flex items-center justify-center transition border shrink-0 ${
+                isSelected
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-zinc-950 border-zinc-700 text-transparent'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5" />
+            </div>
+          )}
+
+          <div
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center text-sm shrink-0 ${
+              isTransfer
+                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400 font-bold'
+                : tx.type === 'income'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                : tx.type === 'expense'
+                ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                : 'bg-zinc-950 border-zinc-800'
+            }`}
+          >
+            {isTransfer ? '⇄' : tx.categoryIcon || '💸'}
+          </div>
+          <div className="min-w-0">
+            <span className="text-xs font-semibold text-white block truncate">
+              {title}
+            </span>
+            <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+              {isTransfer ? (
+                <>
+                  <span className="text-blue-400 font-medium">{isArabic ? 'تحويل بين الحسابات' : 'Account Transfer'}</span>
+                  {tx.description && tx.description.trim() !== '' && (
+                    <>
+                      <span>·</span>
+                      <span className="text-zinc-300 truncate">{tx.description}</span>
+                    </>
+                  )}
+                </>
+              ) : (
+                <span className="truncate">{tx.categoryName}</span>
+              )}
+              {tx.time && (
+                <>
+                  <span>·</span>
+                  <span className="font-mono text-zinc-500">
+                    {formatTime12h(tx.time, isArabic ? 'ar' : 'en')}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <span
+            className={`font-mono text-xs font-bold ${
+              tx.type === 'income'
+                ? 'text-emerald-400'
+                : tx.type === 'expense'
+                ? 'text-red-400'
+                : 'text-blue-400'
+            }`}
+          >
+            {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
+            {formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
+          </span>
+
+          {canEdit && (
+            <button
+              type="button"
+              onTouchStart={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteClick(tx, title, isTransfer ? '⇄' : tx.categoryIcon);
+              }}
+              className="p-1 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer"
+              title={isArabic ? 'حذف المعاملة' : 'Delete Transaction'}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Transfer: Before & After Balances for BOTH accounts */}
+      {isTransfer && (tx.fromBalanceBefore !== undefined || tx.toBalanceBefore !== undefined) && (
+        <div className="mt-2 pt-2 border-t border-zinc-800/60 flex flex-wrap items-center gap-1.5 sm:gap-2.5 text-[10px] font-mono">
+          {tx.fromBalanceBefore !== undefined && tx.fromBalanceAfter !== undefined && (
+            <div className="flex items-center gap-1 bg-zinc-950/90 border border-zinc-800/80 px-2 py-0.5 rounded-lg max-w-full">
+              <span className="text-xs shrink-0">{fromIcon}</span>
+              <span className="font-semibold text-zinc-300 truncate max-w-[85px] sm:max-w-[110px]">
+                {fromName}:
+              </span>
+              <span className="text-zinc-400">{formatCurrency(tx.fromBalanceBefore, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+              <span className="text-red-400 font-bold">→</span>
+              <span className="font-bold text-red-400">{formatCurrency(tx.fromBalanceAfter, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+            </div>
+          )}
+
+          {tx.toBalanceBefore !== undefined && tx.toBalanceAfter !== undefined && (
+            <div className="flex items-center gap-1 bg-zinc-950/90 border border-zinc-800/80 px-2 py-0.5 rounded-lg max-w-full">
+              <span className="text-xs shrink-0">{toIcon}</span>
+              <span className="font-semibold text-zinc-300 truncate max-w-[85px] sm:max-w-[110px]">
+                {toName}:
+              </span>
+              <span className="text-zinc-400">{formatCurrency(tx.toBalanceBefore, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+              <span className="text-emerald-400 font-bold">→</span>
+              <span className="font-bold text-emerald-400">{formatCurrency(tx.toBalanceAfter, currencySymbol, isArabic ? 'ar' : 'en')}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface ShareDetailViewProps {
   folder: ShareFolder;
   onExit: () => void;
@@ -320,6 +511,8 @@ interface ShareDetailViewProps {
 export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initialFolder, onExit }) => {
   const {
     settings,
+    transactions: personalTransactions,
+    accounts: myPersonalAccounts,
     addTransaction,
     deleteTransaction,
     importSharedItems,
@@ -332,6 +525,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     toggleTxSelection,
     toggleBatchTxs,
     startTxMultiSelect,
+    clearGlobalSelection,
   } = useApp();
 
   const isArabic = settings.language === 'ar';
@@ -340,6 +534,11 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
 
   const [folder, setFolder] = useState<ShareFolder>(initialFolder);
   const [isCopied, setIsCopied] = useState(false);
+
+  // Multi-Select Import Confirmation Sheet State
+  const [isImportSheetOpen, setIsImportSheetOpen] = useState(false);
+  const [importScope, setImportScope] = useState<'selected' | 'all'>('selected');
+  const [selectedTargetAccountId, setSelectedTargetAccountId] = useState<string>('');
 
   // Collapsed state sets for grouped timeline (months and days)
   const [collapsedMonths, setCollapsedMonths] = useState<Record<string, boolean>>({});
@@ -398,6 +597,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   useEffect(() => {
     return () => {
       handleCloseEditSpace();
+      clearGlobalSelection();
     };
   }, []);
   const [newMemberId, setNewMemberId] = useState('');
@@ -484,7 +684,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     };
   }, [initialFolder.id]);
 
-  // Dual Sync 3: Real-time listener & 4-second periodic polling for incoming shares while Detail View is open
+  // Real-time listener for incoming shares while Detail View is open (zero-bandwidth when idle)
   useEffect(() => {
     if (myCleanNumericId.length !== 16) return;
     const unsub = subscribeToMyInbox(myCleanNumericId, (liveReceived) => {
@@ -493,22 +693,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       }
     });
 
-    let isMounted = true;
-    const pollInbox = async () => {
-      try {
-        const live = await fetchMyInboxOnce(myCleanNumericId);
-        if (isMounted && live && Array.isArray(live)) {
-          saveReceivedShareFolders(live);
-        }
-      } catch {}
-    };
-
-    pollInbox();
-    const intervalId = setInterval(pollInbox, 4000);
-
     return () => {
-      isMounted = false;
-      clearInterval(intervalId);
       unsub();
     };
   }, [myCleanNumericId]);
@@ -528,10 +713,17 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   }, [folder.id, folder.owner16DigitId, folder.ownerNumericId, folder.ownerPhotoURL]);
 
   const folderOwner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId);
-  const isOwner = (myCleanNumericId && folderOwner16 && folderOwner16 === myCleanNumericId) ||
-                  (auth.currentUser?.uid && folder.ownerUid && folder.ownerUid === auth.currentUser.uid);
+  const isOwner = Boolean(
+    (myCleanNumericId && folderOwner16 && folderOwner16 === myCleanNumericId) ||
+    (auth.currentUser?.uid && folder.ownerUid && folder.ownerUid === auth.currentUser.uid)
+  );
   const myMemberEntry = folder.members.find((m) => cleanNumericId(m.numericId) === myCleanNumericId);
-  const canEdit = isOwner || folder.permission === 'allow_import_edit' || myMemberEntry?.role === 'editor';
+  const canCurrentUserEdit = Boolean(
+    isOwner ||
+    (myMemberEntry?.role as any) === 'edit' ||
+    myMemberEntry?.role === 'editor'
+  );
+  const canEdit = canCurrentUserEdit;
   const ownerPhoto = resolveOwnerPhoto(folder, settings.userProfile);
 
   const accounts = folder.payload.accounts || [];
@@ -644,8 +836,13 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     name: string,
     icon?: string
   ) => {
-    if (!canEdit) {
-      showToast(isArabic ? 'لا تملك صلاحية التعديل' : 'You do not have edit permission', 'error');
+    if (!canCurrentUserEdit) {
+      showToast(
+        isArabic
+          ? 'ليس لديك صلاحية لحذف العناصر من هذه المساحة (وضع المشاهدة فقط)'
+          : 'You do not have permission to delete items from this share (Viewer mode only)',
+        'error'
+      );
       return;
     }
 
@@ -709,6 +906,15 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     });
   };
 
+  // Check if any deleted item exists in the user's personal local transactions
+  const hasAnyPersonalTx = useMemo(() => {
+    if (!preDeleteState) return false;
+    const personalTxIdSet = new Set((personalTransactions || []).map((t) => t.id));
+    return Array.from(preDeleteState.selectedTxIds).some((id) => personalTxIdSet.has(id));
+  }, [preDeleteState, personalTransactions]);
+
+  const shouldShowPersonalDeleteChoice = isOwner || hasAnyPersonalTx;
+
   // Confirm Pre-Delete: removes items smartly, auto-cleans empty accounts/categories, and updates cloud
   const handleConfirmPreDelete = async () => {
     if (!preDeleteState) return;
@@ -716,8 +922,8 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     const { targetType, targetId, selectedTxIds, deleteFromPersonal } = preDeleteState;
     const deletedTxIds = Array.from(selectedTxIds);
 
-    // Optional sync deletion from personal feed
-    if (deleteFromPersonal) {
+    // Optional sync deletion from personal feed (strictly guarded)
+    if (shouldShowPersonalDeleteChoice && deleteFromPersonal) {
       for (const txId of deletedTxIds) {
         deleteTransaction(txId);
       }
@@ -752,6 +958,15 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
 
   const handleAddTransaction = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCurrentUserEdit) {
+      showToast(
+        isArabic
+          ? 'ليس لديك صلاحية لإضافة معاملات (وضع المشاهدة فقط)'
+          : 'You do not have permission to add transactions (Viewer mode only)',
+        'error'
+      );
+      return;
+    }
     const amountVal = parseFloat(txAmount);
     if (!amountVal || amountVal <= 0) {
       showToast(isArabic ? 'يرجى إدخال مبلغ صحيح' : 'Please enter a valid amount', 'error');
@@ -832,18 +1047,80 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     }
   };
 
-  const handleImportAll = () => {
+  const transactionsToImport = useMemo(() => {
+    if (importScope === 'selected') {
+      return transactions.filter((t) => selectedTxIds.includes(t.id));
+    }
+    return transactions;
+  }, [importScope, transactions, selectedTxIds]);
+
+  const importStats = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    for (const tx of transactionsToImport) {
+      if (tx.type === 'income') income += tx.amount;
+      else if (tx.type === 'expense') expense += tx.amount;
+    }
+    return {
+      count: transactionsToImport.length,
+      income,
+      expense,
+      net: income - expense,
+    };
+  }, [transactionsToImport]);
+
+  const openImportConfirmationSheet = (scope: 'selected' | 'all') => {
+    const list = scope === 'selected' ? transactions.filter((t) => selectedTxIds.includes(t.id)) : transactions;
+    if (list.length === 0) {
+      showToast(isArabic ? 'لا توجد معاملات لإضافتها' : 'No transactions to add', 'info');
+      return;
+    }
+    setImportScope(scope);
+    if (!selectedTargetAccountId && myPersonalAccounts.length > 0) {
+      setSelectedTargetAccountId(myPersonalAccounts[0].id);
+    }
+    setIsImportSheetOpen(true);
+  };
+
+  const handleConfirmImport = () => {
+    if (transactionsToImport.length === 0) {
+      showToast(isArabic ? 'لا توجد معاملات لإضافتها' : 'No transactions to import', 'info');
+      setIsImportSheetOpen(false);
+      return;
+    }
+
     const res = importSharedItems({
       accounts,
       categories,
-      transactions,
+      transactions: transactionsToImport,
+      targetAccountId: selectedTargetAccountId || undefined,
     });
-    showToast(
-      isArabic
-        ? `تم استيراد كافة عناصر الشير إلى حسابك الشخصي (${res.accountsCount} حسابات، ${res.categoriesCount} تصنيفات، ${res.txsCount} معاملات)!`
-        : `Imported all share items to your personal feed (${res.accountsCount} accounts, ${res.categoriesCount} categories, ${res.txsCount} transactions)!`,
-      'success'
-    );
+
+    if (res.txsCount > 0) {
+      showToast(
+        isArabic
+          ? `تمت إضافة ${res.txsCount} معاملة بنجاح إلى حسابك!${(res as any).skippedTxsCount ? ` (تم تخطي ${(res as any).skippedTxsCount} مكررة)` : ''}`
+          : `Successfully imported ${res.txsCount} transactions into your account!${(res as any).skippedTxsCount ? ` (${(res as any).skippedTxsCount} duplicates skipped)` : ''}`,
+        'success'
+      );
+    } else if ((res as any).skippedTxsCount && (res as any).skippedTxsCount > 0) {
+      showToast(
+        isArabic
+          ? `كافة المعاملات (${(res as any).skippedTxsCount}) مستوردة مسبقاً في حسابك الشخصي!`
+          : `All ${(res as any).skippedTxsCount} transactions are already imported in your personal feed!`,
+        'info'
+      );
+    } else {
+      showToast(
+        isArabic
+          ? 'تم استيراد البيانات إلى حسابك الشخصي بنجاح!'
+          : 'Data imported to your personal feed successfully!',
+        'success'
+      );
+    }
+
+    clearGlobalSelection();
+    setIsImportSheetOpen(false);
   };
 
   const handleLeaveShare = async () => {
@@ -876,7 +1153,10 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
-              onClick={onExit}
+              onClick={() => {
+                clearGlobalSelection();
+                onExit();
+              }}
               aria-label="Go Back"
               className="w-10 h-10 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white flex items-center justify-center transition cursor-pointer active:scale-95 shrink-0 border border-zinc-800"
             >
@@ -951,11 +1231,20 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               <>
                 <button
                   type="button"
-                  onClick={handleImportAll}
+                  onClick={() => openImportConfirmationSheet(selectedTxIds.length > 0 ? 'selected' : 'all')}
                   className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
+                  title={
+                    selectedTxIds.length > 0
+                      ? (isArabic ? 'إضافة المعاملات المحددة لحسابي' : 'Add Selected to My Account')
+                      : (isArabic ? 'إضافة كافة المعاملات لحسابي' : 'Add All to My Account')
+                  }
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>{isArabic ? 'استيراد للكل' : 'Import All'}</span>
+                  <span>
+                    {selectedTxIds.length > 0
+                      ? (isArabic ? `إضافة المحدد (${selectedTxIds.length})` : `Add Selected (${selectedTxIds.length})`)
+                      : (isArabic ? 'إضافة لحسابي' : 'Add to My Account')}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -967,6 +1256,20 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                   <span>{isArabic ? 'مغادرة' : 'Leave'}</span>
                 </button>
               </>
+            )}
+
+            {isOwner && selectedTxIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => openImportConfirmationSheet('selected')}
+                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md animate-in fade-in"
+                title={isArabic ? 'إضافة المعاملات المحددة لحسابي' : 'Add Selected to My Account'}
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>
+                  {isArabic ? `إضافة المحدد (${selectedTxIds.length})` : `Add Selected (${selectedTxIds.length})`}
+                </span>
+              </button>
             )}
           </div>
         </header>
@@ -1402,97 +1705,23 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                                 {/* Day Transactions */}
                                 {!isDayCollapsed && (
                                   <div className="p-1.5 space-y-1">
-                                    {dayGroup.txs.map((tx) => {
-                                      const isSelected = selectedTxIds.includes(tx.id);
-
-                                      return (
-                                        <div
-                                          key={tx.id}
-                                          onClick={() => {
-                                            if (isTxMultiSelect) {
-                                              toggleTxSelection(tx.id);
-                                            }
-                                          }}
-                                          onContextMenu={(e) => {
-                                            e.preventDefault();
-                                            startTxMultiSelect(tx.id);
-                                          }}
-                                          className={`p-2.5 rounded-xl border flex items-center justify-between transition group select-none ${
-                                            isSelected
-                                              ? 'bg-blue-950/40 border-blue-500/80 shadow-md shadow-blue-950/50 cursor-pointer'
-                                              : 'bg-zinc-900/80 hover:bg-zinc-850 border-zinc-800/60'
-                                          }`}
-                                        >
-                                          <div className="flex items-center gap-2.5 min-w-0">
-                                            {isTxMultiSelect && (
-                                              <div
-                                                className={`w-5 h-5 rounded-lg flex items-center justify-center transition border shrink-0 ${
-                                                  isSelected
-                                                    ? 'bg-blue-600 border-blue-500 text-white'
-                                                    : 'bg-zinc-950 border-zinc-700 text-transparent'
-                                                }`}
-                                              >
-                                                <Check className="w-3.5 h-3.5" />
-                                              </div>
-                                            )}
-
-                                            <div className="w-8 h-8 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-sm shrink-0">
-                                              {tx.categoryIcon || '💸'}
-                                            </div>
-                                            <div className="min-w-0">
-                                              <span className="text-xs font-semibold text-white block truncate">
-                                                {tx.description || tx.categoryName}
-                                              </span>
-                                              <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-                                                <span className="truncate">{tx.categoryName}</span>
-                                                {tx.time && (
-                                                  <>
-                                                    <span>·</span>
-                                                    <span className="font-mono text-zinc-500">
-                                                      {formatTime12h(tx.time, isArabic ? 'ar' : 'en')}
-                                                    </span>
-                                                  </>
-                                                )}
-                                              </div>
-                                            </div>
-                                          </div>
-
-                                          <div className="flex items-center gap-2 shrink-0">
-                                            <span
-                                              className={`font-mono text-xs font-bold ${
-                                                tx.type === 'income'
-                                                  ? 'text-emerald-400'
-                                                  : tx.type === 'expense'
-                                                  ? 'text-red-400'
-                                                  : 'text-blue-400'
-                                              }`}
-                                            >
-                                              {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
-                                              {formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
-                                            </span>
-
-                                            {canEdit && (
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  initiatePreDeleteReview(
-                                                    'transaction',
-                                                    tx.id,
-                                                    tx.description || tx.categoryName || 'Transaction',
-                                                    tx.categoryIcon
-                                                  );
-                                                }}
-                                                className="p-1 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer"
-                                                title={isArabic ? 'حذف المعاملة' : 'Delete Transaction'}
-                                              >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                              </button>
-                                            )}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
+                                    {dayGroup.txs.map((tx) => (
+                                      <ShareTxRow
+                                        key={tx.id}
+                                        tx={tx}
+                                        folderAccounts={folder.payload.accounts || accounts}
+                                        isTxMultiSelect={isTxMultiSelect}
+                                        isSelected={selectedTxIds.includes(tx.id)}
+                                        canEdit={canEdit}
+                                        currencySymbol={currencySymbol}
+                                        isArabic={isArabic}
+                                        onToggleSelect={toggleTxSelection}
+                                        onStartMultiSelect={startTxMultiSelect}
+                                        onDeleteClick={(t, title, icon) =>
+                                          initiatePreDeleteReview('transaction', t.id, title, icon)
+                                        }
+                                      />
+                                    ))}
                                   </div>
                                 )}
                               </div>
@@ -1508,6 +1737,207 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
           </div>
         </div>
       </div>
+
+      {/* Floating Multi-Select Action Bar in ShareDetailView */}
+      {isTxMultiSelect && selectedTxIds.length > 0 && (
+        <div className="fixed bottom-4 inset-x-4 max-w-md mx-auto z-40 bg-zinc-900/95 backdrop-blur-xl border border-blue-500/40 rounded-2xl shadow-2xl p-3 flex items-center justify-between gap-2.5 animate-in slide-in-from-bottom-5">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/40 text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 font-mono">
+              {selectedTxIds.length}
+            </span>
+            <div className="min-w-0">
+              <span className="text-xs font-bold text-white block truncate">
+                {isArabic ? `${selectedTxIds.length} معاملة محددة` : `${selectedTxIds.length} selected`}
+              </span>
+              <span className="text-[10px] text-zinc-400 block truncate">
+                {isArabic ? 'إضافة للحساب الشخصي' : 'Import to personal account'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => openImportConfirmationSheet('selected')}
+              className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-lg shadow-blue-600/30 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{isArabic ? 'إضافة لحسابي' : 'Add to My Account'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => clearGlobalSelection()}
+              className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition active:scale-95 cursor-pointer"
+              title={isArabic ? 'إلغاء التحديد' : 'Cancel Selection'}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirmation Sheet - Import to Personal Account */}
+      {isImportSheetOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setIsImportSheetOpen(false)}
+        >
+          <div
+            className="bg-zinc-900 border border-zinc-800 rounded-3xl max-w-md w-full overflow-hidden shadow-2xl p-5 space-y-4 animate-in zoom-in-95 my-auto"
+            onClick={(e) => e.stopPropagation()}
+            dir={isArabic ? 'rtl' : 'ltr'}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
+                  <FolderDown className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-white truncate">
+                    {isArabic ? 'إضافة إلى حسابي الشخصي' : 'Add to My Personal Account'}
+                  </h3>
+                  <p className="text-[11px] text-zinc-400 truncate">
+                    {importScope === 'selected'
+                      ? (isArabic ? `إضافة (${transactionsToImport.length}) معاملة محددة من "${folder.name}"` : `Add (${transactionsToImport.length}) selected items from "${folder.name}"`)
+                      : (isArabic ? `إضافة كافة المعاملات (${transactionsToImport.length}) من "${folder.name}"` : `Add all (${transactionsToImport.length}) transactions from "${folder.name}"`)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsImportSheetOpen(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Summary Card */}
+            <div className="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 text-center">
+              <div>
+                <span className="text-[10px] text-zinc-400 block">{isArabic ? 'العدد' : 'Count'}</span>
+                <span className="text-xs font-mono font-bold text-white">{importStats.count}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-400 block">{isArabic ? 'الدخل' : 'Income'}</span>
+                <span className="text-xs font-mono font-bold text-emerald-400">
+                  +{formatCurrency(importStats.income, currencySymbol, isArabic ? 'ar' : 'en')}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-400 block">{isArabic ? 'المصروف' : 'Expense'}</span>
+                <span className="text-xs font-mono font-bold text-red-400">
+                  -{formatCurrency(importStats.expense, currencySymbol, isArabic ? 'ar' : 'en')}
+                </span>
+              </div>
+            </div>
+
+            {/* Target Account Picker */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                <Wallet className="w-3.5 h-3.5 text-blue-400" />
+                <span>{isArabic ? 'اختر الحساب الشخصي لإيداع المعاملات فيه:' : 'Select Target Personal Account:'}</span>
+              </label>
+
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {myPersonalAccounts.map((acc) => {
+                  const isChosen = selectedTargetAccountId === acc.id;
+                  return (
+                    <div
+                      key={acc.id}
+                      onClick={() => setSelectedTargetAccountId(acc.id)}
+                      className={`p-2.5 rounded-2xl border transition cursor-pointer flex items-center justify-between ${
+                        isChosen
+                          ? 'bg-blue-950/40 border-blue-500 text-white shadow-md shadow-blue-950/30'
+                          : 'bg-zinc-950/60 hover:bg-zinc-800/60 border-zinc-800 text-zinc-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="text-xl shrink-0">{acc.icon || '🏦'}</span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold truncate">{acc.name}</div>
+                          <div className="text-[10px] text-zinc-400 font-mono">
+                            {formatCurrency(acc.balance, currencySymbol, isArabic ? 'ar' : 'en')}
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                          isChosen ? 'border-blue-500 bg-blue-600 text-white' : 'border-zinc-700'
+                        }`}
+                      >
+                        {isChosen && <Check className="w-2.5 h-2.5 text-white" />}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Match Share Accounts Structure Option */}
+                <div
+                  onClick={() => setSelectedTargetAccountId('')}
+                  className={`p-2.5 rounded-2xl border transition cursor-pointer flex items-center justify-between ${
+                    selectedTargetAccountId === ''
+                      ? 'bg-blue-950/40 border-blue-500 text-white shadow-md shadow-blue-950/30'
+                      : 'bg-zinc-950/60 hover:bg-zinc-800/60 border-zinc-800 text-zinc-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="text-xl shrink-0">📁</span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold truncate">
+                        {isArabic ? 'إنشاء حسابات مطابقة لحسابات الشير' : 'Create Matching Share Accounts'}
+                      </div>
+                      <div className="text-[10px] text-zinc-400 truncate">
+                        {isArabic ? 'الحفاظ على نفس هيكل حسابات المساحة' : 'Keep original shared space accounts structure'}
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                      selectedTargetAccountId === '' ? 'border-blue-500 bg-blue-600 text-white' : 'border-zinc-700'
+                    }`}
+                  >
+                    {selectedTargetAccountId === '' && <Check className="w-2.5 h-2.5 text-white" />}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Smart Duplication & Category Sync Notice */}
+            <div className="p-3 rounded-2xl bg-blue-950/20 border border-blue-500/20 text-[11px] text-blue-200 flex items-start gap-2">
+              <Sparkles className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+              <span>
+                {isArabic
+                  ? 'المزامنة الذكية: يتم ربط التصنيفات تلقائياً بنفس الاسم أو إنشاؤها فورياً، مع تخطي أي معاملات تم استيرادها سابقاً لتفادي تكرار الأرصدة.'
+                  : 'Smart Sync: Categories are matched automatically by name or created, and previously imported transactions are skipped to avoid duplicate balances.'}
+              </span>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="flex items-center gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsImportSheetOpen(false)}
+                className="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold transition active:scale-95 cursor-pointer"
+              >
+                {isArabic ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmImport}
+                className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-blue-600/30"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>{isArabic ? 'تأكيد الإضافة' : 'Confirm Import'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Quick Add Transaction */}
       {isAddTxOpen && (
@@ -2103,10 +2533,12 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                               onChange={() => {}}
                               className="w-4 h-4 rounded text-blue-600 focus:ring-0 bg-zinc-800 border-zinc-700"
                             />
-                            <span className="text-base">{tx.categoryIcon || '💸'}</span>
+                            <span className="text-base">{tx.type === 'transfer' ? '⇄' : tx.categoryIcon || '💸'}</span>
                             <div className="min-w-0">
                               <span className="text-xs font-bold text-white block truncate">
-                                {tx.description || tx.categoryName}
+                                {tx.type === 'transfer'
+                                  ? `${isArabic ? 'تحويل' : 'Transfer'}: ${tx.fromAccountName || (folder.payload.accounts?.find(a => a.id === tx.accountId)?.name) || 'Account'} → ${tx.toAccountName || (folder.payload.accounts?.find(a => a.id === tx.toAccountId)?.name) || 'Account'}`
+                                  : (tx.description || tx.categoryName)}
                               </span>
                               <span className="text-[10px] font-mono text-zinc-500">
                                 {tx.date} {tx.time ? `· ${formatTime12h(tx.time, isArabic ? 'ar' : 'en')}` : ''}
@@ -2115,8 +2547,8 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                           </div>
 
                           <div className="text-xs font-mono font-bold shrink-0">
-                            <span className={tx.type === 'income' ? 'text-emerald-400' : 'text-red-400'}>
-                              {tx.type === 'income' ? '+' : '-'}
+                            <span className={tx.type === 'income' ? 'text-emerald-400' : tx.type === 'expense' ? 'text-red-400' : 'text-blue-400'}>
+                              {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
                               {formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
                             </span>
                           </div>
@@ -2155,28 +2587,30 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               </span>
             </div>
 
-            {/* Delete from Personal Feed Checkbox */}
-            <label className="flex items-center gap-2.5 p-3 rounded-2xl bg-zinc-900/40 border border-zinc-850 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={preDeleteState.deleteFromPersonal}
-                onChange={(e) => {
-                  const val = e.target.checked;
-                  setPreDeleteState((prev) => (prev ? { ...prev, deleteFromPersonal: val } : null));
-                }}
-                className="w-4 h-4 rounded text-red-600 focus:ring-0 bg-zinc-800 border-zinc-700"
-              />
-              <div className="text-xs">
-                <span className="font-bold text-zinc-200 block">
-                  {isArabic ? 'حذف المعاملات أيضاً من حسابي الشخصي' : 'Also delete transactions from my personal account'}
-                </span>
-                <span className="text-[10px] text-zinc-400">
-                  {isArabic
-                    ? 'إذا لم يتم التحديد، فستُحذف فقط من الشير وتبقى آمنة في سجلك الشخصي'
-                    : 'If unchecked, items will be removed only from this share and remain safe in your feed'}
-                </span>
-              </div>
-            </label>
+            {/* Delete from Personal Feed Checkbox: Only shown if Space Owner OR transaction exists in personal local account */}
+            {shouldShowPersonalDeleteChoice && (
+              <label className="flex items-center gap-2.5 p-3 rounded-2xl bg-zinc-900/40 border border-zinc-850 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={preDeleteState.deleteFromPersonal}
+                  onChange={(e) => {
+                    const val = e.target.checked;
+                    setPreDeleteState((prev) => (prev ? { ...prev, deleteFromPersonal: val } : null));
+                  }}
+                  className="w-4 h-4 rounded text-red-600 focus:ring-0 bg-zinc-800 border-zinc-700"
+                />
+                <div className="text-xs">
+                  <span className="font-bold text-zinc-200 block">
+                    {isArabic ? 'حذف المعاملات أيضاً من حسابي الشخصي' : 'Also delete transactions from my personal account'}
+                  </span>
+                  <span className="text-[10px] text-zinc-400">
+                    {isArabic
+                      ? 'إذا لم يتم التحديد، فستُحذف فقط من الشير وتبقى آمنة في سجلك الشخصي'
+                      : 'If unchecked, items will be removed only from this share and remain safe in your feed'}
+                  </span>
+                </div>
+              </label>
+            )}
 
             {/* Modal Actions */}
             <div className="flex items-center gap-2 pt-2 border-t border-zinc-800">

@@ -7,9 +7,19 @@ export const ToastContainer: React.FC = () => {
 
   if (toasts.length === 0) return null;
 
+  // Deduplicate active toasts by message so identical or share-sync messages never stack or spam the screen
+  const uniqueToasts = toasts.filter(
+    (toast, index, self) => index === self.findIndex((t) => t.message.trim() === toast.message.trim())
+  );
+
+  if (uniqueToasts.length === 0) return null;
+
+  // Render at most 3 non-overlapping unique toasts
+  const visibleToasts = uniqueToasts.slice(-3);
+
   return (
     <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] flex flex-col items-center gap-2 pointer-events-none px-4 w-full max-w-sm">
-      {toasts.map((toast) => (
+      {visibleToasts.map((toast) => (
         <div
           key={toast.id}
           className="pointer-events-auto flex items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-zinc-900/98 border border-zinc-700/80 text-sm font-medium text-white shadow-2xl backdrop-blur-xl animate-in slide-in-from-top-4 fade-in duration-200 w-full"

@@ -101,6 +101,10 @@ import {
   fetchShareFolderFromCloud,
   registerReceivedShareFolder,
   ShareFolder,
+  getSeenShareNotificationHashes,
+  computeShareNotificationHash,
+  markShareNotificationsSeen,
+  propagateUserProfileToAllSharedSpaces,
 } from '../utils/shareFolders';
 
 export interface ToastItem {
@@ -294,6 +298,7 @@ interface AppContextType {
     accounts?: Account[];
     categories?: Category[];
     transactions?: Transaction[];
+    targetAccountId?: string;
   }) => { accountsCount: number; categoriesCount: number; txsCount: number };
   triggerCloudBackupNow: () => Promise<{ provider: 'google_drive' | 'firebase'; success: boolean }>;
   triggerCloudRestoreNow: () => Promise<boolean>;
@@ -751,21 +756,48 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
   };
 
-  // Toasts
+  // Toasts with active deduplication and spam throttling
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const recentToastCooldownRef = useRef<Map<string, number>>(new Map());
 
-  const showToast = (
+  const showToast = useCallback((
     message: string,
     type: 'success' | 'error' | 'info' = 'success',
     action?: { label: string; onClick: () => void },
     duration: number = 3600
   ) => {
-    const id = `${Date.now()}_${Math.random()}`;
-    setToasts((prev) => [...prev, { id, message, type, action }]);
+    if (!message || !message.trim()) return;
+    const cleanMsg = message.trim();
+    const now = Date.now();
+
+    // 1. Throttle / Debounce identical messages within 3 seconds
+    const lastSeen = recentToastCooldownRef.current.get(cleanMsg) || 0;
+    if (now - lastSeen < 3000) {
+      return;
+    }
+    recentToastCooldownRef.current.set(cleanMsg, now);
+
+    // Prune cooldown map to prevent growth
+    if (recentToastCooldownRef.current.size > 50) {
+      const entries = Array.from(recentToastCooldownRef.current.entries()).slice(-25);
+      recentToastCooldownRef.current = new Map(entries);
+    }
+
+    const id = `${now}_${Math.random().toString(36).substring(2, 7)}`;
+    setToasts((prev) => {
+      // 2. Deduplicate against active toasts on screen
+      if (prev.some((t) => t.message.trim() === cleanMsg)) {
+        return prev;
+      }
+      // 3. Keep at most the latest 2 active toasts + new one (max 3)
+      const trimmed = prev.slice(-2);
+      return [...trimmed, { id, message: cleanMsg, type, action }];
+    });
+
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, duration);
-  };
+  }, []);
 
   // Translation helper
   const t = useCallback(
@@ -830,18 +862,53 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const cleanId = cleanNumericId(rawId || '');
     if (cleanId.length !== 16) return;
 
-    // Track known IDs so we only alert for brand new shares
+    // Track known / seen share notification hashes in persistent mm_seen_share_notifications
     const initialReceived = loadReceivedShareFolders();
-    const knownIds = new Set(initialReceived.map((f) => f.id));
+    const initialHashes: string[] = [];
+    for (const f of initialReceived) {
+      if (f && f.id) {
+        initialHashes.push(f.id);
+        initialHashes.push(computeShareNotificationHash(f));
+      }
+    }
+    markShareNotificationsSeen(initialHashes);
+
+    // Initial onValue hydration guard: DO NOT fire any toasts during initial loading
+    let isInitialHydration = true;
+    const hydrationTimer = setTimeout(() => {
+      isInitialHydration = false;
+    }, 2500);
 
     const unsub = subscribeToMyInbox(cleanId, (liveReceived) => {
       if (!Array.isArray(liveReceived)) return;
 
-      // Check for brand new shares
+      // 1. During initial onValue hydration, mark all existing folders as seen and never fire toasts
+      if (isInitialHydration) {
+        const hashesToMark: string[] = [];
+        for (const folder of liveReceived) {
+          if (folder && folder.id) {
+            hashesToMark.push(folder.id);
+            hashesToMark.push(computeShareNotificationHash(folder));
+          }
+        }
+        markShareNotificationsSeen(hashesToMark);
+        saveReceivedShareFolders(liveReceived);
+        window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: liveReceived }));
+        return;
+      }
+
+      // 2. Post-hydration: ONLY fire once when a genuinely new unseen share invitation arrives
+      const seen = getSeenShareNotificationHashes();
       for (const folder of liveReceived) {
-        if (!knownIds.has(folder.id)) {
-          knownIds.add(folder.id);
-          // Show interactive real-time notification toast!
+        if (!folder || !folder.id) continue;
+        const hash = computeShareNotificationHash(folder);
+        if (!seen.has(folder.id) && !seen.has(hash)) {
+          // Immediately mark seen in memory and localStorage so it can NEVER fire again
+          markShareNotificationsSeen([folder.id, hash]);
+          seen.add(folder.id);
+          seen.add(hash);
+
+          // Show interactive real-time notification toast exactly once
           showToast(
             settings.language === 'ar'
               ? `📬 وصلتك مشاركة جديدة من "${folder.ownerName}": "${folder.name}"!`
@@ -864,28 +931,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       saveReceivedShareFolders(liveReceived);
-      // Dispatch event to update any open UI instantly
       window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: liveReceived }));
     });
 
-    // Background periodic poll every 3 seconds to catch incoming shares immediately
-    let isMounted = true;
-    const backgroundPoll = async () => {
-      try {
-        const live = await fetchMyInboxOnce(cleanId);
-        if (isMounted && live && live.length > 0) {
-          saveReceivedShareFolders(live);
-          window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: live }));
-        }
-      } catch {}
-    };
-    backgroundPoll();
-    const pollInterval = setInterval(backgroundPoll, 3000);
+    // Low-bandwidth optimization: rely strictly on event-driven Firebase onValue listeners (zero bandwidth when idle)
+    // Run one initial silent check on mount without continuous polling loops
+    fetchMyInboxOnce(cleanId).catch(() => {});
 
     return () => {
-      isMounted = false;
+      clearTimeout(hydrationTimer);
       unsub();
-      clearInterval(pollInterval);
     };
   }, [settings.userProfile?.numericId, settings.userProfile?.uid, settings.language]);
 
@@ -2062,6 +2117,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     accounts?: Account[];
     categories?: Category[];
     transactions?: Transaction[];
+    targetAccountId?: string;
   }): { accountsCount: number; categoriesCount: number; txsCount: number } => {
     try {
       const incomingAccounts = payload.accounts || [];
@@ -2116,14 +2172,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               (t.description || '').trim() === (incTx.description || '').trim())
         );
         if (!exists) {
-          let targetAccId = incTx.accountId;
+          let targetAccId = payload.targetAccountId || incTx.accountId;
           if (!updatedAccounts.some((a) => a.id === targetAccId)) {
             targetAccId = updatedAccounts[0]?.id || 'default_acc';
+          }
+          let targetCatId = incTx.categoryId;
+          if (incTx.categoryId && !updatedCategories.some((c) => c.id === incTx.categoryId)) {
+            const match = updatedCategories.find(
+              (c) =>
+                incTx.categoryName &&
+                c.name.toLowerCase().trim() === incTx.categoryName.toLowerCase().trim() &&
+                c.type === incTx.type
+            );
+            if (match) targetCatId = match.id;
           }
           updatedTxs.push({
             ...incTx,
             id: incTx.id || `tx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             accountId: targetAccId,
+            categoryId: targetCatId,
           });
           txsAdded++;
         }

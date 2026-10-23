@@ -31,6 +31,11 @@
         window.deferredPWAInstallPrompt = e;
         window.dispatchEvent(new CustomEvent('pwa-install-ready', { detail: e }));
       });
+      window.addEventListener('appinstalled', function () {
+        window.deferredPwaPrompt = null;
+        window.deferredPWAInstallPrompt = null;
+        window.dispatchEvent(new CustomEvent('app-installed-event'));
+      });
     </script>
   </head>
   <body class="bg-black text-white antialiased selection:bg-blue-600 selection:text-white">

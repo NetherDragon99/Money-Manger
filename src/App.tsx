@@ -51,6 +51,7 @@ import { auth, getCachedAuthUser } from './utils/firebase';
 import { flushOfflineQueue } from './utils/persistQueue';
 import { ShareFolderModal } from './components/ShareFolderModal';
 import { RemainingBalanceModal } from './components/RemainingBalanceModal';
+import { PWAInstallProgressModal } from './components/PWAInstallProgressModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 const OfflineBanner: React.FC = () => {
@@ -155,6 +156,7 @@ const MainAppContent: React.FC = () => {
   const [isBarsVisible, setIsBarsVisible] = useState<boolean>(true);
   const [updating, setUpdating] = useState(false);
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+  const [isPwaInstallModalOpen, setIsPwaInstallModalOpen] = useState(false);
   const tabHistoryRef = useRef<TabType[]>(['home']);
 
   // Capture PWA beforeinstallprompt event immediately in React state and window.deferredPwaPrompt
@@ -174,13 +176,20 @@ const MainAppContent: React.FC = () => {
       window.dispatchEvent(new CustomEvent('pwa-install-ready', { detail: e }));
     };
 
+    const handleTriggerInstall = () => {
+      setIsPwaInstallModalOpen(true);
+    };
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('trigger-pwa-install', handleTriggerInstall);
+
     if ((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt) {
       setDeferredPwaPrompt((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt);
     }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('trigger-pwa-install', handleTriggerInstall);
     };
   }, []);
 
@@ -888,6 +897,13 @@ const MainAppContent: React.FC = () => {
 
         {/* Automatic What's New on First Launch of each version */}
         <WhatsNewModal />
+
+        {/* Interactive PWA Pre-Cache Progress Modal */}
+        <PWAInstallProgressModal
+          isOpen={isPwaInstallModalOpen}
+          onClose={() => setIsPwaInstallModalOpen(false)}
+          isArabic={settings.language === 'ar'}
+        />
 
         {/* Android Exit Confirmation Modal */}
         <ExitConfirmModal

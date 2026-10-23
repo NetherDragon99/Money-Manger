@@ -21,6 +21,36 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.42',
+    releaseDate: 'October 23, 2026',
+    title: {
+      en: 'Fix ID Cursor Editing, Viewer Permissions, Toast Storm, Transfer Share Cards & Bandwidth Optimization',
+      ar: 'إصلاح مؤشر كتابة المعرف 16 رقماً، صلاحيات المشاهد، عاصفة الإشعارات، بطاقات التحويل ومطابقة استهلاك الإنترنت',
+    },
+    highlights: {
+      en: [
+        'Smooth 16-Digit ID Editing Without End-Jumping Cursor: Fixed 16-digit ID input cursor position preservation in Share modals and user picker; formats 4-digit groups (XXXX XXXX XXXX XXXX) on input while keeping the cursor exactly at the edited digit offset via requestAnimationFrame.',
+        'Landscape Split Layout Sticky Left Panel: Anchored summary card and added quick accounts balance breakdown card on the left panel (sticky top-4 max-h-[calc(100dvh-6rem)]) so landscape view remains balanced during timeline scrolling.',
+        'Interactive PWA Pre-Cache Progress & Auto-Install: Added full visual download & cache overlay (0% -> 100%) actively pre-caching bundles and assets via Cache Storage API, then immediately triggering native OS desktop/home-screen installation.',
+        'Complete Transfer Transactions in Shared Spaces: Preserved full transfer metadata (dual account names, icons, before/after balances) with dedicated transfer pill visualization across ShareDetailView and StandaloneShareView.',
+        'Strict Viewer vs. Editor Role Enforcement: Guarded Add Transaction, edit handlers, and delete actions behind canCurrentUserEdit; restricted personal feed deletion checkbox strictly to space owners or items confirmed in personal local storage.',
+        'Multi-Select & Confirmation Sheet Import to Personal Account: Enabled long-pressing individual transactions, days, and months in ShareDetailView to multi-select items and import selected or all transactions directly into a chosen personal account with automatic category matching and duplicate prevention.',
+        'Elimination of Toast Notification Storms: Added persistent seen share notification map (mm_seen_share_notifications) and 2.5s initial hydration guard; only fires a single toast when a genuinely new unseen share arrives, and deduplicates active toasts with a 3-second cooldown.',
+        'Live Profile Propagation & Zero Idle Bandwidth: Propagated updated Name, Avatar emoji, and PhotoURL across all owned and member shared spaces in real time; optimized network usage by relying on event-driven onValue listeners (zero bandwidth when idle), throttled fallback polling to 15s in foreground hub only, and skipped duplicate cloud writes.',
+      ],
+      ar: [
+        'تحرير معرف الـ 16 رقماً بسلاسة دون قفز المؤشر: إصلاح تحرك مؤشر الكتابة في حقول المعرف المكون من 16 رقماً في نوافذ المشاركة والبحث؛ الحفاظ على تنسيق المجموعات الرباعية وموضع المؤشر الدقيق عند التعديل في المنتصف.',
+        'لوحة جانبية مثبتة في الوضع الأفقي (Landscape): تثبيت ملخص الحسابات وبطاقة التوزيع السريع للأرصدة في العمود الأيسر في الوضع الأفقي للحفاظ على التوازن البصري أثناء التمرير في سجل المعاملات.',
+        'شريط تقدم التحميل المسبق وتثبيت التطبيق المباشر (PWA): شاشة تفاعلية لتحميل وتخزين كافة ملفات التطبيق (0% إلى 100%) بدون إنترنت عبر Cache Storage API وتثبيت التطبيق مباشرة للشاشة الرئيسية.',
+        'عرض معاملات التحويل بين الحسابات بكامل بياناتها في المشاركات: الحفاظ على بيانات التحويل (اسم وأيقونة الحسابين، الأرصدة قبل وبعد) مع عرض شريط تفاعلي في ShareDetailView و StandaloneShareView.',
+        'تطبيق صارم لصلاحيات المشاهد (Viewer) والمحرر (Editor): إخفاء وتعطيل أزرار الإضافة والتعديل والحذف لمستخدمي المشاهدة فقط؛ وقصر خيار الحذف من الحساب الشخصي على مالك المساحة أو المعاملات الموجودة بالفعل محلياً.',
+        'التحديد المتعدد واستيراد المعاملات للحساب الشخصي في صفحة المشاركة: إمكانية الضغط المطول لتحديد المعاملات والأيام والأشهر، مع نافذة تأكيد لاختيار الحساب الشخصي المستهدف والمطابقة الذكية للتصنيفات وتخطي التكرار.',
+        'القضاء النهائي على عاصفة الإشعارات المتكررة: إضافة سجل مستمر للإشعارات المعروضة (mm_seen_share_notifications) وحاجز زمني للتحميل الأولي، ومنع تكرار الإشعارات مع حد أقصى للظهور وتجميع الرسائل المتطابقة.',
+        'مزامنة الاسم والصورة لحظياً وترشيد استهلاك الإنترنت: تعميم تحديثات الاسم وصورة الملف الشخصي عبر كافة المساحات المشتركة (كمالك أو عضو) لحظياً، والاعتماد الكامل على مستمعي onValue التي لا تستهلك أي بيانات أثناء الخمول مع تقليص الاستعلام الاحتياطي إلى كل 15 ثانية داخل النافذة فقط.',
+      ],
+    },
+  },
+  {
     version: '1.1.41',
     releaseDate: 'October 23, 2026',
     title: {
