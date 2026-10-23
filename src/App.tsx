@@ -177,6 +177,21 @@ const MainAppContent: React.FC = () => {
     };
 
     const handleTriggerInstall = () => {
+      // Synchronously invoke prompt() on user gesture if dispatched from click
+      const promptEvent =
+        (window as any).deferredPwaPrompt ||
+        (window as any).deferredPWAInstallPrompt ||
+        deferredPwaPrompt;
+      if (promptEvent && typeof promptEvent.prompt === 'function') {
+        try {
+          if (!(promptEvent as any).__prompted) {
+            (promptEvent as any).__prompted = true;
+            promptEvent.prompt();
+          }
+        } catch (e) {
+          console.warn('Install prompt error:', e);
+        }
+      }
       setIsPwaInstallModalOpen(true);
     };
 

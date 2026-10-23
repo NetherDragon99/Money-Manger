@@ -882,7 +882,7 @@ export const Sidebar: React.FC = () => {
 
           {/* Standalone PWA Installation Card (Outside Backup) */}
           <div className="space-y-2">
-            <PWAInstallButton />
+            <PWAInstallButton deferredPrompt={deferredPwaPrompt} />
 
             {/* Complete Factory Reset & Clear All Data (Bug Fix: Delete PersonalFinanceTrackerDB + signOut + clear) */}
             <button

@@ -32,6 +32,7 @@ import {
   publishUserProfileCard,
   ShareFolder,
   UserProfileCard,
+  markShareCreatedByMe,
 } from '../utils/shareFolders';
 
 const POPULAR_SHARE_ICONS = ['📁', '💼', '🏠', '👥', '🛒', '✈️', '💰', '🍽️', '🚗', '🎓', '🏥', '🎉', '🎁', '⚡', '🌟', '💎'];
@@ -192,7 +193,7 @@ export const ShareFolderModal: React.FC = () => {
     const myAvatar = settings.userProfile?.avatarEmoji || (myPhoto ? '👤' : '👤');
 
     if (folderMode === 'new' || existingFolders.length === 0) {
-      return createNewShareFolder({
+      const created = createNewShareFolder({
         customName: customFolderName.trim() || autoMeta.name,
         customIcon: customFolderIcon.trim() || autoMeta.icon,
         accounts,
@@ -206,6 +207,11 @@ export const ShareFolderModal: React.FC = () => {
         ownerUid: user?.uid || settings.userProfile?.uid || '',
         isArabic,
       });
+      if (created) {
+        created.isCreatedByMe = true;
+        markShareCreatedByMe(created.id);
+      }
+      return created;
     } else {
       if (!selectedExistingId) return null;
       return appendToExistingShareFolder(selectedExistingId, {

@@ -60,6 +60,7 @@ import {
   getMemberInitials,
   resolveOwnerPhoto,
   ensureOwnerPhotoLoaded,
+  normalizeShareId,
 } from '../utils/shareFolders';
 import {
   formatCurrency,
@@ -637,10 +638,16 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
           ownerAvatar: liveFolder.ownerAvatar || prev.ownerAvatar,
           ownerPhotoURL: liveFolder.ownerPhotoURL || prev.ownerPhotoURL,
         }));
+      } else {
+        showToast(
+          isArabic ? 'تم حذف مساحة المشاركة من قِبل المالك' : 'This shared space was deleted by the owner',
+          'info'
+        );
+        onExit();
       }
     });
     return () => unsub();
-  }, [initialFolder.id]);
+  }, [initialFolder.id, isArabic, onExit, showToast]);
 
   // Dual Sync 2: Automatic 3-second periodic polling loop fetching active shared_accounts/share_${shareId}
   useEffect(() => {
@@ -650,7 +657,15 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     const pollActiveShare = async () => {
       try {
         const live = await fetchShareFolderFromCloud(initialFolder.id);
-        if (isMounted && live) {
+        if (isMounted) {
+          if (!live) {
+            showToast(
+              isArabic ? 'تم حذف مساحة المشاركة من قِبل المالك' : 'This shared space was deleted by the owner',
+              'info'
+            );
+            onExit();
+            return;
+          }
           setFolder((prev) => {
             if (
               live.updatedAt !== prev.updatedAt ||
@@ -697,6 +712,21 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       unsub();
     };
   }, [myCleanNumericId]);
+
+  // Real-time listener for share space deletion events
+  useEffect(() => {
+    const handlePurged = (e: any) => {
+      if (e?.detail?.shareId && normalizeShareId(e.detail.shareId) === normalizeShareId(initialFolder.id)) {
+        showToast(
+          isArabic ? 'تم حذف مساحة المشاركة من قِبل المالك' : 'This shared space was deleted by the owner',
+          'info'
+        );
+        onExit();
+      }
+    };
+    window.addEventListener('share_space_purged', handlePurged);
+    return () => window.removeEventListener('share_space_purged', handlePurged);
+  }, [initialFolder.id, onExit, isArabic, showToast]);
 
   // Ensure owner photo is loaded if missing
   useEffect(() => {

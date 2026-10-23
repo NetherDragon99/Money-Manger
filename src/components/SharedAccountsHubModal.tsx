@@ -54,6 +54,9 @@ import {
   resolveOwnerPhoto,
   markShareNotificationsSeen,
   computeShareNotificationHash,
+  markShareIdsNotifiedPerm,
+  getDismissedShareIds,
+  normalizeShareId,
 } from '../utils/shareFolders';
 import { ShareDetailView } from './ShareDetailView';
 
@@ -218,17 +221,22 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     if (!isOpen || !isAuthenticated || myCleanNumericId.length !== 16) return;
     const unsub = subscribeToMyInbox(myCleanNumericId, (liveReceived) => {
       if (liveReceived && Array.isArray(liveReceived)) {
+        const dismissed = getDismissedShareIds();
+        const filtered = liveReceived.filter((f) => f && f.id && !dismissed.has(normalizeShareId(f.id)));
         // Mark all viewed/received folders as seen so notification toasts are never triggered for them
         const hashesToMark: string[] = [];
-        for (const f of liveReceived) {
+        const idsToMark: string[] = [];
+        for (const f of filtered) {
           if (f && f.id) {
             hashesToMark.push(f.id);
             hashesToMark.push(computeShareNotificationHash(f));
+            idsToMark.push(f.id);
           }
         }
         markShareNotificationsSeen(hashesToMark);
-        setReceivedFolders(liveReceived);
-        saveReceivedShareFolders(liveReceived);
+        markShareIdsNotifiedPerm(idsToMark);
+        setReceivedFolders(filtered);
+        saveReceivedShareFolders(filtered);
       }
     });
     return () => unsub();
@@ -313,41 +321,36 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
       );
       setMyFolders(migratedMy);
       setReceivedFolders(migratedReceived);
+      markShareIdsNotifiedPerm(migratedReceived.map((f) => f.id));
     }
   }, [isOpen, myCleanNumericId, currentUser]);
 
-  // (2) Strictly filter "Shared by Me" to ONLY display spaces where cleanId(space.owner16DigitId) === myClean16Id (or space.ownerUid === currentUser.uid)
+  // (2) Strictly render a space in "Shared by Me" ONLY if (cleanId(space.owner16DigitId) === myClean16Id && !space.isReceivedShare)
   const displayedMyFolders = useMemo(() => {
     return myFolders.filter((space) => {
       const owner16 = cleanNumericId(space.owner16DigitId || space.ownerNumericId);
-      const isOwnerBy16 = myCleanNumericId && owner16 && owner16 === myCleanNumericId;
-      const isOwnerByUid = currentUser?.uid && space.ownerUid && space.ownerUid === currentUser.uid;
-      return isOwnerBy16 || isOwnerByUid;
+      return Boolean(myCleanNumericId && owner16 === myCleanNumericId && !space.isReceivedShare);
     });
-  }, [myFolders, myCleanNumericId, currentUser]);
+  }, [myFolders, myCleanNumericId]);
 
-  // (2) Strictly filter "Shared with Me" to display all spaces where cleanId(space.owner16DigitId) !== myClean16Id (including pending & accepted)
+  // (3) Render all other spaces in "Shared with Me"
   const displayedReceivedFolders = useMemo(() => {
     const combinedMap = new Map<string, ShareFolder>();
+    const dismissed = getDismissedShareIds();
     for (const f of receivedFolders) {
-      if (f && f.id) combinedMap.set(f.id, f);
+      if (f && f.id && !dismissed.has(normalizeShareId(f.id))) combinedMap.set(f.id, f);
     }
     for (const f of myFolders) {
+      if (!f || !f.id) continue;
+      if (dismissed.has(normalizeShareId(f.id))) continue;
       const owner16 = cleanNumericId(f.owner16DigitId || f.ownerNumericId);
-      const isOwner = (myCleanNumericId && owner16 && owner16 === myCleanNumericId) ||
-                      (currentUser?.uid && f.ownerUid && f.ownerUid === currentUser.uid);
-      if (!isOwner && f && f.id) {
-        combinedMap.set(f.id, f);
+      const isStrictMy = Boolean(myCleanNumericId && owner16 === myCleanNumericId && !f.isReceivedShare);
+      if (!isStrictMy) {
+        combinedMap.set(f.id, { ...f, isReceivedShare: true });
       }
     }
-
-    return Array.from(combinedMap.values()).filter((space) => {
-      const owner16 = cleanNumericId(space.owner16DigitId || space.ownerNumericId);
-      const isOwner = (myCleanNumericId && owner16 && owner16 === myCleanNumericId) ||
-                      (currentUser?.uid && space.ownerUid && space.ownerUid === currentUser.uid);
-      return !isOwner;
-    });
-  }, [receivedFolders, myFolders, myCleanNumericId, currentUser]);
+    return Array.from(combinedMap.values());
+  }, [receivedFolders, myFolders, myCleanNumericId]);
 
   if (!isOpen) return null;
 

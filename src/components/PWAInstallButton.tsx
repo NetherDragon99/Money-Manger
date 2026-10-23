@@ -5,13 +5,37 @@ import { useApp } from '../context/AppContext';
 import { checkForAppUpdates, applyLatestAppUpdate } from '../utils/versionChecker';
 import { PWAInstallProgressModal } from './PWAInstallProgressModal';
 
-export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+export const PWAInstallButton: React.FC<{ compact?: boolean; deferredPrompt?: any }> = ({
+  compact = false,
+  deferredPrompt,
+}) => {
   const { isInstalled } = usePWAInstall();
   const { settings, showToast } = useApp();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [showProgressModal, setShowProgressModal] = useState(false);
 
-  const handleInstallToHomeScreen = () => {
+  const handleInstallToHomeScreen = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+
+    // (1) Synchronously invoke prompt() on the EXACT millisecond of user click gesture
+    const win = typeof window !== 'undefined' ? (window as any) : null;
+    const promptEvent =
+      win?.deferredPwaPrompt ||
+      win?.deferredPWAInstallPrompt ||
+      deferredPrompt;
+
+    if (promptEvent && typeof promptEvent.prompt === 'function') {
+      try {
+        if (!(promptEvent as any).__prompted) {
+          (promptEvent as any).__prompted = true;
+          promptEvent.prompt();
+        }
+      } catch (err) {
+        console.warn('Direct PWA prompt invocation error:', err);
+      }
+    }
+
+    // (2) Concurrently run the 0% -> 100% offline pre-caching progress bar
     setShowProgressModal(true);
   };
 

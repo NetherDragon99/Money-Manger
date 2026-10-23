@@ -21,6 +21,30 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.43',
+    releaseDate: 'October 23, 2026',
+    title: {
+      en: 'Synchronous Native PWA Install, One-Time Share Notifications, Shared With Me Ownership Partition & Permanent Share Deletion Sync',
+      ar: 'التثبيت المباشر الفوري لتطبيق PWA، إشعارات المشاركة لمرة واحدة، الفصل الدقيق لملكية المشاركات ومزامنة الحذف النهائي',
+    },
+    highlights: {
+      en: [
+        'Synchronous Native PWA Install on First User Gesture: Preserved user click gesture by immediately invoking promptEvent.prompt() synchronously before launching the 0% -> 100% offline Service Worker pre-caching progress modal, preventing Chrome/Android from blocking native home screen installation.',
+        'Strict One-Time Notification per Share ID: Maintained persistent normalized share ID array (mm_notified_share_ids_perm) in localStorage; pre-seeds cached spaces on launch and suppresses repeated notifications so users only receive an alert the exact first time a new share arrives.',
+        'Accurate "Shared by Me" vs. "Shared with Me" Partitioning: Fixed ownership attribution in syncFolderToCloud, fetchMyInboxOnce, and Hub views; tracked created spaces locally in mm_my_created_share_ids (space.isCreatedByMe = true), strictly preserved sender identity for received spaces (space.isReceivedShare = true), and migrated misplaced cached spaces.',
+        'Comprehensive Real-Time Share Deletion & Tombstone Delivery: When space owner deletes a shared space, marks master cloud node with { deleted: true } and erases all member delivery slots (0..9), invite nodes, profile shares, and inboxes; recipients instantly detect deleted status and purge the space from local cache and UI in real time.',
+        'Permanent Recipient Leave Blacklist: When a recipient leaves or deletes a received space, permanently records normalized shareId in mm_dismissed_share_ids (local and RTDB-backed), removes recipient from members list, and wipes their matching cloud slots so left shares never reappear.',
+      ],
+      ar: [
+        'تثبيت فوري ومباشر لتطبيق PWA بإيماءة المستخدم الأولى: الحفاظ على أمان المتصفح عبر استدعاء promptEvent.prompt() لحظياً ومتزامناً مع نقرة الزر الأولى قبل بدء شريط تحميل التخزين بدون إنترنت، مما يمنع متصفح كروم/أندرويد من حجب نافذة التثبيت الأصلية.',
+        'إشعار واحد فقط وثابت لكل مساحة مشاركة جديدة: إنشاء سجل دائم للمعرفات التي تم الإشعار عنها (mm_notified_share_ids_perm) في التخزين المحلي؛ استبعاد المساحات المخزنة مسبقاً والتأكد من إشعار المستخدم مرة واحدة فقط عند وصول مشاركة جديدة لأول مرة.',
+        'فصل دقيق للملكية بين "مشاركاتي" و"مشارك معي": حماية بيانات المرسل في مزامنة السحابة واستقبال المشاركات، وتسجيل المساحات المنشأة محلياً في mm_my_created_share_ids مع وضع علامة isReceivedShare للمستلم، وترحيل وتصحيح أي مساحات مشاركة وُضعت سابقاً في التبويب الخاطئ.',
+        'حذف نهائي فوري وشامل ومسح خانات التسليم: عند قيام المالك بحذف مساحة مشاركة، يتم تعليم العقدة السحابية بعلامة { deleted: true } ومسح جميع خانات التسليم (0..9) والدعوات وصناديق الوارد للأعضاء؛ ليكتشف المستلمون الحذف لحظياً ويتم إزالة المساحة من أجهزتهم وشاشاتهم فوراً.',
+        'قائمة سوداء دائمة للمشاركات المغادرة (Blacklist): عند مغادرة أو حذف المستلم لمساحة مشاركة، يُسجل معرف المشاركة في mm_dismissed_share_ids محلياً وسحابياً مع مسح خانات المستخدم وإزالته من قائمة الأعضاء لمنع عودة المساحة للظهور مجدداً.',
+      ],
+    },
+  },
+  {
     version: '1.1.42',
     releaseDate: 'October 23, 2026',
     title: {

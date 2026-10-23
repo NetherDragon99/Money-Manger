@@ -104,6 +104,14 @@ import {
   getSeenShareNotificationHashes,
   computeShareNotificationHash,
   markShareNotificationsSeen,
+  normalizeShareId,
+  getNotifiedShareIdsPerm,
+  markShareIdsNotifiedPerm,
+  isShareIdNotifiedPerm,
+  getDismissedShareIds,
+  isShareDismissed,
+  repairAndMigrateSharedSpaces,
+  saveShareFolder,
   propagateUserProfileToAllSharedSpaces,
 } from '../utils/shareFolders';
 
@@ -862,16 +870,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const cleanId = cleanNumericId(rawId || '');
     if (cleanId.length !== 16) return;
 
+    // Run automatic startup migration on existing cached localStorage shares to move
+    // any space whose ownerUid !== currentUser.uid or isReceivedShare === true back to "Shared with Me"
+    const currentUid = auth.currentUser?.uid || getCachedAuthUser()?.uid || settings.userProfile?.uid;
+    repairAndMigrateSharedSpaces(cleanId, currentUid);
+
     // Track known / seen share notification hashes in persistent mm_seen_share_notifications
+    // and track normalized share IDs in mm_notified_share_ids_perm
     const initialReceived = loadReceivedShareFolders();
     const initialHashes: string[] = [];
+    const initialShareIds: string[] = [];
     for (const f of initialReceived) {
       if (f && f.id) {
         initialHashes.push(f.id);
         initialHashes.push(computeShareNotificationHash(f));
+        initialShareIds.push(f.id);
       }
     }
     markShareNotificationsSeen(initialHashes);
+    markShareIdsNotifiedPerm(initialShareIds);
 
     // Initial onValue hydration guard: DO NOT fire any toasts during initial loading
     let isInitialHydration = true;
@@ -879,55 +896,77 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isInitialHydration = false;
     }, 2500);
 
-    const unsub = subscribeToMyInbox(cleanId, (liveReceived) => {
-      if (!Array.isArray(liveReceived)) return;
+    const unsub = subscribeToMyInbox(cleanId, (rawLiveReceived) => {
+      if (!Array.isArray(rawLiveReceived)) return;
+      const dismissedIds = getDismissedShareIds();
+      const liveReceived = rawLiveReceived.filter((f) => f && f.id && !dismissedIds.has(normalizeShareId(f.id)));
 
       // 1. During initial onValue hydration, mark all existing folders as seen and never fire toasts
       if (isInitialHydration) {
         const hashesToMark: string[] = [];
+        const idsToMark: string[] = [];
         for (const folder of liveReceived) {
           if (folder && folder.id) {
             hashesToMark.push(folder.id);
             hashesToMark.push(computeShareNotificationHash(folder));
+            idsToMark.push(folder.id);
           }
         }
         markShareNotificationsSeen(hashesToMark);
+        markShareIdsNotifiedPerm(idsToMark);
         saveReceivedShareFolders(liveReceived);
         window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: liveReceived }));
         return;
       }
 
       // 2. Post-hydration: ONLY fire once when a genuinely new unseen share invitation arrives
-      const seen = getSeenShareNotificationHashes();
+      // Check permanent array of seen share IDs in localStorage ('mm_notified_share_ids_perm')
+      const notifiedPermSet = getNotifiedShareIdsPerm();
+      const seenHashes = getSeenShareNotificationHashes();
       for (const folder of liveReceived) {
         if (!folder || !folder.id) continue;
-        const hash = computeShareNotificationHash(folder);
-        if (!seen.has(folder.id) && !seen.has(hash)) {
-          // Immediately mark seen in memory and localStorage so it can NEVER fire again
-          markShareNotificationsSeen([folder.id, hash]);
-          seen.add(folder.id);
-          seen.add(hash);
+        const cleanShareId = normalizeShareId(folder.id);
+        if (!cleanShareId) continue;
 
-          // Show interactive real-time notification toast exactly once
-          showToast(
-            settings.language === 'ar'
-              ? `📬 وصلتك مشاركة جديدة من "${folder.ownerName}": "${folder.name}"!`
-              : `📬 New share received from "${folder.ownerName}": "${folder.name}"!`,
-            'info',
-            {
-              label: settings.language === 'ar' ? 'عرض المشاركة' : 'View Share',
-              onClick: () => {
-                setIsSharedHubModalOpen(true);
-                window.dispatchEvent(
-                  new CustomEvent('open_shared_accounts_hub', {
-                    detail: { tab: 'shared_with_me', folderId: folder.id },
-                  })
-                );
-              },
-            },
-            7000
-          );
+        // If the normalized share.id is already in 'mm_notified_share_ids_perm' - NEVER fire a toast or notification!
+        if (notifiedPermSet.has(cleanShareId)) {
+          continue;
         }
+
+        const hash = computeShareNotificationHash(folder);
+        if (seenHashes.has(folder.id) || seenHashes.has(hash)) {
+          markShareIdsNotifiedPerm([cleanShareId]);
+          notifiedPermSet.add(cleanShareId);
+          continue;
+        }
+
+        // ONLY fire the notification the very first time a brand-new unseen share.id arrives,
+        // and immediately append that share.id to 'mm_notified_share_ids_perm' in localStorage
+        markShareIdsNotifiedPerm([cleanShareId]);
+        notifiedPermSet.add(cleanShareId);
+        markShareNotificationsSeen([folder.id, hash]);
+        seenHashes.add(folder.id);
+        seenHashes.add(hash);
+
+        // Show interactive real-time notification toast exactly once
+        showToast(
+          settings.language === 'ar'
+            ? `📬 وصلتك مشاركة جديدة من "${folder.ownerName}": "${folder.name}"!`
+            : `📬 New share received from "${folder.ownerName}": "${folder.name}"!`,
+          'info',
+          {
+            label: settings.language === 'ar' ? 'عرض المشاركة' : 'View Share',
+            onClick: () => {
+              setIsSharedHubModalOpen(true);
+              window.dispatchEvent(
+                new CustomEvent('open_shared_accounts_hub', {
+                  detail: { tab: 'shared_with_me', folderId: folder.id },
+                })
+              );
+            },
+          },
+          7000
+        );
       }
 
       saveReceivedShareFolders(liveReceived);
@@ -1142,6 +1181,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (Array.isArray(d.sharedSpaces.receivedFolders)) {
         saveReceivedShareFolders(d.sharedSpaces.receivedFolders);
       }
+      const my16 = cleanNumericId(settings.userProfile?.numericId || getOrCreateNumericId());
+      repairAndMigrateSharedSpaces(my16, auth.currentUser?.uid || settings.userProfile?.uid);
     }
   };
 
@@ -2375,6 +2416,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           existing.forEach((f: ShareFolder) => { if (f && f.id && !map.has(f.id)) map.set(f.id, f); });
           saveReceivedShareFolders(Array.from(map.values()));
         }
+        const my16 = cleanNumericId(settings.userProfile?.numericId || getOrCreateNumericId());
+        repairAndMigrateSharedSpaces(my16, uid);
       }
 
       // Immediately restore full profile & 16-digit ID upon merge

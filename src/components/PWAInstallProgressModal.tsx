@@ -149,35 +149,41 @@ export const PWAInstallProgressModal: React.FC<PWAInstallProgressModalProps> = (
       await new Promise((r) => setTimeout(r, 350));
       if (cancelRef.current) return;
 
-      // 3. Automatically invoke captured beforeinstallprompt
+      // 3. Finalize installation & monitor user choice
       const win = typeof window !== 'undefined' ? (window as any) : null;
       const promptEvent = win?.deferredPwaPrompt || win?.deferredPWAInstallPrompt;
 
-      if (promptEvent && typeof promptEvent.prompt === 'function') {
+      if (promptEvent) {
         try {
-          await promptEvent.prompt();
-          const choice = await promptEvent.userChoice;
-          if (choice?.outcome === 'accepted') {
-            showToast(
-              isArabic
-                ? 'تم تثبيت التطبيق بنجاح كـ تطبيق مستقل!'
-                : 'App installed successfully to your device!',
-              'success'
-            );
-            if (win) {
-              win.deferredPwaPrompt = null;
-              win.deferredPWAInstallPrompt = null;
+          // If not prompted synchronously yet, attempt prompt as fallback
+          if (typeof promptEvent.prompt === 'function' && !(promptEvent as any).__prompted) {
+            (promptEvent as any).__prompted = true;
+            await promptEvent.prompt();
+          }
+          if (promptEvent.userChoice) {
+            const choice = await promptEvent.userChoice;
+            if (choice?.outcome === 'accepted') {
+              showToast(
+                isArabic
+                  ? 'تم تثبيت التطبيق بنجاح كـ تطبيق مستقل!'
+                  : 'App installed successfully to your device!',
+                'success'
+              );
+              if (win) {
+                win.deferredPwaPrompt = null;
+                win.deferredPWAInstallPrompt = null;
+              }
+            } else {
+              showToast(
+                isArabic
+                  ? 'تم حفظ كافة ملفات التطبيق بنجاح للعمل بدون إنترنت!'
+                  : 'App files cached 100% for offline use!',
+                'info'
+              );
             }
-          } else {
-            showToast(
-              isArabic
-                ? 'تم حفظ كافة ملفات التطبيق بنجاح للعمل بدون إنترنت!'
-                : 'App files cached 100% for offline use!',
-              'info'
-            );
           }
         } catch (err) {
-          console.warn('Install prompt error:', err);
+          console.warn('Install prompt handling error:', err);
           showToast(
             isArabic
               ? 'تم حفظ ملفات التطبيق بنجاح للعمل دون إنترنت!'
@@ -293,13 +299,36 @@ export const PWAInstallProgressModal: React.FC<PWAInstallProgressModalProps> = (
           </div>
         </div>
 
+        {/* Primary Install on Device Button (if completed) */}
+        {isCompleted && (
+          <button
+            type="button"
+            onClick={() => {
+              const win = typeof window !== 'undefined' ? (window as any) : null;
+              const promptEvent = win?.deferredPwaPrompt || win?.deferredPWAInstallPrompt;
+              if (promptEvent && typeof promptEvent.prompt === 'function') {
+                try {
+                  promptEvent.prompt();
+                } catch (e) {
+                  console.warn('Click install error:', e);
+                }
+              }
+              onClose();
+            }}
+            className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-blue-600/30 active:scale-95"
+          >
+            <Download className="w-4 h-4" />
+            <span>{isArabic ? 'تثبيت على الجهاز الآن' : 'Install on Device Now'}</span>
+          </button>
+        )}
+
         {/* Cancel / Close button */}
         <button
           type="button"
           onClick={onClose}
           className="w-full py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white text-xs font-semibold transition cursor-pointer"
         >
-          {isArabic ? 'إلغاء' : 'Cancel'}
+          {isArabic ? (isCompleted ? 'إغلاق' : 'إلغاء') : (isCompleted ? 'Close' : 'Cancel')}
         </button>
       </div>
     </div>
