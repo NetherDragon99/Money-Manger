@@ -4,12 +4,9 @@ import path from 'path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(({ command }) => {
-  const isDev = command === 'serve';
-  const base = isDev ? '/' : './';
-
+export default defineConfig(() => {
   return {
-    base,
+    base: '/',
     plugins: [
       react(),
       tailwindcss(),
@@ -23,7 +20,6 @@ export default defineConfig(({ command }) => {
           'version.json',
           'pwa-192x192.png',
           'pwa-512x512.png',
-          'pwa-maskable-512x512.png',
         ],
         manifest: {
           id: '/',
@@ -34,7 +30,7 @@ export default defineConfig(({ command }) => {
           theme_color: '#000000',
           background_color: '#000000',
           display: 'standalone',
-          display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
+          display_override: ['standalone'],
           orientation: 'any',
           start_url: '/',
           scope: '/',
@@ -42,25 +38,19 @@ export default defineConfig(({ command }) => {
           prefer_related_applications: false,
           icons: [
             {
-              src: 'pwa-192x192.png',
+              src: '/pwa-192x192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: 'pwa-192x192.png',
-              sizes: '192x192',
-              type: 'image/png',
-              purpose: 'maskable',
-            },
-            {
-              src: 'pwa-512x512.png',
+              src: '/pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: 'pwa-maskable-512x512.png',
+              src: '/pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',

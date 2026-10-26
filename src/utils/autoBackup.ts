@@ -4,7 +4,7 @@
  * and background execution loops on visibilitychange / intervals.
  */
 
-import { AppData, Account, Category, Transaction, AppSettings, RecurringTransaction } from '../types';
+import { AppData, Account, Category, Transaction, AppSettings, RecurringTransaction, Tombstone, GranularDirtyQueueItem } from '../types';
 import {
   getGoogleDriveAccessToken,
   setGoogleDriveAccessToken,
@@ -12,10 +12,11 @@ import {
   getFirebaseCloudBackup,
   rtdb,
 } from './firebase';
-import { ref, update } from 'firebase/database';
+import { ref, update, get, set, onValue, off } from 'firebase/database';
 import { cleanNumericId } from './userId';
 import { ShareFolder, loadMyShareFolders, loadReceivedShareFolders } from './shareFolders';
 import { queueOfflineCloudBackup } from './persistQueue';
+import { INITIAL_CATEGORIES } from './constants';
 
 export interface FullAppBackupPayload {
   version: string;
@@ -168,7 +169,7 @@ export async function executeAutoBackup(data: AppData): Promise<{ success: boole
   const fileName = `auto_backup_${timestamp}.json`;
 
   const backupPayload = {
-    version: '1.1.45',
+    version: '1.1.47',
     type: 'automated_backup',
     backupDate: new Date().toISOString(),
     ...data,
@@ -611,4 +612,786 @@ export function scheduleDualCloudBackup(
       console.warn('[DualCloudBackup] Debounced backup execution error:', err);
     }
   }, debounceMs);
+}
+
+// ============================================================================
+// STAGE 4: SERVER TIME OFFSET & SYNCNOW()
+// ============================================================================
+
+let serverTimeOffset = 0;
+if (typeof localStorage !== 'undefined') {
+  serverTimeOffset = Number(localStorage.getItem('mm_server_time_offset')) || 0;
+}
+
+if (typeof window !== 'undefined' && rtdb) {
+  try {
+    const offsetRef = ref(rtdb, '.info/serverTimeOffset');
+    onValue(offsetRef, (snap) => {
+      const val = Number(snap.val());
+      if (!isNaN(val)) {
+        serverTimeOffset = val;
+        try {
+          localStorage.setItem('mm_server_time_offset', String(val));
+        } catch {}
+      }
+    });
+  } catch (e) {
+    console.warn('[AutoBackup] Server time offset listener failed:', e);
+  }
+}
+
+/**
+ * Single source of truth for timestamps across the app.
+ * Compensates for device clock skew using RTDB .info/serverTimeOffset.
+ */
+export function syncNow(): number {
+  const cachedOffset = typeof localStorage !== 'undefined'
+    ? Number(localStorage.getItem('mm_server_time_offset')) || 0
+    : 0;
+  return Date.now() + (cachedOffset || serverTimeOffset || 0);
+}
+
+// ============================================================================
+// STAGE 2: USER DATA DETECTION
+// ============================================================================
+
+/**
+ * Defines whether a state (local or cloud snapshot) contains real user data.
+ * Criteria: transactions > 0 || recurring > 0 || budgets > 0 ||
+ * any account or category modified from default seed data.
+ */
+export function hasUserData(state: {
+  transactions?: any[];
+  recurringTransactions?: any[];
+  budgets?: any[];
+  accounts?: any[];
+  categories?: any[];
+} | null | undefined): boolean {
+  if (!state) return false;
+  const txs = (state.transactions || []).filter((t: any) => !t?.isUneditable);
+  if (txs.length > 0) return true;
+  if ((state.recurringTransactions || []).length > 0) return true;
+  if ((state.budgets || []).length > 0) return true;
+
+  const accs = state.accounts || [];
+  if (accs.length > 1) return true;
+  if (accs.length === 1) {
+    const a = accs[0];
+    if (a.id !== 'default_cash' || Number(a.balance) !== 0 || a.name !== 'Cash Wallet') {
+      return true;
+    }
+  }
+
+  const cats = state.categories || [];
+  if (cats.length > 0 && cats.length !== INITIAL_CATEGORIES.length) return true;
+  if (cats.length > 0) {
+    const isCatModified = cats.some((c: any, idx: number) => {
+      const init = INITIAL_CATEGORIES[idx];
+      if (!init) return true;
+      return c.id !== init.id || c.name !== init.name || (Number(c.budgetLimit) > 0);
+    });
+    if (isCatModified) return true;
+  }
+
+  return false;
+}
+
+// ============================================================================
+// LOCAL TOMBSTONES STORAGE
+// ============================================================================
+
+const LOCAL_TOMBSTONES_KEY = 'mm_local_tombstones';
+
+export function loadLocalTombstones(): Record<string, Tombstone> {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(LOCAL_TOMBSTONES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveLocalTombstone(tomb: Tombstone): void {
+  if (typeof localStorage === 'undefined' || !tomb?.id) return;
+  try {
+    const current = loadLocalTombstones();
+    current[tomb.id] = tomb;
+    localStorage.setItem(LOCAL_TOMBSTONES_KEY, JSON.stringify(current));
+  } catch {}
+}
+
+// ============================================================================
+// STAGE 1: CLOUD ACCOUNT INSPECTION
+// ============================================================================
+
+/**
+ * Fetches the account's cloud data with one-time get() calls WITHOUT mutating local state.
+ * Reads v4 flat nodes first:
+ * - shared_accounts/g_manifest_${uid}
+ * - shared_accounts/g_${uid}_transactions | _recurring | _accounts | _categories | _budgets | _tombstones
+ * Falls back to legacy users/${uid}/cloud_backup and shared_accounts/backup_${uid} if v4 does not exist yet.
+ */
+export async function fetchCloudAccountSnapshot(uid: string): Promise<{
+  snapshot: any;
+  source: 'v4' | 'legacy' | 'none';
+  provider: 'firebase' | 'google_drive';
+} | null> {
+  if (!uid || !rtdb) return null;
+
+  try {
+    const manifestRef = ref(rtdb, `shared_accounts/g_manifest_${uid}`);
+    const txRef = ref(rtdb, `shared_accounts/g_${uid}_transactions`);
+    const recRef = ref(rtdb, `shared_accounts/g_${uid}_recurring`);
+    const accRef = ref(rtdb, `shared_accounts/g_${uid}_accounts`);
+    const catRef = ref(rtdb, `shared_accounts/g_${uid}_categories`);
+    const budRef = ref(rtdb, `shared_accounts/g_${uid}_budgets`);
+    const tombRef = ref(rtdb, `shared_accounts/g_${uid}_tombstones`);
+
+    const [manSnap, txSnap, recSnap, accSnap, catSnap, budSnap, tombSnap] = await Promise.all([
+      get(manifestRef).catch(() => null),
+      get(txRef).catch(() => null),
+      get(recRef).catch(() => null),
+      get(accRef).catch(() => null),
+      get(catRef).catch(() => null),
+      get(budRef).catch(() => null),
+      get(tombRef).catch(() => null),
+    ]);
+
+    const hasV4Manifest = manSnap && manSnap.exists() && manSnap.val();
+    const hasV4Data = [txSnap, recSnap, accSnap, catSnap, budSnap, tombSnap].some(
+      (s) => s && s.exists() && s.val() && s.val().items
+    );
+
+    if (hasV4Manifest || hasV4Data) {
+      const manVal = (manSnap && manSnap.exists() && manSnap.val()) || {};
+      const txVal = (txSnap && txSnap.exists() && txSnap.val()) || {};
+      const recVal = (recSnap && recSnap.exists() && recSnap.val()) || {};
+      const accVal = (accSnap && accSnap.exists() && accSnap.val()) || {};
+      const catVal = (catSnap && catSnap.exists() && catSnap.val()) || {};
+      const budVal = (budSnap && budSnap.exists() && budSnap.val()) || {};
+      const tombVal = (tombSnap && tombSnap.exists() && tombSnap.val()) || {};
+
+      const txs = Object.values(txVal.items || {});
+      const recurring = Object.values(recVal.items || {});
+      const accounts = Object.values(accVal.items || {});
+      const categories = Object.values(catVal.items || {});
+      const budgets = Object.values(budVal.items || {});
+      const tombstones: Record<string, any> = tombVal.items || {};
+
+      // Seed local tombstones from cloud
+      Object.values(tombstones).forEach((t: any) => {
+        if (t && t.id) saveLocalTombstone(t);
+      });
+
+      return {
+        snapshot: {
+          transactions: txs,
+          recurringTransactions: recurring,
+          accounts: accounts,
+          categories: categories,
+          budgets: budgets,
+          tombstones: tombstones,
+          settings: manVal.settings || {},
+          userProfile: manVal.profile || manVal.settings?.userProfile || {},
+          updatedAt: Number(manVal.updatedAt || txVal.updatedAt || 0),
+          ownerUid: uid,
+        },
+        source: 'v4',
+        provider: 'firebase',
+      };
+    }
+  } catch (err) {
+    console.warn('[AutoBackup] Error reading v4 flat nodes:', err);
+  }
+
+  // Fallback to legacy server nodes (Google Drive and Firebase users/${uid}/cloud_backup)
+  try {
+    const legacy = await fetchDualCloudBackup(uid);
+    if (legacy && legacy.data) {
+      return {
+        snapshot: legacy.data,
+        source: 'legacy',
+        provider: legacy.provider,
+      };
+    }
+  } catch (err) {
+    console.warn('[AutoBackup] Error reading legacy cloud backup:', err);
+  }
+
+  return {
+    snapshot: null,
+    source: 'none',
+    provider: 'firebase',
+  };
+}
+
+// ============================================================================
+// STAGE 3: CLEAN V4 MIGRATION & LEGACY SERVER PURGE
+// ============================================================================
+
+export async function purgeObsoleteLegacyServerNodes(uid: string): Promise<void> {
+  if (!uid || !rtdb) return;
+  try {
+    await Promise.allSettled([
+      set(ref(rtdb, `users/${uid}/cloud_backup`), null),
+      set(ref(rtdb, `users/${uid}/auto_backup`), null),
+      set(ref(rtdb, `shared_accounts/backup_${uid}`), null),
+    ]);
+    console.log('[AutoBackup] Obsolete legacy server nodes successfully purged');
+  } catch (err) {
+    console.warn('[AutoBackup] Error during legacy server nodes purge:', err);
+  }
+}
+
+export async function writeV4ResolvedState(
+  uid: string,
+  state: {
+    transactions: Transaction[];
+    recurringTransactions?: RecurringTransaction[];
+    accounts: Account[];
+    categories: Category[];
+    budgets?: any[];
+    settings: AppSettings;
+    userProfile?: any;
+    tombstones?: Record<string, Tombstone>;
+  }
+): Promise<boolean> {
+  if (!uid || !rtdb) return false;
+  const now = syncNow();
+
+  try {
+    // 1. Write Manifest Node: shared_accounts/g_manifest_${uid}
+    const manifestRef = ref(rtdb, `shared_accounts/g_manifest_${uid}`);
+    const effProfile = state.userProfile || state.settings?.userProfile || {};
+    const manifestPayload = {
+      ownerUid: uid,
+      accountName: 'manifest',
+      updatedAt: now,
+      settings: { ...state.settings, updatedAt: now },
+      profile: { ...effProfile, updatedAt: now },
+    };
+    await set(manifestRef, JSON.parse(JSON.stringify(manifestPayload)));
+
+    // 2. Write Six Flat Collection Nodes
+    const collections: Array<{
+      name: 'transactions' | 'recurring' | 'accounts' | 'categories' | 'budgets' | 'tombstones';
+      items: any[];
+    }> = [
+      { name: 'transactions', items: state.transactions || [] },
+      { name: 'recurring', items: state.recurringTransactions || [] },
+      { name: 'accounts', items: state.accounts || [] },
+      { name: 'categories', items: state.categories || [] },
+      { name: 'budgets', items: state.budgets || [] },
+      {
+        name: 'tombstones',
+        items: Object.values(state.tombstones || loadLocalTombstones() || {}),
+      },
+    ];
+
+    for (const col of collections) {
+      const itemsMap: Record<string, any> = {};
+      col.items.forEach((item) => {
+        if (item && item.id) {
+          itemsMap[item.id] = {
+            ...item,
+            updatedAt: item.updatedAt || item.deletedAt || now,
+          };
+        }
+      });
+
+      const colRef = ref(rtdb, `shared_accounts/g_${uid}_${col.name}`);
+      const colPayload = {
+        ownerUid: uid,
+        accountName: col.name,
+        updatedAt: now,
+        items: itemsMap,
+      };
+      await set(colRef, JSON.parse(JSON.stringify(colPayload)));
+    }
+
+    // 3. Verify via read-back count check
+    const verifyTxRef = ref(rtdb, `shared_accounts/g_${uid}_transactions`);
+    const verifySnap = await get(verifyTxRef);
+    const writtenTxsCount = Object.keys(verifySnap.val()?.items || {}).length;
+    const expectedTxsCount = (state.transactions || []).length;
+
+    if (verifySnap.exists() && writtenTxsCount === expectedTxsCount) {
+      console.log(`[AutoBackup] V4 write confirmed (${writtenTxsCount} transactions). Purging legacy server nodes...`);
+      // 4. ONLY ONCE confirmed: delete all obsolete legacy server nodes
+      await purgeObsoleteLegacyServerNodes(uid);
+      return true;
+    } else {
+      console.warn(`[AutoBackup] V4 count check mismatch: expected ${expectedTxsCount}, got ${writtenTxsCount}`);
+      return false;
+    }
+  } catch (err) {
+    console.error('[AutoBackup] Failed to write v4 resolved state:', err);
+    return false;
+  }
+}
+
+// ============================================================================
+// STAGE 4: LIVE GRANULAR PER-ITEM DELTA SYNCS & TOMBSTONES
+// ============================================================================
+
+export const GRANULAR_DIRTY_QUEUE_KEY = 'mm_granular_v4_dirty_queue';
+
+export function loadGranularDirtyQueue(): Record<string, GranularDirtyQueueItem> {
+  try {
+    const raw = localStorage.getItem(GRANULAR_DIRTY_QUEUE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveGranularDirtyQueue(queue: Record<string, GranularDirtyQueueItem>): void {
+  try {
+    localStorage.setItem(GRANULAR_DIRTY_QUEUE_KEY, JSON.stringify(queue));
+  } catch (err) {
+    console.warn('[AutoBackup] Error saving granular dirty queue:', err);
+  }
+}
+
+export function enqueueGranularDirtyItem(
+  item: GranularDirtyQueueItem,
+  uid?: string,
+  isSyncUnlocked?: boolean
+): void {
+  const boundUid = localStorage.getItem('mm_bound_account_uid');
+  if (!uid || boundUid !== uid || !isSyncUnlocked) {
+    return;
+  }
+  const key = `${item.collection}:${item.id}`;
+  const queue = loadGranularDirtyQueue();
+  queue[key] = {
+    ...item,
+    updatedAt: item.updatedAt || syncNow(),
+  };
+  saveGranularDirtyQueue(queue);
+}
+
+export function removeGranularDirtyItem(collection: string, id: string): void {
+  const key = `${collection}:${id}`;
+  const queue = loadGranularDirtyQueue();
+  if (queue[key]) {
+    delete queue[key];
+    saveGranularDirtyQueue(queue);
+  }
+}
+
+export function hasGranularDirtyItems(): boolean {
+  const queue = loadGranularDirtyQueue();
+  return Object.keys(queue).length > 0;
+}
+
+export function clearGranularDirtyQueue(): void {
+  try {
+    localStorage.removeItem(GRANULAR_DIRTY_QUEUE_KEY);
+  } catch {}
+}
+
+export async function writeGranularDelta(
+  uid: string,
+  collection: 'transactions' | 'recurring' | 'accounts' | 'categories' | 'budgets',
+  item: any,
+  isSyncUnlocked?: boolean
+): Promise<void> {
+  if (!uid || !item || !item.id) return;
+  const boundUid = localStorage.getItem('mm_bound_account_uid');
+  if (boundUid !== uid || !isSyncUnlocked) {
+    return;
+  }
+
+  const now = item.updatedAt || syncNow();
+  const stamped = { ...item, updatedAt: now };
+
+  if (!navigator.onLine || !rtdb) {
+    enqueueGranularDirtyItem(
+      { collection, id: item.id, action: 'upsert', data: stamped, updatedAt: now },
+      uid,
+      isSyncUnlocked
+    );
+    return;
+  }
+
+  const colRef = ref(rtdb, `shared_accounts/g_${uid}_${collection}`);
+  const payload = {
+    ownerUid: uid,
+    accountName: collection,
+    updatedAt: now,
+    [`items/${item.id}`]: stamped,
+  };
+  try {
+    await update(colRef, JSON.parse(JSON.stringify(payload)));
+    removeGranularDirtyItem(collection, item.id);
+  } catch (err) {
+    console.warn(`[AutoBackup] writeGranularDelta offline or rejected for ${collection}/${item.id}:`, err);
+    enqueueGranularDirtyItem(
+      { collection, id: item.id, action: 'upsert', data: stamped, updatedAt: now },
+      uid,
+      isSyncUnlocked
+    );
+  }
+}
+
+export async function writeGranularManifest(
+  uid: string,
+  settings: AppSettings,
+  profile?: any,
+  isSyncUnlocked?: boolean
+): Promise<void> {
+  if (!uid) return;
+  const boundUid = localStorage.getItem('mm_bound_account_uid');
+  if (boundUid !== uid || !isSyncUnlocked) {
+    return;
+  }
+
+  const now = syncNow();
+  const effProfile = profile || settings.userProfile || {};
+  const stampedSettings = { ...settings, updatedAt: now };
+  const stampedProfile = { ...effProfile, updatedAt: now };
+
+  if (!navigator.onLine || !rtdb) {
+    enqueueGranularDirtyItem(
+      { collection: 'settings', id: 'settings', action: 'upsert', data: stampedSettings, updatedAt: now },
+      uid,
+      isSyncUnlocked
+    );
+    enqueueGranularDirtyItem(
+      { collection: 'profile', id: 'profile', action: 'upsert', data: stampedProfile, updatedAt: now },
+      uid,
+      isSyncUnlocked
+    );
+    return;
+  }
+
+  const manifestRef = ref(rtdb, `shared_accounts/g_manifest_${uid}`);
+  const payload = {
+    ownerUid: uid,
+    accountName: 'manifest',
+    updatedAt: now,
+    settings: stampedSettings,
+    profile: stampedProfile,
+  };
+  try {
+    await update(manifestRef, JSON.parse(JSON.stringify(payload)));
+    removeGranularDirtyItem('settings', 'settings');
+    removeGranularDirtyItem('profile', 'profile');
+  } catch (err) {
+    console.warn('[AutoBackup] writeGranularManifest failed, enqueuing offline:', err);
+    enqueueGranularDirtyItem(
+      { collection: 'settings', id: 'settings', action: 'upsert', data: stampedSettings, updatedAt: now },
+      uid,
+      isSyncUnlocked
+    );
+    enqueueGranularDirtyItem(
+      { collection: 'profile', id: 'profile', action: 'upsert', data: stampedProfile, updatedAt: now },
+      uid,
+      isSyncUnlocked
+    );
+  }
+}
+
+export async function writeGranularDeletion(
+  uid: string,
+  collection: 'transactions' | 'recurring' | 'accounts' | 'categories' | 'budgets',
+  itemId: string,
+  isSyncUnlocked?: boolean
+): Promise<void> {
+  if (!uid || !itemId) return;
+  const boundUid = localStorage.getItem('mm_bound_account_uid');
+  if (boundUid !== uid || !isSyncUnlocked) {
+    return;
+  }
+
+  const now = syncNow();
+  saveLocalTombstone({ id: itemId, collection, deletedAt: now });
+
+  if (!navigator.onLine || !rtdb) {
+    enqueueGranularDirtyItem(
+      { collection, id: itemId, action: 'delete', updatedAt: now },
+      uid,
+      isSyncUnlocked
+    );
+    return;
+  }
+
+  try {
+    // 1. FIRST write the tombstone to shared_accounts/g_${uid}_tombstones
+    const tombRef = ref(rtdb, `shared_accounts/g_${uid}_tombstones`);
+    const tombPayload = {
+      ownerUid: uid,
+      accountName: 'tombstones',
+      updatedAt: now,
+      [`items/${itemId}`]: { id: itemId, collection, deletedAt: now },
+    };
+    await update(tombRef, JSON.parse(JSON.stringify(tombPayload)));
+
+    // 2. ONLY AFTER tombstone write succeeds: remove items/${itemId} from collection
+    const colRef = ref(rtdb, `shared_accounts/g_${uid}_${collection}`);
+    const colPayload = {
+      ownerUid: uid,
+      accountName: collection,
+      updatedAt: now,
+      [`items/${itemId}`]: null,
+    };
+    await update(colRef, JSON.parse(JSON.stringify(colPayload)));
+    removeGranularDirtyItem(collection, itemId);
+  } catch (err) {
+    console.warn(`[AutoBackup] writeGranularDeletion failed, enqueuing offline delete for ${collection}/${itemId}:`, err);
+    enqueueGranularDirtyItem(
+      { collection, id: itemId, action: 'delete', updatedAt: now },
+      uid,
+      isSyncUnlocked
+    );
+  }
+}
+
+export async function flushGranularDirtyQueue(uid: string): Promise<number> {
+  if (!uid || !rtdb || !navigator.onLine) return 0;
+  const boundUid = localStorage.getItem('mm_bound_account_uid');
+  if (boundUid !== uid) return 0;
+
+  const queue = loadGranularDirtyQueue();
+  const items = Object.values(queue);
+  if (items.length === 0) return 0;
+
+  let flushedCount = 0;
+
+  for (const item of items) {
+    if (!item || !item.collection || !item.id) continue;
+
+    try {
+      if (item.collection === 'settings') {
+        const snap = await get(ref(rtdb, `shared_accounts/g_manifest_${uid}/settings`));
+        const remoteUpdated = Number(snap.val()?.updatedAt || 0);
+        if (item.updatedAt > remoteUpdated) {
+          const payload = {
+            ownerUid: uid,
+            accountName: 'manifest',
+            updatedAt: item.updatedAt,
+            settings: item.data,
+          };
+          await update(ref(rtdb, `shared_accounts/g_manifest_${uid}`), JSON.parse(JSON.stringify(payload)));
+        }
+        removeGranularDirtyItem(item.collection, item.id);
+        flushedCount++;
+        continue;
+      }
+
+      if (item.collection === 'profile') {
+        const snap = await get(ref(rtdb, `shared_accounts/g_manifest_${uid}/profile`));
+        const remoteUpdated = Number(snap.val()?.updatedAt || 0);
+        if (item.updatedAt > remoteUpdated) {
+          const payload = {
+            ownerUid: uid,
+            accountName: 'manifest',
+            updatedAt: item.updatedAt,
+            profile: item.data,
+          };
+          await update(ref(rtdb, `shared_accounts/g_manifest_${uid}`), JSON.parse(JSON.stringify(payload)));
+        }
+        removeGranularDirtyItem(item.collection, item.id);
+        flushedCount++;
+        continue;
+      }
+
+      // Collections: transactions, recurring, accounts, categories, budgets
+      const validCol = item.collection as 'transactions' | 'recurring' | 'accounts' | 'categories' | 'budgets';
+
+      // Check if server tombstone exists
+      const tombSnap = await get(ref(rtdb, `shared_accounts/g_${uid}_tombstones/items/${item.id}`));
+      const tombVal = tombSnap.val();
+      const serverDeletedAt = Number(tombVal?.deletedAt || 0);
+
+      if (serverDeletedAt > item.updatedAt) {
+        // Deleted on server after this edit, do not resurrect
+        saveLocalTombstone({ id: item.id, collection: validCol, deletedAt: serverDeletedAt });
+        removeGranularDirtyItem(item.collection, item.id);
+        flushedCount++;
+        continue;
+      }
+
+      const itemSnap = await get(ref(rtdb, `shared_accounts/g_${uid}_${validCol}/items/${item.id}`));
+      const serverVal = itemSnap.val();
+      const serverUpdatedAt = Number(serverVal?.updatedAt || serverVal?.createdAt || 0);
+
+      if (item.action === 'upsert') {
+        if (item.updatedAt > serverUpdatedAt) {
+          const colRef = ref(rtdb, `shared_accounts/g_${uid}_${validCol}`);
+          const payload = {
+            ownerUid: uid,
+            accountName: validCol,
+            updatedAt: item.updatedAt,
+            [`items/${item.id}`]: { ...item.data, updatedAt: item.updatedAt },
+          };
+          await update(colRef, JSON.parse(JSON.stringify(payload)));
+        }
+        removeGranularDirtyItem(item.collection, item.id);
+        flushedCount++;
+      } else if (item.action === 'delete') {
+        if (item.updatedAt >= serverUpdatedAt) {
+          // 1. Write tombstone first
+          const tombRef = ref(rtdb, `shared_accounts/g_${uid}_tombstones`);
+          const tombPayload = {
+            ownerUid: uid,
+            accountName: 'tombstones',
+            updatedAt: item.updatedAt,
+            [`items/${item.id}`]: { id: item.id, collection: validCol, deletedAt: item.updatedAt },
+          };
+          await update(tombRef, JSON.parse(JSON.stringify(tombPayload)));
+
+          // 2. Remove item from collection
+          const colRef = ref(rtdb, `shared_accounts/g_${uid}_${validCol}`);
+          const colPayload = {
+            ownerUid: uid,
+            accountName: validCol,
+            updatedAt: item.updatedAt,
+            [`items/${item.id}`]: null,
+          };
+          await update(colRef, JSON.parse(JSON.stringify(colPayload)));
+        }
+        removeGranularDirtyItem(item.collection, item.id);
+        flushedCount++;
+      }
+    } catch (err) {
+      console.warn(`[AutoBackup] Flush interrupted at item ${item.collection}/${item.id}:`, err);
+      // Connection may have dropped mid-flush! Stop here so remaining items stay in the dirty queue!
+      break;
+    }
+  }
+
+  return flushedCount;
+}
+
+export async function pullLatestRemoteState(uid: string): Promise<{
+  manifest?: any;
+  transactions?: Record<string, Transaction>;
+  recurring?: Record<string, RecurringTransaction>;
+  accounts?: Record<string, Account>;
+  categories?: Record<string, Category>;
+  budgets?: Record<string, any>;
+  tombstones?: Record<string, Tombstone>;
+} | null> {
+  if (!uid || !rtdb || !navigator.onLine) return null;
+  try {
+    const [manSnap, txSnap, recSnap, accSnap, catSnap, budSnap, tombSnap] = await Promise.all([
+      get(ref(rtdb, `shared_accounts/g_manifest_${uid}`)),
+      get(ref(rtdb, `shared_accounts/g_${uid}_transactions`)),
+      get(ref(rtdb, `shared_accounts/g_${uid}_recurring`)),
+      get(ref(rtdb, `shared_accounts/g_${uid}_accounts`)),
+      get(ref(rtdb, `shared_accounts/g_${uid}_categories`)),
+      get(ref(rtdb, `shared_accounts/g_${uid}_budgets`)),
+      get(ref(rtdb, `shared_accounts/g_${uid}_tombstones`)),
+    ]);
+
+    return {
+      manifest: manSnap.exists() ? manSnap.val() : null,
+      transactions: txSnap.exists() ? (txSnap.val()?.items || {}) : {},
+      recurring: recSnap.exists() ? (recSnap.val()?.items || {}) : {},
+      accounts: accSnap.exists() ? (accSnap.val()?.items || {}) : {},
+      categories: catSnap.exists() ? (catSnap.val()?.items || {}) : {},
+      budgets: budSnap.exists() ? (budSnap.val()?.items || {}) : {},
+      tombstones: tombSnap.exists() ? (tombSnap.val()?.items || {}) : {},
+    };
+  } catch (err) {
+    console.warn('[AutoBackup] Error in pullLatestRemoteState:', err);
+    return null;
+  }
+}
+
+export function attachV4LiveListeners(
+  uid: string,
+  callbacks: {
+    onTransactions?: (items: Transaction[], rawItems: Record<string, any>) => void;
+    onRecurring?: (items: RecurringTransaction[], rawItems: Record<string, any>) => void;
+    onAccounts?: (items: Account[], rawItems: Record<string, any>) => void;
+    onCategories?: (items: Category[], rawItems: Record<string, any>) => void;
+    onBudgets?: (items: any[], rawItems: Record<string, any>) => void;
+    onTombstones?: (items: Tombstone[], rawItems: Record<string, any>) => void;
+    onManifest?: (settings: any, profile: any) => void;
+  }
+): () => void {
+  if (!uid || !rtdb) return () => {};
+
+  const manRef = ref(rtdb, `shared_accounts/g_manifest_${uid}`);
+  const txRef = ref(rtdb, `shared_accounts/g_${uid}_transactions`);
+  const recRef = ref(rtdb, `shared_accounts/g_${uid}_recurring`);
+  const accRef = ref(rtdb, `shared_accounts/g_${uid}_accounts`);
+  const catRef = ref(rtdb, `shared_accounts/g_${uid}_categories`);
+  const budRef = ref(rtdb, `shared_accounts/g_${uid}_budgets`);
+  const tombRef = ref(rtdb, `shared_accounts/g_${uid}_tombstones`);
+
+  const unsubs: (() => void)[] = [];
+
+  const attachListener = (r: any, cb: (val: any) => void) => {
+    let lastHash = '';
+    const listener = onValue(
+      r,
+      (snap) => {
+        if (!snap.exists()) return;
+        const val = snap.val();
+        if (!val) return;
+        const hash = JSON.stringify(val);
+        if (hash === lastHash) return;
+        lastHash = hash;
+        cb(val);
+      },
+      (err) => console.warn('[AutoBackup] V4 listener note:', err)
+    );
+    unsubs.push(() => {
+      off(r, 'value', listener as any);
+    });
+  };
+
+  if (callbacks.onManifest) {
+    attachListener(manRef, (val) => callbacks.onManifest!(val.settings, val.profile));
+  }
+  if (callbacks.onTransactions) {
+    attachListener(txRef, (val) => {
+      const itemsMap = val.items || {};
+      callbacks.onTransactions!(Object.values(itemsMap), itemsMap);
+    });
+  }
+  if (callbacks.onRecurring) {
+    attachListener(recRef, (val) => {
+      const itemsMap = val.items || {};
+      callbacks.onRecurring!(Object.values(itemsMap), itemsMap);
+    });
+  }
+  if (callbacks.onAccounts) {
+    attachListener(accRef, (val) => {
+      const itemsMap = val.items || {};
+      callbacks.onAccounts!(Object.values(itemsMap), itemsMap);
+    });
+  }
+  if (callbacks.onCategories) {
+    attachListener(catRef, (val) => {
+      const itemsMap = val.items || {};
+      callbacks.onCategories!(Object.values(itemsMap), itemsMap);
+    });
+  }
+  if (callbacks.onBudgets) {
+    attachListener(budRef, (val) => {
+      const itemsMap = val.items || {};
+      callbacks.onBudgets!(Object.values(itemsMap), itemsMap);
+    });
+  }
+  if (callbacks.onTombstones) {
+    attachListener(tombRef, (val) => {
+      const itemsMap = val.items || {};
+      callbacks.onTombstones!(Object.values(itemsMap), itemsMap);
+    });
+  }
+
+  return () => {
+    unsubs.forEach((unsub) => {
+      try {
+        unsub();
+      } catch {}
+    });
+  };
 }

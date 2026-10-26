@@ -435,8 +435,12 @@ export const UserProfileModal: React.FC = () => {
     };
 
     if (my16 && my16.length === 16) {
-      publishUserProfileCard(profileToPublish);
-      propagateUserProfileToAllSharedSpaces(profileToPublish);
+      publishUserProfileCard(profileToPublish).catch((err) =>
+        console.warn('[UserProfileModal] Failed to publish user profile card:', err)
+      );
+      propagateUserProfileToAllSharedSpaces(profileToPublish).catch((err) =>
+        console.warn('[UserProfileModal] Failed to propagate user profile:', err)
+      );
     }
 
     showToast(

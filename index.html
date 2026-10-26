@@ -16,35 +16,25 @@
     <meta name="apple-mobile-web-app-title" content="FinanceApp" />
     <meta name="application-name" content="FinanceApp" />
     <meta name="msapplication-navbutton-color" content="#000000" />
-    <meta name="msapplication-starturl" content="./" />
-    <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
-    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
-    <link rel="alternate icon" type="image/png" href="./favicon.png" />
+    <meta name="msapplication-starturl" content="/" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="alternate icon" type="image/png" href="/favicon.png" />
     <script>
-      // Capture beforeinstallprompt immediately so it is never missed prior to hydration
+      // Capture beforeinstallprompt immediately in head so it is never missed before React mounts
       window.deferredPwaPrompt = null;
       window.deferredPWAInstallPrompt = null;
-      window.addEventListener('beforeinstallprompt', function (e) {
+      window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         window.deferredPwaPrompt = e;
         window.deferredPWAInstallPrompt = e;
         window.dispatchEvent(new CustomEvent('pwa-install-ready', { detail: e }));
       });
-      window.addEventListener('appinstalled', function () {
+      window.addEventListener('appinstalled', () => {
         window.deferredPwaPrompt = null;
         window.deferredPWAInstallPrompt = null;
         window.dispatchEvent(new CustomEvent('app-installed-event'));
       });
-      // Synchronous helper to invoke prompt directly on user click gesture
-      window.triggerDirectPwaInstall = function () {
-        const p = window.deferredPwaPrompt || window.deferredPWAInstallPrompt;
-        if (p) {
-          p.prompt();
-          return true;
-        }
-        return false;
-      };
     </script>
   </head>
   <body class="bg-black text-white antialiased selection:bg-blue-600 selection:text-white">
@@ -55,6 +45,6 @@
       </div>
     </noscript>
     <div id="root"></div>
-    <script type="module" src="./src/main.tsx"></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

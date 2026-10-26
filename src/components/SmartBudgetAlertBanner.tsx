@@ -36,7 +36,7 @@ export const SmartBudgetAlertBanner: React.FC = () => {
           ) : (
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
           )}
-          <span className="text-xs font-bold truncate">
+          <span className="text-xs font-bold whitespace-normal break-words leading-relaxed max-w-full min-w-0 py-1">
             {isDanger
               ? isArabic
                 ? `تحذير: تجاوزت الميزانية في ${topAlert.categoryName}!`
@@ -82,7 +82,7 @@ export const SmartBudgetAlertBanner: React.FC = () => {
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-base shrink-0">{alert.categoryIcon}</span>
                 <div className="min-w-0">
-                  <div className="font-bold text-white truncate flex items-center gap-1.5">
+                  <div className="font-bold text-white whitespace-normal break-words leading-relaxed max-w-full min-w-0 py-1 flex items-center gap-1.5">
                     <span>{alert.categoryName}</span>
                     <span
                       className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full ${

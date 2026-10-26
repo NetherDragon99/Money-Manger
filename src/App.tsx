@@ -18,7 +18,6 @@ import { TransactionDetailsModal } from './components/TransactionDetailsModal';
 import { AccountModal } from './components/AccountModal';
 import { CategoryModal } from './components/CategoryModal';
 import { UserProfileModal } from './components/UserProfileModal';
-import { DriveStoragePromptModal } from './components/DriveStoragePromptModal';
 import { SyncConflictModal } from './components/SyncConflictModal';
 import { ResetPeriodModal } from './components/ResetPeriodModal';
 import { AdvancedFilterModal } from './components/AdvancedFilterModal';
@@ -35,7 +34,6 @@ import { StandaloneShareView } from './components/StandaloneShareView';
 import { MultiSelectActionBar } from './components/MultiSelectActionBar';
 import { ToastContainer } from './components/Toast';
 import { CustomDialogModal } from './components/CustomDialogModal';
-import { WifiOff } from 'lucide-react';
 import {
   checkForAppUpdates,
   applyLatestAppUpdate,
@@ -51,36 +49,8 @@ import { auth, getCachedAuthUser } from './utils/firebase';
 import { flushOfflineQueue } from './utils/persistQueue';
 import { ShareFolderModal } from './components/ShareFolderModal';
 import { RemainingBalanceModal } from './components/RemainingBalanceModal';
-import { PWAInstallProgressModal } from './components/PWAInstallProgressModal';
+import { installPwa } from './utils/pwaInstall';
 import { ErrorBoundary } from './components/ErrorBoundary';
-
-const OfflineBanner: React.FC = () => {
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator !== 'undefined' ? navigator.onLine : true
-  );
-
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-
-  if (isOnline) return null;
-
-  return (
-    <div className="fixed top-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500 text-black text-xs font-bold shadow-xl animate-pulse">
-      <WifiOff className="w-3.5 h-3.5" />
-      <span>Offline Mode — All changes saved locally</span>
-    </div>
-  );
-};
 
 const TABS: TabType[] = ['home', 'budget', 'insights', 'accounts', 'calculator'];
 
@@ -156,7 +126,6 @@ const MainAppContent: React.FC = () => {
   const [isBarsVisible, setIsBarsVisible] = useState<boolean>(true);
   const [updating, setUpdating] = useState(false);
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
-  const [isPwaInstallModalOpen, setIsPwaInstallModalOpen] = useState(false);
   const tabHistoryRef = useRef<TabType[]>(['home']);
 
   // Capture PWA beforeinstallprompt event immediately in React state and window.deferredPwaPrompt
@@ -189,20 +158,15 @@ const MainAppContent: React.FC = () => {
     };
 
     const handleTriggerInstall = () => {
-      const p = (window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt;
-      if (p && typeof p.prompt === 'function') {
-        p.prompt();
-      }
-    };
-
-    const handleOpenOfflineModal = () => {
-      setIsPwaInstallModalOpen(true);
+      installPwa({
+        isArabic: settings.language === 'ar',
+        showToast,
+      });
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
     window.addEventListener('appinstalled', handleAppInstalled);
     window.addEventListener('trigger-pwa-install', handleTriggerInstall);
-    window.addEventListener('open-pwa-offline-modal', handleOpenOfflineModal);
 
     if ((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt) {
       setDeferredPwaPrompt((window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt);
@@ -212,7 +176,6 @@ const MainAppContent: React.FC = () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
       window.removeEventListener('appinstalled', handleAppInstalled);
       window.removeEventListener('trigger-pwa-install', handleTriggerInstall);
-      window.removeEventListener('open-pwa-offline-modal', handleOpenOfflineModal);
     };
   }, [settings.language, showToast]);
 
@@ -786,7 +749,6 @@ const MainAppContent: React.FC = () => {
         onTouchCancel={handleTouchCancel}
         className="w-full max-w-none md:max-w-7xl landscape:max-w-none min-h-[100dvh] h-[100dvh] bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
       >
-        <OfflineBanner />
         <ToastContainer />
         <CustomDialogModal
           dialogState={customDialogState}
@@ -864,7 +826,6 @@ const MainAppContent: React.FC = () => {
         <AccountModal />
         <CategoryModal />
         <UserProfileModal />
-        <DriveStoragePromptModal />
         <SyncConflictModal />
         <ResetPeriodModal />
         <AdvancedFilterModal />
@@ -901,12 +862,6 @@ const MainAppContent: React.FC = () => {
         {/* Automatic What's New on First Launch of each version */}
         <WhatsNewModal />
 
-        {/* Interactive PWA Pre-Cache Progress Modal */}
-        <PWAInstallProgressModal
-          isOpen={isPwaInstallModalOpen}
-          onClose={() => setIsPwaInstallModalOpen(false)}
-          isArabic={settings.language === 'ar'}
-        />
 
         {/* Android Exit Confirmation Modal */}
         <ExitConfirmModal

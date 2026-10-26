@@ -7,8 +7,6 @@
       }
     },
     "shared_accounts": {
-      ".read": "auth != null",
-      ".write": "auth != null",
       "$nodeId": {
         ".read": "auth != null",
         ".write": "auth != null"

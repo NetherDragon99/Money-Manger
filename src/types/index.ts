@@ -9,6 +9,7 @@ export interface Account {
   isPrivate: boolean; // if true, exclude from Home & Insights totals; if false, include in Public totals
   customMonthStartDay: number | 'default'; // 1-31 or 'default'
   notes: string;
+  updatedAt?: number;
 }
 
 export interface Category {
@@ -18,6 +19,7 @@ export interface Category {
   type: 'expense' | 'income';
   budgetLimit: number; // 0 means no budget
   orderIndex?: number;
+  updatedAt?: number;
 }
 
 export interface Transaction {
@@ -34,6 +36,7 @@ export interface Transaction {
   description: string;
   isUneditable?: boolean; // For automatic manual balance adjustments
   createdAt: number;
+  updatedAt?: number;
   fromBalanceBefore?: number;
   fromBalanceAfter?: number;
   toBalanceBefore?: number;
@@ -45,6 +48,7 @@ export interface Transaction {
   note?: string;
   balanceBefore?: number;
   balanceAfter?: number;
+  sender16Id?: string;
 }
 
 export type WeekStartDay = 'saturday' | 'sunday' | 'monday';
@@ -84,6 +88,7 @@ export interface UserProfile {
   uid?: string;
   driveAccessGranted?: boolean;
   drivePromptResolved?: boolean;
+  updatedAt?: number;
 }
 
 export type RecurringFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';
@@ -104,6 +109,7 @@ export interface RecurringTransaction {
   autoProcess: boolean;
   createdAt: number;
   lastProcessedDate?: string;
+  updatedAt?: number;
 }
 
 export interface SecuritySettings {
@@ -126,6 +132,7 @@ export interface AppSettings {
   budgetAlertsEnabled?: boolean;
   budgetAlertThreshold?: number; // default 80
   security?: SecuritySettings;
+  updatedAt?: number;
 }
 
 export interface AppData {
@@ -154,3 +161,40 @@ export interface TransferBalancesResult {
   amount: number;
 }
 
+
+
+export interface Budget {
+  id: string;
+  categoryId?: string;
+  amount: number;
+  month?: string; // YYYY-MM
+  updatedAt?: number;
+}
+
+export interface Tombstone {
+  id: string;
+  collection: 'transactions' | 'recurring' | 'accounts' | 'categories' | 'budgets' | string;
+  deletedAt: number;
+}
+
+
+export interface GranularDirtyQueueItem {
+  collection: 'transactions' | 'recurring' | 'accounts' | 'categories' | 'budgets' | 'settings' | 'profile' | string;
+  id: string;
+  action: 'upsert' | 'delete';
+  data?: any;
+  updatedAt: number;
+}
+
+
+export type SyncState = 'syncing' | 'synced' | 'offline' | 'awaiting_choice';
+
+export interface SyncStatus {
+  state: SyncState;
+  lastSyncedAt: number | null;
+  dirtyCount: number;
+  text: {
+    en: string;
+    ar: string;
+  };
+}

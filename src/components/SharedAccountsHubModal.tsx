@@ -63,6 +63,9 @@ import {
   isSpaceOwnedByUser,
   isSpaceSharedWithUser,
   extractMember16Ids,
+  isShareDismissed,
+  setShareModalOpenState,
+  useLiveMemberProfiles,
 } from '../utils/shareFolders';
 import { ShareDetailView } from './ShareDetailView';
 
@@ -198,6 +201,14 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
     }
   }, [isOpen]);
 
+  // Isolate form inputs from background sync while hub is open
+  useEffect(() => {
+    setShareModalOpenState(isOpen);
+    return () => {
+      setShareModalOpenState(false);
+    };
+  }, [isOpen]);
+
   // Quick invite inside modal state
   const [invitingFolderId, setInvitingFolderId] = useState<string | null>(null);
   const [invite16Id, setInvite16Id] = useState('');
@@ -293,6 +304,25 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
       window.removeEventListener('open_shared_accounts_hub', handleOpenHub);
     };
   }, [myCleanNumericId, currentUser?.uid]);
+  // Live profile subscriptions for all owners and members across hub spaces
+  const allHubMember16Ids = useMemo(() => {
+    const set = new Set<string>();
+    if (myCleanNumericId) set.add(myCleanNumericId);
+    for (const f of [...myFolders, ...receivedFolders]) {
+      if (!f) continue;
+      const owner16 = cleanNumericId(f.owner16DigitId || f.ownerNumericId);
+      if (owner16) set.add(owner16);
+      if (Array.isArray(f.members)) {
+        for (const m of f.members) {
+          const m16 = cleanNumericId(m?.numericId);
+          if (m16) set.add(m16);
+        }
+      }
+    }
+    return Array.from(set);
+  }, [myFolders, receivedFolders, myCleanNumericId]);
+
+  const liveHubProfiles = useLiveMemberProfiles(allHubMember16Ids);
 
   // Strictly sort "Shared by Me": cleanId(space.owner16DigitId) === myClean16Id
   const displayedMyFolders = useMemo(() => {
@@ -320,14 +350,28 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
       }
     }
     const activeUid = currentUser?.uid || auth.currentUser?.uid || settings.userProfile?.uid || '';
+    const myProfile = myCleanNumericId ? liveHubProfiles[myCleanNumericId] : undefined;
     return Array.from(allMap.values()).filter((space) => {
+      const cleanShareId = normalizeShareId(space.id);
       const owner16 = cleanNumericId(space.owner16DigitId || space.ownerNumericId);
       if (myCleanNumericId && owner16) {
-        return owner16 !== myCleanNumericId;
+        if (owner16 === myCleanNumericId) return false;
+      } else if (!isSpaceSharedWithUser(space, myCleanNumericId, activeUid)) {
+        return false;
       }
-      return isSpaceSharedWithUser(space, myCleanNumericId, activeUid);
+
+      // Live leave-signal detection: if user left this space, filter it out
+      if (myProfile?.leftSpaces?.[cleanShareId]) {
+        const myMember = space.members?.find((m) => cleanNumericId(m.numericId) === myCleanNumericId);
+        const myInvitedAt = myMember?.invitedAt || myMember?.addedAt || 0;
+        if (myProfile.leftSpaces[cleanShareId] >= myInvitedAt) {
+          return false;
+        }
+      }
+
+      return true;
     });
-  }, [receivedFolders, myFolders, myCleanNumericId, currentUser?.uid, settings.userProfile?.uid]);
+  }, [receivedFolders, myFolders, myCleanNumericId, currentUser?.uid, settings.userProfile?.uid, liveHubProfiles]);
 
   // Whenever the user opens the "Shared with Me" tab, permanently mark displayed received shares as notified
   useEffect(() => {
@@ -675,6 +719,18 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                 <div className="space-y-2.5">
                   {displayedMyFolders.map((folder) => {
                     const isInviting = invitingFolderId === folder.id;
+                    const cleanFolderId = normalizeShareId(folder.id);
+                    const activeMembers = (folder.members || []).filter((m) => {
+                      const mid = cleanNumericId(m.numericId);
+                      if (!mid) return false;
+                      const prof = liveHubProfiles[mid];
+                      const leftAt = prof?.leftSpaces?.[cleanFolderId];
+                      const invitedAt = m.invitedAt || m.addedAt || 0;
+                      if (leftAt && leftAt >= invitedAt) {
+                        return false;
+                      }
+                      return true;
+                    });
 
                     return (
                       <div
@@ -695,7 +751,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                               <div className="flex items-center gap-1.5 text-xs text-zinc-400">
                                 <span>{folder.itemCount} {isArabic ? 'عنصر' : 'items'}</span>
                                 <span>·</span>
-                                <span>{folder.members.length} {isArabic ? 'أعضاء' : 'members'}</span>
+                                <span>{activeMembers.length} {isArabic ? 'أعضاء' : 'members'}</span>
                               </div>
                             </div>
                           </div>
@@ -742,34 +798,38 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                         </div>
 
                         {/* Inline Member Badges List */}
-                        {folder.members.length > 0 && (
+                        {activeMembers.length > 0 && (
                           <div className="flex items-center gap-2 pt-1 border-t border-zinc-800/50 overflow-x-auto py-1">
-                            {folder.members.map((m) => {
+                            {activeMembers.map((m) => {
+                              const mid = cleanNumericId(m.numericId);
                               const isOwnerMember =
-                                cleanNumericId(m.numericId) ===
+                                mid ===
                                 cleanNumericId(folder.owner16DigitId || folder.ownerNumericId || '');
+                              const liveProf = mid ? liveHubProfiles[mid] : undefined;
+                              const memberName = liveProf?.name || m.name;
+                              const memberAvatar = liveProf?.avatar || m.avatar;
                               const memberPhoto =
-                                m.photoURL || (isOwnerMember ? resolveOwnerPhoto(folder, settings.userProfile) : '');
+                                liveProf?.photoURL || m.photoURL || (isOwnerMember ? resolveOwnerPhoto(folder, settings.userProfile) : '');
                               return (
                                 <div
                                   key={m.numericId}
                                   className="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl bg-zinc-950 border border-zinc-800 text-xs shrink-0"
                                 >
                                   {memberPhoto ? (
-                                    <img src={memberPhoto} alt={m.name} className="w-4 h-4 rounded-full object-cover" />
-                                  ) : m.avatar && m.avatar !== '👤' ? (
-                                    <span className="text-[11px]">{m.avatar}</span>
+                                    <img src={memberPhoto} alt={memberName} className="w-4 h-4 rounded-full object-cover" />
+                                  ) : memberAvatar && memberAvatar !== '👤' ? (
+                                    <span className="text-[11px]">{memberAvatar}</span>
                                   ) : (
                                     <span
                                       className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
-                                        m.numericId || m.name
+                                        m.numericId || memberName
                                       )}`}
                                     >
-                                      {getMemberInitials(m.name, m.numericId).slice(0, 1)}
+                                      {getMemberInitials(memberName, m.numericId).slice(0, 1)}
                                     </span>
                                   )}
                                   <span className="text-[11px] font-medium text-zinc-300 truncate max-w-[80px]">
-                                    {m.name}
+                                    {memberName}
                                   </span>
                                   <span
                                     className={`text-[9px] px-1 py-0.2 rounded font-mono ${
@@ -924,6 +984,11 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                     const myEntry = folder.members?.find((m) => cleanNumericId(m.numericId) === myCleanNumericId);
                     const isPending = myEntry?.status === 'pending';
                     const isEditor = (myEntry?.role as any) === 'edit' || myEntry?.role === 'editor';
+                    const owner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId);
+                    const ownerLiveProf = owner16 ? liveHubProfiles[owner16] : undefined;
+                    const effectiveOwnerName = ownerLiveProf?.name || folder.ownerName || 'User';
+                    const effectiveOwnerPhoto = (ownerLiveProf?.photoURL && ownerLiveProf.photoURL.trim()) || resolveOwnerPhoto(folder, settings.userProfile);
+                    const effectiveOwnerAvatar = ownerLiveProf?.avatar || folder.ownerAvatar || '👤';
 
                     return (
                       <div
@@ -957,24 +1022,24 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                               <div className="flex items-center gap-1.5 text-xs text-zinc-400 mt-0.5">
                                 <span className="inline-flex items-center gap-1.5">
                                   <span>{isArabic ? 'المالك:' : 'Owner:'}</span>
-                                  {resolveOwnerPhoto(folder, settings.userProfile) ? (
+                                  {effectiveOwnerPhoto ? (
                                     <img
-                                      src={resolveOwnerPhoto(folder, settings.userProfile)}
-                                      alt={folder.ownerName}
+                                      src={effectiveOwnerPhoto}
+                                      alt={effectiveOwnerName}
                                       className="w-4 h-4 rounded-full object-cover border border-purple-500/40 inline-block"
                                     />
-                                  ) : folder.ownerAvatar && folder.ownerAvatar !== '👤' ? (
-                                    <span className="text-xs">{folder.ownerAvatar}</span>
+                                  ) : effectiveOwnerAvatar && effectiveOwnerAvatar !== '👤' ? (
+                                    <span className="text-xs">{effectiveOwnerAvatar}</span>
                                   ) : (
                                     <span
                                       className={`w-4 h-4 rounded-full inline-flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
-                                        folder.owner16DigitId || folder.ownerNumericId || folder.ownerName
+                                        folder.owner16DigitId || folder.ownerNumericId || effectiveOwnerName
                                       )}`}
                                     >
-                                      {getMemberInitials(folder.ownerName, folder.owner16DigitId || folder.ownerNumericId).slice(0, 1)}
+                                      {getMemberInitials(effectiveOwnerName, folder.owner16DigitId || folder.ownerNumericId).slice(0, 1)}
                                     </span>
                                   )}
-                                  <span className="font-medium text-zinc-300">{folder.ownerName}</span>
+                                  <span className="font-medium text-zinc-300">{effectiveOwnerName}</span>
                                 </span>
                                 <span>·</span>
                                 <span>{folder.itemCount} {isArabic ? 'عنصر' : 'items'}</span>

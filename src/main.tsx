@@ -3,6 +3,39 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
+declare global {
+  interface BeforeInstallPromptEvent extends Event {
+    readonly platforms: string[];
+    readonly userChoice: Promise<{
+      outcome: 'accepted' | 'dismissed';
+      platform: string;
+    }>;
+    prompt(): Promise<void>;
+  }
+  interface Window {
+    deferredPwaPrompt: BeforeInstallPromptEvent | null;
+    deferredPWAInstallPrompt: BeforeInstallPromptEvent | null;
+  }
+}
+
+// Fallback listener: only assigns the globals if they are still empty (never overwriting an already captured event)
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    if (!window.deferredPwaPrompt) {
+      window.deferredPwaPrompt = e as BeforeInstallPromptEvent;
+    }
+    if (!window.deferredPWAInstallPrompt) {
+      window.deferredPWAInstallPrompt = e as BeforeInstallPromptEvent;
+    }
+  });
+
+  window.addEventListener('appinstalled', () => {
+    window.deferredPwaPrompt = null;
+    window.deferredPWAInstallPrompt = null;
+  });
+}
+
 interface Props {
   children: ReactNode;
 }

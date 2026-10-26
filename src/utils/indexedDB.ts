@@ -139,7 +139,7 @@ export async function saveFullDataToIndexedDB(data: AppData): Promise<void> {
       store.put(data.transactions, 'transactions');
       store.put(data.settings, 'settings');
       store.put(new Date().toISOString(), 'last_saved_at');
-      store.put('1.1.45', 'version');
+      store.put('1.1.47', 'version');
 
       transaction.oncomplete = () => {
         db.close();

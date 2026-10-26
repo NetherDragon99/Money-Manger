@@ -29,10 +29,13 @@ import {
   Folder,
   Wallet,
   FolderDown,
+  Search,
 } from 'lucide-react';
+import { matchesTransactionSearch } from '../utils/searchUtils';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
-import { auth } from '../utils/firebase';
+import { auth, rtdb } from '../utils/firebase';
+import { ref, onValue, off } from 'firebase/database';
 import { format16DigitId, cleanNumericId, format16DigitInput, getOrCreateNumericId } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
 import { ShareSpaceSettingsModal } from './ShareSpaceSettingsModal';
@@ -61,6 +64,7 @@ import {
   resolveOwnerPhoto,
   ensureOwnerPhotoLoaded,
   normalizeShareId,
+  useLiveMemberProfiles,
 } from '../utils/shareFolders';
 import {
   formatCurrency,
@@ -306,13 +310,14 @@ const ShareDayHeaderRow: React.FC<ShareDayHeaderRowProps> = ({
 };
 
 interface ShareTxRowProps {
-  tx: Transaction;
+  tx: Transaction & { sender16Id?: string };
   folderAccounts: Account[];
   isTxMultiSelect: boolean;
   isSelected: boolean;
   canEdit: boolean;
   currencySymbol: string;
   isArabic: boolean;
+  liveProfiles?: Record<string, any>;
   onToggleSelect: (id: string) => void;
   onStartMultiSelect: (id: string) => void;
   onDeleteClick: (tx: Transaction, title: string, icon?: string) => void;
@@ -326,6 +331,7 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
   canEdit,
   currencySymbol,
   isArabic,
+  liveProfiles,
   onToggleSelect,
   onStartMultiSelect,
   onDeleteClick,
@@ -427,6 +433,19 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
                 </>
               ) : (
                 <span className="truncate">{tx.categoryName}</span>
+              )}
+              {tx.sender16Id && liveProfiles?.[tx.sender16Id] && (
+                <>
+                  <span>·</span>
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-zinc-800 border border-zinc-700/80 text-[10px] text-zinc-300">
+                    {liveProfiles[tx.sender16Id].photoURL ? (
+                      <img src={liveProfiles[tx.sender16Id].photoURL} alt="" className="w-3 h-3 rounded-full object-cover" />
+                    ) : (
+                      <span>{liveProfiles[tx.sender16Id].avatar || '👤'}</span>
+                    )}
+                    <span className="truncate max-w-[65px] font-medium">{liveProfiles[tx.sender16Id].name}</span>
+                  </span>
+                </>
               )}
               {tx.time && (
                 <>
@@ -545,6 +564,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   const [collapsedMonths, setCollapsedMonths] = useState<Record<string, boolean>>({});
   const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
 
+  const [searchQuery, setSearchQuery] = useState('');
   // Active filter by included account or category
   const [activeEntityFilter, setActiveEntityFilter] = useState<{
     type: 'account' | 'category';
@@ -684,11 +704,88 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     }
   }, [folder.id, folder.owner16DigitId, folder.ownerNumericId, folder.ownerPhotoURL]);
 
+  const allMember16Ids = useMemo(() => {
+    const set = new Set<string>();
+    const o16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId);
+    if (o16) set.add(o16);
+    (folder.members || []).forEach((m) => {
+      const mid = cleanNumericId(m.numericId);
+      if (mid) set.add(mid);
+    });
+    (folder.member16Ids || []).forEach((id) => {
+      const mid = cleanNumericId(id);
+      if (mid) set.add(mid);
+    });
+    return Array.from(set);
+  }, [folder.owner16DigitId, folder.ownerNumericId, folder.members, folder.member16Ids]);
+
+  const liveProfiles = useLiveMemberProfiles(allMember16Ids);
+
+  const cleanFolderId = normalizeShareId(folder.id);
   const folderOwner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId);
+  const ownerLiveProf = folderOwner16 ? liveProfiles[folderOwner16] : undefined;
+  const effectiveOwnerName = ownerLiveProf?.name || folder.ownerName || 'User';
+  const effectiveOwnerPhoto = (ownerLiveProf?.photoURL && ownerLiveProf.photoURL.trim()) || resolveOwnerPhoto(folder, settings.userProfile);
+  const effectiveOwnerAvatar = ownerLiveProf?.avatar || folder.ownerAvatar || '👤';
+
   const isOwner = Boolean(
     (myCleanNumericId && folderOwner16 && folderOwner16 === myCleanNumericId) ||
     (auth.currentUser?.uid && folder.ownerUid && folder.ownerUid === auth.currentUser.uid)
   );
+
+  // Dynamically overlay member names, avatars, and photos, and filter out left members
+  const activeOverlaidMembers = useMemo(() => {
+    return (folder.members || [])
+      .filter((m) => {
+        const mid = cleanNumericId(m.numericId);
+        if (!mid) return false;
+        const prof = liveProfiles[mid];
+        const leftAt = prof?.leftSpaces?.[cleanFolderId] || 0;
+        const invitedAt = m.invitedAt || m.addedAt || 0;
+        if (leftAt && leftAt >= invitedAt) {
+          return false;
+        }
+        return true;
+      })
+      .map((m) => {
+        const mid = cleanNumericId(m.numericId);
+        const prof = mid ? liveProfiles[mid] : undefined;
+        if (!prof) return m;
+        return {
+          ...m,
+          name: prof.name || m.name,
+          photoURL: prof.photoURL !== undefined && prof.photoURL !== '' ? prof.photoURL : m.photoURL,
+          avatar: prof.avatar || m.avatar,
+        };
+      });
+  }, [folder.members, liveProfiles, cleanFolderId]);
+
+  // Current user leave detection
+  useEffect(() => {
+    if (!myCleanNumericId) return;
+    const myProf = liveProfiles[myCleanNumericId];
+    const leftAt = myProf?.leftSpaces?.[cleanFolderId] || 0;
+    const myMember = (folder.members || []).find((m) => cleanNumericId(m.numericId) === myCleanNumericId);
+    const invitedAt = myMember?.invitedAt || myMember?.addedAt || 0;
+    if (leftAt && leftAt >= invitedAt) {
+      onExit();
+    }
+  }, [liveProfiles, myCleanNumericId, cleanFolderId, folder.members, onExit]);
+
+  // Space owner pruning left members in cloud
+  useEffect(() => {
+    if (!isOwner || !Array.isArray(folder.members)) return;
+    folder.members.forEach((m) => {
+      const mid = cleanNumericId(m.numericId);
+      if (!mid || mid === folderOwner16) return;
+      const prof = liveProfiles[mid];
+      const leftAt = prof?.leftSpaces?.[cleanFolderId] || 0;
+      const invitedAt = m.invitedAt || m.addedAt || 0;
+      if (leftAt && leftAt >= invitedAt) {
+        removeMemberFromShareFolder(folder.id, mid).catch(() => {});
+      }
+    });
+  }, [isOwner, folder.id, folder.members, liveProfiles, cleanFolderId, folderOwner16]);
   const myMemberEntry = folder.members.find((m) => cleanNumericId(m.numericId) === myCleanNumericId);
   const canCurrentUserEdit = Boolean(
     isOwner ||
@@ -696,7 +793,53 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     myMemberEntry?.role === 'editor'
   );
   const canEdit = canCurrentUserEdit;
-  const ownerPhoto = resolveOwnerPhoto(folder, settings.userProfile);
+  const ownerPhoto = effectiveOwnerPhoto;
+
+
+  // Active member profile listener for leftSpaces detection
+  useEffect(() => {
+    if (!folder?.id || !Array.isArray(folder.members)) return;
+    const cleanFolderId = normalizeShareId(folder.id);
+    const unsubs: (() => void)[] = [];
+    const owner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId);
+
+    folder.members.forEach((m) => {
+      const cleanMid = cleanNumericId(m.numericId);
+      if (!cleanMid || cleanMid === owner16) return;
+
+      const profileRef = ref(rtdb, `shared_accounts/profile_${cleanMid}`);
+      const listener = (snap: any) => {
+        if (snap.exists()) {
+          const val = snap.val();
+          const leftAt = val?.leftSpaces?.[cleanFolderId];
+          const invitedAt = m.invitedAt || m.addedAt || 0;
+          if (leftAt && leftAt >= invitedAt) {
+            // Member has left this space!
+            if (cleanMid === myCleanNumericId) {
+              onExit();
+              return;
+            }
+            // Automatically hide/purge that member from the space UI in real time
+            setFolder((prev) => ({
+              ...prev,
+              members: prev.members.filter((mem) => cleanNumericId(mem.numericId) !== cleanMid),
+              member16Ids: (prev.member16Ids || []).filter((id) => cleanNumericId(id) !== cleanMid),
+            }));
+            // If current user is space owner, remove member from cloud share_${shareId}
+            if (isOwner) {
+              removeMemberFromShareFolder(folder.id, cleanMid).catch(() => {});
+            }
+          }
+        }
+      };
+      onValue(profileRef, listener);
+      unsubs.push(() => off(profileRef, 'value', listener));
+    });
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [folder?.id, folder?.members?.length, isOwner, myCleanNumericId, onExit]);
 
   const accounts = folder.payload.accounts || [];
   const categories = folder.payload.categories || [];
@@ -716,18 +859,33 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     return inc - exp;
   }, [accounts, transactions]);
 
-  // Displayed transactions (filtered by active entity or full list)
+  // Displayed transactions (filtered by active entity or full list and search query)
   const displayedTransactions = useMemo(() => {
-    if (!activeEntityFilter) return transactions;
-    if (activeEntityFilter.type === 'account') {
-      return transactions.filter(
-        (t) => t.accountId === activeEntityFilter.id || t.toAccountId === activeEntityFilter.id
+    let list = transactions;
+    if (activeEntityFilter) {
+      if (activeEntityFilter.type === 'account') {
+        list = list.filter(
+          (t) => t.accountId === activeEntityFilter.id || t.toAccountId === activeEntityFilter.id
+        );
+      } else {
+        list = list.filter(
+          (t) => t.categoryId === activeEntityFilter.id || t.categoryName === activeEntityFilter.name
+        );
+      }
+    }
+
+    if (searchQuery.trim()) {
+      list = list.filter((t) =>
+        matchesTransactionSearch(t, searchQuery, {
+          accounts,
+          categories,
+          currencySymbol: settings.currencySymbol,
+        })
       );
     }
-    return transactions.filter(
-      (t) => t.categoryId === activeEntityFilter.id || t.categoryName === activeEntityFilter.name
-    );
-  }, [transactions, activeEntityFilter]);
+
+    return list;
+  }, [transactions, activeEntityFilter, searchQuery, accounts, categories, settings.currencySymbol]);
 
   // Group by Month -> Day identical to HomeView
   const groupedData = useMemo(() => {
@@ -1160,7 +1318,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                       </span>
                     )}
                     <span className="truncate">
-                      {isOwner ? (isArabic ? 'أنت المالك' : 'Owned by You') : `${isArabic ? 'المالك:' : 'Owner:'} ${folder.ownerName}`}
+                      {isOwner ? (isArabic ? 'أنت المالك' : 'Owned by You') : `${isArabic ? 'المالك:' : 'Owner:'} ${effectiveOwnerName}`}
                     </span>
                   </span>
                   <span>·</span>
@@ -1268,13 +1426,13 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               <div className="flex items-center gap-2 min-w-0">
                 <Users className="w-4 h-4 text-purple-400 shrink-0" />
                 <span className="text-xs font-bold text-zinc-200 truncate">
-                  {isArabic ? 'الأعضاء المشاركون' : 'Share Members'} ({folder.members.length + 1})
+                  {isArabic ? 'الأعضاء المشاركون' : 'Share Members'} ({activeOverlaidMembers.length + 1})
                 </span>
               </div>
 
               {isOwner && (
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {folder.members.length > 0 && (
+                  {activeOverlaidMembers.length > 0 && (
                     <button
                       type="button"
                       onClick={() => setIsManageMembersOpen(true)}
@@ -1301,7 +1459,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               {/* Owner Chip */}
               <div
                 className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-zinc-950/70 border border-blue-500/30 shrink-0"
-                title={`${folder.ownerName || 'Owner'} (${isArabic ? 'المالك' : 'Owner'})`}
+                title={`${effectiveOwnerName || 'Owner'} (${isArabic ? 'المالك' : 'Owner'})`}
               >
                 <div className="shrink-0 w-10 h-10 rounded-full overflow-visible relative bg-blue-600/30 border border-blue-500/60 flex items-center justify-center text-xs font-bold text-blue-300">
                   {ownerPhoto ? (
@@ -1311,7 +1469,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                       className="w-full h-full object-cover rounded-full"
                     />
                   ) : (
-                    <span>{folder.ownerAvatar || getMemberInitials(folder.ownerName, folder.ownerNumericId)}</span>
+                    <span>{effectiveOwnerAvatar || getMemberInitials(effectiveOwnerName, folder.ownerNumericId)}</span>
                   )}
                   <span
                     className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-blue-500 border-2 border-zinc-900"
@@ -1320,7 +1478,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                 </div>
                 <div className="flex flex-col min-w-0 pr-1 rtl:pr-0 rtl:pl-1">
                   <span className="text-xs font-bold text-white max-w-[120px] truncate leading-tight">
-                    {folder.ownerName || 'Owner'}
+                    {effectiveOwnerName || 'Owner'}
                   </span>
                   <span className="text-[10px] font-semibold text-blue-400 leading-tight mt-0.5">
                     {isArabic ? 'المالك' : 'Owner'}
@@ -1583,6 +1741,31 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             </div>
           )}
 
+          {/* Transaction Search Bar (Matches Comments/Notes/Descriptions/Amounts/Categories) */}
+          <div className="relative w-full">
+            <Search className="absolute left-3.5 rtl:left-auto rtl:right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={
+                isArabic
+                  ? 'البحث في المعاملات (الملاحظات، التصنيف، المبلغ)...'
+                  : 'Search transactions (notes, category, amount)...'
+              }
+              className="w-full pl-10 pr-10 rtl:pl-10 rtl:pr-10 py-2.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 rtl:right-auto rtl:left-3 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
           {/* SECTION: Timeline Grouped Identically to HomeView by Months and Days */}
           <div className="space-y-3">
             <div className="flex items-center justify-between px-1">
@@ -1598,7 +1781,9 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             {displayedTransactions.length === 0 ? (
               <div className="py-12 px-4 rounded-3xl bg-zinc-900/40 border border-zinc-850 text-center text-xs text-zinc-500 space-y-1">
                 <p className="font-medium text-zinc-400">
-                  {activeEntityFilter
+                  {searchQuery
+                    ? (isArabic ? 'لا توجد نتائج بحث مطابقة' : 'No matching search results')
+                    : activeEntityFilter
                     ? (isArabic
                         ? `لا توجد معاملات مسجلة مرتبطة بـ "${activeEntityFilter.name}"`
                         : `No transactions found for "${activeEntityFilter.name}"`)
@@ -2125,12 +2310,12 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                     {isArabic ? 'إدارة الأعضاء والطلبات' : 'Manage Members & Requests'}
                   </h3>
                   <p className="text-xs text-zinc-400">
-                    {folder.members.length} {isArabic ? 'أعضاء في هذه المشاركة' : 'members in this share'}
+                    {activeOverlaidMembers.length} {isArabic ? 'أعضاء في هذه المشاركة' : 'members in this share'}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {isOwner && folder.members.length > 0 && (
+                {isOwner && activeOverlaidMembers.length > 0 && (
                   <button
                     type="button"
                     onClick={async () => {
@@ -2178,7 +2363,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                   </div>
                   <div className="min-w-0">
                     <div className="text-sm font-bold text-white truncate flex items-center gap-2">
-                      <span>{folder.ownerName}</span>
+                      <span>{effectiveOwnerName}</span>
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 font-semibold">
                         {isArabic ? 'المالك' : 'Owner'}
                       </span>

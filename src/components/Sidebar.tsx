@@ -34,6 +34,7 @@ import {
 import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from '../utils/security';
 import { format16DigitId } from '../utils/userId';
 import { PWAInstallButton } from './PWAInstallButton';
+import { installPwa } from '../utils/pwaInstall';
 import { ExportCustomizeModal } from './ExportCustomizeModal';
 import { ImportCustomizeModal } from './ImportCustomizeModal';
 import {
@@ -170,66 +171,14 @@ export const Sidebar: React.FC = () => {
   };
 
   const handleDirectInstallClick = () => {
-    const promptEvent = (window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt || deferredPwaPrompt;
-    if (promptEvent && typeof promptEvent.prompt === 'function') {
-      promptEvent.prompt();
-      warmUpOfflineServiceWorkerCache();
-      if (promptEvent.userChoice && typeof promptEvent.userChoice.then === 'function') {
-        promptEvent.userChoice
-          .then((choice: any) => {
-            (window as any).deferredPwaPrompt = null;
-            (window as any).deferredPWAInstallPrompt = null;
-            setDeferredPwaPrompt(null);
-            if (choice?.outcome === 'accepted') {
-              setIsPwaInstalled(true);
-              showToast(
-                isArabic
-                  ? 'تم تثبيت التطبيق بنجاح على جهازك!'
-                  : 'App installed successfully to your device!',
-                'success'
-              );
-            }
-          })
-          .catch(() => {});
-      }
-      return;
-    }
-
-    warmUpOfflineServiceWorkerCache();
-
-    // Fallback when browser does not provide beforeinstallprompt (already installed or iOS/unsupported WebView)
-    const isStandalone =
-      typeof window !== 'undefined' &&
-      (window.matchMedia('(display-mode: standalone)').matches ||
-        window.matchMedia('(display-mode: fullscreen)').matches ||
-        Boolean((window.navigator as any).standalone));
-
-    if (isStandalone || isPwaInstalled) {
-      setIsPwaInstalled(true);
-      showToast(
-        isArabic
-          ? 'التطبيق مثبت بالفعل ويعمل كتطبيق مستقل على جهازك!'
-          : 'App is already installed and running as a standalone app on your device!',
-        'success'
-      );
-      return;
-    }
-
-    const ua = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : '';
-    const isIOS = /iphone|ipad|ipod/.test(ua);
-    if (isIOS) {
-      showToast(
-        isArabic
-          ? 'لتثبيت التطبيق على iPhone/iPad: اضغط زر المشاركة (Share) في المتصفح ثم اختر "إضافة إلى الشاشة الرئيسية (Add to Home Screen)".'
-          : 'To install on iOS: tap the browser Share button and select "Add to Home Screen".',
-        'info',
-        undefined,
-        6500
-      );
-      return;
-    }
-
-    window.dispatchEvent(new CustomEvent('open-pwa-offline-modal'));
+    installPwa({
+      isArabic,
+      showToast,
+      onInstalled: () => {
+        setIsPwaInstalled(true);
+        setDeferredPwaPrompt(null);
+      },
+    });
   };
 
   // Keep auth state synchronized in Sidebar
@@ -1093,7 +1042,7 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar Footer: Version (v1.1.45) & Refresh Button */}
+        {/* Sidebar Footer: Version (v1.1.47) & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-zinc-300">Version: Beta v{CURRENT_APP_VERSION}</span>

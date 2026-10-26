@@ -39,6 +39,7 @@ import {
   AppData,
   TabType,
   RecurringTransaction,
+  Tombstone,
 } from '../types';
 import {
   loadRecurringTransactions,
@@ -69,7 +70,7 @@ import { CURRENT_APP_VERSION } from '../utils/versionChecker';
 import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomDialogModal';
 import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId, cleanNumericId, clearUserIdentityState } from '../utils/userId';
 import { auth, checkAndHandleGoogleRedirect, getCachedAuthUser, setCachedAuthUser, subscribeToCloudBackup, logoutUser, rtdb, getGoogleDriveAccessToken } from '../utils/firebase';
-import { ref, get } from 'firebase/database';
+import { ref, get, onValue, off, DataSnapshot } from 'firebase/database';
 import {
   FullAppBackupPayload,
   executeDualCloudBackup,
@@ -78,6 +79,25 @@ import {
   setCloudBackupBlocked,
   isCloudBackupBlockedStatus,
   persistDriveResolutionStatus,
+  syncNow,
+  hasUserData,
+  fetchCloudAccountSnapshot,
+  writeV4ResolvedState,
+  purgeObsoleteLegacyServerNodes,
+  writeGranularDelta,
+  writeGranularManifest,
+  writeGranularDeletion,
+  loadLocalTombstones,
+  saveLocalTombstone,
+  attachV4LiveListeners,
+  loadGranularDirtyQueue,
+  saveGranularDirtyQueue,
+  enqueueGranularDirtyItem,
+  removeGranularDirtyItem,
+  hasGranularDirtyItems,
+  clearGranularDirtyQueue,
+  flushGranularDirtyQueue,
+  pullLatestRemoteState,
 } from '../utils/autoBackup';
 
 export interface SyncConflictData {
@@ -124,6 +144,7 @@ import {
   shouldNotifyIncomingShareOnce,
   isSpaceOwnedByUser,
   setShareModalOpenState,
+  propagateTransactionToLinkedSpaces,
 } from '../utils/shareFolders';
 
 export interface ToastItem {
@@ -134,6 +155,7 @@ export interface ToastItem {
     label: string;
     onClick: () => void;
   };
+  duration?: number;
 }
 
 interface AppContextType {
@@ -450,7 +472,42 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const isCloudHydratedRef = useRef(false);
   const isHydratingCloudRef = useRef(false);
   const lastRestoredUidRef = useRef<string | null>(null);
+  const isSyncUnlockedRef = useRef<boolean>(false);
+  const isApplyingRemoteSyncRef = useRef<boolean>(false);
+  const unsubV4ListenersRef = useRef<(() => void) | null>(null);
   const unsubRemoteBackupRef = useRef<(() => void) | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(() => {
+    try {
+      const stored = localStorage.getItem('mm_last_sync_timestamp');
+      return stored ? Number(stored) : Date.now();
+    } catch {
+      return Date.now();
+    }
+  });
+  const [dirtyCount, setDirtyCount] = useState<number>(() => {
+    try {
+      return Object.keys(loadGranularDirtyQueue()).length;
+    } catch {
+      return 0;
+    }
+  });
+  const [isDeviceOnline, setIsDeviceOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+  const [isConnectedToRtdb, setIsConnectedToRtdb] = useState<boolean>(true);
+
+  const recordSyncActivity = useCallback(() => {
+    try {
+      setDirtyCount(Object.keys(loadGranularDirtyQueue()).length);
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        const nowTime = Date.now();
+        setLastSyncedAt(nowTime);
+        localStorage.setItem('mm_last_sync_timestamp', String(nowTime));
+      }
+    } catch {}
+  }, []);
+
   const [pendingSyncConflict, setPendingSyncConflict] = useState<SyncConflictData | null>(null);
   const [pendingCloudBackup, setPendingCloudBackup] = useState<any | null>(null);
   const pendingCloudBackupRef = useRef<any | null>(null);
@@ -628,12 +685,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Keep global modal-open flag synced so remote onValue listeners never overwrite active modal edits
   useEffect(() => {
-    const anyShareEditModalOpen = Boolean(shareModalState.isOpen || isEditingSpace);
+    const anyShareEditModalOpen = Boolean(shareModalState.isOpen || isEditingSpace || isSharedHubModalOpen);
     if (typeof window !== 'undefined') {
       (window as any).__mmShareModalOpen = anyShareEditModalOpen;
     }
     setShareModalOpenState(anyShareEditModalOpen);
-  }, [shareModalState.isOpen, isEditingSpace]);
+  }, [shareModalState.isOpen, isEditingSpace, isSharedHubModalOpen]);
 
   // Remaining Balance Modal (Item 8)
   const [remainingBalanceModalState, setRemainingBalanceModalState] = useState<{
@@ -793,7 +850,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     message: string,
     type: 'success' | 'error' | 'info' = 'success',
     action?: { label: string; onClick: () => void },
-    duration: number = 3600
+    duration?: number
   ) => {
     if (!message || !message.trim()) return;
     const cleanMsg = message.trim();
@@ -812,6 +869,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       recentToastCooldownRef.current = new Map(entries);
     }
 
+    // Scale auto-dismiss duration with message length (Math.min(8000, Math.max(3500, message.length * 60)))
+    const autoDismissDuration = duration ?? Math.min(8000, Math.max(3500, cleanMsg.length * 60));
+
     const id = `${now}_${Math.random().toString(36).substring(2, 7)}`;
     setToasts((prev) => {
       // 2. Deduplicate against active toasts on screen
@@ -820,12 +880,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       // 3. Keep at most the latest 2 active toasts + new one (max 3)
       const trimmed = prev.slice(-2);
-      return [...trimmed, { id, message: cleanMsg, type, action }];
+      return [...trimmed, { id, message: cleanMsg, type, action, duration: autoDismissDuration }];
     });
 
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, duration);
+    }, autoDismissDuration);
   }, []);
 
   const dismissToast = useCallback((id: string) => {
@@ -1224,6 +1284,413 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
    * Attaches real-time remote cloud backup subscription strictly after identity binding
    * and sync conflict resolution are confirmed, protecting local state from pre-hydration overwrites.
    */
+  const attachV4ListenersForUser = useCallback((uid: string) => {
+    if (!uid) return;
+    if (unsubV4ListenersRef.current) {
+      unsubV4ListenersRef.current();
+      unsubV4ListenersRef.current = null;
+    }
+
+    const unsub = attachV4LiveListeners(uid, {
+      onTransactions: (remoteTxs) => {
+        if (!isSyncUnlockedRef.current || isApplyingRemoteSyncRef.current) return;
+        const tombstones = loadLocalTombstones();
+        const local = transactionsRef.current;
+        const localMap = new Map<string, Transaction>(local.map((t) => [t.id, t]));
+        let changed = false;
+
+        for (const r of remoteTxs) {
+          if (!r || !r.id) continue;
+          const tomb = tombstones[r.id];
+          const rUpdated = Number(r.updatedAt || r.createdAt || 0);
+          if (tomb && tomb.deletedAt > rUpdated) {
+            if (localMap.has(r.id)) {
+              localMap.delete(r.id);
+              changed = true;
+            }
+            continue;
+          }
+          const loc = localMap.get(r.id);
+          if (!loc || rUpdated > Number(loc.updatedAt || loc.createdAt || 0)) {
+            localMap.set(r.id, r);
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          isApplyingRemoteSyncRef.current = true;
+          const nextTxs = Array.from(localMap.values()).sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          );
+          setTransactions(nextTxs);
+          setAccounts((prevAccs) => syncAllAccountBalances(prevAccs, nextTxs));
+          setTimeout(() => {
+            isApplyingRemoteSyncRef.current = false;
+          }, 100);
+        }
+      },
+
+      onAccounts: (remoteAccs) => {
+        if (!isSyncUnlockedRef.current || isApplyingRemoteSyncRef.current) return;
+        const tombstones = loadLocalTombstones();
+        const local = accountsRef.current;
+        const localMap = new Map<string, Account>(local.map((a) => [a.id, a]));
+        let changed = false;
+
+        for (const r of remoteAccs) {
+          if (!r || !r.id) continue;
+          const tomb = tombstones[r.id];
+          const rUpdated = Number(r.updatedAt || 0);
+          if (tomb && tomb.deletedAt > rUpdated) {
+            if (localMap.has(r.id)) {
+              localMap.delete(r.id);
+              changed = true;
+            }
+            continue;
+          }
+          const loc = localMap.get(r.id);
+          if (!loc || rUpdated > Number(loc.updatedAt || 0)) {
+            localMap.set(r.id, r);
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          isApplyingRemoteSyncRef.current = true;
+          const nextAccs = syncAllAccountBalances(Array.from(localMap.values()), transactionsRef.current);
+          setAccounts(nextAccs);
+          setTimeout(() => {
+            isApplyingRemoteSyncRef.current = false;
+          }, 100);
+        }
+      },
+
+      onCategories: (remoteCats) => {
+        if (!isSyncUnlockedRef.current || isApplyingRemoteSyncRef.current) return;
+        const tombstones = loadLocalTombstones();
+        const local = categoriesRef.current;
+        const localMap = new Map<string, Category>(local.map((c) => [c.id, c]));
+        let changed = false;
+
+        for (const r of remoteCats) {
+          if (!r || !r.id) continue;
+          const tomb = tombstones[r.id];
+          const rUpdated = Number(r.updatedAt || 0);
+          if (tomb && tomb.deletedAt > rUpdated) {
+            if (localMap.has(r.id)) {
+              localMap.delete(r.id);
+              changed = true;
+            }
+            continue;
+          }
+          const loc = localMap.get(r.id);
+          if (!loc || rUpdated > Number(loc.updatedAt || 0)) {
+            localMap.set(r.id, r);
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          isApplyingRemoteSyncRef.current = true;
+          setCategories(Array.from(localMap.values()));
+          setTimeout(() => {
+            isApplyingRemoteSyncRef.current = false;
+          }, 100);
+        }
+      },
+
+      onRecurring: (remoteRecs) => {
+        if (!isSyncUnlockedRef.current || isApplyingRemoteSyncRef.current) return;
+        const tombstones = loadLocalTombstones();
+        const local = recurringTransactionsRef.current;
+        const localMap = new Map<string, RecurringTransaction>(local.map((r) => [r.id, r]));
+        let changed = false;
+
+        for (const r of remoteRecs) {
+          if (!r || !r.id) continue;
+          const tomb = tombstones[r.id];
+          const rUpdated = Number(r.updatedAt || r.createdAt || 0);
+          if (tomb && tomb.deletedAt > rUpdated) {
+            if (localMap.has(r.id)) {
+              localMap.delete(r.id);
+              changed = true;
+            }
+            continue;
+          }
+          const loc = localMap.get(r.id);
+          if (!loc || rUpdated > Number(loc.updatedAt || loc.createdAt || 0)) {
+            localMap.set(r.id, r);
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          isApplyingRemoteSyncRef.current = true;
+          setRecurringTransactions(Array.from(localMap.values()));
+          setTimeout(() => {
+            isApplyingRemoteSyncRef.current = false;
+          }, 100);
+        }
+      },
+
+      onTombstones: (remoteTombs) => {
+        if (!isSyncUnlockedRef.current || isApplyingRemoteSyncRef.current) return;
+        let anyApplied = false;
+        for (const t of remoteTombs) {
+          if (!t || !t.id) continue;
+          saveLocalTombstone(t);
+          if (t.collection === 'transactions' && transactionsRef.current.some((x) => x.id === t.id)) {
+            anyApplied = true;
+          } else if (t.collection === 'recurring' && recurringTransactionsRef.current.some((x) => x.id === t.id)) {
+            anyApplied = true;
+          } else if (t.collection === 'accounts' && accountsRef.current.some((x) => x.id === t.id)) {
+            anyApplied = true;
+          } else if (t.collection === 'categories' && categoriesRef.current.some((x) => x.id === t.id)) {
+            anyApplied = true;
+          }
+        }
+        if (anyApplied) {
+          isApplyingRemoteSyncRef.current = true;
+          const allTombs = loadLocalTombstones();
+          setTransactions((prev) => prev.filter((tx) => !allTombs[tx.id] || allTombs[tx.id].deletedAt <= Number(tx.updatedAt || tx.createdAt || 0)));
+          setRecurringTransactions((prev) => prev.filter((r) => !allTombs[r.id] || allTombs[r.id].deletedAt <= Number(r.updatedAt || r.createdAt || 0)));
+          setAccounts((prev) => {
+            const remaining = prev.filter((a) => !allTombs[a.id] || allTombs[a.id].deletedAt <= Number(a.updatedAt || 0));
+            return syncAllAccountBalances(remaining, transactionsRef.current);
+          });
+          setCategories((prev) => prev.filter((c) => !allTombs[c.id] || allTombs[c.id].deletedAt <= Number(c.updatedAt || 0)));
+          setTimeout(() => {
+            isApplyingRemoteSyncRef.current = false;
+          }, 100);
+        }
+      },
+
+      onManifest: (remoteSettings, remoteProfile) => {
+        if (!isSyncUnlockedRef.current || isApplyingRemoteSyncRef.current) return;
+        if (remoteSettings && Number(remoteSettings.updatedAt || 0) > Number(settingsRef.current.updatedAt || 0)) {
+          isApplyingRemoteSyncRef.current = true;
+          setSettings((prev) => ({
+            ...prev,
+            ...remoteSettings,
+            userProfile: remoteProfile ? { ...prev.userProfile, ...remoteProfile } : prev.userProfile,
+          }));
+          setTimeout(() => {
+            isApplyingRemoteSyncRef.current = false;
+          }, 100);
+        }
+      },
+    });
+
+    unsubV4ListenersRef.current = unsub;
+  }, []);
+
+  const isFlushingQueueRef = useRef(false);
+
+  const handleReconnectAndFlush = useCallback(async () => {
+    if (!auth.currentUser || !isSyncUnlockedRef.current) return;
+    const uid = auth.currentUser.uid;
+    if (localStorage.getItem('mm_bound_account_uid') !== uid) return;
+    if (!navigator.onLine) return;
+    if (isFlushingQueueRef.current) return;
+
+    isFlushingQueueRef.current = true;
+    setIsSyncing(true);
+    try {
+      // 1. Flush any offline dirty items
+      await flushGranularDirtyQueue(uid);
+
+      // 2. Pull remote updates to reconcile
+      const remote = await pullLatestRemoteState(uid);
+      if (!remote) return;
+
+      // Apply remote tombstones first
+      const remoteTombs = Object.values(remote.tombstones || {});
+      for (const t of remoteTombs) {
+        if (t && t.id) {
+          saveLocalTombstone(t);
+        }
+      }
+      const allTombs = loadLocalTombstones();
+
+      // Prevent echo loops
+      isApplyingRemoteSyncRef.current = true;
+
+      // Reconcile transactions
+      let txsChanged = false;
+      const currentTxs = transactionsRef.current;
+      const txMap = new Map<string, Transaction>(currentTxs.map((t) => [t.id, t]));
+
+      // Remote deletes
+      for (const [id, tx] of txMap.entries()) {
+        if (allTombs[id] && allTombs[id].deletedAt > Number(tx.updatedAt || tx.createdAt || 0)) {
+          txMap.delete(id);
+          txsChanged = true;
+        }
+      }
+      // Remote upserts
+      for (const rTx of Object.values(remote.transactions || {})) {
+        if (!rTx || !rTx.id) continue;
+        if (allTombs[rTx.id] && allTombs[rTx.id].deletedAt > Number(rTx.updatedAt || rTx.createdAt || 0)) {
+          continue;
+        }
+        const loc = txMap.get(rTx.id);
+        const rUpdated = Number(rTx.updatedAt || rTx.createdAt || 0);
+        if (!loc || rUpdated > Number(loc.updatedAt || loc.createdAt || 0)) {
+          txMap.set(rTx.id, rTx);
+          txsChanged = true;
+        }
+      }
+      const nextTxs = txsChanged
+        ? Array.from(txMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        : currentTxs;
+      if (txsChanged) {
+        setTransactions(nextTxs);
+      }
+
+      // Reconcile accounts
+      let accsChanged = false;
+      const currentAccs = accountsRef.current;
+      const accMap = new Map<string, Account>(currentAccs.map((a) => [a.id, a]));
+      for (const [id, acc] of accMap.entries()) {
+        if (allTombs[id] && allTombs[id].deletedAt > Number(acc.updatedAt || 0)) {
+          accMap.delete(id);
+          accsChanged = true;
+        }
+      }
+      for (const rAcc of Object.values(remote.accounts || {})) {
+        if (!rAcc || !rAcc.id) continue;
+        if (allTombs[rAcc.id] && allTombs[rAcc.id].deletedAt > Number(rAcc.updatedAt || 0)) {
+          continue;
+        }
+        const loc = accMap.get(rAcc.id);
+        const rUpdated = Number(rAcc.updatedAt || 0);
+        if (!loc || rUpdated > Number(loc.updatedAt || 0)) {
+          accMap.set(rAcc.id, rAcc);
+          accsChanged = true;
+        }
+      }
+      if (accsChanged || txsChanged) {
+        const remainingAccounts = Array.from(accMap.values());
+        const syncedAccounts = syncAllAccountBalances(remainingAccounts, nextTxs);
+        setAccounts(syncedAccounts);
+      }
+
+      // Reconcile categories
+      let catsChanged = false;
+      const currentCats = categoriesRef.current;
+      const catMap = new Map<string, Category>(currentCats.map((c) => [c.id, c]));
+      for (const [id, cat] of catMap.entries()) {
+        if (allTombs[id] && allTombs[id].deletedAt > Number(cat.updatedAt || 0)) {
+          catMap.delete(id);
+          catsChanged = true;
+        }
+      }
+      for (const rCat of Object.values(remote.categories || {})) {
+        if (!rCat || !rCat.id) continue;
+        if (allTombs[rCat.id] && allTombs[rCat.id].deletedAt > Number(rCat.updatedAt || 0)) {
+          continue;
+        }
+        const loc = catMap.get(rCat.id);
+        const rUpdated = Number(rCat.updatedAt || 0);
+        if (!loc || rUpdated > Number(loc.updatedAt || 0)) {
+          catMap.set(rCat.id, rCat);
+          catsChanged = true;
+        }
+      }
+      if (catsChanged) {
+        setCategories(Array.from(catMap.values()));
+      }
+
+      // Reconcile recurring
+      let recsChanged = false;
+      const currentRecs = recurringTransactionsRef.current;
+      const recMap = new Map<string, RecurringTransaction>(currentRecs.map((r) => [r.id, r]));
+      for (const [id, rec] of recMap.entries()) {
+        if (allTombs[id] && allTombs[id].deletedAt > Number(rec.updatedAt || rec.createdAt || 0)) {
+          recMap.delete(id);
+          recsChanged = true;
+        }
+      }
+      for (const rRec of Object.values(remote.recurring || {})) {
+        if (!rRec || !rRec.id) continue;
+        if (allTombs[rRec.id] && allTombs[rRec.id].deletedAt > Number(rRec.updatedAt || rRec.createdAt || 0)) {
+          continue;
+        }
+        const loc = recMap.get(rRec.id);
+        const rUpdated = Number(rRec.updatedAt || rRec.createdAt || 0);
+        if (!loc || rUpdated > Number(loc.updatedAt || loc.createdAt || 0)) {
+          recMap.set(rRec.id, rRec);
+          recsChanged = true;
+        }
+      }
+      if (recsChanged) {
+        setRecurringTransactions(Array.from(recMap.values()));
+      }
+
+      // Reconcile manifest (settings / profile)
+      if (remote.manifest) {
+        const remoteSettings = remote.manifest.settings;
+        const remoteProfile = remote.manifest.profile;
+        if (remoteSettings && Number(remoteSettings.updatedAt || 0) > Number(settingsRef.current.updatedAt || 0)) {
+          setSettings((prev) => ({
+            ...prev,
+            ...remoteSettings,
+            userProfile: remoteProfile ? { ...prev.userProfile, ...remoteProfile } : prev.userProfile,
+          }));
+        }
+      }
+
+      setTimeout(() => {
+        isApplyingRemoteSyncRef.current = false;
+      }, 200);
+      recordSyncActivity();
+    } catch (err) {
+      console.warn('[AppContext] handleReconnectAndFlush error:', err);
+      isApplyingRemoteSyncRef.current = false;
+    } finally {
+      isFlushingQueueRef.current = false;
+      setIsSyncing(false);
+      recordSyncActivity();
+    }
+  }, []);
+
+  // Task 7 & 8: Reconnection auto-flush listeners (.info/connected + window online) and sync state tracking
+  useEffect(() => {
+    const onOnline = () => {
+      setIsDeviceOnline(true);
+      recordSyncActivity();
+      if (isSyncUnlockedRef.current) {
+        handleReconnectAndFlush();
+      }
+    };
+    const onOffline = () => {
+      setIsDeviceOnline(false);
+      recordSyncActivity();
+    };
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+
+    let unsubConnected: (() => void) | null = null;
+    if (rtdb) {
+      const connectedRef = ref(rtdb, '.info/connected');
+      const listener = onValue(connectedRef, (snap: DataSnapshot) => {
+        const connected = snap.val() === true;
+        setIsConnectedToRtdb(connected);
+        recordSyncActivity();
+        if (connected && isSyncUnlockedRef.current) {
+          handleReconnectAndFlush();
+        }
+      });
+      unsubConnected = () => off(connectedRef, 'value', listener as any);
+    }
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      if (unsubConnected) unsubConnected();
+    };
+  }, [handleReconnectAndFlush, recordSyncActivity]);
+
   const attachRemoteBackupListener = useCallback((uid: string) => {
     if (!uid) return;
     if (unsubRemoteBackupRef.current) {
@@ -1409,10 +1876,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const syncIdentity = async (user: any) => {
       if (!user) {
-        // Check if we have a cached user session from localStorage
         const cached = getCachedAuthUser();
         if (cached) {
-          // Do NOT sign out when offline or if token refresh fails!
           return;
         }
         localStorage.removeItem('mm_bound_account_uid');
@@ -1421,9 +1886,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         clearUserIdentityState();
         lastRestoredUidRef.current = null;
         isCloudHydratedRef.current = false;
-        setCloudBackupBlocked(false);
+        isSyncUnlockedRef.current = false;
+        setCloudBackupBlocked(true);
         setPendingSyncConflict(null);
         setPendingCloudBackup(null);
+        if (unsubV4ListenersRef.current) {
+          unsubV4ListenersRef.current();
+          unsubV4ListenersRef.current = null;
+        }
         if (unsubRemoteBackupRef.current) {
           unsubRemoteBackupRef.current();
           unsubRemoteBackupRef.current = null;
@@ -1449,7 +1919,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       try {
-        // Mirror active user session to localStorage for offline resilience
         setCachedAuthUser({
           uid: user.uid,
           email: user.email || null,
@@ -1458,135 +1927,156 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           phoneNumber: user.phoneNumber || null,
         });
 
-        // LOCK cloud backup writes during identity synchronization & conflict inspection
-        setCloudBackupBlocked(true);
-        isCloudHydratedRef.current = false;
-
         const boundUid = localStorage.getItem('mm_bound_account_uid');
         const isDeviceBoundToUser = boundUid === user.uid;
 
-        // Inspect local transaction count strictly BEFORE any cloud fetch or remote subscription
-        const userCreatedTxs = transactionsRef.current.filter((t) => !t.isUneditable);
-        const localTxCount = userCreatedTxs.length;
+        if (!isDeviceBoundToUser) {
+          // STAGE 1: SIGN-IN FREEZE & CLOUD INSPECTION
+          isSyncUnlockedRef.current = false;
+          setCloudBackupBlocked(true);
+          isCloudHydratedRef.current = false;
 
-        try {
-          const cloudBackup = await fetchDualCloudBackup(user.uid);
-          const cloudData = cloudBackup?.data;
-          const hasCloudData = Boolean(
-            cloudData &&
-            typeof cloudData === 'object' &&
-            ((Array.isArray(cloudData.transactions) && cloudData.transactions.length > 0) ||
-             (Array.isArray(cloudData.accounts) && cloudData.accounts.length > 0))
-          );
-          const cloudUpdatedAt = Number(
-            cloudData?.updatedAt ||
-            cloudData?.timestamp ||
-            (cloudData?.backupDate ? new Date(cloudData.backupDate).getTime() : 0) ||
-            cloudData?.serverUpdatedAt ||
-            0
-          );
-          const localUpdatedAt = Number(localStorage.getItem('mm_last_local_data_update')) || 0;
+          try {
+            const cloudRes = await fetchCloudAccountSnapshot(user.uid);
+            const pendingSnapshot = cloudRes?.snapshot;
 
-          if (isDeviceBoundToUser) {
-            // (1) Device already bound to this user:
-            // NEVER show "Merge vs. Replace" modal on page refresh, app restart, or version update!
-            setPendingSyncConflict(null);
-            setPendingCloudBackup(null);
+            // STAGE 2: DECISION GATE
+            const localHasData = hasUserData({
+              transactions: transactionsRef.current,
+              recurringTransactions: recurringTransactionsRef.current,
+              budgets: (pendingSnapshot?.budgets || []),
+              accounts: accountsRef.current,
+              categories: categoriesRef.current,
+            });
+            const cloudHasData = hasUserData(pendingSnapshot);
 
-            if (hasCloudData) {
-              if (cloudUpdatedAt > localUpdatedAt) {
-                console.log('[AppContext] Silent sync on reload: cloud data is newer (cloud:', cloudUpdatedAt, 'vs local:', localUpdatedAt, '). Applying cloud snapshot.');
-                applyCloudData(cloudData);
-                await hydrateAndPublishUserProfile(user.uid, cloudData);
-                localStorage.setItem('mm_last_local_data_update', String(cloudUpdatedAt));
-              } else if (localUpdatedAt > cloudUpdatedAt && localTxCount > 0) {
-                console.log('[AppContext] Silent sync on reload: local data is newer (local:', localUpdatedAt, 'vs cloud:', cloudUpdatedAt, '). Pushing to cloud.');
-                await hydrateAndPublishUserProfile(user.uid);
-                executeDualCloudBackup(user.uid, buildCurrentBackupPayload());
-              } else {
-                await hydrateAndPublishUserProfile(user.uid, cloudData);
-              }
-            } else {
-              await hydrateAndPublishUserProfile(user.uid);
-              if (localTxCount > 0) {
-                executeDualCloudBackup(user.uid, buildCurrentBackupPayload());
-              }
-            }
-
-            // Unlock continuous automatic background sync and attach remote listener
-            isCloudHydratedRef.current = true;
-            setCloudBackupBlocked(false);
-            attachRemoteBackupListener(user.uid);
-          } else {
-            // (2) Unbound transition: Initial sign-in from logged-out guest state or new account!
-            if (hasCloudData) {
-              if (localTxCount === 0) {
-                // If local device had 0 user-created transactions prior to signing in (a fresh/empty device),
-                // skip the Merge/Replace modal completely and automatically hydrate the cloud account data immediately!
-                console.log('[AppContext] Unbound sign-in on empty device (0 local transactions): Auto-hydrating cloud data immediately.');
-                applyCloudData(cloudData);
-                await hydrateAndPublishUserProfile(user.uid, cloudData);
-                localStorage.setItem('mm_bound_account_uid', user.uid);
-                localStorage.setItem('mm_last_local_data_update', String(cloudUpdatedAt || Date.now()));
-                isCloudHydratedRef.current = true;
-                setCloudBackupBlocked(false);
-                setPendingSyncConflict(null);
-                setPendingCloudBackup(null);
-                attachRemoteBackupListener(user.uid);
-
-                const isDrive = cloudBackup?.provider === 'google_drive';
-                showToast(
-                  isArabic
-                    ? (isDrive
-                        ? 'تمت استعادة حساباتك وبياناتك تلقائياً من Google Drive!'
-                        : 'تمت استعادة حساباتك وبياناتك تلقائياً من النسخة السحابية!')
-                    : (isDrive
-                        ? 'All accounts & data automatically restored from Google Drive!'
-                        : 'All accounts & data automatically restored from Cloud Backup!'),
-                  'success'
-                );
-              } else {
-                // Cloud data exists AND local device has user-created transactions:
-                // Strictly hold fetched cloud backup data in an isolated pendingCloudBackup state without mutating local transactions/accounts/categories until the user clicks their choice
-                console.log('[AppContext] Cloud sync conflict: local device has', localTxCount, 'transactions. Holding in pendingCloudBackup without mutating local state.');
-                setPendingCloudBackup(cloudData);
-                setPendingSyncConflict({
-                  uid: user.uid,
-                  cloudBackup: cloudData,
-                  cloudProvider: cloudBackup?.provider || 'firebase',
-                  localCount: localTxCount,
-                  cloudCount: Array.isArray(cloudData.transactions) ? cloudData.transactions.length : 0,
-                  cloudAccountsCount: Array.isArray(cloudData.accounts) ? cloudData.accounts.length : 0,
-                });
-                // Cloud backup writes remain strictly locked (isCloudBackupBlocked = true, isCloudHydratedRef.current = false)
-              }
-            } else {
-              // No cloud data exists on this account yet: Local device data is initial source of truth
-              console.log('[AppContext] No existing cloud backup found. Binding device and saving initial backup.');
+            if (cloudHasData && !localHasData) {
+              // 2a. Cloud has data, local device empty -> Auto-hydrate
+              console.log('[AppContext] Unbound sign-in on empty device: Auto-hydrating cloud snapshot.');
+              applyCloudData(pendingSnapshot);
+              await hydrateAndPublishUserProfile(user.uid, pendingSnapshot);
               localStorage.setItem('mm_bound_account_uid', user.uid);
-              localStorage.setItem('mm_last_local_data_update', String(Date.now()));
-              await hydrateAndPublishUserProfile(user.uid);
-              isCloudHydratedRef.current = true;
+              isSyncUnlockedRef.current = true;
               setCloudBackupBlocked(false);
+              isCloudHydratedRef.current = true;
               setPendingSyncConflict(null);
               setPendingCloudBackup(null);
-              attachRemoteBackupListener(user.uid);
-              setTimeout(() => {
-                if (auth.currentUser && isCloudHydratedRef.current) {
-                  executeDualCloudBackup(auth.currentUser.uid, buildCurrentBackupPayload());
-                }
-              }, 1500);
+
+              // STAGE 3 & 4: V4 Migration & Live Listeners
+              await writeV4ResolvedState(user.uid, {
+                transactions: transactionsRef.current,
+                recurringTransactions: recurringTransactionsRef.current,
+                accounts: accountsRef.current,
+                categories: categoriesRef.current,
+                settings: settingsRef.current,
+                userProfile: settingsRef.current.userProfile,
+                tombstones: loadLocalTombstones(),
+              });
+              attachV4ListenersForUser(user.uid);
+              if (navigator.onLine && hasGranularDirtyItems()) {
+                handleReconnectAndFlush();
+              }
+
+              showToast(
+                isArabic
+                  ? 'تمت استعادة حساباتك وبياناتك تلقائياً من النسخة السحابية!'
+                  : 'All accounts & data automatically restored from Cloud Backup!',
+                'success'
+              );
+            } else if (!cloudHasData && localHasData) {
+              // 2b. Cloud empty, local device has data -> Upload local data to v4 nodes
+              console.log('[AppContext] Local data exists, cloud is empty: Uploading to v4 nodes.');
+              localStorage.setItem('mm_bound_account_uid', user.uid);
+              isSyncUnlockedRef.current = true;
+              setCloudBackupBlocked(false);
+              isCloudHydratedRef.current = true;
+              setPendingSyncConflict(null);
+              setPendingCloudBackup(null);
+              await hydrateAndPublishUserProfile(user.uid);
+
+              // STAGE 3 & 4
+              await writeV4ResolvedState(user.uid, {
+                transactions: transactionsRef.current,
+                recurringTransactions: recurringTransactionsRef.current,
+                accounts: accountsRef.current,
+                categories: categoriesRef.current,
+                settings: settingsRef.current,
+                userProfile: settingsRef.current.userProfile,
+                tombstones: loadLocalTombstones(),
+              });
+              attachV4ListenersForUser(user.uid);
+              if (navigator.onLine && hasGranularDirtyItems()) {
+                handleReconnectAndFlush();
+              }
+            } else if (!cloudHasData && !localHasData) {
+              // 2c. Neither has data -> Bind and unlock
+              console.log('[AppContext] Both local and cloud are empty: Binding and unlocking.');
+              localStorage.setItem('mm_bound_account_uid', user.uid);
+              isSyncUnlockedRef.current = true;
+              setCloudBackupBlocked(false);
+              isCloudHydratedRef.current = true;
+              setPendingSyncConflict(null);
+              setPendingCloudBackup(null);
+              await hydrateAndPublishUserProfile(user.uid);
+
+              // STAGE 3 & 4
+              await writeV4ResolvedState(user.uid, {
+                transactions: transactionsRef.current,
+                recurringTransactions: recurringTransactionsRef.current,
+                accounts: accountsRef.current,
+                categories: categoriesRef.current,
+                settings: settingsRef.current,
+                userProfile: settingsRef.current.userProfile,
+                tombstones: loadLocalTombstones(),
+              });
+              attachV4ListenersForUser(user.uid);
+              if (navigator.onLine && hasGranularDirtyItems()) {
+                handleReconnectAndFlush();
+              }
+            } else {
+              // 2d. BOTH have data -> Keep locked and show Replace vs. Merge modal
+              console.log('[AppContext] Data conflict detected between local and cloud: Engaging decision gate.');
+              isSyncUnlockedRef.current = false;
+              setCloudBackupBlocked(true);
+              setPendingCloudBackup(pendingSnapshot);
+              setPendingSyncConflict({
+                uid: user.uid,
+                cloudBackup: pendingSnapshot,
+                cloudProvider: cloudRes?.provider || 'firebase',
+                localCount: transactionsRef.current.filter((t) => !t.isUneditable).length,
+                cloudCount: Array.isArray(pendingSnapshot.transactions) ? pendingSnapshot.transactions.length : 0,
+                cloudAccountsCount: Array.isArray(pendingSnapshot.accounts) ? pendingSnapshot.accounts.length : 0,
+              });
             }
+          } catch (restoreErr) {
+            console.warn('[AppContext] Cloud inspection on login failed:', restoreErr);
           }
-        } catch (restoreErr) {
-          console.warn('[AppContext] Dual cloud restore on login failed:', restoreErr);
-          isCloudHydratedRef.current = true;
+        } else {
+          // Device already bound to this user:
+          isSyncUnlockedRef.current = true;
           setCloudBackupBlocked(false);
+          isCloudHydratedRef.current = true;
+          setPendingSyncConflict(null);
+          setPendingCloudBackup(null);
           await hydrateAndPublishUserProfile(user.uid);
-          attachRemoteBackupListener(user.uid);
+
+          // STAGE 3 & 4
+          await writeV4ResolvedState(user.uid, {
+            transactions: transactionsRef.current,
+            recurringTransactions: recurringTransactionsRef.current,
+            accounts: accountsRef.current,
+            categories: categoriesRef.current,
+            settings: settingsRef.current,
+            userProfile: settingsRef.current.userProfile,
+            tombstones: loadLocalTombstones(),
+          });
+          attachV4ListenersForUser(user.uid);
+          if (navigator.onLine && hasGranularDirtyItems()) {
+            handleReconnectAndFlush();
+          }
         }
-      } catch (e) {
-        console.warn('[AppContext] Error syncing profile on auth state change:', e);
+      } catch (err) {
+        console.warn('[AppContext] syncIdentity auth error:', err);
       }
     };
 
@@ -1604,13 +2094,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     });
 
-    // Immediate sync for current session or hydrate from offline cache
     if (auth.currentUser) {
       syncIdentity(auth.currentUser);
     } else {
       const cached = getCachedAuthUser();
       if (cached) {
-        console.log('[AppContext] Cold launch: Hydrating user from offline cache', cached.uid);
         syncIdentity(cached);
       }
     }
@@ -1621,11 +2109,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         unsubRemoteBackupRef.current();
         unsubRemoteBackupRef.current = null;
       }
+      if (unsubV4ListenersRef.current) {
+        unsubV4ListenersRef.current();
+        unsubV4ListenersRef.current = null;
+      }
       unsubAuth();
     };
   }, []);
 
-  // Modals open/close handlers
+    // Modals open/close handlers
   const openAddTxModal = (preselectedAccountId?: string, initialAmount?: number) => {
     const targetAccountId =
       preselectedAccountId ||
@@ -2376,16 +2868,49 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!d) return;
 
     if (choice === 'replace') {
+      try {
+        localStorage.setItem(
+          'mm_pre_replace_backup',
+          JSON.stringify({
+            transactions: transactionsRef.current,
+            accounts: accountsRef.current,
+            categories: categoriesRef.current,
+            recurringTransactions: recurringTransactionsRef.current,
+            settings: settingsRef.current,
+            savedAt: Date.now(),
+          })
+        );
+      } catch (err) {
+        console.warn('[AppContext] Failed to write mm_pre_replace_backup:', err);
+      }
+
       applyCloudData(d);
       await hydrateAndPublishUserProfile(uid, d);
       localStorage.setItem('mm_bound_account_uid', uid);
       const cloudTime = Number(d.updatedAt || d.timestamp || Date.now());
       localStorage.setItem('mm_last_local_data_update', String(cloudTime));
       isCloudHydratedRef.current = true;
+      isSyncUnlockedRef.current = true;
       setCloudBackupBlocked(false);
       setPendingSyncConflict(null);
       setPendingCloudBackup(null);
-      attachRemoteBackupListener(uid);
+
+      // STAGE 3: write resolved state into v4 flat nodes & purge obsolete legacy server nodes
+      await writeV4ResolvedState(uid, {
+        transactions: transactionsRef.current,
+        recurringTransactions: recurringTransactionsRef.current,
+        accounts: accountsRef.current,
+        categories: categoriesRef.current,
+        settings: settingsRef.current,
+        userProfile: settingsRef.current.userProfile,
+        tombstones: loadLocalTombstones(),
+      });
+      // STAGE 4: Attach live listeners
+      attachV4ListenersForUser(uid);
+      if (navigator.onLine && hasGranularDirtyItems()) {
+        handleReconnectAndFlush();
+      }
+
       showToast(
         isArabic
           ? 'تم استبدال بيانات الجهاز ببيانات الحساب السحابي بنجاح!'
@@ -2393,21 +2918,42 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         'success'
       );
     } else {
-      // Merge Current Device Data with Account Data
+      // Merge: deduplicate by item ID, keeping newer updatedAt per item
+      const localTombstones = loadLocalTombstones();
+      const cloudTombstones: Record<string, Tombstone> = d.tombstones || {};
+      const allTombstones: Record<string, Tombstone> = { ...localTombstones, ...cloudTombstones };
+      Object.values(allTombstones).forEach((t) => saveLocalTombstone(t));
+
       // 1. Categories
       const localCats = categoriesRef.current;
       const cloudCats: Category[] = Array.isArray(d.categories) ? d.categories : [];
       const catMap = new Map<string, Category>();
-      cloudCats.forEach((c) => { if (c && c.id) catMap.set(c.id, c); });
-      localCats.forEach((c) => { if (c && c.id && !catMap.has(c.id)) catMap.set(c.id, c); });
+      [...localCats, ...cloudCats].forEach((c) => {
+        if (!c || !c.id) return;
+        const tomb = allTombstones[c.id];
+        const cUpdated = Number(c.updatedAt || 0);
+        if (tomb && tomb.deletedAt > cUpdated) return;
+        const existing = catMap.get(c.id);
+        if (!existing || cUpdated > Number(existing.updatedAt || 0)) {
+          catMap.set(c.id, c);
+        }
+      });
       const mergedCategories = Array.from(catMap.values());
 
       // 2. Transactions
       const localTxs = transactionsRef.current;
       const cloudTxs: Transaction[] = Array.isArray(d.transactions) ? d.transactions : [];
       const txMap = new Map<string, Transaction>();
-      cloudTxs.forEach((t) => { if (t && t.id) txMap.set(t.id, t); });
-      localTxs.forEach((t) => { if (t && t.id && !txMap.has(t.id)) txMap.set(t.id, t); });
+      [...localTxs, ...cloudTxs].forEach((t) => {
+        if (!t || !t.id) return;
+        const tomb = allTombstones[t.id];
+        const tUpdated = Number(t.updatedAt || t.createdAt || 0);
+        if (tomb && tomb.deletedAt > tUpdated) return;
+        const existing = txMap.get(t.id);
+        if (!existing || tUpdated > Number(existing.updatedAt || existing.createdAt || 0)) {
+          txMap.set(t.id, t);
+        }
+      });
       const mergedTransactions = Array.from(txMap.values());
       mergedTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -2415,8 +2961,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const localAccs = accountsRef.current;
       const cloudAccs: Account[] = Array.isArray(d.accounts) ? d.accounts : [];
       const accMap = new Map<string, Account>();
-      cloudAccs.forEach((a) => { if (a && a.id) accMap.set(a.id, a); });
-      localAccs.forEach((a) => { if (a && a.id && !accMap.has(a.id)) accMap.set(a.id, a); });
+      [...localAccs, ...cloudAccs].forEach((a) => {
+        if (!a || !a.id) return;
+        const tomb = allTombstones[a.id];
+        const aUpdated = Number(a.updatedAt || 0);
+        if (tomb && tomb.deletedAt > aUpdated) return;
+        const existing = accMap.get(a.id);
+        if (!existing || aUpdated > Number(existing.updatedAt || 0)) {
+          accMap.set(a.id, a);
+        }
+      });
       let mergedAccounts = Array.from(accMap.values());
       mergedAccounts = syncAllAccountBalances(mergedAccounts, mergedTransactions);
 
@@ -2424,8 +2978,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const localRecs = recurringTransactionsRef.current;
       const cloudRecs: RecurringTransaction[] = Array.isArray(d.recurringTransactions) ? d.recurringTransactions : [];
       const recMap = new Map<string, RecurringTransaction>();
-      cloudRecs.forEach((r) => { if (r && r.id) recMap.set(r.id, r); });
-      localRecs.forEach((r) => { if (r && r.id && !recMap.has(r.id)) recMap.set(r.id, r); });
+      [...localRecs, ...cloudRecs].forEach((r) => {
+        if (!r || !r.id) return;
+        const tomb = allTombstones[r.id];
+        const rUpdated = Number(r.updatedAt || r.createdAt || 0);
+        if (tomb && tomb.deletedAt > rUpdated) return;
+        const existing = recMap.get(r.id);
+        if (!existing || rUpdated > Number(existing.updatedAt || existing.createdAt || 0)) {
+          recMap.set(r.id, r);
+        }
+      });
       const mergedRecurring = Array.from(recMap.values());
 
       // Apply merged state
@@ -2454,57 +3016,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         repairAndMigrateSharedSpaces(my16, uid);
       }
 
-      // Immediately restore full profile & 16-digit ID upon merge
-      const prof = await hydrateAndPublishUserProfile(uid, d);
+      await hydrateAndPublishUserProfile(uid, d);
 
       localStorage.setItem('mm_bound_account_uid', uid);
-      const mergeTime = Date.now();
+      const mergeTime = syncNow();
       localStorage.setItem('mm_last_local_data_update', String(mergeTime));
 
-      // Unlock cloud backup writes
       isCloudHydratedRef.current = true;
+      isSyncUnlockedRef.current = true;
       setCloudBackupBlocked(false);
       setPendingSyncConflict(null);
       setPendingCloudBackup(null);
-      attachRemoteBackupListener(uid);
 
-      // Sync merged state to cloud
-      const effectiveSettings = settingsRef.current;
-      const mergedPayload: FullAppBackupPayload = {
-        version: CURRENT_APP_VERSION,
-        backupDate: new Date().toISOString(),
-        timestamp: mergeTime,
-        updatedAt: mergeTime,
-        ownerUid: uid,
-        accountName: effectiveSettings.userProfile?.name || 'Cloud Backup',
-        accounts: mergedAccounts,
-        categories: mergedCategories,
+      // STAGE 3: write merged state into v4 flat nodes & purge obsolete legacy server nodes
+      await writeV4ResolvedState(uid, {
         transactions: mergedTransactions,
         recurringTransactions: mergedRecurring,
-        settings: effectiveSettings,
-        sharedSpaces: {
-          myFolders: loadMyShareFolders(),
-          receivedFolders: loadReceivedShareFolders(),
-        },
-        userProfile: {
-          name: prof?.finalName || effectiveSettings.userProfile?.name || 'User',
-          numericId: prof?.clean16Id || effectiveSettings.userProfile?.numericId || '',
-          avatarEmoji: prof?.finalAvatar || effectiveSettings.userProfile?.avatarEmoji || '👤',
-          customAvatarUrl: prof?.finalPhoto || effectiveSettings.userProfile?.customAvatarUrl || auth.currentUser?.photoURL || '',
-          email: auth.currentUser?.email || '',
-          uid: uid,
-          driveAccessGranted: Boolean(effectiveSettings.userProfile?.driveAccessGranted || getGoogleDriveAccessToken()),
-          drivePromptResolved: Boolean(
-            effectiveSettings.userProfile?.drivePromptResolved ||
-            (typeof localStorage !== 'undefined' && localStorage.getItem(`mm_drive_perm_prompted_${uid}`) === 'true')
-          ),
-        },
-      };
-
-      try {
-        await executeDualCloudBackup(uid, mergedPayload);
-      } catch (e) {
-        console.warn('[AppContext] Merged cloud backup write error:', e);
+        accounts: mergedAccounts,
+        categories: mergedCategories,
+        settings: settingsRef.current,
+        userProfile: settingsRef.current.userProfile,
+        tombstones: allTombstones,
+      });
+      // STAGE 4: Attach live listeners
+      attachV4ListenersForUser(uid);
+      if (navigator.onLine && hasGranularDirtyItems()) {
+        handleReconnectAndFlush();
       }
 
       showToast(
@@ -2516,7 +3053,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Custom In-App Confirm and Prompt System (Item 6)
+    // Custom In-App Confirm and Prompt System (Item 6)
   const [customDialogState, setCustomDialogState] = useState<{
     type: 'confirm' | 'prompt';
     options: ConfirmDialogOptions | PromptDialogOptions;

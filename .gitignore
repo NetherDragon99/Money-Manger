@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+.git/
+*.mp4
+*.zip
+firebase-service-account.json
+*firebase-adminsdk*.json

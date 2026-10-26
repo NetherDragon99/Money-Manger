@@ -3,7 +3,7 @@ import { usePWAInstall } from '../hooks/usePWAInstall';
 import { Download, Check, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { checkForAppUpdates, applyLatestAppUpdate } from '../utils/versionChecker';
-import { PWAInstallProgressModal } from './PWAInstallProgressModal';
+import { installPwa } from '../utils/pwaInstall';
 
 export const PWAInstallButton: React.FC<{ compact?: boolean; deferredPrompt?: any }> = ({
   compact = false,
@@ -14,59 +14,10 @@ export const PWAInstallButton: React.FC<{ compact?: boolean; deferredPrompt?: an
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   const handleInstallToHomeScreen = () => {
-    const promptEvent = (window as any).deferredPwaPrompt || (window as any).deferredPWAInstallPrompt || deferredPrompt;
-    if (promptEvent && typeof promptEvent.prompt === 'function') {
-      promptEvent.prompt();
-      if (promptEvent.userChoice && typeof promptEvent.userChoice.then === 'function') {
-        promptEvent.userChoice
-          .then((choice: any) => {
-            (window as any).deferredPwaPrompt = null;
-            (window as any).deferredPWAInstallPrompt = null;
-            if (choice?.outcome === 'accepted') {
-              showToast(
-                settings.language === 'ar'
-                  ? 'تم تثبيت التطبيق بنجاح على جهازك!'
-                  : 'App installed successfully to your device!',
-                'success'
-              );
-            }
-          })
-          .catch(() => {});
-      }
-      return;
-    }
-
-    const isArabic = settings.language === 'ar';
-    const isStandalone =
-      typeof window !== 'undefined' &&
-      (window.matchMedia('(display-mode: standalone)').matches ||
-        window.matchMedia('(display-mode: fullscreen)').matches ||
-        Boolean((window.navigator as any).standalone));
-
-    if (isStandalone || isInstalled) {
-      showToast(
-        isArabic
-          ? 'التطبيق مثبت بالفعل ويعمل كتطبيق مستقل على جهازك!'
-          : 'App is already installed and running as a standalone app on your device!',
-        'success'
-      );
-      return;
-    }
-
-    const ua = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : '';
-    if (/iphone|ipad|ipod/.test(ua)) {
-      showToast(
-        isArabic
-          ? 'لتثبيت التطبيق على iPhone/iPad: اضغط زر المشاركة (Share) في المتصفح ثم اختر "إضافة إلى الشاشة الرئيسية (Add to Home Screen)".'
-          : 'To install on iOS: tap the browser Share button and select "Add to Home Screen".',
-        'info',
-        undefined,
-        6500
-      );
-      return;
-    }
-
-    window.dispatchEvent(new CustomEvent('open-pwa-offline-modal'));
+    installPwa({
+      isArabic: settings.language === 'ar',
+      showToast,
+    });
   };
 
   const handleManualUpdateCheck = async () => {

@@ -21,6 +21,34 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.47',
+    releaseDate: 'October 26, 2026',
+    title: {
+      en: 'Hardened 4-Stage Sign-In Gate, V4 Flat Granular Timestamp Sync, Lossless Offline Dirty Queue & Sidebar Sync Indicator',
+      ar: 'بوابة تسجيل الدخول الصارمة ذات الـ 4 مراحل، المزامنة الدقيقة المسطحة v4، طابور التعديلات بدون إنترنت ومؤشر المزامنة في القائمة الجانبية',
+    },
+    highlights: {
+      en: [
+        'Strict 4-Stage Sign-In Decision Gate: Complete freeze on sign-in from a new device or re-login; inspects cloud data before syncing and engages an interactive Replace vs. Merge decision modal when both local and cloud data exist.',
+        'Flat Rule-Compliant V4 Node Structure: Replaced deep nestings with flat nodes (g_manifest_uid, g_uid_transactions, _accounts, _categories, _recurring, _budgets, _tombstones) and safely purged obsolete legacy nodes after verified count checks.',
+        'Lossless Offline Granular Dirty Queue: Automatically tracks all offline item edits and deletions in mm_granular_v4_dirty_queue, coalesces per item, writes tombstones before item removals, and flushes losslessly upon reconnect only after write confirmation.',
+        'Subtle Sidebar Sync Indicator: Clean, non-intrusive live status indicator inside the Sidebar showing live status (Syncing, Synced with HH:MM timestamp, Offline, Awaiting choice) with zero intrusive popup banners.',
+        'Live Member Profile Sync & Real-Time Share Propagation: Non-destructive update() for user profile cards, live onValue profile hooks for shared spaces, and automatic cross-view propagation of HomeView transactions into linked shared spaces.',
+        'Standalone PWA WebAPK Installation: Unified single manifest in VitePWA with discrete "any" and "maskable" icons, immediate early prompt capture, and zero fake download shortcuts.',
+        'Multi-Line Toast Notifications & Arabic-Normalized Search: Responsive notification wrap with scaled auto-dismiss timing, and complete normalization of Arabic diacritics/letter variants for transaction comment and note searches.',
+      ],
+      ar: [
+        'بوابة تسجيل الدخول الصارمة ذات الـ 4 مراحل: تجميد كامل عند تسجيل الدخول من جهاز جديد أو إعادة الدخول لفحص السحابة وعرض نافذة الاستبدال أو الدمج إذا توفرت بيانات على الجهاز والسحابة معاً.',
+        'بنية العقد المسطحة v4 المتوافقة مع القواعد: استبدال التفرعات العميقة بعقد مسطحة منفصلة (المعاملات، الحسابات، التصنيفات، التكرار، الميزانيات، شواهد الحذف) مع الحذف الآمن للعقد القديمة بعد التحقق من المطابقة.',
+        'طابور التعديلات بدون إنترنت الآمن من الفقدان: تسجيل كافة التعديلات وعمليات الحذف الفردية في mm_granular_v4_dirty_queue ودمجها حسب المعرف، وكتابة شواهد الحذف أولاً وتفريغها تلقائياً عند عودة الاتصال مع التأكيد.',
+        'مؤشر مزامنة هادئ وأنيق بالقائمة الجانبية: مؤشر مدمج ومباشر داخل القائمة الجانبية يعرض الحالة لحظياً (جاري المزامنة، متزامن مع وقت المزامنة، أوفلاين، بانتظار اختيارك) مع إزالة كافة الإشعارات العائمة المزعجة.',
+        'مزامنة فورية لملف العضو ومساحات المشاركة: تحديث غير إتلافي لبطاقة الملف الشخصي بروابط حية مباشرة، وانعكاس تلقائي فوري لأي معاملة مضافة أو معدلة في الشاشة الرئيسية داخل المساحات المشتركة.',
+        'تثبيت WebAPK حقيقي ومستقل: توحيد مصدر ملف البيان manifest في VitePWA بأيقونات منفصلة (any و maskable) والتقاط مبكر للحدث للتثبيت كتطبيق شاشة رئيسية بدون شريط المتصفح.',
+        'إشعارات متعددة الأسطر وبحث يشمل الملاحظات بالعربية: دعم التفاف الرسائل الطويلة وزمن عرض مرن حسب طول الرسالة، وتوحيد أحرف البحث والتشكيل العربي للبحث في التعليقات والملاحظات.',
+      ],
+    },
+  },
+  {
     version: '1.1.45',
     releaseDate: 'October 23, 2026',
     title: {

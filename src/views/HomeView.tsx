@@ -29,10 +29,12 @@ import { MiniDateTimePicker } from '../components/MiniDateTimePicker';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
 import { useLongPress } from '../hooks/useLongPress';
+import { matchesTransactionSearch } from '../utils/searchUtils';
 
 export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
   const {
     accounts,
+    categories,
     transactions,
     settings,
     homeSubView,
@@ -116,18 +118,16 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
       if (advancedFilter.maxAmount !== undefined && tx.amount > advancedFilter.maxAmount) return false;
 
       // 6. Search Query (note/description, category name, date, or amount)
-      const q = searchQuery.toLowerCase().trim() || advancedFilter.searchQuery?.toLowerCase().trim();
+      const q = searchQuery.trim() || advancedFilter.searchQuery?.trim();
       if (q) {
-        const matchesDesc = tx.description?.toLowerCase().includes(q);
-        const matchesCat = tx.categoryName?.toLowerCase().includes(q);
-        const matchesAmount = tx.amount.toString().includes(q);
-        const matchesDate = tx.date.includes(q);
-        if (!matchesDesc && !matchesCat && !matchesAmount && !matchesDate) return false;
+        if (!matchesTransactionSearch(tx, q, { accounts, categories, currencySymbol: settings.currencySymbol })) {
+          return false;
+        }
       }
 
       return true;
     });
-  }, [transactions, activeDateRange, advancedFilter, searchQuery]);
+  }, [transactions, activeDateRange, advancedFilter, searchQuery, accounts, categories, settings.currencySymbol]);
 
   // Public Summary Calculation: INCOME, EXPENSE, BALANCE
   // Crucial: Calculated ONLY from Public accounts (isPrivate === false)!
