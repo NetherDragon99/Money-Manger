@@ -403,14 +403,18 @@ export const Sidebar: React.FC = () => {
     const absX = Math.abs(deltaX);
     const absY = Math.abs(deltaY);
 
-    if (absX < 10 && absY < 10) return;
-    if (absY >= absX) {
+    if (absY > 8 && absY >= absX) {
       // Vertical scrolling inside sidebar takes priority
       setIsClosingDrag(false);
       return;
     }
+    if (absX < 12 && absY < 12) return;
+    if (absY >= absX) {
+      setIsClosingDrag(false);
+      return;
+    }
 
-    if (absX > absY * 1.25 && absX > 10) {
+    if (absX > absY * 1.5 && absX > 12) {
       setIsClosingDrag(true);
       const closingDelta = isArabic ? Math.max(0, deltaX) : Math.min(0, deltaX);
       setCloseDragDelta(closingDelta);
@@ -1000,7 +1004,7 @@ export const Sidebar: React.FC = () => {
                     {isArabic ? 'تحديثات التطبيق' : 'App Updates'}
                   </h4>
                   <p className="text-[10px] text-zinc-400 truncate mt-0.5 font-mono">
-                    {isArabic ? `الإصدار الحالي: v${CURRENT_APP_VERSION}` : `Current: v${CURRENT_APP_VERSION}`}
+                    {isArabic ? `الإصدار الحالي: Beta v${CURRENT_APP_VERSION}` : `Current: Beta v${CURRENT_APP_VERSION}`}
                   </p>
                 </div>
               </div>

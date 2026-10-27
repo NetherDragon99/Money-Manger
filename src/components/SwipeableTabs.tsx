@@ -157,8 +157,15 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
     const absY = Math.abs(deltaY);
 
     if (isHorizontalLock === null) {
-      // Wait until finger moves at least 10px
-      if (absX < 10 && absY < 10) return;
+      // If finger moves vertically first, cancel horizontal lock immediately to preserve native vertical scroll
+      if (absY > 8 && absY >= absX) {
+        touchStateRef.current.isHorizontalLock = false;
+        setIsDragging(false);
+        return;
+      }
+
+      // Wait until finger moves at least 12px
+      if (absX < 12 && absY < 12) return;
 
       // if Math.abs(dy) >= Math.abs(dx), immediately cancel the horizontal drag state so vertical scrolling proceeds uninterrupted
       if (absY >= absX) {
@@ -167,8 +174,8 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
         return;
       }
 
-      // only engage horizontal translation when Math.abs(dx) > Math.abs(dy) * 1.25 && Math.abs(dx) > 10
-      if (absX > absY * 1.25 && absX > 10) {
+      // only engage horizontal translation when Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) > 12
+      if (absX > absY * 1.5 && absX > 12) {
         touchStateRef.current.isHorizontalLock = true;
         setIsDragging(true);
 
@@ -408,6 +415,11 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
           <div
             className="w-full flex-shrink-0 min-w-full h-full overflow-y-auto overscroll-y-contain flex flex-col"
             style={{
+              flex: '1 1 0%',
+              minHeight: 0,
+              height: '100%',
+              overflowY: 'auto',
+              overflowX: 'hidden',
               WebkitOverflowScrolling: 'touch',
               touchAction: 'pan-y',
               visibility: dragProgress >= 0.99 && !isDragging ? 'hidden' : 'visible',
@@ -420,6 +432,11 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
           <div
             className="w-full flex-shrink-0 min-w-full h-full overflow-y-auto overscroll-y-contain flex flex-col"
             style={{
+              flex: '1 1 0%',
+              minHeight: 0,
+              height: '100%',
+              overflowY: 'auto',
+              overflowX: 'hidden',
               WebkitOverflowScrolling: 'touch',
               touchAction: 'pan-y',
               visibility: dragProgress <= 0.01 && !isDragging ? 'hidden' : 'visible',

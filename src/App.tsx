@@ -410,8 +410,15 @@ const MainAppContent: React.FC = () => {
     const absY = Math.abs(deltaY);
 
     if (state.isHorizontal === null) {
-      // Wait until the finger moves at least 10px
-      if (absX < 10 && absY < 10) return;
+      // If user starts vertical scrolling first, immediately cancel horizontal drag so vertical scroll proceeds natively
+      if (absY > 8 && absY >= absX) {
+        state.isHorizontal = false;
+        setIsMainDragging(false);
+        return;
+      }
+
+      // Wait until the finger moves at least 12px
+      if (absX < 12 && absY < 12) return;
 
       // If vertical movement dominates, cancel horizontal drag immediately so native vertical scrolling proceeds uninterrupted
       if (absY >= absX) {
@@ -420,8 +427,8 @@ const MainAppContent: React.FC = () => {
         return;
       }
 
-      // Only engage horizontal translation when horizontal movement clearly dominates
-      if (absX > absY * 1.25 && absX > 10) {
+      // Only engage horizontal translation when horizontal movement clearly dominates (absX > 12 and absX > absY * 1.5)
+      if (absX > absY * 1.5 && absX > 12) {
         state.isHorizontal = true;
         setIsMainDragging(true);
 
@@ -646,11 +653,14 @@ const MainAppContent: React.FC = () => {
       {/* Responsive Container Frame across Mobile, Tablet & Desktop (Landscape & Portrait adaptive) */}
       <div
         onScrollCapture={handleScrollCapture}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchCancel}
-        className="w-full max-w-none md:max-w-7xl landscape:max-w-none min-h-[100dvh] h-[100dvh] bg-black relative shadow-2xl flex flex-col overflow-x-hidden"
+        className="w-full max-w-none md:max-w-7xl landscape:max-w-none min-h-[100dvh] h-[100dvh] bg-black relative shadow-2xl flex flex-col overflow-hidden"
+        style={{
+          height: '100dvh',
+          maxHeight: '100dvh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
       >
         <ToastContainer />
         <CustomDialogModal
@@ -698,7 +708,15 @@ const MainAppContent: React.FC = () => {
                   {shouldMount('home') && (
                     <div
                       className={currentTab === 'home' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
-                      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                      style={{
+                        flex: '1 1 0%',
+                        minHeight: 0,
+                        height: '100%',
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        WebkitOverflowScrolling: 'touch',
+                        touchAction: 'pan-y',
+                      }}
                     >
                       <HomeView isBarsVisible={isBarsVisible} />
                     </div>
@@ -706,7 +724,15 @@ const MainAppContent: React.FC = () => {
                   {shouldMount('budget') && (
                     <div
                       className={currentTab === 'budget' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
-                      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                      style={{
+                        flex: '1 1 0%',
+                        minHeight: 0,
+                        height: '100%',
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        WebkitOverflowScrolling: 'touch',
+                        touchAction: 'pan-y',
+                      }}
                     >
                       <BudgetView isBarsVisible={isBarsVisible} />
                     </div>
@@ -714,7 +740,15 @@ const MainAppContent: React.FC = () => {
                   {shouldMount('insights') && (
                     <div
                       className={currentTab === 'insights' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
-                      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                      style={{
+                        flex: '1 1 0%',
+                        minHeight: 0,
+                        height: '100%',
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        WebkitOverflowScrolling: 'touch',
+                        touchAction: 'pan-y',
+                      }}
                     >
                       <InsightsView isBarsVisible={isBarsVisible} />
                     </div>
@@ -722,7 +756,15 @@ const MainAppContent: React.FC = () => {
                   {shouldMount('accounts') && (
                     <div
                       className={currentTab === 'accounts' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
-                      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                      style={{
+                        flex: '1 1 0%',
+                        minHeight: 0,
+                        height: '100%',
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        WebkitOverflowScrolling: 'touch',
+                        touchAction: 'pan-y',
+                      }}
                     >
                       <AccountsView isBarsVisible={isBarsVisible} />
                     </div>
@@ -730,7 +772,15 @@ const MainAppContent: React.FC = () => {
                   {shouldMount('calculator') && (
                     <div
                       className={currentTab === 'calculator' ? 'h-full flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-y-contain pb-20 md:pb-28 landscape:pb-14' : 'hidden'}
-                      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                      style={{
+                        flex: '1 1 0%',
+                        minHeight: 0,
+                        height: '100%',
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        WebkitOverflowScrolling: 'touch',
+                        touchAction: 'pan-y',
+                      }}
                     >
                       <CalculatorView isBarsVisible={isBarsVisible} />
                     </div>

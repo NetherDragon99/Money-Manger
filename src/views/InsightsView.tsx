@@ -17,6 +17,20 @@ import {
 } from '../utils/dateCycle';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
 
+// Vibrant Palette for Donut slices
+const DONUT_COLORS = [
+  '#3b82f6', // blue
+  '#ef4444', // red
+  '#10b981', // emerald
+  '#f59e0b', // amber
+  '#8b5cf6', // purple
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#f97316', // orange
+  '#14b8a6', // teal
+  '#6366f1', // indigo
+];
+
 export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
   const { accounts, transactions, settings, setIsSidebarOpen, t } = useApp();
 
@@ -184,20 +198,6 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
     return { periods, maxVal };
   }, [cycleTransactions]);
 
-  // Vibrant Palette for Donut slices
-  const DONUT_COLORS = [
-    '#3b82f6', // blue
-    '#ef4444', // red
-    '#10b981', // emerald
-    '#f59e0b', // amber
-    '#8b5cf6', // purple
-    '#ec4899', // pink
-    '#06b6d4', // cyan
-    '#f97316', // orange
-    '#14b8a6', // teal
-    '#6366f1', // indigo
-  ];
-
   // SVG Donut Path Builder
   const donutPaths = useMemo(() => {
     const { list, totalAmount } = categoryAnalytics;
@@ -245,7 +245,18 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
     : categoryAnalytics.list.slice(0, 3);
 
   return (
-    <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
+    <div
+      className="w-full flex-1 min-h-0 h-full overflow-y-auto overflow-x-hidden touch-pan-y bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in"
+      style={{
+        flex: '1 1 0%',
+        minHeight: 0,
+        height: '100%',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        WebkitOverflowScrolling: 'touch',
+        touchAction: 'pan-y',
+      }}
+    >
       {/* 1. Standardized Top Header Across All Views (Item 2) */}
       <header
         style={{
