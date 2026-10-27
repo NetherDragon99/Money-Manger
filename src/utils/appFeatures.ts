@@ -4,6 +4,26 @@ export type { FeatureItem, ReleaseNote };
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.50',
+    releaseDate: 'October 27, 2026',
+    title: {
+      en: 'Vertical Scroll Restoration, Gesture Direction Locking & Navigation Hierarchy Fix',
+      ar: 'استعادة التمرير الرأسي الطبيعي، قفل اتجاه الإيماءات وإصلاح بنية التنقل',
+    },
+    highlights: {
+      en: [
+        'Native Vertical Scrolling Restored: Dedicated independent scroll view containers across Home, Budget, Insights, Accounts, and Calculator with touch-pan-y physics.',
+        'Intelligent Direction Locking: Swipe carousels wait for 10px directional confirmation and immediately yield to vertical scrolling when vertical motion dominates.',
+        'NavigationProvider & Error Safety: Fortified navigation hierarchy with safe fallback handlers, zero TDZ initialization issues, and English system defaults.',
+      ],
+      ar: [
+        'استعادة التمرير الرأسي الطبيعي: حاويات تمرير مستقلة لصفحات الرئيسية، الميزانية، التحليلات، الحسابات، والحاسبة مع دعم فيزياء اللمس الرأسية.',
+        'قفل ذكي لاتجاه الإيماءات: تنتظر أشرطة التمرير تأكيد الاتجاه الأفقي بمسافة 10 بكسل وتمنح الأولوية فوراً للتمرير الرأسي عند سحب القوائم.',
+        'أمان التنقل وشاشات الأخطاء: بنية تنقل محصنة مع معالجة بديلة آمنة تمنع أي تعطل مع اعتماد اللغة الإنجليزية كخيار افتراضي.',
+      ],
+    },
+  },
+  {
     version: '1.1.49',
     releaseDate: 'October 27, 2026',
     title: {

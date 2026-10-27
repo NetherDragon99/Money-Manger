@@ -392,7 +392,6 @@ export const Sidebar: React.FC = () => {
   const handleSidebarTouchStart = (e: React.TouchEvent) => {
     const touch = e.touches[0];
     sidebarTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
-    setIsClosingDrag(true);
     setCloseDragDelta(0);
   };
 
@@ -401,10 +400,21 @@ export const Sidebar: React.FC = () => {
     const touch = e.touches[0];
     const deltaX = touch.clientX - sidebarTouchStartRef.current.x;
     const deltaY = touch.clientY - sidebarTouchStartRef.current.y;
-    if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 8) return;
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
 
-    const closingDelta = isArabic ? Math.max(0, deltaX) : Math.min(0, deltaX);
-    setCloseDragDelta(closingDelta);
+    if (absX < 10 && absY < 10) return;
+    if (absY >= absX) {
+      // Vertical scrolling inside sidebar takes priority
+      setIsClosingDrag(false);
+      return;
+    }
+
+    if (absX > absY * 1.25 && absX > 10) {
+      setIsClosingDrag(true);
+      const closingDelta = isArabic ? Math.max(0, deltaX) : Math.min(0, deltaX);
+      setCloseDragDelta(closingDelta);
+    }
   };
 
   const handleSidebarTouchEnd = (e: React.TouchEvent) => {
@@ -1150,7 +1160,7 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar Footer: Version (v1.1.49) & Refresh Button */}
+        {/* Sidebar Footer: Version (v1.1.50) & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-zinc-300">Version: Beta v{CURRENT_APP_VERSION}</span>

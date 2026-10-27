@@ -54,12 +54,39 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
   const prefersReducedMotion = typeof window !== 'undefined'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  const animFrameRef = useRef<number | null>(null);
+
+  // Declare callbacks above any handlers to prevent any TDZ access
+  const updateProgress = useCallback((newProg: number) => {
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    animFrameRef.current = requestAnimationFrame(() => {
+      setDragProgress(newProg);
+    });
+  }, []);
+
+  // Helper to dispatch global sidebar drag events for 1:1 finger tracking
+  const dispatchSidebarEvent = useCallback((phase: 'start' | 'move' | 'end', deltaX: number, clientX: number) => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(
+      new CustomEvent('mm-sidebar-drag', {
+        detail: { phase, deltaX, clientX, isRtl },
+      })
+    );
+  }, [isRtl]);
+
   // Sync internal progress when external activeTab changes (when not actively dragging)
   useEffect(() => {
     if (!isDragging && !isScrubbingTabBar) {
       setDragProgress(activeIndex);
     }
   }, [activeIndex, isDragging, isScrubbingTabBar]);
+
+  // Clean up any pending animation frames on unmount
+  useEffect(() => {
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, []);
 
   // Touch tracking state
   const touchStateRef = useRef<{
@@ -79,25 +106,6 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
     isBoundaryEngaged: null,
     isEdgeZone: false,
   });
-
-  const animFrameRef = useRef<number | null>(null);
-
-  const updateProgress = useCallback((newProg: number) => {
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    animFrameRef.current = requestAnimationFrame(() => {
-      setDragProgress(newProg);
-    });
-  }, []);
-
-  // Helper to dispatch global sidebar drag events for 1:1 finger tracking
-  const dispatchSidebarEvent = useCallback((phase: 'start' | 'move' | 'end', deltaX: number, clientX: number) => {
-    if (typeof window === 'undefined') return;
-    window.dispatchEvent(
-      new CustomEvent('mm-sidebar-drag', {
-        detail: { phase, deltaX, clientX, isRtl },
-      })
-    );
-  }, [isRtl]);
 
   // Content touch handlers (Carousel)
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -126,12 +134,7 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
       isBoundaryEngaged: null,
       isEdgeZone,
     };
-
-    if (isEdgeZone && !disableBoundaryHandOff) {
-      touchStateRef.current.isBoundaryEngaged = 'start';
-      onBoundaryDrag?.('start', 0, 'start');
-      dispatchSidebarEvent('start', 0, touch.clientX);
-    }
+    // Note: Do NOT engage boundary or call preventDefault on touchstart so vertical scroll starts clean
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
@@ -149,18 +152,37 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
       return;
     }
 
-    // Direction locking
-    if (isHorizontalLock === null) {
-      const absX = Math.abs(deltaX);
-      const absY = Math.abs(deltaY);
-      if (absX < 8 && absY < 8) return;
+    // Direction locking:
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
 
+    if (isHorizontalLock === null) {
+      // Wait until finger moves at least 10px
+      if (absX < 10 && absY < 10) return;
+
+      // if Math.abs(dy) >= Math.abs(dx), immediately cancel the horizontal drag state so vertical scrolling proceeds uninterrupted
       if (absY >= absX) {
-        touchStateRef.current.isHorizontalLock = false; // Vertical scroll, cancel
+        touchStateRef.current.isHorizontalLock = false;
+        setIsDragging(false);
         return;
       }
-      touchStateRef.current.isHorizontalLock = true;
-      setIsDragging(true);
+
+      // only engage horizontal translation when Math.abs(dx) > Math.abs(dy) * 1.25 && Math.abs(dx) > 10
+      if (absX > absY * 1.25 && absX > 10) {
+        touchStateRef.current.isHorizontalLock = true;
+        setIsDragging(true);
+
+        // Check if edge boundary should engage immediately
+        if (isEdgeZone && !disableBoundaryHandOff) {
+          touchStateRef.current.isBoundaryEngaged = 'start';
+          setIsDragging(false);
+          onBoundaryDrag?.('start', deltaX, 'start');
+          dispatchSidebarEvent('start', deltaX, touch.clientX);
+          return;
+        }
+      } else {
+        return;
+      }
     }
 
     if (!touchStateRef.current.isHorizontalLock) return;
@@ -187,13 +209,18 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
 
     // Normal 1:1 internal carousel drag
     const containerWidth = containerRef.current?.offsetWidth || window.innerWidth || 360;
-    // In LTR: drag left (deltaX < 0) advances towards Tab 1 (progress 0 -> 1)
-    // In RTL: drag right (deltaX > 0) advances towards Tab 1 (progress 0 -> 1)
     const normDeltaRatio = (isRtl ? deltaX : -deltaX) / containerWidth;
     const newProg = Math.min(Math.max(activeIndex + normDeltaRatio, 0), 1);
 
     touchStateRef.current.lastX = touch.clientX;
     updateProgress(newProg);
+  };
+
+  const handleTouchCancel = () => {
+    setIsDragging(false);
+    setDragProgress(activeIndex);
+    touchStateRef.current.isHorizontalLock = null;
+    touchStateRef.current.isBoundaryEngaged = null;
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
@@ -209,6 +236,7 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
         dispatchSidebarEvent('end', deltaX, touch.clientX);
       }
       touchStateRef.current.isBoundaryEngaged = null;
+      touchStateRef.current.isHorizontalLock = null;
       return;
     }
 
@@ -241,16 +269,25 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
 
     const onPointerMove = (ev: PointerEvent) => {
       const deltaX = ev.clientX - startClientX;
-      // In LTR: dragging right moves pill towards Tab 1 (progress 0 -> 1)
-      // In RTL: dragging left moves pill towards Tab 1 (progress 0 -> 1)
       const ratio = (isRtl ? -deltaX : deltaX) / (barWidth / 2);
       const newProg = Math.min(Math.max(activeIndex + ratio, 0), 1);
       updateProgress(newProg);
     };
 
-    const onPointerUp = (ev: PointerEvent) => {
+    const cleanup = () => {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+    };
+
+    const onPointerCancel = () => {
+      cleanup();
+      setIsScrubbingTabBar(false);
+      setDragProgress(activeIndex);
+    };
+
+    const onPointerUp = (ev: PointerEvent) => {
+      cleanup();
       setIsScrubbingTabBar(false);
 
       const deltaX = ev.clientX - startClientX;
@@ -266,6 +303,7 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
 
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerCancel);
   };
 
   // Active pill color calculation
@@ -274,16 +312,11 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
     : (pillColorClass || 'bg-zinc-800 text-white shadow-sm');
 
   // Carousel translation:
-  // In LTR: tab 0 is 0%, tab 1 is -100% -> `translateX(-${dragProgress * 100}%)`
-  // In RTL: tab 0 is 0%, tab 1 is +100% -> `translateX(${dragProgress * 100}%)`
   const trackTransform = isRtl
     ? `translate3d(${dragProgress * 100}%, 0, 0)`
     : `translate3d(-${dragProgress * 100}%, 0, 0)`;
 
   // Tab indicator pill translation:
-  // Pill width is 50%. Tab 0 is at 0%, Tab 1 is at 100% of pill width.
-  // In LTR: `translateX(${dragProgress * 100}%)`
-  // In RTL: `translateX(-${dragProgress * 100}%)`
   const pillTransform = isRtl
     ? `translate3d(-${dragProgress * 100}%, 0, 0)`
     : `translate3d(${dragProgress * 100}%, 0, 0)`;
@@ -293,12 +326,13 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
     : 'transform 260ms cubic-bezier(0.25, 1, 0.5, 1)';
 
   return (
-    <div className={`w-full flex flex-col min-h-0 ${className}`}>
+    <div className={`w-full flex flex-col min-h-0 flex-1 ${className}`}>
       {/* 1. Top Segmented Tab Bar With 1:1 Live Scrubbing */}
       <div className={`px-4 pt-2 pb-1 max-w-2xl mx-auto w-full ${tabBarClassName}`}>
         <div
           ref={tabBarRef}
-          className="relative flex p-1 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 overflow-hidden select-none touch-none"
+          className="relative flex p-1 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 overflow-hidden select-none touch-pan-y"
+          style={{ touchAction: 'pan-y' }}
         >
           {/* 1:1 Synchronized Sliding Indicator Pill */}
           <div
@@ -358,19 +392,24 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
         className="w-full flex-1 min-h-0 overflow-hidden relative touch-pan-y"
+        style={{ touchAction: 'pan-y' }}
       >
         <div
-          className="flex flex-row w-full h-full will-change-transform"
+          className="flex flex-row w-full h-full will-change-transform touch-pan-y"
           style={{
+            touchAction: 'pan-y',
             transform: trackTransform,
             transition: transitionStyle,
           }}
         >
           {/* Tab Pane 0 */}
           <div
-            className="w-full flex-shrink-0 min-w-full h-full overflow-y-auto overscroll-contain"
+            className="w-full flex-shrink-0 min-w-full h-full overflow-y-auto overscroll-y-contain flex flex-col"
             style={{
+              WebkitOverflowScrolling: 'touch',
+              touchAction: 'pan-y',
               visibility: dragProgress >= 0.99 && !isDragging ? 'hidden' : 'visible',
             }}
           >
@@ -379,8 +418,10 @@ export const SwipeableTabs: React.FC<SwipeableTabsProps> = ({
 
           {/* Tab Pane 1 */}
           <div
-            className="w-full flex-shrink-0 min-w-full h-full overflow-y-auto overscroll-contain"
+            className="w-full flex-shrink-0 min-w-full h-full overflow-y-auto overscroll-y-contain flex flex-col"
             style={{
+              WebkitOverflowScrolling: 'touch',
+              touchAction: 'pan-y',
               visibility: dragProgress <= 0.01 && !isDragging ? 'hidden' : 'visible',
             }}
           >

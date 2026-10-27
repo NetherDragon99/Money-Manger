@@ -413,7 +413,13 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 export const useNavigation = () => {
   const context = useContext(NavigationContext);
   if (!context) {
-    throw new Error('useNavigation must be used within a NavigationProvider');
+    return {
+      goBack: navigateBack,
+      isExitModalOpen: false,
+      setIsExitModalOpen: () => {},
+      confirmExit: () => {},
+      cancelExit: () => {},
+    };
   }
   return context;
 };

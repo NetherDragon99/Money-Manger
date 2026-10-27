@@ -385,16 +385,8 @@ const MainAppContent: React.FC = () => {
       startTime: Date.now(),
       isHorizontal: null,
       isEdgeZone,
-      isSidebarEngaged: isEdgeZone,
+      isSidebarEngaged: false,
     };
-
-    if (isEdgeZone) {
-      window.dispatchEvent(
-        new CustomEvent('mm-sidebar-drag', {
-          detail: { phase: 'start', deltaX: 0, clientX: touch.clientX, isRtl },
-        })
-      );
-    }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
@@ -414,17 +406,42 @@ const MainAppContent: React.FC = () => {
       return;
     }
 
-    if (state.isHorizontal === null) {
-      const absX = Math.abs(deltaX);
-      const absY = Math.abs(deltaY);
-      if (absX < 8 && absY < 8) return;
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
 
+    if (state.isHorizontal === null) {
+      // Wait until the finger moves at least 10px
+      if (absX < 10 && absY < 10) return;
+
+      // If vertical movement dominates, cancel horizontal drag immediately so native vertical scrolling proceeds uninterrupted
       if (absY >= absX) {
         state.isHorizontal = false;
+        setIsMainDragging(false);
         return;
       }
-      state.isHorizontal = true;
-      setIsMainDragging(true);
+
+      // Only engage horizontal translation when horizontal movement clearly dominates
+      if (absX > absY * 1.25 && absX > 10) {
+        state.isHorizontal = true;
+        setIsMainDragging(true);
+
+        // Edge zone boundary hand-off on Home tab
+        const curIdx = TABS.indexOf(currentTab);
+        const isDraggingToStart = isRtl ? deltaX < 0 : deltaX > 0;
+        if (curIdx === 0 && isDraggingToStart && state.isEdgeZone) {
+          state.isSidebarEngaged = true;
+          setIsMainDragging(false);
+          setMainDragOffset(0);
+          window.dispatchEvent(
+            new CustomEvent('mm-sidebar-drag', {
+              detail: { phase: 'start', deltaX: 0, clientX: touch.clientX, isRtl },
+            })
+          );
+          return;
+        }
+      } else {
+        return;
+      }
     }
 
     if (!state.isHorizontal) return;
@@ -468,6 +485,7 @@ const MainAppContent: React.FC = () => {
     setMainDragOffset(0);
     setTargetAdjacentTab(null);
     mainTouchStateRef.current.isHorizontal = null;
+    mainTouchStateRef.current.isSidebarEngaged = false;
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
@@ -678,27 +696,42 @@ const MainAppContent: React.FC = () => {
               return (
                 <>
                   {shouldMount('home') && (
-                    <div className={currentTab === 'home' ? 'w-full min-h-0 flex-1 flex flex-col' : 'hidden'}>
+                    <div
+                      className={currentTab === 'home' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
+                      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                    >
                       <HomeView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('budget') && (
-                    <div className={currentTab === 'budget' ? 'w-full min-h-0 flex-1 flex flex-col' : 'hidden'}>
+                    <div
+                      className={currentTab === 'budget' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
+                      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                    >
                       <BudgetView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('insights') && (
-                    <div className={currentTab === 'insights' ? 'w-full min-h-0 flex-1 flex flex-col' : 'hidden'}>
+                    <div
+                      className={currentTab === 'insights' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
+                      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                    >
                       <InsightsView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('accounts') && (
-                    <div className={currentTab === 'accounts' ? 'w-full min-h-0 flex-1 flex flex-col' : 'hidden'}>
+                    <div
+                      className={currentTab === 'accounts' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
+                      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                    >
                       <AccountsView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
                   {shouldMount('calculator') && (
-                    <div className={currentTab === 'calculator' ? 'h-full flex-1 min-h-0 flex flex-col overflow-hidden pb-20 md:pb-28 landscape:pb-14' : 'hidden'}>
+                    <div
+                      className={currentTab === 'calculator' ? 'h-full flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-y-contain pb-20 md:pb-28 landscape:pb-14' : 'hidden'}
+                      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                    >
                       <CalculatorView isBarsVisible={isBarsVisible} />
                     </div>
                   )}
