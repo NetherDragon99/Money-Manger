@@ -219,24 +219,9 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
       }
     });
 
-    // 3. Automatic 5-second periodic background polling fallback
-    // Guarantees continuous live sync even if mobile sleep or network glitch pauses WebSocket
-    const pollTimer = setInterval(async () => {
-      if (!isMounted || !shareId) return;
-      try {
-        const fresh = await fetchShareFolderFromCloud(shareId);
-        if (isMounted && fresh) {
-          applyLiveData(fresh);
-        }
-      } catch (err) {
-        // Quiet poll
-      }
-    }, 5000);
-
     return () => {
       isMounted = false;
       unsub();
-      clearInterval(pollTimer);
     };
   }, [shareId, offlineFallbackSnapshot, isArabic, settings]);
 

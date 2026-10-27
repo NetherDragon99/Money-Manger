@@ -148,6 +148,7 @@ import {
   isSpaceOwnedByUser,
   setShareModalOpenState,
   propagateTransactionToLinkedSpaces,
+  subscribeToActiveSpacesTransactions,
 } from '../utils/shareFolders';
 
 export interface ToastItem {
@@ -689,6 +690,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const deleteSelectedTxs = () => {
     if (selectedTxIds.length === 0) return;
     const count = selectedTxIds.length;
+    const txsToDelete = transactions.filter((t) => selectedTxIds.includes(t.id));
+    for (const tx of txsToDelete) {
+      propagateTransactionToLinkedSpaces('delete', tx, accounts).catch(() => {});
+    }
     const updatedList = transactions.filter((t) => !selectedTxIds.includes(t.id));
     setTransactions(updatedList);
     const synced = syncAllAccountBalances(accounts, updatedList);
@@ -1041,6 +1046,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     let isDisposed = false;
     let unsubInbox: (() => void) | null = null;
+    let unsubActiveSpaces: (() => void) | null = null;
     let activeCleanId = '';
 
     const setupListenerForUser = (targetUid?: string) => {
@@ -1147,6 +1153,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubInbox = subscribeToMyInbox(cleanId, (rawLiveReceived) => {
         handleDiscoveredShares(rawLiveReceived);
       });
+      if (unsubActiveSpaces) unsubActiveSpaces();
+      unsubActiveSpaces = subscribeToActiveSpacesTransactions();
 
       // Run one initial check on mount and flush offline queue
       if (typeof navigator === 'undefined' || navigator.onLine) {
@@ -1176,6 +1184,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         } else if (unsubInbox) {
           unsubInbox();
           unsubInbox = null;
+          if (unsubActiveSpaces) { unsubActiveSpaces(); unsubActiveSpaces = null; }
           activeCleanId = '';
         }
       }
@@ -1193,6 +1202,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (unsubInbox) {
         unsubInbox();
         unsubInbox = null;
+      }
+      if (typeof unsubActiveSpaces === 'function') {
+        unsubActiveSpaces();
       }
     };
   }, [settings.userProfile?.numericId, settings.userProfile?.uid, settings.language]);
@@ -2507,6 +2519,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const syncedAccounts = syncAllAccountBalances(accounts, updatedTransactions);
     setAccounts(syncedAccounts);
 
+    // Propagate transaction to linked shared spaces in real-time
+    propagateTransactionToLinkedSpaces('add', newTx, accounts).catch(() => {});
+
     if (auth.currentUser && isSyncUnlockedRef.current) {
       triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'transactions', newTx, isSyncUnlockedRef.current));
     }
@@ -2541,6 +2556,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const syncedAccounts = syncAllAccountBalances(accounts, updatedList);
     setAccounts(syncedAccounts);
 
+    // Propagate transaction to linked shared spaces in real-time
+    propagateTransactionToLinkedSpaces('update', finalTx, accounts).catch(() => {});
+
     // If currently viewing this transaction details, update it
     if (viewingTx && viewingTx.id === finalTx.id) {
       setViewingTx(finalTx);
@@ -2554,11 +2572,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const deleteTransaction = (id: string) => {
+    const txToDelete = transactions.find((t) => t.id === id);
     const updatedList = transactions.filter((t) => t.id !== id);
     setTransactions(updatedList);
 
     const syncedAccounts = syncAllAccountBalances(accounts, updatedList);
     setAccounts(syncedAccounts);
+
+    // Propagate transaction to linked shared spaces in real-time
+    propagateTransactionToLinkedSpaces('delete', txToDelete || ({ id } as Transaction), accounts).catch(() => {});
 
     if (viewingTx && viewingTx.id === id) {
       setViewingTx(null);

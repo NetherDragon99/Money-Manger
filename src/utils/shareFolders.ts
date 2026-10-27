@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { rtdb, auth, getCachedAuthUser } from './firebase';
-import { ref, set, get, remove, onValue, off, update } from 'firebase/database';
+import { ref, set, get, remove, onValue, off, update, onChildAdded, onChildChanged, onChildRemoved } from 'firebase/database';
 import { cleanNumericId, format16DigitId, getOrCreateNumericId } from './userId';
 import { Account, Category, Transaction } from '../types';
 import { getTransferHistoricalBalances } from './balanceEngine';
@@ -2143,11 +2143,8 @@ export function normalizeParsedShareFolder(val: any, fallbackId?: string): Share
     ? val.payload.categories
     : [];
 
-  const rawTransactions: Transaction[] = Array.isArray(val.transactions)
-    ? val.transactions
-    : Array.isArray(val.payload?.transactions)
-    ? val.payload.transactions
-    : [];
+  const extractTxs = (c: any): Transaction[] => (Array.isArray(c) ? c.filter(Boolean) : (c && typeof c === 'object') ? Object.values(c).filter(Boolean) as Transaction[] : []);
+  const rawTransactions: Transaction[] = extractTxs(val.transactions).length > 0 ? extractTxs(val.transactions) : extractTxs(val.payload?.transactions);
 
   const transactions = rawTransactions.map((t) => enrichShareTransaction(t, accounts));
   const payload: ShareFolderPayload = {
@@ -2646,6 +2643,49 @@ export const syncShareFolderToCloud = syncFolderToCloud;
  * Automatically propagate any transaction added/edited/deleted in HomeView or AccountsView
  * into any linked Shared Space in real time (updating only the changed item path).
  */
+/**
+ * Push ONLY a single transaction delta to the shared space's cloud node
+ * without re-uploading the entire shared space or the entire transaction array.
+ * Uses lightweight RTDB multi-path update so child listeners fire with minimal bandwidth.
+ */
+export async function pushTransactionDeltaToCloud(
+  spaceId: string,
+  action: 'add' | 'update' | 'delete',
+  txOrId: Transaction | string
+): Promise<void> {
+  const cleanId = normalizeShareId(spaceId);
+  if (!cleanId) return;
+
+  const txId = typeof txOrId === 'string' ? txOrId : txOrId.id;
+  if (!txId) return;
+
+  const now = Date.now();
+  const canonicalPath = getCanonicalSharePath(cleanId);
+
+  let deltaValue: any = null;
+  if (action !== 'delete' && typeof txOrId === 'object') {
+    deltaValue = deepSanitizeForFirebase(txOrId);
+  }
+
+  const updates: Record<string, any> = {
+    [`transactions/${txId}`]: deltaValue,
+    [`payload/transactions/${txId}`]: deltaValue,
+    updatedAt: now,
+  };
+
+  try {
+    await update(ref(rtdb, canonicalPath), updates);
+  } catch (err) {
+    console.warn(`[ShareFolders] Failed pushing transaction delta for ${txId} in ${cleanId}:`, err);
+  }
+
+  if (spaceId !== `share_${cleanId}` && cleanId !== spaceId) {
+    try {
+      await update(ref(rtdb, `shared_accounts/${spaceId}`), updates);
+    } catch {}
+  }
+}
+
 export async function propagateTransactionToLinkedSpaces(
   action: 'add' | 'update' | 'delete',
   tx: Transaction,
@@ -2658,12 +2698,14 @@ export async function propagateTransactionToLinkedSpaces(
   const txId = tx.id;
   const txAccountId = tx.accountId;
   const txToAccountId = tx.toAccountId;
+  const explicitShareId = (tx as any).shareId ? normalizeShareId((tx as any).shareId) : '';
 
   let anySpaceChanged = false;
   const updatedSpaces: ShareFolder[] = [];
 
   for (const space of allSpaces) {
     if (!space || !space.id) continue;
+    const cleanSpaceId = normalizeShareId(space.id);
     const spaceAccounts = space.payload?.accounts || space.accounts || [];
     const spaceAccountIds = new Set(spaceAccounts.map((a) => a.id));
 
@@ -2674,14 +2716,16 @@ export async function propagateTransactionToLinkedSpaces(
     const existingTxs = space.payload?.transactions || space.transactions || [];
     const existingIdx = existingTxs.findIndex((t) => t.id === txId);
     const isLinkedByTx = existingIdx !== -1;
+    const isLinkedByExplicitShare = Boolean(explicitShareId && explicitShareId === cleanSpaceId);
 
-    if (!isLinkedByAccount && !isLinkedByTx) {
+    if (!isLinkedByAccount && !isLinkedByTx && !isLinkedByExplicitShare) {
       updatedSpaces.push(space);
       continue;
     }
 
     const nextTxs = [...existingTxs];
     let changed = false;
+    let enrichedTx: Transaction | null = null;
 
     if (action === 'delete') {
       if (existingIdx !== -1) {
@@ -2689,20 +2733,20 @@ export async function propagateTransactionToLinkedSpaces(
         changed = true;
       }
     } else if (action === 'add') {
-      const enriched = enrichShareTransaction(tx, spaceAccounts);
+      enrichedTx = enrichShareTransaction(tx, spaceAccounts);
       if (existingIdx !== -1) {
-        nextTxs[existingIdx] = enriched;
+        nextTxs[existingIdx] = enrichedTx;
       } else {
-        nextTxs.unshift(enriched);
+        nextTxs.unshift(enrichedTx);
       }
       changed = true;
     } else if (action === 'update') {
-      const enriched = enrichShareTransaction(tx, spaceAccounts);
+      enrichedTx = enrichShareTransaction(tx, spaceAccounts);
       if (existingIdx !== -1) {
-        nextTxs[existingIdx] = enriched;
+        nextTxs[existingIdx] = enrichedTx;
         changed = true;
-      } else if (isLinkedByAccount) {
-        nextTxs.unshift(enriched);
+      } else if (isLinkedByAccount || isLinkedByExplicitShare) {
+        nextTxs.unshift(enrichedTx);
         changed = true;
       }
     }
@@ -2721,7 +2765,10 @@ export async function propagateTransactionToLinkedSpaces(
         },
       };
       upsertSpaceInV3Cache(nextSpace);
-      syncFolderToCloud(nextSpace, true).catch(() => {});
+
+      // Low-bandwidth granular delta push: NEVER re-upload the whole space
+      pushTransactionDeltaToCloud(space.id, action, enrichedTx || tx).catch(() => {});
+
       updatedSpaces.push(nextSpace);
     } else {
       updatedSpaces.push(space);
@@ -3005,7 +3052,10 @@ export function addTransactionToShareFolder(
   };
 
   const saved = upsertSpaceInV3Cache(updatedFolder);
-  syncFolderToCloud(saved, true);
+  pushTransactionDeltaToCloud(cleanId, 'add', enrichedTx).catch(() => {});
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('spaces_v3_updated', { detail: loadAllSpacesV3() }));
+  }
   return saved;
 }
 
@@ -3102,7 +3152,14 @@ export function removeItemFromShareFolder(
   };
 
   const saved = upsertSpaceInV3Cache(updatedFolder);
-  syncFolderToCloud(saved, true);
+  if (itemType === 'transaction') {
+    pushTransactionDeltaToCloud(cleanId, 'delete', itemId).catch(() => {});
+  } else {
+    syncFolderToCloud(saved, true).catch(() => {});
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('spaces_v3_updated', { detail: loadAllSpacesV3() }));
+  }
   return saved;
 }
 
@@ -3177,7 +3234,15 @@ export function removeItemsFromShareFolderSmart(
   };
 
   const saved = upsertSpaceInV3Cache(updatedFolder);
-  syncFolderToCloud(saved, true);
+  for (const txId of params.deletedTxIds || []) {
+    pushTransactionDeltaToCloud(cleanId, 'delete', txId).catch(() => {});
+  }
+  if ((params.deletedAccountIds && params.deletedAccountIds.length > 0) || (params.deletedCategoryIds && params.deletedCategoryIds.length > 0)) {
+    syncFolderToCloud(saved, true).catch(() => {});
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('spaces_v3_updated', { detail: loadAllSpacesV3() }));
+  }
   return saved;
 }
 
@@ -3787,67 +3852,431 @@ export function subscribeToShareFolder(
   const cleanId = normalizeShareId(folderId);
   if (!cleanId) return () => {};
 
-  const canonicalRef = ref(rtdb, getCanonicalSharePath(cleanId));
+  const canonicalPath = getCanonicalSharePath(cleanId);
+  const txsRef = ref(rtdb, `${canonicalPath}/transactions`);
+
+  const localMatch = loadAllSpacesV3().find((s) => normalizeShareId(s.id) === cleanId);
+  let currentFolder: ShareFolder = localMatch
+    ? JSON.parse(JSON.stringify(localMatch))
+    : {
+        id: cleanId,
+        name: 'Shared Space',
+        accountName: 'Shared Space',
+        icon: '📁',
+        description: '',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        ownerNumericId: '',
+        owner16DigitId: '',
+        ownerUid: '',
+        ownerName: 'User',
+        ownerAvatar: '👤',
+        permission: 'allow_import_edit',
+        member16Ids: [],
+        members: [],
+        accounts: [],
+        categories: [],
+        transactions: [],
+        itemCount: 0,
+        payload: {
+          accounts: [],
+          categories: [],
+          transactions: [],
+        },
+      };
+
+  const txsMap = new Map<string, Transaction>();
+  for (const t of currentFolder.payload?.transactions || currentFolder.transactions || []) {
+    if (t && t.id) {
+      txsMap.set(t.id, t);
+    }
+  }
+
   let lastEmittedSig = '';
-
-  const listener = (snap: any) => {
+  const emitUpdate = () => {
     if (isShareModalCurrentlyOpen()) return;
-    if (snap.exists() && snap.val()) {
-      const val = snap.val();
-      if (val.deleted === true) {
-        purgeDeletedShareSpace(cleanId);
-        callback(null);
-        return;
-      }
-      const parsed = normalizeParsedShareFolder(val, cleanId);
-      if (parsed) {
-        // Merge remote updates ONLY when remote.updatedAt > local.updatedAt
-        const localMatch = loadAllSpacesV3().find((s) => normalizeShareId(s.id) === cleanId);
-        const effectiveFolder =
-          localMatch && (parsed.updatedAt || 0) <= (localMatch.updatedAt || 0)
-            ? localMatch
-            : parsed;
+    const sortedTxs = Array.from(txsMap.values()).sort((a, b) => {
+      const dateCmp = (b.date || '').localeCompare(a.date || '');
+      if (dateCmp !== 0) return dateCmp;
+      return (b.time || '00:00').localeCompare(a.time || '00:00');
+    });
 
-        if (
-          localMatch &&
-          (localMatch.updatedAt || 0) > (parsed.updatedAt || 0) &&
-          typeof navigator !== 'undefined' &&
-          navigator.onLine
-        ) {
-          syncFolderToCloud(localMatch, true).catch(() => {});
-        }
+    const accounts = currentFolder.payload?.accounts || currentFolder.accounts || [];
+    const categories = currentFolder.payload?.categories || currentFolder.categories || [];
 
-        const sig = `${effectiveFolder.updatedAt}_${computeFolderContentSignature(effectiveFolder)}`;
-        if (sig !== lastEmittedSig) {
-          lastEmittedSig = sig;
-          upsertSpaceInV3Cache(effectiveFolder);
-          callback(effectiveFolder);
-        }
-      }
-    } else {
-      // If space is owned by current user and pending offline sync (or offline), preserve it
-      const localMatch = loadAllSpacesV3().find((s) => normalizeShareId(s.id) === cleanId);
-      const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
-      if (
-        localMatch &&
-        isSpaceOwnedByUser(localMatch) &&
-        (!isOnline || isSpacePendingOfflineSync(cleanId))
-      ) {
-        if (isOnline) {
-          syncFolderToCloud(localMatch, true).catch(() => {});
-        }
-        callback(localMatch);
-        return;
-      }
-      purgeDeletedShareSpace(cleanId);
-      callback(null);
+    currentFolder.payload = {
+      accounts,
+      categories,
+      transactions: sortedTxs,
+    };
+    currentFolder.transactions = sortedTxs;
+    currentFolder.accounts = accounts;
+    currentFolder.categories = categories;
+    currentFolder.itemCount = accounts.length + categories.length + sortedTxs.length;
+
+    const sig = `${currentFolder.updatedAt}_${computeFolderContentSignature(currentFolder)}`;
+    if (sig !== lastEmittedSig) {
+      lastEmittedSig = sig;
+      upsertSpaceInV3Cache(currentFolder);
+      callback({
+        ...currentFolder,
+        payload: { ...currentFolder.payload },
+      });
     }
   };
 
-  onValue(canonicalRef, listener, (err) => console.warn('[ShareFolders] subscribeToShareFolder error:', err));
+  // 1. Lightweight RTDB child listeners: ONLY pushes/receives changed item deltas over WebSocket (zero polling)
+  const unsubChildAdded = onChildAdded(
+    txsRef,
+    (snap) => {
+      if (!snap.exists()) return;
+      const val = snap.val();
+      if (!val || typeof val !== 'object') return;
+      const txId = val.id || snap.key;
+      const accounts = currentFolder.payload?.accounts || currentFolder.accounts || [];
+      const enriched = enrichShareTransaction({ ...val, id: txId }, accounts);
+      const existing = txsMap.get(txId);
+      if (existing && JSON.stringify(existing) === JSON.stringify(enriched)) {
+        return;
+      }
+      txsMap.set(txId, enriched);
+      currentFolder.updatedAt = Math.max(
+        currentFolder.updatedAt || 0,
+        enriched.createdAt || enriched.updatedAt || Date.now()
+      );
+      emitUpdate();
+    },
+    (err) => console.warn('[ShareFolders] onChildAdded error:', err)
+  );
+
+  const unsubChildChanged = onChildChanged(
+    txsRef,
+    (snap) => {
+      if (!snap.exists()) return;
+      const val = snap.val();
+      if (!val || typeof val !== 'object') return;
+      const txId = val.id || snap.key;
+      const accounts = currentFolder.payload?.accounts || currentFolder.accounts || [];
+      const enriched = enrichShareTransaction({ ...val, id: txId }, accounts);
+      txsMap.set(txId, enriched);
+      currentFolder.updatedAt = Math.max(
+        currentFolder.updatedAt || 0,
+        enriched.createdAt || enriched.updatedAt || Date.now()
+      );
+      emitUpdate();
+    },
+    (err) => console.warn('[ShareFolders] onChildChanged error:', err)
+  );
+
+  const unsubChildRemoved = onChildRemoved(
+    txsRef,
+    (snap) => {
+      const key = snap.key;
+      const val = snap.val();
+      const targetId = val?.id || key;
+      let removed = false;
+      if (txsMap.has(targetId)) {
+        txsMap.delete(targetId);
+        removed = true;
+      } else {
+        for (const [k, v] of txsMap) {
+          if (v.id === targetId || k === key) {
+            txsMap.delete(k);
+            removed = true;
+            break;
+          }
+        }
+      }
+      if (removed) {
+        currentFolder.updatedAt = Date.now();
+        emitUpdate();
+      }
+    },
+    (err) => console.warn('[ShareFolders] onChildRemoved error:', err)
+  );
+
+  // 2. Focused listeners on metadata / accounts / categories / members / deletion
+  const unsubMembers = onValue(ref(rtdb, `${canonicalPath}/members`), (snap) => {
+    if (!snap.exists()) return;
+    const val = snap.val();
+    if (Array.isArray(val)) {
+      currentFolder.members = val;
+      emitUpdate();
+    }
+  });
+
+  const unsubAccounts = onValue(ref(rtdb, `${canonicalPath}/accounts`), (snap) => {
+    if (!snap.exists()) return;
+    const val = snap.val();
+    if (Array.isArray(val)) {
+      currentFolder.accounts = val;
+      if (currentFolder.payload) currentFolder.payload.accounts = val;
+      emitUpdate();
+    }
+  });
+
+  const unsubCategories = onValue(ref(rtdb, `${canonicalPath}/categories`), (snap) => {
+    if (!snap.exists()) return;
+    const val = snap.val();
+    if (Array.isArray(val)) {
+      currentFolder.categories = val;
+      if (currentFolder.payload) currentFolder.payload.categories = val;
+      emitUpdate();
+    }
+  });
+
+  const unsubName = onValue(ref(rtdb, `${canonicalPath}/accountName`), (snap) => {
+    if (!snap.exists()) return;
+    const val = snap.val();
+    if (typeof val === 'string' && val.trim()) {
+      currentFolder.name = val;
+      currentFolder.accountName = val;
+      emitUpdate();
+    }
+  });
+
+  const unsubDeleted = onValue(ref(rtdb, `${canonicalPath}/deleted`), (snap) => {
+    if (snap.exists() && snap.val() === true) {
+      purgeDeletedShareSpace(cleanId);
+      callback(null);
+    }
+  });
+
+  // 3. Initial load: if not locally cached or missing accounts, fetch baseline metadata once
+  if (!localMatch || !localMatch.payload?.accounts?.length) {
+    get(ref(rtdb, canonicalPath))
+      .then((snap) => {
+        if (snap.exists() && snap.val()) {
+          const val = snap.val();
+          if (val.deleted === true) {
+            purgeDeletedShareSpace(cleanId);
+            callback(null);
+            return;
+          }
+          const parsed = normalizeParsedShareFolder(val, cleanId);
+          if (parsed) {
+            currentFolder = { ...parsed };
+            for (const t of parsed.payload?.transactions || []) {
+              if (t && t.id) txsMap.set(t.id, t);
+            }
+            emitUpdate();
+          }
+        }
+      })
+      .catch(() => {});
+  } else {
+    emitUpdate();
+  }
 
   return () => {
-    off(canonicalRef, 'value', listener);
+    unsubChildAdded();
+    unsubChildChanged();
+    unsubChildRemoved();
+    unsubMembers();
+    unsubAccounts();
+    unsubCategories();
+    unsubName();
+    unsubDeleted();
+  };
+}
+
+/**
+ * Keeps lightweight, real-time RTDB child listeners attached to all active user shared spaces
+ * so that any transaction added/edited/deleted from ANYWHERE updates the space locally in real-time.
+ */
+export function subscribeToActiveSpacesTransactions(): () => void {
+  const activeUnsubs = new Map<string, () => void>();
+
+  const attachToSpaces = () => {
+    const allSpaces = loadAllSpacesV3();
+    const currentIds = new Set<string>();
+
+    for (const space of allSpaces) {
+      if (!space || !space.id) continue;
+      const cleanId = normalizeShareId(space.id);
+      if (!cleanId) continue;
+      currentIds.add(cleanId);
+
+      if (activeUnsubs.has(cleanId)) continue;
+
+      const canonicalPath = getCanonicalSharePath(cleanId);
+      const txsRef = ref(rtdb, `${canonicalPath}/transactions`);
+
+      const unsubAdded = onChildAdded(
+        txsRef,
+        (snap) => {
+          if (!snap.exists()) return;
+          const val = snap.val();
+          if (!val || typeof val !== 'object') return;
+          const txId = val.id || snap.key;
+
+          const all = loadAllSpacesV3();
+          const target = all.find((s) => normalizeShareId(s.id) === cleanId);
+          if (!target) return;
+
+          const spaceAccounts = target.payload?.accounts || target.accounts || [];
+          const enriched = enrichShareTransaction({ ...val, id: txId }, spaceAccounts);
+          const existingTxs = [...(target.payload?.transactions || target.transactions || [])];
+          const existingIdx = existingTxs.findIndex((t) => t.id === txId);
+
+          if (existingIdx !== -1) {
+            if (JSON.stringify(existingTxs[existingIdx]) === JSON.stringify(enriched)) {
+              return;
+            }
+            existingTxs[existingIdx] = enriched;
+          } else {
+            existingTxs.unshift(enriched);
+          }
+
+          const nextSpace: ShareFolder = {
+            ...target,
+            updatedAt: Math.max(
+              target.updatedAt || 0,
+              enriched.createdAt || enriched.updatedAt || Date.now()
+            ),
+            transactions: existingTxs,
+            itemCount:
+              spaceAccounts.length +
+              (target.payload?.categories?.length || target.categories?.length || 0) +
+              existingTxs.length,
+            payload: {
+              accounts: spaceAccounts,
+              categories: target.payload?.categories || target.categories || [],
+              transactions: existingTxs,
+            },
+          };
+          upsertSpaceInV3Cache(nextSpace);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('spaces_v3_updated', { detail: loadAllSpacesV3() })
+            );
+          }
+        },
+        () => {}
+      );
+
+      const unsubChanged = onChildChanged(
+        txsRef,
+        (snap) => {
+          if (!snap.exists()) return;
+          const val = snap.val();
+          if (!val || typeof val !== 'object') return;
+          const txId = val.id || snap.key;
+
+          const all = loadAllSpacesV3();
+          const target = all.find((s) => normalizeShareId(s.id) === cleanId);
+          if (!target) return;
+
+          const spaceAccounts = target.payload?.accounts || target.accounts || [];
+          const enriched = enrichShareTransaction({ ...val, id: txId }, spaceAccounts);
+          const existingTxs = [...(target.payload?.transactions || target.transactions || [])];
+          const existingIdx = existingTxs.findIndex((t) => t.id === txId);
+
+          if (existingIdx !== -1) {
+            existingTxs[existingIdx] = enriched;
+          } else {
+            existingTxs.unshift(enriched);
+          }
+
+          const nextSpace: ShareFolder = {
+            ...target,
+            updatedAt: Math.max(
+              target.updatedAt || 0,
+              enriched.createdAt || enriched.updatedAt || Date.now()
+            ),
+            transactions: existingTxs,
+            itemCount:
+              spaceAccounts.length +
+              (target.payload?.categories?.length || target.categories?.length || 0) +
+              existingTxs.length,
+            payload: {
+              accounts: spaceAccounts,
+              categories: target.payload?.categories || target.categories || [],
+              transactions: existingTxs,
+            },
+          };
+          upsertSpaceInV3Cache(nextSpace);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('spaces_v3_updated', { detail: loadAllSpacesV3() })
+            );
+          }
+        },
+        () => {}
+      );
+
+      const unsubRemoved = onChildRemoved(
+        txsRef,
+        (snap) => {
+          const key = snap.key;
+          const val = snap.val();
+          const targetId = val?.id || key;
+
+          const all = loadAllSpacesV3();
+          const target = all.find((s) => normalizeShareId(s.id) === cleanId);
+          if (!target) return;
+
+          const existingTxs = target.payload?.transactions || target.transactions || [];
+          const filtered = existingTxs.filter((t) => t.id !== targetId && t.id !== key);
+          if (filtered.length === existingTxs.length) return;
+
+          const nextSpace: ShareFolder = {
+            ...target,
+            updatedAt: Date.now(),
+            transactions: filtered,
+            itemCount:
+              (target.payload?.accounts?.length || 0) +
+              (target.payload?.categories?.length || 0) +
+              filtered.length,
+            payload: {
+              accounts: target.payload?.accounts || target.accounts || [],
+              categories: target.payload?.categories || target.categories || [],
+              transactions: filtered,
+            },
+          };
+          upsertSpaceInV3Cache(nextSpace);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('spaces_v3_updated', { detail: loadAllSpacesV3() })
+            );
+          }
+        },
+        () => {}
+      );
+
+      activeUnsubs.set(cleanId, () => {
+        unsubAdded();
+        unsubChanged();
+        unsubRemoved();
+      });
+    }
+
+    // Clean up spaces that are no longer in allSpaces
+    for (const [id, unsub] of activeUnsubs.entries()) {
+      if (!currentIds.has(id)) {
+        unsub();
+        activeUnsubs.delete(id);
+      }
+    }
+  };
+
+  attachToSpaces();
+
+  const handleSpacesChanged = () => {
+    attachToSpaces();
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('spaces_v3_updated', handleSpacesChanged);
+  }
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('spaces_v3_updated', handleSpacesChanged);
+    }
+    for (const unsub of activeUnsubs.values()) {
+      unsub();
+    }
+    activeUnsubs.clear();
   };
 }
 

@@ -47,6 +47,7 @@ import {
   ShareFolder,
   ShareMember,
   subscribeToShareFolder,
+  loadAllSpacesV3,
   fetchShareFolderFromCloud,
   subscribeToMyInbox,
   fetchMyInboxOnce,
@@ -675,10 +676,26 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     const unsub = subscribeToShareFolder(initialFolder.id, (liveFolder) => {
       if (liveFolder) {
         setFolder((prev) => {
-          // Never allow an older cloud snapshot to overwrite a newer local edit (name, icon, members)
+          const prevTxs = prev.payload?.transactions || prev.transactions || [];
+          const liveTxs = liveFolder.payload?.transactions || liveFolder.transactions || [];
+
+          // If local metadata is newer, preserve local metadata but merge transactions by ID
           if ((prev.updatedAt || 0) > (liveFolder.updatedAt || 0)) {
-            return prev;
+            const txMap = new Map<string, Transaction>();
+            for (const t of prevTxs) txMap.set(t.id, t);
+            for (const t of liveTxs) txMap.set(t.id, t);
+            const mergedTxs = Array.from(txMap.values());
+            return {
+              ...prev,
+              transactions: mergedTxs,
+              payload: {
+                ...prev.payload,
+                transactions: mergedTxs,
+              },
+              itemCount: (prev.payload?.accounts?.length || 0) + (prev.payload?.categories?.length || 0) + mergedTxs.length,
+            };
           }
+
           return {
             ...liveFolder,
             ownerNumericId: liveFolder.ownerNumericId || prev.ownerNumericId,
@@ -700,8 +717,32 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     return () => unsub();
   }, [initialFolder.id, isArabic, onExit, showToast]);
 
-  // Real-time listener for share space deletion events
+  // Real-time listener for space cache updates & deletion events
   useEffect(() => {
+    const handleSpacesUpdated = (e: any) => {
+      const all: ShareFolder[] = e?.detail || loadAllSpacesV3();
+      const match = all.find((s) => normalizeShareId(s.id) === normalizeShareId(initialFolder.id));
+      if (match) {
+        setFolder((prev) => {
+          if (!prev) return match;
+          const txMap = new Map<string, Transaction>();
+          for (const t of prev.payload?.transactions || prev.transactions || []) txMap.set(t.id, t);
+          for (const t of match.payload?.transactions || match.transactions || []) txMap.set(t.id, t);
+          const mergedTxs = Array.from(txMap.values());
+          return {
+            ...match,
+            transactions: mergedTxs,
+            payload: {
+              ...match.payload,
+              transactions: mergedTxs,
+            },
+            itemCount: (match.payload?.accounts?.length || 0) + (match.payload?.categories?.length || 0) + mergedTxs.length,
+          };
+        });
+      }
+    };
+    window.addEventListener('spaces_v3_updated', handleSpacesUpdated);
+
     const handlePurged = (e: any) => {
       if (e?.detail?.shareId && normalizeShareId(e.detail.shareId) === normalizeShareId(initialFolder.id)) {
         showToast(
@@ -712,7 +753,10 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       }
     };
     window.addEventListener('share_space_purged', handlePurged);
-    return () => window.removeEventListener('share_space_purged', handlePurged);
+    return () => {
+      window.removeEventListener('spaces_v3_updated', handleSpacesUpdated);
+      window.removeEventListener('share_space_purged', handlePurged);
+    };
   }, [initialFolder.id, onExit, isArabic, showToast]);
 
   // Ensure owner photo is loaded if missing
@@ -1140,7 +1184,8 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       categoryName: categories[0]?.name || (txType === 'expense' ? 'General Expense' : 'General Income'),
       categoryIcon: categories[0]?.icon || (txType === 'expense' ? '💸' : '💰'),
       createdAt: Date.now(),
-    };
+      shareId: folder.id,
+    } as any;
 
     // 1. Sync to Shared Folder
     const updated = addTransactionToShareFolder(folder.id, newTx);
