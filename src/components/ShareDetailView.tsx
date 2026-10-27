@@ -70,6 +70,7 @@ import {
   ensureOwnerPhotoLoaded,
   normalizeShareId,
   useLiveMemberProfiles,
+  isRealPhotoUrl,
 } from '../utils/shareFolders';
 import {
   formatCurrency,
@@ -464,7 +465,7 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
                 <>
                   <span>·</span>
                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-zinc-800 border border-zinc-700/80 text-[10px] text-zinc-300">
-                    {liveProfiles[tx.sender16Id].photoURL ? (
+                    {isRealPhotoUrl(liveProfiles[tx.sender16Id].photoURL) ? (
                       <img src={liveProfiles[tx.sender16Id].photoURL} alt="" className="w-3 h-3 rounded-full object-cover" />
                     ) : (
                       <span>{liveProfiles[tx.sender16Id].avatar || '👤'}</span>
@@ -785,8 +786,13 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       const mid = cleanNumericId(id);
       if (mid) set.add(mid);
     });
+    const txList = folder.payload?.transactions || folder.transactions || [];
+    txList.forEach((tx: any) => {
+      const sid = cleanNumericId(tx.sender16Id);
+      if (sid) set.add(sid);
+    });
     return Array.from(set);
-  }, [folder.owner16DigitId, folder.ownerNumericId, folder.members, folder.member16Ids]);
+  }, [folder.owner16DigitId, folder.ownerNumericId, folder.members, folder.member16Ids, folder.payload?.transactions, folder.transactions]);
 
   const liveProfiles = useLiveMemberProfiles(allMember16Ids);
 
@@ -794,8 +800,9 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   const folderOwner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId);
   const ownerLiveProf = folderOwner16 ? liveProfiles[folderOwner16] : undefined;
   const effectiveOwnerName = ownerLiveProf?.name || folder.ownerName || 'User';
-  const effectiveOwnerPhoto = (ownerLiveProf?.photoURL && ownerLiveProf.photoURL.trim()) || resolveOwnerPhoto(folder, settings.userProfile);
-  const effectiveOwnerAvatar = ownerLiveProf?.avatar || folder.ownerAvatar || '👤';
+  const rawOwnerPhoto = (ownerLiveProf?.photoURL && ownerLiveProf.photoURL.trim()) || resolveOwnerPhoto(folder, settings.userProfile);
+  const effectiveOwnerPhoto = isRealPhotoUrl(rawOwnerPhoto) ? rawOwnerPhoto.trim() : '';
+  const effectiveOwnerAvatar = ownerLiveProf?.avatar || (!isRealPhotoUrl(rawOwnerPhoto) && rawOwnerPhoto ? rawOwnerPhoto : (folder.ownerAvatar || '👤'));
 
   const isOwner = Boolean(
     (myCleanNumericId && folderOwner16 && folderOwner16 === myCleanNumericId) ||
@@ -820,11 +827,14 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
         const mid = cleanNumericId(m.numericId);
         const prof = mid ? liveProfiles[mid] : undefined;
         if (!prof) return m;
+        const rawPhoto = prof.photoURL !== undefined && prof.photoURL !== '' ? prof.photoURL : (m.photoURL || '');
+        const cleanPhoto = isRealPhotoUrl(rawPhoto) ? rawPhoto.trim() : '';
+        const cleanAvatar = prof.avatar || (!isRealPhotoUrl(rawPhoto) && rawPhoto ? rawPhoto : (m.avatar || '👤'));
         return {
           ...m,
           name: prof.name || m.name,
-          photoURL: prof.photoURL !== undefined && prof.photoURL !== '' ? prof.photoURL : m.photoURL,
-          avatar: prof.avatar || m.avatar,
+          photoURL: cleanPhoto,
+          avatar: cleanAvatar,
         };
       });
   }, [folder.members, liveProfiles, cleanFolderId]);
@@ -1370,14 +1380,14 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                 </h1>
                 <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
                   <span className="inline-flex items-center gap-1.5 truncate">
-                    {ownerPhoto ? (
+                    {ownerPhoto && isRealPhotoUrl(ownerPhoto) ? (
                       <img
                         src={ownerPhoto}
-                        alt={folder.ownerName}
+                        alt={effectiveOwnerName}
                         className="w-3.5 h-3.5 rounded-full object-cover border border-purple-500/40 inline-block shrink-0"
                       />
-                    ) : folder.ownerAvatar && folder.ownerAvatar !== '👤' ? (
-                      <span className="text-[10px] shrink-0">{folder.ownerAvatar}</span>
+                    ) : effectiveOwnerAvatar && effectiveOwnerAvatar !== '👤' ? (
+                      <span className="text-[10px] shrink-0">{effectiveOwnerAvatar}</span>
                     ) : (
                       <span
                         className={`w-3.5 h-3.5 rounded-full inline-flex items-center justify-center text-[8px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
@@ -1532,10 +1542,10 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                 title={`${effectiveOwnerName || 'Owner'} (${isArabic ? 'المالك' : 'Owner'})`}
               >
                 <div className="shrink-0 w-10 h-10 rounded-full overflow-visible relative bg-blue-600/30 border border-blue-500/60 flex items-center justify-center text-xs font-bold text-blue-300">
-                  {ownerPhoto ? (
+                  {ownerPhoto && isRealPhotoUrl(ownerPhoto) ? (
                     <img
                       src={ownerPhoto}
-                      alt={folder.ownerName}
+                      alt={effectiveOwnerName}
                       className="w-full h-full object-cover rounded-full"
                     />
                   ) : (
@@ -2429,10 +2439,10 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               <div className="p-3 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded-full bg-blue-600/30 border border-blue-500/50 flex items-center justify-center text-sm font-bold text-blue-300 shrink-0 overflow-hidden">
-                    {ownerPhoto ? (
-                      <img src={ownerPhoto} alt={folder.ownerName} className="w-full h-full object-cover" />
+                    {ownerPhoto && isRealPhotoUrl(ownerPhoto) ? (
+                      <img src={ownerPhoto} alt={effectiveOwnerName} className="w-full h-full object-cover" />
                     ) : (
-                      <span>{folder.ownerAvatar || '👑'}</span>
+                      <span>{effectiveOwnerAvatar || folder.ownerAvatar || '👑'}</span>
                     )}
                   </div>
                   <div className="min-w-0">
@@ -2478,7 +2488,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                             m.numericId || m.name
                           )}`}
                         >
-                          {m.photoURL ? (
+                          {m.photoURL && isRealPhotoUrl(m.photoURL) ? (
                             <img src={m.photoURL} alt={m.name} className="w-full h-full object-cover" />
                           ) : m.avatar && m.avatar !== '👤' ? (
                             <span className="text-base">{m.avatar}</span>

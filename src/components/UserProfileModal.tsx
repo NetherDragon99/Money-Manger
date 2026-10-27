@@ -33,7 +33,7 @@ import {
   requestGoogleDriveStorageAccess,
 } from '../utils/firebase';
 import { format16DigitId, cleanNumericId, getOrCreateNumericId } from '../utils/userId';
-import { publishUserProfileCard, propagateUserProfileToAllSharedSpaces } from '../utils/shareFolders';
+import { publishUserProfileCard, propagateUserProfileToAllSharedSpaces, isRealPhotoUrl } from '../utils/shareFolders';
 import { persistDriveResolutionStatus } from '../utils/autoBackup';
 import { User } from 'firebase/auth';
 
@@ -502,7 +502,7 @@ export const UserProfileModal: React.FC = () => {
           <div className="flex flex-col items-center justify-center space-y-3 pt-1">
             <div className="relative group">
               <div className="w-24 h-24 rounded-full bg-zinc-900 border-4 border-blue-500/80 overflow-hidden flex items-center justify-center text-4xl shadow-xl transition">
-                {customAvatarUrl ? (
+                {customAvatarUrl && isRealPhotoUrl(customAvatarUrl) ? (
                   <img
                     src={customAvatarUrl}
                     alt="Current Avatar"

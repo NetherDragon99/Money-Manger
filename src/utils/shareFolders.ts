@@ -533,6 +533,22 @@ export function loadKnownContacts(): Record<string, UserProfileCard> {
 }
 
 /**
+ * Safely verify if a string is a valid image URL (http, https, data:image, blob:)
+ * rather than an emoji avatar or placeholder string.
+ */
+export function isRealPhotoUrl(url?: string | null): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  return (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('data:image/') ||
+    trimmed.startsWith('blob:')
+  );
+}
+
+/**
  * Save / Cache a known contact locally
  */
 export function saveKnownContact(contact: Partial<UserProfileCard> & { numericId: string }): void {
@@ -540,11 +556,14 @@ export function saveKnownContact(contact: Partial<UserProfileCard> & { numericId
     const cleanId = normalize16DigitId(contact.numericId);
     if (cleanId.length !== 16) return;
     const contacts = loadKnownContacts();
+    const rawPhoto = contact.photoURL !== undefined ? contact.photoURL : (contacts[cleanId]?.photoURL || '');
+    const cleanPhoto = isRealPhotoUrl(rawPhoto) ? rawPhoto.trim() : '';
+    const cleanAvatar = contact.avatar || (!isRealPhotoUrl(rawPhoto) && rawPhoto ? rawPhoto : (contacts[cleanId]?.avatar || '👤'));
     contacts[cleanId] = {
       numericId: cleanId,
       name: contact.name || contacts[cleanId]?.name || `User ${cleanId.slice(0, 4)}`,
-      avatar: contact.avatar || contacts[cleanId]?.avatar || '👤',
-      photoURL: contact.photoURL !== undefined ? contact.photoURL : (contacts[cleanId]?.photoURL || ''),
+      avatar: cleanAvatar,
+      photoURL: cleanPhoto,
       updatedAt: Date.now(),
     };
     localStorage.setItem(STORAGE_KNOWN_CONTACTS_KEY, JSON.stringify(contacts));
@@ -591,10 +610,10 @@ export function resolveOwnerPhoto(
   folder: { ownerPhotoURL?: string; ownerAvatar?: string; owner16DigitId?: string; ownerNumericId?: string; ownerUid?: string },
   currentProfile?: { photoURL?: string; customAvatarUrl?: string; avatar?: string; avatarEmoji?: string; numericId?: string; uid?: string } | null
 ): string {
-  if (folder?.ownerPhotoURL && folder.ownerPhotoURL.trim()) {
+  if (folder?.ownerPhotoURL && isRealPhotoUrl(folder.ownerPhotoURL)) {
     return folder.ownerPhotoURL.trim();
   }
-  if (folder?.ownerAvatar && (folder.ownerAvatar.startsWith('http') || folder.ownerAvatar.startsWith('data:image'))) {
+  if (folder?.ownerAvatar && isRealPhotoUrl(folder.ownerAvatar)) {
     return folder.ownerAvatar.trim();
   }
   const owner16 = normalize16DigitId(folder?.owner16DigitId || folder?.ownerNumericId);
@@ -603,16 +622,16 @@ export function resolveOwnerPhoto(
   const isCurrentOwner = (owner16 && myClean16 && owner16 === myClean16) || Boolean(folder?.ownerUid && myUid && folder.ownerUid === myUid);
 
   if (isCurrentOwner && currentProfile) {
-    const profPhoto = currentProfile.customAvatarUrl || currentProfile.photoURL || (currentProfile.avatar && currentProfile.avatar.startsWith('http') ? currentProfile.avatar : '');
-    if (profPhoto) return profPhoto.trim();
+    const profPhoto = currentProfile.customAvatarUrl || currentProfile.photoURL || currentProfile.avatar || '';
+    if (isRealPhotoUrl(profPhoto)) return profPhoto.trim();
   }
   if (owner16) {
     const cached = getKnownContact(owner16);
-    if (cached?.photoURL && cached.photoURL.trim()) {
+    if (cached?.photoURL && isRealPhotoUrl(cached.photoURL)) {
       return cached.photoURL.trim();
     }
   }
-  if (isCurrentOwner && auth.currentUser?.photoURL) {
+  if (isCurrentOwner && auth.currentUser?.photoURL && isRealPhotoUrl(auth.currentUser.photoURL)) {
     return auth.currentUser.photoURL.trim();
   }
   return '';
@@ -669,64 +688,67 @@ export async function publishUserProfileCard(profile: {
   const clean16Id = String(profile.numericId || '').replace(/\D/g, '');
   if (clean16Id.length !== 16) return;
 
-  const currentUid = auth.currentUser?.uid || profile.uid || '';
-  const userName = profile.name || auth.currentUser?.displayName || 'User';
-  const userAvatar = profile.photoURL || profile.avatar || auth.currentUser?.photoURL || '';
-  const avatarEmoji = profile.avatar || '👤';
+  const currentUid = auth.currentUser?.uid || profile.uid || `anon_${clean16Id}`;
+  const userName = (profile.name || auth.currentUser?.displayName || 'User').trim();
+  const rawPhoto = profile.photoURL || auth.currentUser?.photoURL || '';
+  const photoURL = isRealPhotoUrl(rawPhoto) ? rawPhoto.trim() : '';
+  const avatarEmoji = profile.avatar || (!isRealPhotoUrl(rawPhoto) && rawPhoto ? rawPhoto : '👤');
 
   saveKnownContact({
     numericId: clean16Id,
     name: userName,
     avatar: avatarEmoji,
-    photoURL: userAvatar,
+    photoURL: photoURL,
     uid: currentUid,
     driveAccessGranted: profile.driveAccessGranted,
     drivePromptResolved: profile.drivePromptResolved,
   });
 
-  if (!currentUid) return;
+  const cardData: any = {
+    ownerUid: currentUid,
+    accountName: (userName || 'User').slice(0, 100),
+    updatedAt: Date.now(),
+    numericId: clean16Id,
+    name: userName,
+    photoURL: photoURL,
+    avatar: avatarEmoji,
+    uid: currentUid,
+  };
+  if (typeof profile.driveAccessGranted === 'boolean') {
+    cardData.driveAccessGranted = profile.driveAccessGranted;
+  }
+  if (typeof profile.drivePromptResolved === 'boolean') {
+    cardData.drivePromptResolved = profile.drivePromptResolved;
+  }
 
   try {
-    const cardData: any = {
-      ownerUid: auth.currentUser?.uid || currentUid,
-      accountName: (userName || 'User').slice(0, 100),
-      updatedAt: Date.now(),
-      numericId: clean16Id,
-      name: userName,
-      photoURL: userAvatar,
-      avatar: avatarEmoji,
-      uid: currentUid,
-    };
-    if (typeof profile.driveAccessGranted === 'boolean') {
-      cardData.driveAccessGranted = profile.driveAccessGranted;
-    }
-    if (typeof profile.drivePromptResolved === 'boolean') {
-      cardData.drivePromptResolved = profile.drivePromptResolved;
-    }
     await update(ref(rtdb, `shared_accounts/profile_${clean16Id}`), JSON.parse(JSON.stringify(cardData)));
   } catch (err) {
     console.warn('[ShareFolders] Failed to publish user profile card to RTDB:', err);
   }
 
-  try {
-    const userProfileUpdates: any = {
-      numeric16Id: clean16Id,
-      numericId: clean16Id,
-      name: userName,
-      photoURL: userAvatar,
-      avatar: avatarEmoji,
-      updatedAt: Date.now(),
-    };
-    if (typeof profile.driveAccessGranted === 'boolean') {
-      userProfileUpdates.driveAccessGranted = profile.driveAccessGranted;
+  if (auth.currentUser?.uid || profile.uid) {
+    const realUid = auth.currentUser?.uid || profile.uid!;
+    try {
+      const userProfileUpdates: any = {
+        numeric16Id: clean16Id,
+        numericId: clean16Id,
+        name: userName,
+        photoURL: photoURL,
+        avatar: avatarEmoji,
+        updatedAt: Date.now(),
+      };
+      if (typeof profile.driveAccessGranted === 'boolean') {
+        userProfileUpdates.driveAccessGranted = profile.driveAccessGranted;
+      }
+      if (typeof profile.drivePromptResolved === 'boolean') {
+        userProfileUpdates.drivePromptResolved = profile.drivePromptResolved;
+      }
+      await update(ref(rtdb, `users/${realUid}/profile`), deepSanitizeForFirebase(userProfileUpdates));
+      await set(ref(rtdb, `users/${realUid}/numeric16Id`), clean16Id);
+    } catch (err) {
+      console.warn('[ShareFolders] Failed to save numeric16Id under users/profile in RTDB:', err);
     }
-    if (typeof profile.drivePromptResolved === 'boolean') {
-      userProfileUpdates.drivePromptResolved = profile.drivePromptResolved;
-    }
-    await update(ref(rtdb, `users/${currentUid}/profile`), deepSanitizeForFirebase(userProfileUpdates));
-    await set(ref(rtdb, `users/${currentUid}/numeric16Id`), clean16Id);
-  } catch (err) {
-    console.warn('[ShareFolders] Failed to save numeric16Id under users/profile in RTDB:', err);
   }
 
   try {
@@ -734,7 +756,7 @@ export async function publishUserProfileCard(profile: {
       uid: currentUid,
       displayName: userName,
       name: userName,
-      photoURL: userAvatar,
+      photoURL: photoURL,
       avatar: avatarEmoji,
       email: auth.currentUser?.email || '',
       updatedAt: Date.now(),
@@ -746,7 +768,7 @@ export async function publishUserProfileCard(profile: {
       numericId: clean16Id,
       name: userName,
       avatar: avatarEmoji,
-      photoURL: userAvatar,
+      photoURL: photoURL,
       uid: currentUid,
     });
   } catch (propErr) {
@@ -771,8 +793,9 @@ export async function propagateUserProfileToAllSharedSpaces(profile: {
 
   const currentUid = auth.currentUser?.uid || profile.uid || '';
   const userName = (profile.name || 'User').trim();
-  const avatarEmoji = profile.avatar || '👤';
-  const photoURL = profile.photoURL || '';
+  const rawPhoto = profile.photoURL || '';
+  const photoURL = isRealPhotoUrl(rawPhoto) ? rawPhoto.trim() : '';
+  const avatarEmoji = profile.avatar || (!isRealPhotoUrl(rawPhoto) && rawPhoto ? rawPhoto : '👤');
 
   const allSpaces = loadAllSpacesV3();
   let anyChanged = false;
@@ -828,7 +851,31 @@ export async function propagateUserProfileToAllSharedSpaces(profile: {
   if (anyChanged) {
     saveAllSpacesV3(updatedSpaces);
     for (const space of updatedSpaces) {
-      await syncFolderToCloud(space, true).catch(() => {});
+      const isOwner = isSpaceOwnedByUser(space, clean16Id, currentUid);
+      const isMember = (space.members || []).some((m) => normalize16DigitId(m.numericId) === clean16Id);
+      if (!isOwner && !isMember) continue;
+
+      const spaceId = space.id;
+      if (!spaceId) continue;
+
+      if (isOwner) {
+        update(ref(rtdb, `shared_accounts/share_${spaceId}`), deepSanitizeForFirebase({
+          ownerName: userName,
+          ownerAvatar: avatarEmoji,
+          ownerPhotoURL: photoURL,
+          members: space.members || [],
+          updatedAt: Date.now(),
+        })).catch((err) => console.warn(`[ShareFolders] Failed to push owner profile update for share_${spaceId}:`, err));
+      } else {
+        const memberIdx = (space.members || []).findIndex((m) => normalize16DigitId(m.numericId) === clean16Id);
+        if (memberIdx !== -1) {
+          update(ref(rtdb, `shared_accounts/share_${spaceId}/members/${memberIdx}`), deepSanitizeForFirebase({
+            name: userName,
+            avatar: avatarEmoji,
+            photoURL: photoURL,
+          })).catch((err) => console.warn(`[ShareFolders] Failed to update member profile in share_${spaceId}:`, err));
+        }
+      }
     }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('spaces_v3_updated', { detail: updatedSpaces }));
@@ -854,11 +901,14 @@ export async function fetchUserProfileCard(numericId: string): Promise<UserProfi
     const snap = await withTimeout(get(ref(rtdb, `shared_accounts/profile_${clean16Id}`)), 3000);
     if (snap.exists()) {
       const val = snap.val() as any;
+      const rawPhoto = val.photoURL || '';
+      const photoURL = isRealPhotoUrl(rawPhoto) ? rawPhoto.trim() : '';
+      const avatar = val.avatar || (!isRealPhotoUrl(rawPhoto) && rawPhoto ? rawPhoto : '👤');
       const card: UserProfileCard = {
         numericId: clean16Id,
         name: val.name || val.accountName || `User ${clean16Id.slice(0, 4)}`,
-        avatar: val.avatar || '👤',
-        photoURL: val.photoURL || '',
+        avatar,
+        photoURL,
         uid: val.uid || val.ownerUid,
         updatedAt: val.updatedAt || Date.now(),
       };
@@ -1719,11 +1769,14 @@ export function useLiveMemberProfiles(
         const listener = (snap: any) => {
           if (snap.exists() && snap.val()) {
             const val = snap.val();
+            const rawPhoto = val.photoURL || '';
+            const photoURL = isRealPhotoUrl(rawPhoto) ? rawPhoto.trim() : '';
+            const avatar = val.avatar || (!isRealPhotoUrl(rawPhoto) && rawPhoto ? rawPhoto : '👤');
             const card: UserProfileCard = {
               numericId: id,
               name: val.name || val.accountName || `User ${id.slice(0, 4)}`,
-              avatar: val.avatar || '👤',
-              photoURL: val.photoURL || '',
+              avatar,
+              photoURL,
               uid: val.uid || val.ownerUid,
               updatedAt: val.updatedAt || Date.now(),
               leftSpaces: val.leftSpaces || {},
@@ -2224,6 +2277,8 @@ export async function registerReceivedShareFolder(
   const cleanId = normalize16DigitId(myNumericId || getOrCreateNumericId());
   const isOwner = isSpaceOwnedByUser(folder, cleanId);
 
+  const cleanPhotoURL = isRealPhotoUrl(myPhotoURL) ? (myPhotoURL || '').trim() : '';
+  const cleanAvatar = myAvatar || (!isRealPhotoUrl(myPhotoURL) && myPhotoURL ? myPhotoURL : '👤');
   let updatedMembers = Array.isArray(folder.members) ? [...folder.members] : [];
   if (!isOwner && cleanId.length === 16) {
     const existingMemberIdx = updatedMembers.findIndex((m) => normalize16DigitId(m.numericId) === cleanId);
@@ -2231,8 +2286,8 @@ export async function registerReceivedShareFolder(
       updatedMembers.push({
         numericId: cleanId,
         name: myName || 'User',
-        avatar: myAvatar || '👤',
-        photoURL: myPhotoURL || '',
+        avatar: cleanAvatar,
+        photoURL: cleanPhotoURL,
         role: 'viewer',
         status: 'active',
         addedAt: Date.now(),
@@ -2240,6 +2295,9 @@ export async function registerReceivedShareFolder(
     } else {
       updatedMembers[existingMemberIdx] = {
         ...updatedMembers[existingMemberIdx],
+        name: myName || updatedMembers[existingMemberIdx].name,
+        avatar: cleanAvatar,
+        photoURL: cleanPhotoURL,
         status: 'active',
       };
     }

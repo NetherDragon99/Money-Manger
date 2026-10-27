@@ -19,8 +19,18 @@ import {
   Calendar,
   FileText,
   Folder,
+  User,
 } from 'lucide-react';
-import { fetchShareFolderFromCloud, ShareFolder, subscribeToShareFolder, registerReceivedShareFolder } from '../utils/shareFolders';
+import {
+  fetchShareFolderFromCloud,
+  ShareFolder,
+  subscribeToShareFolder,
+  registerReceivedShareFolder,
+  useLiveMemberProfiles,
+  isRealPhotoUrl,
+  resolveOwnerPhoto,
+} from '../utils/shareFolders';
+import { cleanNumericId } from '../utils/userId';
 import {
   formatCurrency,
   formatTime12h,
@@ -241,6 +251,34 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
   const categories: Category[] = folder?.payload?.categories || [];
   const transactions: Transaction[] = folder?.payload?.transactions || [];
 
+  const allMember16Ids = useMemo(() => {
+    const set = new Set<string>();
+    const o16 = cleanNumericId(folder?.owner16DigitId || folder?.ownerNumericId);
+    if (o16) set.add(o16);
+    (folder?.members || []).forEach((m) => {
+      const mid = cleanNumericId(m.numericId);
+      if (mid) set.add(mid);
+    });
+    (folder?.member16Ids || []).forEach((id) => {
+      const mid = cleanNumericId(id);
+      if (mid) set.add(mid);
+    });
+    (folder?.payload?.transactions || []).forEach((tx: any) => {
+      const sid = cleanNumericId(tx.sender16Id);
+      if (sid) set.add(sid);
+    });
+    return Array.from(set);
+  }, [folder?.owner16DigitId, folder?.ownerNumericId, folder?.members, folder?.member16Ids, folder?.payload?.transactions]);
+
+  const liveProfiles = useLiveMemberProfiles(allMember16Ids);
+
+  const folderOwner16 = cleanNumericId(folder?.owner16DigitId || folder?.ownerNumericId);
+  const ownerLiveProf = folderOwner16 ? liveProfiles[folderOwner16] : undefined;
+  const effectiveOwnerName = ownerLiveProf?.name || folder?.ownerName || 'User';
+  const rawOwnerPhoto = (ownerLiveProf?.photoURL && ownerLiveProf.photoURL.trim()) || folder?.ownerPhotoURL || resolveOwnerPhoto(folder || {}, settings?.userProfile);
+  const effectiveOwnerPhoto = isRealPhotoUrl(rawOwnerPhoto) ? rawOwnerPhoto.trim() : '';
+  const effectiveOwnerAvatar = ownerLiveProf?.avatar || (!isRealPhotoUrl(rawOwnerPhoto) && rawOwnerPhoto ? rawOwnerPhoto : (folder?.ownerAvatar || '👤'));
+
   // Account map for fast lookup
   const accountMap = useMemo(() => {
     const map = new Map<string, Account>();
@@ -441,9 +479,20 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
               </h1>
             </div>
             <div className="text-[11px] text-zinc-400 truncate max-w-full flex items-center justify-center gap-1.5 mt-0.5">
-              <span className="truncate">
-                {isArabic ? 'مشاركة من:' : 'Shared by:'}{' '}
-                <span className="text-zinc-200 font-semibold">{folder.ownerName}</span>
+              <span className="inline-flex items-center gap-1.5 truncate">
+                {effectiveOwnerPhoto ? (
+                  <img
+                    src={effectiveOwnerPhoto}
+                    alt={effectiveOwnerName}
+                    className="w-4 h-4 rounded-full object-cover border border-purple-500/40 shrink-0"
+                  />
+                ) : (
+                  <span className="text-xs shrink-0">{effectiveOwnerAvatar}</span>
+                )}
+                <span className="truncate">
+                  {isArabic ? 'مشاركة من:' : 'Shared by:'}{' '}
+                  <span className="text-zinc-200 font-semibold">{effectiveOwnerName}</span>
+                </span>
               </span>
               <span className="text-zinc-600">•</span>
               <span className="text-zinc-500 font-mono text-[10px]">
@@ -512,6 +561,49 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
               </button>
             )}
           </div>
+
+          {/* Active Members Live Strip */}
+          {((folder?.members && folder.members.length > 0) || folderOwner16) && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar text-xs">
+              {/* Owner Chip */}
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900/90 border border-blue-500/30 shrink-0 shadow-sm">
+                <div className="w-5 h-5 rounded-full overflow-hidden bg-blue-600/30 border border-blue-500/40 flex items-center justify-center text-[11px] shrink-0">
+                  {effectiveOwnerPhoto ? (
+                    <img src={effectiveOwnerPhoto} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <span>{effectiveOwnerAvatar}</span>
+                  )}
+                </div>
+                <span className="font-semibold text-white max-w-[100px] truncate">{effectiveOwnerName}</span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                  {isArabic ? 'المالك' : 'Owner'}
+                </span>
+              </div>
+
+              {/* Members */}
+              {(folder?.members || []).map((m, idx) => {
+                const mid = cleanNumericId(m.numericId);
+                const prof = mid ? liveProfiles[mid] : undefined;
+                const mName = prof?.name || m.name || (mid ? `User ${mid.slice(0, 4)}` : 'Member');
+                const mRawPhoto = (prof?.photoURL && prof.photoURL.trim()) || m.photoURL || '';
+                const mPhoto = isRealPhotoUrl(mRawPhoto) ? mRawPhoto.trim() : '';
+                const mAvatar = prof?.avatar || (!isRealPhotoUrl(mRawPhoto) && mRawPhoto ? mRawPhoto : (m.avatar || '👤'));
+
+                return (
+                  <div key={m.numericId || idx} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800 shrink-0 shadow-sm">
+                    <div className="w-5 h-5 rounded-full overflow-hidden bg-purple-600/30 border border-purple-500/40 flex items-center justify-center text-[11px] shrink-0">
+                      {mPhoto ? (
+                        <img src={mPhoto} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span>{mAvatar}</span>
+                      )}
+                    </div>
+                    <span className="font-semibold text-zinc-300 max-w-[100px] truncate">{mName}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {/* 1. Global Financial Net Metrics Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="p-4 rounded-3xl bg-zinc-900 border border-zinc-800 shadow-md">
@@ -751,6 +843,31 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                                                     </span>
                                                   </>
                                                 )}
+                                                {/* Live Transaction Author Badge */}
+                                                {((tx as any).sender16Id || (tx as any).senderName) && (() => {
+                                                  const s16 = cleanNumericId((tx as any).sender16Id);
+                                                  const sProf = s16 ? liveProfiles[s16] : undefined;
+                                                  const authorName = sProf?.name || (tx as any).senderName || (s16 ? `User ${s16.slice(0, 4)}` : '');
+                                                  const authorRawPhoto = (sProf?.photoURL && sProf.photoURL.trim()) || '';
+                                                  const authorPhoto = isRealPhotoUrl(authorRawPhoto) ? authorRawPhoto : '';
+                                                  const authorAvatar = sProf?.avatar || (!isRealPhotoUrl(authorRawPhoto) && authorRawPhoto ? authorRawPhoto : ((tx as any).senderAvatar || '👤'));
+
+                                                  if (!authorName) return null;
+
+                                                  return (
+                                                    <>
+                                                      <span className="text-zinc-600">•</span>
+                                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-zinc-800 border border-zinc-700/80 text-[10px] text-zinc-300 max-w-[130px] truncate">
+                                                        {authorPhoto ? (
+                                                          <img src={authorPhoto} alt="" className="w-3 h-3 rounded-full object-cover shrink-0" />
+                                                        ) : (
+                                                          <span className="text-[9px] shrink-0">{authorAvatar}</span>
+                                                        )}
+                                                        <span className="truncate">{authorName}</span>
+                                                      </span>
+                                                    </>
+                                                  );
+                                                })()}
                                               </div>
                                             </div>
                                           </div>
@@ -964,6 +1081,35 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                     {viewingTx.time && ` • ${formatTime12h(viewingTx.time, isArabic ? 'ar' : 'en')}`}
                   </span>
                 </div>
+
+                {/* Transaction Author in Modal */}
+                {((viewingTx as any).sender16Id || (viewingTx as any).senderName) && (() => {
+                  const s16 = cleanNumericId((viewingTx as any).sender16Id);
+                  const sProf = s16 ? liveProfiles[s16] : undefined;
+                  const authorName = sProf?.name || (viewingTx as any).senderName || (s16 ? `User ${s16.slice(0, 4)}` : '');
+                  const authorRawPhoto = (sProf?.photoURL && sProf.photoURL.trim()) || '';
+                  const authorPhoto = isRealPhotoUrl(authorRawPhoto) ? authorRawPhoto : '';
+                  const authorAvatar = sProf?.avatar || (!isRealPhotoUrl(authorRawPhoto) && authorRawPhoto ? authorRawPhoto : ((viewingTx as any).senderAvatar || '👤'));
+
+                  if (!authorName) return null;
+
+                  return (
+                    <div className="flex items-center justify-between py-1 border-b border-zinc-800/40">
+                      <span className="text-zinc-400 flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5 text-purple-400" />
+                        <span>{isArabic ? 'بواسطة:' : 'Added by:'}</span>
+                      </span>
+                      <span className="font-semibold text-white flex items-center gap-1.5">
+                        {authorPhoto ? (
+                          <img src={authorPhoto} alt="" className="w-4 h-4 rounded-full object-cover" />
+                        ) : (
+                          <span>{authorAvatar}</span>
+                        )}
+                        <span>{authorName}</span>
+                      </span>
+                    </div>
+                  );
+                })()}
 
                 {/* Description / Notes */}
                 {viewingTx.description && viewingTx.description.trim() !== '' && (

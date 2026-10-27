@@ -2787,6 +2787,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (auth.currentUser && isSyncUnlockedRef.current) {
       triggerGranularPush(() => writeGranularManifest(auth.currentUser!.uid, updated, updated.userProfile, isSyncUnlockedRef.current));
     }
+    if (newSettings.userProfile) {
+      const up = newSettings.userProfile;
+      const clean16 = String(up.numericId || '').replace(/\D/g, '');
+      if (clean16.length === 16) {
+        publishUserProfileCard({
+          numericId: clean16,
+          name: up.name || 'User',
+          avatar: up.avatarEmoji || '👤',
+          photoURL: up.customAvatarUrl || '',
+          uid: auth.currentUser?.uid || up.uid,
+          driveAccessGranted: up.driveAccessGranted,
+          drivePromptResolved: up.drivePromptResolved,
+        }).catch((err) => console.warn('[AppContext] publishUserProfileCard error:', err));
+        propagateUserProfileToAllSharedSpaces({
+          numericId: clean16,
+          name: up.name || 'User',
+          avatar: up.avatarEmoji || '👤',
+          photoURL: up.customAvatarUrl || '',
+          uid: auth.currentUser?.uid || up.uid,
+        }).catch((err) => console.warn('[AppContext] propagateUserProfileToAllSharedSpaces error:', err));
+      }
+    }
     showToast(t('updatedSuccess'), 'success');
   };
 

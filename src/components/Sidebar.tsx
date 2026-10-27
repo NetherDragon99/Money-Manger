@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from '../utils/security';
 import { format16DigitId } from '../utils/userId';
+import { isRealPhotoUrl } from '../utils/shareFolders';
 import { PWAInstallButton } from './PWAInstallButton';
 import { installPwa } from '../utils/pwaInstall';
 import { ExportCustomizeModal } from './ExportCustomizeModal';
@@ -502,7 +503,7 @@ export const Sidebar: React.FC = () => {
         >
           <div className="flex items-center gap-3.5 min-w-0 flex-1">
             <div className="w-13 h-13 rounded-2xl bg-zinc-900 border-2 border-blue-500/80 overflow-hidden flex items-center justify-center text-3xl shadow-lg group-hover:scale-105 transition shrink-0">
-              {currentUser && settings.userProfile?.customAvatarUrl ? (
+              {currentUser && settings.userProfile?.customAvatarUrl && isRealPhotoUrl(settings.userProfile.customAvatarUrl) ? (
                 <img
                   src={settings.userProfile.customAvatarUrl}
                   alt="Profile"

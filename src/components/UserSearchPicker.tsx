@@ -16,6 +16,7 @@ import {
   loadKnownContacts,
   getAvatarColorGradient,
   getMemberInitials,
+  isRealPhotoUrl,
 } from '../utils/shareFolders';
 import {
   format16DigitId,
@@ -457,7 +458,7 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
                     contact.numericId || contact.name
                   )}`}
                 >
-                  {contact.photoURL ? (
+                  {contact.photoURL && isRealPhotoUrl(contact.photoURL) ? (
                     <img src={contact.photoURL} alt={contact.name} className="w-full h-full object-cover" />
                   ) : contact.avatar && contact.avatar !== '👤' ? (
                     contact.avatar
