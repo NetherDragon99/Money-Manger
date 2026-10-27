@@ -124,6 +124,7 @@ export const SPACES_V3_CACHE_KEY = 'mm_spaces_v3_cache';
 export const SHARE_V3_CLEAN_RESET_KEY = 'mm_share_v3_clean_reset';
 export const SHARE_V3_CLOUD_PURGE_KEY = 'mm_share_v3_cloud_purge_done';
 export const NOTIFIED_SHARE_IDS_FOREVER_KEY = 'mm_notified_share_ids_forever';
+export const NOTIFIED_SHARE_TIMESTAMPS_KEY = 'mm_notified_share_timestamps';
 export const NOTIFIED_SHARES_V3_KEY = 'mm_notified_shares_v3';
 export const CLOUD_SLOTS_COUNT = 10;
 const STORAGE_KNOWN_CONTACTS_KEY = 'pwa_finance_known_contacts_v1';
@@ -1060,10 +1061,48 @@ export function saveReceivedShareFolders(folders: ShareFolder[]): void {
 }
 
 const inMemoryNotifiedSharesForever = new Set<string>();
+const inMemoryNotifiedShareTimestamps = new Map<string, number>();
 const cloudNotifiedSharesCache = new Set<string>();
 const inFlightNotificationLocks = new Set<string>();
 let cloudNotifiedHydratedForUid: string | null = null;
 let hasMigratedForeverRegistry = false;
+
+export function getNotifiedShareTimestamps(): Record<string, number> {
+  if (typeof localStorage === 'undefined') {
+    const res: Record<string, number> = {};
+    inMemoryNotifiedShareTimestamps.forEach((v, k) => {
+      res[k] = v;
+    });
+    return res;
+  }
+  try {
+    const raw = localStorage.getItem(NOTIFIED_SHARE_TIMESTAMPS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        Object.entries(parsed).forEach(([k, v]) => {
+          if (typeof v === 'number') inMemoryNotifiedShareTimestamps.set(k, v);
+        });
+        return parsed;
+      }
+    }
+  } catch {}
+  const res: Record<string, number> = {};
+  inMemoryNotifiedShareTimestamps.forEach((v, k) => {
+    res[k] = v;
+  });
+  return res;
+}
+
+export function saveNotifiedShareTimestamps(map: Record<string, number>): void {
+  Object.entries(map).forEach(([k, v]) => {
+    if (typeof v === 'number') inMemoryNotifiedShareTimestamps.set(k, v);
+  });
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(NOTIFIED_SHARE_TIMESTAMPS_KEY, JSON.stringify(map));
+  } catch {}
+}
 
 /**
  * Loads the permanent Set of notified share IDs from localStorage ('mm_notified_share_ids_forever'
@@ -1188,7 +1227,7 @@ async function waitForAuthenticatedUid(fallbackUid?: string, timeoutMs: number =
 
 /**
  * Syncs users/${uid}/notifiedShares from Firebase RTDB into local 'mm_notified_share_ids_forever'
- * AND pushes any locally notified share IDs up to users/${uid}/notifiedShares so both stay mirrored.
+ * and 'mm_notified_share_timestamps'.
  */
 export async function syncCloudNotifiedSharesToLocal(customUid?: string): Promise<Set<string>> {
   const targetUid = await waitForAuthenticatedUid(customUid);
@@ -1196,18 +1235,34 @@ export async function syncCloudNotifiedSharesToLocal(customUid?: string): Promis
   try {
     const snap = await get(ref(rtdb, `users/${targetUid}/notifiedShares`));
     const remoteSet = new Set<string>();
+    const localTimestamps = getNotifiedShareTimestamps();
+    let timestampsModified = false;
+
     if (snap.exists() && snap.val() && typeof snap.val() === 'object') {
       const val = snap.val();
       const cloudIds: string[] = [];
-      for (const [key, isNotified] of Object.entries(val)) {
-        if (isNotified) {
+      for (const [key, rawVal] of Object.entries(val)) {
+        if (rawVal) {
           const clean = normalizeShareId(key);
           if (clean) {
             cloudIds.push(clean);
             remoteSet.add(clean);
             cloudNotifiedSharesCache.add(clean);
+            if (typeof rawVal === 'number' && rawVal > 0) {
+              inMemoryNotifiedShareTimestamps.set(clean, rawVal);
+              if (!localTimestamps[clean] || rawVal > localTimestamps[clean]) {
+                localTimestamps[clean] = rawVal;
+                timestampsModified = true;
+              }
+            } else if (rawVal === true && !localTimestamps[clean]) {
+              localTimestamps[clean] = 1;
+              timestampsModified = true;
+            }
           }
         }
+      }
+      if (timestampsModified) {
+        saveNotifiedShareTimestamps(localTimestamps);
       }
       if (cloudIds.length > 0) {
         markShareIdsNotifiedForever(cloudIds);
@@ -1218,11 +1273,12 @@ export async function syncCloudNotifiedSharesToLocal(customUid?: string): Promis
     // Mirror any local 'mm_notified_share_ids_forever' entries that are missing in Firebase RTDB
     if (auth.currentUser?.uid === targetUid) {
       const localAll = getNotifiedShareIdsForever();
-      const missingInCloud: Record<string, boolean> = {};
+      const missingInCloud: Record<string, any> = {};
       let hasMissing = false;
       localAll.forEach((cid) => {
         if (cid && !remoteSet.has(cid)) {
-          missingInCloud[cid] = true;
+          const ts = localTimestamps[cid] || Date.now();
+          missingInCloud[cid] = ts;
           cloudNotifiedSharesCache.add(cid);
           hasMissing = true;
         }
@@ -1236,9 +1292,62 @@ export async function syncCloudNotifiedSharesToLocal(customUid?: string): Promis
 }
 
 /**
+ * Clears the notification tracking state for a share so that if the user is re-invited later,
+ * the new invitation will be treated as a fresh event and will trigger a notification.
+ */
+export function clearShareNotifiedState(
+  shareId: string,
+  _myClean16Id?: string,
+  currentUid?: string
+): void {
+  const cleanSid = normalizeShareId(shareId);
+  if (!cleanSid) return;
+
+  inMemoryNotifiedSharesForever.delete(cleanSid);
+  cloudNotifiedSharesCache.delete(cleanSid);
+  inMemoryNotifiedShareTimestamps.delete(cleanSid);
+  inFlightNotificationLocks.delete(cleanSid);
+
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const timestamps = getNotifiedShareTimestamps();
+      if (timestamps[cleanSid] !== undefined) {
+        delete timestamps[cleanSid];
+        saveNotifiedShareTimestamps(timestamps);
+      }
+      const foreverSet = getNotifiedShareIdsForever();
+      if (foreverSet.has(cleanSid)) {
+        foreverSet.delete(cleanSid);
+        const serialized = JSON.stringify(Array.from(foreverSet));
+        localStorage.setItem(NOTIFIED_SHARE_IDS_FOREVER_KEY, serialized);
+        localStorage.setItem(NOTIFIED_SHARES_V3_KEY, serialized);
+        localStorage.setItem(PERMANENT_NOTIFIED_SHARE_IDS_KEY, serialized);
+      }
+      const seenHashes = getSeenShareNotificationHashes();
+      let hashesModified = false;
+      seenHashes.forEach((h) => {
+        if (h.includes(cleanSid)) {
+          seenHashes.delete(h);
+          hashesModified = true;
+        }
+      });
+      if (hashesModified) {
+        localStorage.setItem(SEEN_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(Array.from(seenHashes)));
+      }
+    } catch {}
+  }
+
+  const effectiveUid = auth.currentUser?.uid || currentUid || getCachedAuthUser()?.uid || '';
+  if (effectiveUid) {
+    remove(ref(rtdb, `users/${effectiveUid}/notifiedShares/${cleanSid}`)).catch(() => {});
+  }
+}
+
+/**
  * Checks whether a space has ALREADY been notified (or should never be notified because user is owner):
  * (1) Returns true if space.ownerUid === currentUser.uid or cleanId(space.owner16DigitId) === myClean16Id
- * (2) Returns true if normalized space.id is in 'mm_notified_share_ids_forever' or cloudNotifiedSharesCache
+ * (2) Returns false if space has a newer candidateInvitedAt than previously recorded (re-invite!)
+ * (3) Returns true if already notified for the active membership instance
  */
 export function isShareNotifiedEverywhere(
   space: Partial<ShareFolder> | null | undefined,
@@ -1264,40 +1373,68 @@ export function isShareNotifiedEverywhere(
     return true;
   }
 
-  // (2) Check local 'mm_notified_share_ids_forever' and cloud cache
-  if (isShareIdNotifiedForever(cleanSid)) {
+  // (2) Smart Re-Invite Check:
+  const targetMember = (space.members || []).find(
+    (m) => cleanMy16 && normalize16DigitId(m.numericId) === cleanMy16
+  );
+  const candidateInvitedAt = targetMember?.invitedAt || targetMember?.addedAt || space.updatedAt || 0;
+
+  const timestamps = getNotifiedShareTimestamps();
+  const lastNotifiedAt = inMemoryNotifiedShareTimestamps.get(cleanSid) || timestamps[cleanSid] || 0;
+
+  // Fresh re-invite check: if candidate has newer invitedAt than the last notification, treat as fresh!
+  if (candidateInvitedAt > 0 && lastNotifiedAt > 0 && candidateInvitedAt > lastNotifiedAt) {
+    return false;
+  }
+
+  // If already notified for this exact invite instance or newer, do not repeat!
+  if (lastNotifiedAt > 0 && candidateInvitedAt <= lastNotifiedAt) {
     return true;
   }
 
-  // (3) Check legacy member.notified flag or space.notifiedMembers map if present
-  if (cleanMy16) {
-    const myMember = (space.members || []).find(
-      (m) => normalize16DigitId(m.numericId) === cleanMy16
-    );
-    if (myMember?.notified === true || Boolean(space.notifiedMembers?.[cleanMy16])) {
-      markShareIdsNotifiedForever([cleanSid]);
-      return true;
+  // (3) Check local 'mm_notified_share_ids_forever' and cloud cache for legacy records
+  if (lastNotifiedAt === 0 && isShareIdNotifiedForever(cleanSid)) {
+    const dismissedMap = getDismissedShareTimestamps();
+    const dismissedAt = dismissedMap[cleanSid] || 0;
+    if (dismissedAt > 0 && candidateInvitedAt > dismissedAt) {
+      return false;
     }
+    return true;
   }
 
   return false;
 }
 
 /**
- * Immediately records cleanShareId in BOTH localStorage ('mm_notified_share_ids_forever')
- * AND Firebase RTDB at users/${currentUser.uid}/notifiedShares/${cleanShareId} = true
+ * Immediately records cleanShareId and its invite timestamp in BOTH localStorage
+ * AND Firebase RTDB at users/${currentUser.uid}/notifiedShares/${cleanShareId} = inviteTimestamp
  * synchronously before any next tick.
  */
 export function recordShareNotifiedSynchronously(
   spaceOrShareId: Partial<ShareFolder> | string,
-  _myClean16Id?: string,
+  myClean16Id?: string,
   currentUid?: string
 ): void {
   const rawId = typeof spaceOrShareId === 'string' ? spaceOrShareId : spaceOrShareId?.id;
   const cleanSid = normalizeShareId(rawId);
   if (!cleanSid) return;
 
-  // 1. Synchronously write to 'mm_notified_share_ids_forever' and in-memory Set before any next tick
+  let inviteTimestamp = Date.now();
+  if (typeof spaceOrShareId === 'object' && spaceOrShareId) {
+    const cleanMy16 = normalize16DigitId(myClean16Id || '');
+    const myMember = (spaceOrShareId.members || []).find(
+      (m) => cleanMy16 && normalize16DigitId(m.numericId) === cleanMy16
+    );
+    inviteTimestamp = myMember?.invitedAt || myMember?.addedAt || spaceOrShareId.updatedAt || Date.now();
+  }
+
+  // 1. Synchronously update in-memory timestamp and map
+  inMemoryNotifiedShareTimestamps.set(cleanSid, inviteTimestamp);
+  const timestamps = getNotifiedShareTimestamps();
+  timestamps[cleanSid] = inviteTimestamp;
+  saveNotifiedShareTimestamps(timestamps);
+
+  // 2. Synchronously write to 'mm_notified_share_ids_forever' and in-memory Set before any next tick
   cloudNotifiedSharesCache.add(cleanSid);
   markShareIdsNotifiedForever([cleanSid]);
   if (typeof spaceOrShareId === 'object' && spaceOrShareId) {
@@ -1306,17 +1443,16 @@ export function recordShareNotifiedSynchronously(
     markShareNotificationsSeen([cleanSid]);
   }
 
-  // 2. Immediately trigger write to Firebase RTDB: users/${uid}/notifiedShares/${cleanSid} = true
+  // 3. Immediately trigger write to Firebase RTDB: users/${uid}/notifiedShares/${cleanSid} = inviteTimestamp
   const effectiveUid = auth.currentUser?.uid || currentUid || getCachedAuthUser()?.uid || '';
   if (effectiveUid) {
-    set(ref(rtdb, `users/${effectiveUid}/notifiedShares/${cleanSid}`), true).catch(() => {});
+    set(ref(rtdb, `users/${effectiveUid}/notifiedShares/${cleanSid}`), inviteTimestamp).catch(() => {});
   }
   if (!auth.currentUser?.uid) {
-    // Ensure write completes as soon as Firebase Auth finishes initializing
     waitForAuthenticatedUid(effectiveUid, 4000)
       .then((authedUid) => {
         if (authedUid) {
-          set(ref(rtdb, `users/${authedUid}/notifiedShares/${cleanSid}`), true).catch(() => {});
+          set(ref(rtdb, `users/${authedUid}/notifiedShares/${cleanSid}`), inviteTimestamp).catch(() => {});
         }
       })
       .catch(() => {});
@@ -1334,9 +1470,10 @@ export async function recordShareNotifiedEverywhere(
 /**
  * Atomic, race-free gate for incoming share notifications:
  * - Never notifies if owner16DigitId === myClean16Id or ownerUid === currentUser.uid
- * - Checks 'mm_notified_share_ids_forever' and users/${uid}/notifiedShares/${cleanShareId}
- * - Locks cleanShareId synchronously so concurrent slot/master/poll events can never fire twice
- * - If not notified, immediately writes cleanShareId to BOTH 'mm_notified_share_ids_forever' and Firebase before returning true
+ * - Checks timestamps, 'mm_notified_share_ids_forever' and users/${uid}/notifiedShares/${cleanShareId}
+ * - Allows fresh notifications when re-invited with candidateInvitedAt > lastNotifiedAt
+ * - Locks cleanShareId synchronously so concurrent slot/master/poll events cannot race
+ * - If not notified, immediately writes timestamp to BOTH local and Firebase before returning true
  */
 export async function shouldNotifyIncomingShareOnce(
   space: ShareFolder,
@@ -1347,7 +1484,7 @@ export async function shouldNotifyIncomingShareOnce(
   const cleanSid = normalizeShareId(space.id);
   if (!cleanSid) return false;
 
-  // 1. Fast synchronous check (owner check + local 'mm_notified_share_ids_forever' + cloud cache)
+  // 1. Fast synchronous check (owner check + local timestamps + 'mm_notified_share_ids_forever' + cloud cache)
   if (isShareNotifiedEverywhere(space, myClean16Id, currentUid)) {
     return false;
   }
@@ -1361,16 +1498,27 @@ export async function shouldNotifyIncomingShareOnce(
   try {
     const effectiveUid = auth.currentUser?.uid || currentUid || getCachedAuthUser()?.uid || '';
 
-    // 3. If cloud notifiedShares hasn't been checked for this user yet and we have a UID, check Firebase RTDB
+    // 3. Check Firebase RTDB
     if (effectiveUid && (typeof navigator === 'undefined' || navigator.onLine)) {
       if (cloudNotifiedHydratedForUid !== effectiveUid) {
         await syncCloudNotifiedSharesToLocal(effectiveUid);
       } else if (auth.currentUser?.uid) {
         try {
           const itemSnap = await get(ref(rtdb, `users/${auth.currentUser.uid}/notifiedShares/${cleanSid}`));
-          if (itemSnap.exists() && itemSnap.val() === true) {
-            recordShareNotifiedSynchronously(space, myClean16Id, auth.currentUser.uid);
-            return false;
+          if (itemSnap.exists()) {
+            const cloudVal = itemSnap.val();
+            const cleanMy16 = normalize16DigitId(myClean16Id);
+            const targetMember = (space.members || []).find(
+              (m) => cleanMy16 && normalize16DigitId(m.numericId) === cleanMy16
+            );
+            const candidateInvitedAt = targetMember?.invitedAt || targetMember?.addedAt || space.updatedAt || 0;
+
+            if (typeof cloudVal === 'number' && candidateInvitedAt > 0 && candidateInvitedAt > cloudVal) {
+              // Fresh re-invite with newer timestamp!
+            } else if (cloudVal === true || (typeof cloudVal === 'number' && candidateInvitedAt <= cloudVal)) {
+              recordShareNotifiedSynchronously(space, myClean16Id, auth.currentUser.uid);
+              return false;
+            }
           }
         } catch {}
       }
@@ -1381,8 +1529,7 @@ export async function shouldNotifyIncomingShareOnce(
       return false;
     }
 
-    // 4. Not present in 'mm_notified_share_ids_forever' or users/${uid}/notifiedShares:
-    // Immediately write cleanShareId to BOTH 'mm_notified_share_ids_forever' and Firebase BEFORE returning true!
+    // 4. Not present or fresh re-invite:
     recordShareNotifiedSynchronously(space, myClean16Id, effectiveUid);
     return true;
   } finally {
@@ -2275,9 +2422,12 @@ export async function writeSpaceToCloudSlots(
     }
   }
 
-  // Backup write to profile_shares_${cleanTarget}_${rawShareId}
+  // Backup write to profile_shares_${cleanTarget}_${rawShareId} and inboxByNumericId
   try {
     await set(ref(rtdb, `shared_accounts/profile_shares_${cleanTarget}_${rawShareId}`), slotPayload);
+  } catch {}
+  try {
+    await set(ref(rtdb, `inboxByNumericId/${cleanTarget}/${rawShareId}`), slotPayload);
   } catch {}
 
   return writtenSuccessfully;
@@ -2476,9 +2626,12 @@ export async function syncFolderToCloud(folder: ShareFolder, forceWrite = false)
       }
     }
 
-    // Extra child-key fallback: profile_shares_${targetClean16Id}_${rawShareId}
+    // Extra child-key fallback: profile_shares_${targetClean16Id}_${rawShareId} and inboxByNumericId
     try {
       await set(ref(rtdb, `shared_accounts/profile_shares_${targetClean16Id}_${rawShareId}`), slotEntry);
+    } catch {}
+    try {
+      await set(ref(rtdb, `inboxByNumericId/${targetClean16Id}/${rawShareId}`), slotEntry);
     } catch {}
   }
 
@@ -3382,6 +3535,10 @@ export async function removeMemberFromShareFolder(
   try {
     await remove(ref(rtdb, `shared_accounts/profile_shares_${cleanMemberId}_${cleanFolderId}`));
   } catch {}
+  try {
+    await remove(ref(rtdb, `inboxByNumericId/${cleanMemberId}/${cleanFolderId}`));
+  } catch {}
+  clearShareNotifiedState(cleanFolderId, cleanMemberId);
 
   await syncFolderToCloud(saved, true).catch(() => {});
   return { success: true, folder: saved };
@@ -3465,9 +3622,10 @@ export async function leaveShareFolder(
 
   const leaveTimestamp = Date.now();
 
-  // 1. Add to mm_dismissed_share_timestamps and purge locally
+  // 1. Add to mm_dismissed_share_timestamps, purge locally, and clear notified state
   await dismissShareId(cleanShareId, cleanId, leaveTimestamp);
   purgeDeletedShareSpace(cleanShareId);
+  clearShareNotifiedState(cleanShareId, cleanId);
 
   // 2. Scan slot_0..9 with get() to find matching slotIndex and existingSlotOwnerUid
   let slotIndex = -1;
@@ -3555,6 +3713,9 @@ export async function leaveShareFolder(
 
   try {
     await remove(ref(rtdb, `shared_accounts/profile_shares_${cleanId}_${cleanShareId}`));
+  } catch {}
+  try {
+    await remove(ref(rtdb, `inboxByNumericId/${cleanId}/${cleanShareId}`));
   } catch {}
 }
 
@@ -3871,8 +4032,6 @@ export function subscribeToMyInbox(
   let lastEmittedSig = '';
 
   const emitCombined = () => {
-    if (isShareModalCurrentlyOpen()) return;
-
     const combinedMap = new Map<string, ShareFolder>();
 
     for (const localRec of loadReceivedShareFolders()) {
@@ -3947,7 +4106,6 @@ export function subscribeToMyInbox(
 
     const masterRef = ref(rtdb, `shared_accounts/share_${rawShareId}`);
     const masterListener = (snap: any) => {
-      if (isShareModalCurrentlyOpen()) return;
       if (snap.exists() && snap.val()) {
         const val = snap.val();
         if (val.deleted === true) {
@@ -3976,7 +4134,6 @@ export function subscribeToMyInbox(
 
     const profShareRef = ref(rtdb, `shared_accounts/profile_shares_${cleanId}_${rawShareId}`);
     const profListener = (pSnap: any) => {
-      if (isShareModalCurrentlyOpen()) return;
       if (pSnap.exists() && pSnap.val()) {
         const val = pSnap.val();
         const rawSpace = val.space || val;
@@ -4040,7 +4197,6 @@ export function subscribeToMyInbox(
   for (let i = 0; i < CLOUD_SLOTS_COUNT; i++) {
     const slotRef = ref(rtdb, `shared_accounts/slot_${cleanId}_${i}`);
     const slotListener = (snap: any) => {
-      if (isShareModalCurrentlyOpen()) return;
       if (snap.exists() && snap.val()) {
         const val = snap.val();
         const rawSpace = val.space || val;
@@ -4051,6 +4207,7 @@ export function subscribeToMyInbox(
           if (rawShareId) {
             masterSpacesMap.delete(rawShareId);
             purgeDeletedShareSpace(rawShareId);
+            clearShareNotifiedState(rawShareId, cleanId);
           }
           scheduleEmit();
           return;
@@ -4078,6 +4235,46 @@ export function subscribeToMyInbox(
     onValue(slotRef, slotListener, () => {});
     cleanups.push(() => off(slotRef, 'value', slotListener));
   }
+
+  // Real-time listener directly on inboxByNumericId/${cleanId} for instant zero-refresh delivery
+  const inboxRef = ref(rtdb, `inboxByNumericId/${cleanId}`);
+  const inboxListener = (snap: any) => {
+    if (snap.exists() && snap.val()) {
+      const val = snap.val();
+      if (typeof val === 'object') {
+        for (const [key, rawEntry] of Object.entries(val)) {
+          if (!rawEntry) continue;
+          const rawSpace = (rawEntry as any).space || rawEntry;
+          const rawShareId = normalizeShareId(
+            (rawEntry as any).shareId || (rawEntry as any).rawShareId || rawSpace?.id || key
+          );
+          if (!rawShareId) continue;
+
+          if ((rawEntry as any).kicked === true || (rawEntry as any).deleted === true || rawSpace?.deleted === true) {
+            masterSpacesMap.delete(rawShareId);
+            purgeDeletedShareSpace(rawShareId);
+            clearShareNotifiedState(rawShareId, cleanId);
+            scheduleEmit();
+            continue;
+          }
+
+          const slotInvitedAt =
+            (rawEntry as any).invitedAt || rawSpace?.invitedAt || rawSpace?.updatedAt || (rawEntry as any).updatedAt || 0;
+          if (isShareDismissed(rawShareId, slotInvitedAt)) continue;
+
+          subscribeMasterShare(rawShareId);
+
+          const parsed = normalizeParsedShareFolder(rawSpace, rawShareId);
+          if (parsed && isSpaceSharedWithUser(parsed, cleanId)) {
+            masterSpacesMap.set(rawShareId, { ...parsed, isCreatedByMe: false, isReceivedShare: true });
+            scheduleEmit();
+          }
+        }
+      }
+    }
+  };
+  onValue(inboxRef, inboxListener, () => {});
+  cleanups.push(() => off(inboxRef, 'value', inboxListener));
 
   return () => {
     cleanups.forEach((fn) => fn());

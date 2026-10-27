@@ -767,12 +767,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Keep global modal-open flag synced so remote onValue listeners never overwrite active modal edits
   useEffect(() => {
-    const anyShareEditModalOpen = Boolean(shareModalState.isOpen || isEditingSpace || isSharedHubModalOpen);
+    const anyShareEditModalOpen = Boolean(shareModalState.isOpen || isEditingSpace);
     if (typeof window !== 'undefined') {
       (window as any).__mmShareModalOpen = anyShareEditModalOpen;
     }
     setShareModalOpenState(anyShareEditModalOpen);
-  }, [shareModalState.isOpen, isEditingSpace, isSharedHubModalOpen]);
+  }, [shareModalState.isOpen, isEditingSpace]);
 
   // Remaining Balance Modal (Item 8)
   const [remainingBalanceModalState, setRemainingBalanceModalState] = useState<{
@@ -1039,124 +1039,161 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // Execute one-time V3 clean reset of legacy share keys & Firebase nodes
     executeOneTimeV3ShareCleanReset().catch(() => {});
 
-    const isAuthed = Boolean(auth.currentUser?.uid || getCachedAuthUser()?.uid || settings.userProfile?.uid);
-    const rawId = settings.userProfile?.numericId || (isAuthed ? getOrCreateNumericId() : '');
-    const cleanId = cleanNumericId(rawId || '');
-    if (cleanId.length !== 16) return;
-
-    const resolveActiveUid = () =>
-      auth.currentUser?.uid || getCachedAuthUser()?.uid || settings.userProfile?.uid || '';
-
-    repairAndMigrateSharedSpaces(cleanId, resolveActiveUid());
-
     let isDisposed = false;
-    // Hydrate permanent cloud notifiedShares map into local 'mm_notified_share_ids_forever'
-    let cloudNotifiedReady = syncCloudNotifiedSharesToLocal(resolveActiveUid()).catch(() => {});
+    let unsubInbox: (() => void) | null = null;
+    let activeCleanId = '';
 
-    const unsubAuthForNotifications = auth.onAuthStateChanged((user) => {
-      if (user?.uid && !isDisposed) {
-        cloudNotifiedReady = syncCloudNotifiedSharesToLocal(user.uid).catch(() => {});
+    const setupListenerForUser = (targetUid?: string) => {
+      if (isDisposed) return;
+      const activeUid = targetUid || auth.currentUser?.uid || getCachedAuthUser()?.uid || settings.userProfile?.uid || '';
+      const isAuthed = Boolean(activeUid);
+
+      // Attempt to resolve clean 16-digit numeric ID from profile, userId utility, or localStorage
+      let rawId = settings.userProfile?.numericId || '';
+      if (!rawId && isAuthed) {
+        rawId = getOrCreateNumericId();
+      }
+      if (!rawId && typeof localStorage !== 'undefined') {
+        try {
+          rawId = localStorage.getItem('mm_user_numeric_16_id') || localStorage.getItem('pwa_finance_user_numeric_id') || '';
+        } catch {}
+      }
+
+      let cleanId = cleanNumericId(rawId || '');
+
+      if (cleanId.length !== 16) {
+        if (activeUid) {
+          resolvePermanent16DigitId(activeUid)
+            .then((resolved) => {
+              if (!isDisposed && resolved && cleanNumericId(resolved).length === 16) {
+                setupListenerForUser(activeUid);
+              }
+            })
+            .catch(() => {});
+        }
+        return;
+      }
+
+      if (unsubInbox && activeCleanId === cleanId) {
+        return; // Already actively subscribed to this exact cleanId
+      }
+
+      if (unsubInbox) {
+        unsubInbox();
+        unsubInbox = null;
+      }
+
+      activeCleanId = cleanId;
+      repairAndMigrateSharedSpaces(cleanId, activeUid);
+      let cloudNotifiedReady = syncCloudNotifiedSharesToLocal(activeUid).catch(() => {});
+
+      const handleDiscoveredShares = (incomingList: ShareFolder[]) => {
+        if (!Array.isArray(incomingList) || isDisposed) return;
+        const dismissedIds = getDismissedShareIds();
+        const liveReceived = incomingList.filter(
+          (f) => f && f.id && f.deleted !== true && !dismissedIds.has(normalizeShareId(f.id))
+        );
+
+        saveReceivedShareFolders(liveReceived);
+        window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: liveReceived }));
+
+        cloudNotifiedReady.then(async () => {
+          if (isDisposed) return;
+          for (const folder of liveReceived) {
+            if (!folder || !folder.id || isDisposed) continue;
+            const cleanShareId = normalizeShareId(folder.id);
+            if (!cleanShareId) continue;
+
+            const folderOwner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId || '');
+
+            // (1) NEVER notify if cleanId(space.owner16DigitId) === myClean16Id or space.ownerUid === currentUser.uid
+            if (
+              (activeUid && folder.ownerUid && folder.ownerUid === activeUid) ||
+              (folderOwner16 && folderOwner16 === cleanId) ||
+              isSpaceOwnedByUser(folder, cleanId, activeUid)
+            ) {
+              markShareIdsNotifiedForever([cleanShareId]);
+              continue;
+            }
+
+            // (2) Atomic check against timestamps / 'mm_notified_share_ids_forever' and users/${uid}/notifiedShares
+            const shouldFire = await shouldNotifyIncomingShareOnce(folder, cleanId, activeUid);
+            if (!shouldFire || isDisposed) continue;
+
+            recordShareNotifiedSynchronously(folder, cleanId, activeUid);
+
+            showToast(
+              settings.language === 'ar'
+                ? `📬 وصلتك مشاركة جديدة من "${folder.ownerName}": "${folder.name}"!`
+                : `📬 New share received from "${folder.ownerName}": "${folder.name}"!`,
+              'info',
+              {
+                label: settings.language === 'ar' ? 'عرض المشاركة' : 'View Share',
+                onClick: () => {
+                  setIsSharedHubModalOpen(true);
+                  window.dispatchEvent(
+                    new CustomEvent('open_shared_accounts_hub', {
+                      detail: { tab: 'shared_with_me', folderId: folder.id },
+                    })
+                  );
+                },
+              },
+              7000
+            );
+          }
+        });
+      };
+
+      unsubInbox = subscribeToMyInbox(cleanId, (rawLiveReceived) => {
+        handleDiscoveredShares(rawLiveReceived);
+      });
+
+      // Run one initial check on mount and flush offline queue
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        flushOfflineQueue()
+          .then(() => fetchMyInboxOnce(cleanId))
+          .then((polledShares) => {
+            if (Array.isArray(polledShares)) {
+              handleDiscoveredShares(polledShares);
+            }
+          })
+          .catch(() => {});
+      }
+    };
+
+    // Initial setup with currently available credentials
+    setupListenerForUser();
+
+    // Listen to Firebase Auth state directly so listener attaches immediately on sign-in
+    const unsubAuth = auth.onAuthStateChanged((user) => {
+      if (isDisposed) return;
+      if (user?.uid) {
+        setupListenerForUser(user.uid);
+      } else {
+        const cached = getCachedAuthUser();
+        if (cached?.uid) {
+          setupListenerForUser(cached.uid);
+        } else if (unsubInbox) {
+          unsubInbox();
+          unsubInbox = null;
+          activeCleanId = '';
+        }
       }
     });
 
-    const handleDiscoveredShares = (incomingList: ShareFolder[]) => {
-      if (!Array.isArray(incomingList) || isDisposed) return;
-      const dismissedIds = getDismissedShareIds();
-      const liveReceived = incomingList.filter(
-        (f) => f && f.id && f.deleted !== true && !dismissedIds.has(normalizeShareId(f.id))
-      );
-
-      saveReceivedShareFolders(liveReceived);
-      window.dispatchEvent(new CustomEvent('received_shares_updated', { detail: liveReceived }));
-
-      cloudNotifiedReady.then(async () => {
-        if (isDisposed) return;
-        for (const folder of liveReceived) {
-          if (!folder || !folder.id || isDisposed) continue;
-          const cleanShareId = normalizeShareId(folder.id);
-          if (!cleanShareId) continue;
-
-          const activeUid = resolveActiveUid();
-          const folderOwner16 = cleanNumericId(folder.owner16DigitId || folder.ownerNumericId || '');
-
-          // (1) NEVER notify if cleanId(space.owner16DigitId) === myClean16Id or space.ownerUid === currentUser.uid
-          if (
-            (activeUid && folder.ownerUid && folder.ownerUid === activeUid) ||
-            (folderOwner16 && folderOwner16 === cleanId) ||
-            isSpaceOwnedByUser(folder, cleanId, activeUid)
-          ) {
-            markShareIdsNotifiedForever([cleanShareId]);
-            continue;
-          }
-
-          // (2) Fast synchronous check against 'mm_notified_share_ids_forever'
-          if (isShareIdNotifiedForever(cleanShareId)) {
-            continue;
-          }
-
-          // (3) & (4) Atomic check against 'mm_notified_share_ids_forever' and users/${uid}/notifiedShares/${cleanShareId};
-          // if NOT present, immediately writes cleanShareId to BOTH 'mm_notified_share_ids_forever' and Firebase before returning true
-          const shouldFire = await shouldNotifyIncomingShareOnce(folder, cleanId, activeUid);
-          if (!shouldFire || isDisposed) continue;
-
-          // Guarantee synchronous lock in 'mm_notified_share_ids_forever' and Firebase before firing toast
-          recordShareNotifiedSynchronously(folder, cleanId, activeUid);
-
-          showToast(
-            settings.language === 'ar'
-              ? `📬 وصلتك مشاركة جديدة من "${folder.ownerName}": "${folder.name}"!`
-              : `📬 New share received from "${folder.ownerName}": "${folder.name}"!`,
-            'info',
-            {
-              label: settings.language === 'ar' ? 'عرض المشاركة' : 'View Share',
-              onClick: () => {
-                setIsSharedHubModalOpen(true);
-                window.dispatchEvent(
-                  new CustomEvent('open_shared_accounts_hub', {
-                    detail: { tab: 'shared_with_me', folderId: folder.id },
-                  })
-                );
-              },
-            },
-            7000
-          );
-        }
-      });
-    };
-
-    const unsub = subscribeToMyInbox(cleanId, (rawLiveReceived) => {
-      handleDiscoveredShares(rawLiveReceived);
-    });
-
-    // Run one initial silent check on mount and flush any offline queue when reconnecting
-    if (typeof navigator === 'undefined' || navigator.onLine) {
-      flushOfflineQueue()
-        .then(() => fetchMyInboxOnce(cleanId))
-        .then((polledShares) => {
-          if (Array.isArray(polledShares)) {
-            handleDiscoveredShares(polledShares);
-          }
-        })
-        .catch(() => {});
-    }
-
     const handleReconnect = () => {
-      flushOfflineQueue()
-        .then(() => fetchMyInboxOnce(cleanId))
-        .then((polledShares) => {
-          if (Array.isArray(polledShares)) {
-            handleDiscoveredShares(polledShares);
-          }
-        })
-        .catch(() => {});
+      setupListenerForUser();
     };
     window.addEventListener('online', handleReconnect);
 
     return () => {
       isDisposed = true;
       window.removeEventListener('online', handleReconnect);
-      unsubAuthForNotifications();
-      unsub();
+      unsubAuth();
+      if (unsubInbox) {
+        unsubInbox();
+        unsubInbox = null;
+      }
     };
   }, [settings.userProfile?.numericId, settings.userProfile?.uid, settings.language]);
 
