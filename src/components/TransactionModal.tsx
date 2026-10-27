@@ -206,13 +206,23 @@ export const TransactionModal: React.FC = () => {
       setAccountId(defaultAcc);
       const otherAcc = accounts.find((a) => a.id !== defaultAcc);
       setToAccountId(otherAcc ? otherAcc.id : '');
-      const defaultCat = categories.find((c) => c.type === 'expense');
+      const expCats = categories.filter((c) => c.type === 'expense');
+      let defaultCat = expCats[0];
+      if (settings.categoryOrder && settings.categoryOrder.length > 0) {
+        const orderMap = new Map(settings.categoryOrder.map((id, index) => [id, index]));
+        const sorted = [...expCats].sort((a, b) => {
+          const orderA = orderMap.has(a.id) ? (orderMap.get(a.id) as number) : 9999;
+          const orderB = orderMap.has(b.id) ? (orderMap.get(b.id) as number) : 9999;
+          return orderA - orderB;
+        });
+        if (sorted[0]) defaultCat = sorted[0];
+      }
       setCategoryId(defaultCat ? defaultCat.id : '');
       setIsRecurring(Boolean(defaultTxIsRecurring));
       setRecurringFrequency('monthly');
       setIsAdvancedSchedule(false);
     }
-  }, [isAddTxModalOpen, editingTx?.id, defaultTxIsRecurring]);
+  }, [isAddTxModalOpen, editingTx?.id, defaultTxIsRecurring, settings.categoryOrder]);
 
   // When type changes, ensure valid category selection & Transfer destination
   const prevTypeRef = useRef(type);
@@ -228,12 +238,22 @@ export const TransactionModal: React.FC = () => {
         }
       }
     } else {
-      const matchCat = categories.find((c) => c.type === type);
+      const matchCats = categories.filter((c) => c.type === type);
+      let matchCat = matchCats[0];
+      if (settings.categoryOrder && settings.categoryOrder.length > 0) {
+        const orderMap = new Map(settings.categoryOrder.map((id, index) => [id, index]));
+        const sorted = [...matchCats].sort((a, b) => {
+          const orderA = orderMap.has(a.id) ? (orderMap.get(a.id) as number) : 9999;
+          const orderB = orderMap.has(b.id) ? (orderMap.get(b.id) as number) : 9999;
+          return orderA - orderB;
+        });
+        if (sorted[0]) matchCat = sorted[0];
+      }
       if (matchCat && (!categoryId || !categories.find((c) => c.id === categoryId && c.type === type))) {
         setCategoryId(matchCat.id);
       }
     }
-  }, [type]);
+  }, [type, settings.categoryOrder]);
 
   const getFrequencyLabel = (freq: RecurringFrequency) => {
     switch (freq) {
@@ -253,8 +273,18 @@ export const TransactionModal: React.FC = () => {
   };
 
   const availableCategories = useMemo(() => {
-    return categories.filter((c) => c.type === type);
-  }, [categories, type]);
+    const list = categories.filter((c) => c.type === type);
+    if (settings.categoryOrder && settings.categoryOrder.length > 0) {
+      const orderMap = new Map(settings.categoryOrder.map((id, index) => [id, index]));
+      return [...list].sort((a, b) => {
+        const orderA = orderMap.has(a.id) ? (orderMap.get(a.id) as number) : 9999;
+        const orderB = orderMap.has(b.id) ? (orderMap.get(b.id) as number) : 9999;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name);
+      });
+    }
+    return list;
+  }, [categories, type, settings.categoryOrder]);
 
   const selectedCategory = useMemo(() => {
     if (type === 'transfer') return null;

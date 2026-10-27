@@ -39,31 +39,6 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
   const [activeAnalysisType, setActiveAnalysisType] = useState<'expense' | 'income'>('expense');
   const [showAllCategories, setShowAllCategories] = useState<boolean>(false);
 
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-
-  const handleSubTouchStart = (e: React.TouchEvent) => {
-    touchStartRef.current = {
-      x: e.touches[0].clientX,
-      y: e.touches[0].clientY,
-    };
-  };
-
-  const handleSubTouchEnd = (e: React.TouchEvent) => {
-    if (!touchStartRef.current) return;
-    const deltaX = e.changedTouches[0].clientX - touchStartRef.current.x;
-    const deltaY = e.changedTouches[0].clientY - touchStartRef.current.y;
-    touchStartRef.current = null;
-
-    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4) {
-      const isRtl = settings.language === 'ar';
-      if ((!isRtl && deltaX < 0) || (isRtl && deltaX > 0)) {
-        setActiveAnalysisType('income');
-      } else {
-        setActiveAnalysisType('expense');
-      }
-    }
-  };
-
   // Month cycle for Public accounts
   const cycleRange = useMemo(() => {
     return getMonthCycleRange(new Date(), settings.defaultMonthStartDay, 0);
@@ -245,18 +220,7 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
     : categoryAnalytics.list.slice(0, 3);
 
   return (
-    <div
-      className="w-full flex-1 min-h-0 h-full overflow-y-auto overflow-x-hidden touch-pan-y bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in"
-      style={{
-        flex: '1 1 0%',
-        minHeight: 0,
-        height: '100%',
-        overflowY: 'auto',
-        overflowX: 'hidden',
-        WebkitOverflowScrolling: 'touch',
-        touchAction: 'pan-y',
-      }}
-    >
+    <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
       {/* 1. Standardized Top Header Across All Views (Item 2) */}
       <header
         style={{

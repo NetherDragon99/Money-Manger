@@ -4,6 +4,28 @@ export type { FeatureItem, ReleaseNote };
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.52',
+    releaseDate: 'October 27, 2026',
+    title: {
+      en: 'Insights Swipe Unlock, Reliable Bottom Nav Navigation, Home Sidebar Pull & Category Sync',
+      ar: 'إلغاء قفل سحب التحليلات، تنقل دقيق بالشريط السفلي، سحب القائمة الجانبية ومزامنة ترتيب الفئات',
+    },
+    highlights: {
+      en: [
+        'Insights Horizontal Swipe Unlocked: Removed conflicting touch-pan-y from the insights view, enabling seamless horizontal swiping between Budget, Insights, and Accounts.',
+        'Reliable Bottom Nav Transitions: Guaranteed exact page arrival without stopping on intermediate screens, even during extended smooth scrolls or across wide tab jumps.',
+        'Home Page Sidebar Pull Gesture: Restored 1:1 tactile edge-pulling on the home page to smoothly draw the sidebar open while preserving native vertical scroll.',
+        'Synchronized Category Arrangement: Synchronized custom category ordering from Budget & Categories into the make transaction keypad row and full category directory.',
+      ],
+      ar: [
+        'إلغاء قفل التمرير الأفقي لصفحة التحليلات: إزالة قيود اللمس الرأسي ليتحرك التمرير الأفقي بسلاسة تامة بين الميزانية، التحليلات، والحسابات.',
+        'انتقال دقيق عبر الشريط السفلي: وصول مؤكد للصفحة المختارة دون التوقف خطأً على صفحات وسيطة حتى مع التمرير الطويل أو القفز بين التبويبات المتباعدة.',
+        'إيماءة سحب القائمة الجانبية من الرئيسية: استعادة سحب القائمة الجانبية 1:1 بالسحب الأفقي من الصفحة الرئيسية مع الحفاظ الكامل على فيزياء التمرير الرأسي.',
+        'مزامنة ترتيب الفئات بالكامل: مزامنة الترتيب المخصص للفئات من صفحة الميزانية مباشرة في شريط إضافة المعاملة ودليل الفئات الشامل.',
+      ],
+    },
+  },
+  {
     version: '1.1.51',
     releaseDate: 'October 27, 2026',
     title: {

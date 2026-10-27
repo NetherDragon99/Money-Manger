@@ -24,7 +24,7 @@ export const CategoryDirectoryModal: React.FC<CategoryDirectoryModalProps> = ({
   const isArabic = settings.language === 'ar';
 
   const filteredCategories = useMemo(() => {
-    return categories.filter((cat) => {
+    const list = categories.filter((cat) => {
       if (filterType !== 'all' && cat.type !== filterType) return false;
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase().trim();
@@ -33,7 +33,19 @@ export const CategoryDirectoryModal: React.FC<CategoryDirectoryModalProps> = ({
       }
       return true;
     });
-  }, [categories, filterType, searchQuery]);
+
+    if (settings.categoryOrder && settings.categoryOrder.length > 0) {
+      const orderMap = new Map(settings.categoryOrder.map((id, index) => [id, index]));
+      return [...list].sort((a, b) => {
+        const orderA = orderMap.has(a.id) ? (orderMap.get(a.id) as number) : 9999;
+        const orderB = orderMap.has(b.id) ? (orderMap.get(b.id) as number) : 9999;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name);
+      });
+    }
+
+    return list;
+  }, [categories, filterType, searchQuery, settings.categoryOrder]);
 
   const [isClosing, setIsClosing] = useState(false);
 

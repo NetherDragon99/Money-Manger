@@ -344,20 +344,122 @@ const MainAppContent: React.FC = () => {
   // Native CSS Horizontal Page Swiping Engine across Main Views
   const tabSliderRef = useRef<HTMLDivElement>(null);
   const isProgrammaticScrollRef = useRef<boolean>(false);
+  const targetTabRef = useRef<TabType | null>(null);
+  const isUserTouchingRef = useRef<boolean>(false);
   const programmaticScrollTimerRef = useRef<any>(null);
   const scrollSettleTimerRef = useRef<any>(null);
+
+  // Home Page Edge Pulling gesture to open Sidebar with 1:1 real-time drag
+  const homePullRef = useRef<{
+    startX: number;
+    startY: number;
+    isPullingSidebar: boolean;
+  } | null>(null);
+
+  const handleHomeTouchStart = (e: React.TouchEvent) => {
+    if (currentTab !== 'home') return;
+    const touch = e.touches[0];
+    homePullRef.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      isPullingSidebar: false,
+    };
+  };
+
+  const handleHomeTouchMove = (e: React.TouchEvent) => {
+    if (!homePullRef.current || currentTab !== 'home') return;
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - homePullRef.current.startX;
+    const deltaY = touch.clientY - homePullRef.current.startY;
+    const isRtl = settings.language === 'ar';
+    const isPullingTowardsSidebar = isRtl ? deltaX < 0 : deltaX > 0;
+
+    if (!homePullRef.current.isPullingSidebar) {
+      // If user starts vertical scrolling first, cancel sidebar pull so native vertical scroll proceeds
+      if (Math.abs(deltaY) > 8 && Math.abs(deltaY) >= Math.abs(deltaX)) {
+        homePullRef.current = null;
+        return;
+      }
+      // If pulling towards sidebar with clear horizontal dominant intent
+      if (isPullingTowardsSidebar && Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+        homePullRef.current.isPullingSidebar = true;
+        window.dispatchEvent(
+          new CustomEvent('mm-sidebar-drag', {
+            detail: { phase: 'start', deltaX: 0, clientX: touch.clientX, isRtl },
+          })
+        );
+      } else if (!isPullingTowardsSidebar && Math.abs(deltaX) > 10) {
+        // Swiping towards budget, let native scroll handle it
+        homePullRef.current = null;
+        return;
+      }
+    }
+
+    if (homePullRef.current?.isPullingSidebar) {
+      window.dispatchEvent(
+        new CustomEvent('mm-sidebar-drag', {
+          detail: { phase: 'move', deltaX, clientX: touch.clientX, isRtl },
+        })
+      );
+    }
+  };
+
+  const handleHomeTouchEnd = (e: React.TouchEvent) => {
+    if (!homePullRef.current) return;
+    if (homePullRef.current.isPullingSidebar) {
+      const touch = e.changedTouches[0];
+      const deltaX = touch.clientX - homePullRef.current.startX;
+      const isRtl = settings.language === 'ar';
+      window.dispatchEvent(
+        new CustomEvent('mm-sidebar-drag', {
+          detail: { phase: 'end', deltaX, clientX: touch.clientX, isRtl },
+        })
+      );
+    }
+    homePullRef.current = null;
+  };
+
+  const handleHomeTouchCancel = () => {
+    if (homePullRef.current?.isPullingSidebar) {
+      window.dispatchEvent(
+        new CustomEvent('mm-sidebar-drag', {
+          detail: { phase: 'end', deltaX: 0, clientX: 0, isRtl: settings.language === 'ar' },
+        })
+      );
+    }
+    homePullRef.current = null;
+  };
 
   const prefersReducedMotion = typeof window !== 'undefined'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // Real native horizontal scroll handler: Detects active page cleanly based on viewport center alignment
   const handleSliderScroll = () => {
-    if (isProgrammaticScrollRef.current) return;
     const container = tabSliderRef.current;
     if (!container) return;
 
     const containerRect = container.getBoundingClientRect();
     const containerCenter = containerRect.left + containerRect.width / 2;
+
+    // Guard during programmatic smooth scroll (e.g. bottom nav taps)
+    if (isProgrammaticScrollRef.current && !isUserTouchingRef.current && targetTabRef.current) {
+      const targetIndex = TABS.indexOf(targetTabRef.current);
+      if (targetIndex >= 0) {
+        const targetPane = container.children[targetIndex] as HTMLElement;
+        if (targetPane) {
+          const targetPaneRect = targetPane.getBoundingClientRect();
+          const targetPaneCenter = targetPaneRect.left + targetPaneRect.width / 2;
+          const distToTarget = Math.abs(targetPaneCenter - containerCenter);
+          if (distToTarget < 12) {
+            isProgrammaticScrollRef.current = false;
+            targetTabRef.current = null;
+          } else {
+            // Still in flight towards the destination tab, strictly block intermediate tab updates
+            return;
+          }
+        }
+      }
+    }
 
     let closestTab: TabType = currentTab;
     let minDistance = Infinity;
@@ -382,7 +484,7 @@ const MainAppContent: React.FC = () => {
 
     if (scrollSettleTimerRef.current) clearTimeout(scrollSettleTimerRef.current);
     scrollSettleTimerRef.current = setTimeout(() => {
-      if (isProgrammaticScrollRef.current) return;
+      if (isProgrammaticScrollRef.current && targetTabRef.current) return;
       const c = tabSliderRef.current;
       if (!c) return;
       const cRect = c.getBoundingClientRect();
@@ -421,6 +523,7 @@ const MainAppContent: React.FC = () => {
     const distance = Math.abs((paneRect.left + paneRect.width / 2) - (containerRect.left + containerRect.width / 2));
     if (distance < 8) return;
 
+    targetTabRef.current = currentTab;
     isProgrammaticScrollRef.current = true;
     if (programmaticScrollTimerRef.current) clearTimeout(programmaticScrollTimerRef.current);
 
@@ -432,8 +535,25 @@ const MainAppContent: React.FC = () => {
 
     programmaticScrollTimerRef.current = setTimeout(() => {
       isProgrammaticScrollRef.current = false;
-    }, 450);
+      targetTabRef.current = null;
+    }, 1200);
   }, [currentTab, prefersReducedMotion]);
+
+  // Handle scrollend event to cleanly unlock programmatic scroll once animation completes
+  useEffect(() => {
+    const container = tabSliderRef.current;
+    if (!container) return;
+
+    const handleScrollEnd = () => {
+      if (isProgrammaticScrollRef.current) {
+        isProgrammaticScrollRef.current = false;
+        targetTabRef.current = null;
+      }
+    };
+
+    container.addEventListener('scrollend', handleScrollEnd);
+    return () => container.removeEventListener('scrollend', handleScrollEnd);
+  }, []);
 
   // Ensure instant alignment on language direction change or initial mount
   useEffect(() => {
@@ -598,6 +718,17 @@ const MainAppContent: React.FC = () => {
           <div
             ref={tabSliderRef}
             onScroll={handleSliderScroll}
+            onTouchStart={() => {
+              isUserTouchingRef.current = true;
+              isProgrammaticScrollRef.current = false;
+              targetTabRef.current = null;
+            }}
+            onTouchEnd={() => {
+              isUserTouchingRef.current = false;
+            }}
+            onTouchCancel={() => {
+              isUserTouchingRef.current = false;
+            }}
             className="tabs-slider w-full flex-1 min-h-0 flex flex-row overflow-x-auto overflow-y-hidden snap-x snap-mandatory no-scrollbar"
             style={{
               scrollSnapType: 'x mandatory',
@@ -609,6 +740,10 @@ const MainAppContent: React.FC = () => {
             {/* Tab 0: Home */}
             <div
               data-tab="home"
+              onTouchStart={handleHomeTouchStart}
+              onTouchMove={handleHomeTouchMove}
+              onTouchEnd={handleHomeTouchEnd}
+              onTouchCancel={handleHomeTouchCancel}
               className="w-full min-w-full h-full flex-shrink-0 snap-start snap-always overflow-y-auto overscroll-y-contain flex flex-col"
               style={{
                 flex: '0 0 100%',
