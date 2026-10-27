@@ -1,5 +1,6 @@
 import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { navigateBack } from '../context/NavigationContext';
 import {
   X,
   User,
@@ -23,7 +24,6 @@ import {
   Lock,
   KeyRound,
   RefreshCw,
-  Cloud,
   Mail,
   Users,
   Share2,
@@ -57,6 +57,7 @@ export const Sidebar: React.FC = () => {
     setIsFeaturesModalOpen,
     setIsRecurringModalOpen,
     recurringTransactions,
+    processDueRecurring,
     setIsPinModalOpen,
     setIsSharedHubModalOpen,
     lockApp,
@@ -68,6 +69,8 @@ export const Sidebar: React.FC = () => {
     transactions,
     showToast,
     showConfirm,
+    syncStatus,
+    lastSyncedAt,
     t,
   } = useApp();
 
@@ -329,7 +332,7 @@ export const Sidebar: React.FC = () => {
     setIsClosing(true);
     setTimeout(() => {
       setIsClosing(false);
-      setIsSidebarOpen(false);
+      navigateBack();
       afterClose?.();
     }, 180);
   };
@@ -345,28 +348,76 @@ export const Sidebar: React.FC = () => {
     );
   };
 
-  // Swipe in opposite direction to close sidebar (Item 2)
+  // 1:1 Finger-tracking state for opening and closing sidebar
+  const [openDragProgress, setOpenDragProgress] = useState<number | null>(null);
+  const [closeDragDelta, setCloseDragDelta] = useState<number>(0);
+  const [isClosingDrag, setIsClosingDrag] = useState<boolean>(false);
+
+  // Listen to 1:1 drag gesture from screen-edge zone (28px) or boundary tab hand-off
+  useEffect(() => {
+    const handleGlobalSidebarDrag = (e: Event) => {
+      const customEvent = e as CustomEvent<{
+        phase: 'start' | 'move' | 'end';
+        deltaX: number;
+        clientX: number;
+        isRtl?: boolean;
+      }>;
+      if (!customEvent.detail) return;
+      const { phase, deltaX } = customEvent.detail;
+      const drawerWidth = 336;
+
+      if (phase === 'start') {
+        setOpenDragProgress(0);
+      } else if (phase === 'move') {
+        const rtl = customEvent.detail.isRtl ?? (settings.language === 'ar');
+        const distance = rtl ? -deltaX : deltaX;
+        const prog = Math.min(Math.max(distance / drawerWidth, 0), 1);
+        setOpenDragProgress(prog);
+      } else if (phase === 'end') {
+        const rtl = customEvent.detail.isRtl ?? (settings.language === 'ar');
+        const distance = rtl ? -deltaX : deltaX;
+        const prog = Math.min(Math.max(distance / drawerWidth, 0), 1);
+        if (prog > 0.22) {
+          setIsSidebarOpen(true);
+        }
+        setOpenDragProgress(null);
+      }
+    };
+
+    window.addEventListener('mm-sidebar-drag', handleGlobalSidebarDrag);
+    return () => window.removeEventListener('mm-sidebar-drag', handleGlobalSidebarDrag);
+  }, [settings.language, setIsSidebarOpen]);
+
+  // Swipe in opposite direction to close sidebar with 1:1 tracking
   const handleSidebarTouchStart = (e: React.TouchEvent) => {
     const touch = e.touches[0];
     sidebarTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    setIsClosingDrag(true);
+    setCloseDragDelta(0);
   };
 
-  const handleSidebarTouchMove = () => {};
+  const handleSidebarTouchMove = (e: React.TouchEvent) => {
+    if (!sidebarTouchStartRef.current) return;
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - sidebarTouchStartRef.current.x;
+    const deltaY = touch.clientY - sidebarTouchStartRef.current.y;
+    if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 8) return;
+
+    const closingDelta = isArabic ? Math.max(0, deltaX) : Math.min(0, deltaX);
+    setCloseDragDelta(closingDelta);
+  };
 
   const handleSidebarTouchEnd = (e: React.TouchEvent) => {
     if (!sidebarTouchStartRef.current) return;
-    const touch = e.changedTouches[0];
-    const deltaX = touch.clientX - sidebarTouchStartRef.current.x;
-    const deltaY = touch.clientY - sidebarTouchStartRef.current.y;
     sidebarTouchStartRef.current = null;
+    setIsClosingDrag(false);
 
-    if (Math.abs(deltaX) < 40 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) return;
-
-    if (!isArabic && deltaX < -40) {
-      handleAnimatedClose();
-    } else if (isArabic && deltaX > 40) {
+    const drawerWidth = 336;
+    const absDelta = Math.abs(closeDragDelta);
+    if (absDelta > 70 || absDelta / drawerWidth > 0.22) {
       handleAnimatedClose();
     }
+    setCloseDragDelta(0);
   };
 
   const handleReloadApp = () => {
@@ -374,7 +425,24 @@ export const Sidebar: React.FC = () => {
     window.location.reload();
   };
 
-  if (!isSidebarOpen) return null;
+  const isVisible = isSidebarOpen || openDragProgress !== null;
+  if (!isVisible) return null;
+
+  // Dynamic drawer transform and opacity calculation
+  let drawerTransform = '';
+  let backdropOpacity = 1;
+  const isOpening = openDragProgress !== null && !isSidebarOpen;
+
+  if (isOpening) {
+    const prog = openDragProgress;
+    backdropOpacity = prog;
+    drawerTransform = isArabic
+      ? `translate3d(${(1 - prog) * 100}%, 0, 0)`
+      : `translate3d(${(-1 + prog) * 100}%, 0, 0)`;
+  } else if (isClosingDrag && closeDragDelta !== 0) {
+    drawerTransform = `translate3d(${closeDragDelta}px, 0, 0)`;
+    backdropOpacity = Math.max(0, 1 - Math.abs(closeDragDelta) / 336);
+  }
 
   return (
     <div
@@ -382,6 +450,10 @@ export const Sidebar: React.FC = () => {
       onTouchStart={handleSidebarTouchStart}
       onTouchMove={handleSidebarTouchMove}
       onTouchEnd={handleSidebarTouchEnd}
+      style={{
+        opacity: isOpening || (isClosingDrag && closeDragDelta !== 0) ? backdropOpacity : undefined,
+        transition: isOpening || isClosingDrag ? 'none' : undefined,
+      }}
       className={`fixed inset-0 z-[60] flex bg-black/60 backdrop-blur-md overscroll-contain transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
@@ -391,6 +463,10 @@ export const Sidebar: React.FC = () => {
         onTouchStart={handleSidebarTouchStart}
         onTouchMove={handleSidebarTouchMove}
         onTouchEnd={handleSidebarTouchEnd}
+        style={{
+          transform: drawerTransform || undefined,
+          transition: isOpening || isClosingDrag ? 'none' : undefined,
+        }}
         className={`w-84 max-w-[85vw] h-full flex flex-col bg-zinc-950/95 backdrop-blur-2xl border-r rtl:border-l rtl:border-r-0 border-zinc-800/80 shadow-2xl text-white overflow-hidden transition-all duration-200 ${
           isClosing ? 'opacity-0 -translate-x-full rtl:translate-x-full' : 'animate-in slide-in-from-left rtl:slide-in-from-right duration-300'
         }`}
@@ -421,18 +497,14 @@ export const Sidebar: React.FC = () => {
                 <h3 className="font-bold text-white text-base group-hover:text-blue-400 transition truncate">
                   {currentUser ? (settings.userProfile?.name || 'My Profile') : (isArabic ? 'حساب ضيف' : 'Guest')}
                 </h3>
-                {currentUser ? (
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0 font-medium">
-                    {isArabic ? 'سحابي' : 'Cloud'}
-                  </span>
-                ) : (
+                {!currentUser && (
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 shrink-0 font-medium">
                     {isArabic ? 'ضيف' : 'Guest'}
                   </span>
                 )}
               </div>
-              {currentUser && settings.userProfile?.numericId ? (
-                <div className="mt-1">
+              <div className="mt-1 flex items-center gap-2 flex-wrap">
+                {currentUser && settings.userProfile?.numericId ? (
                   <button
                     type="button"
                     onClick={(e) => {
@@ -447,16 +519,51 @@ export const Sidebar: React.FC = () => {
                       );
                     }}
                     title={isArabic ? 'انقر مباشرة لنسخ المعرف 16 رقماً' : 'Tap to copy 16-digit ID'}
-                    className="inline-flex items-center font-mono text-[11px] text-zinc-300 hover:text-white bg-zinc-950/80 hover:bg-zinc-800/90 border border-zinc-800 hover:border-zinc-700 px-2 py-0.5 rounded-lg transition active:scale-95 cursor-pointer"
+                    className="inline-flex items-center font-mono text-[11px] text-zinc-300 hover:text-white bg-zinc-950/80 hover:bg-zinc-800/90 border border-zinc-800 hover:border-zinc-700 px-2 py-0.5 rounded-lg transition active:scale-95 cursor-pointer shrink-0"
                   >
                     <span>{format16DigitId(settings.userProfile?.numericId || '0000000000000000')}</span>
                   </button>
+                ) : null}
+
+                {/* Subtle Live Sync Status Indicator */}
+                <div className="inline-flex items-center gap-1.5 text-[11px] shrink-0 font-medium select-none">
+                  {syncStatus === 'syncing' && (
+                    <span className="inline-flex items-center gap-1 text-blue-400">
+                      <Loader2 className="w-3 h-3 animate-spin text-blue-400 shrink-0" />
+                      <span>{isArabic ? 'جاري المزامنة...' : 'Syncing...'}</span>
+                    </span>
+                  )}
+                  {syncStatus === 'online' && (
+                    <span className="inline-flex items-center gap-1.5 text-emerald-400">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50 shrink-0" />
+                      <span>{isArabic ? 'متصل' : 'Online'}</span>
+                      {lastSyncedAt && (
+                        <span className="text-[10px] text-zinc-400 font-mono">
+                          {new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                  {syncStatus === 'offline' && (
+                    <span className="inline-flex items-center gap-1.5 text-amber-400">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 shadow-sm shadow-amber-500/50 shrink-0" />
+                      <span>{isArabic ? 'أوفلاين' : 'Offline'}</span>
+                    </span>
+                  )}
+                  {syncStatus === 'awaiting_choice' && (
+                    <span className="inline-flex items-center gap-1.5 text-purple-400">
+                      <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse shrink-0" />
+                      <span>{isArabic ? 'بانتظار اختيارك' : 'Awaiting choice'}</span>
+                    </span>
+                  )}
+                  {syncStatus === 'local_only' && (
+                    <span className="inline-flex items-center gap-1.5 text-zinc-400">
+                      <span className="w-2 h-2 rounded-full bg-zinc-600 shrink-0" />
+                      <span>{isArabic ? 'محلي فقط' : 'Local only'}</span>
+                    </span>
+                  )}
                 </div>
-              ) : (
-                <p className="text-[11px] text-zinc-500 mt-0.5 truncate">
-                  {isArabic ? 'سجّل الدخول للتفعيل والمزامنة' : 'Sign in to activate & sync'}
-                </p>
-              )}
+              </div>
             </div>
           </div>
 
@@ -682,6 +789,7 @@ export const Sidebar: React.FC = () => {
               onClick={() => {
                 setIsSidebarOpen(false);
                 setIsRecurringModalOpen(true);
+                processDueRecurring(false);
               }}
               className="w-full flex items-center justify-between p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xs font-bold text-zinc-200 transition cursor-pointer shadow-md active:scale-98"
             >
@@ -1042,7 +1150,7 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar Footer: Version (v1.1.48) & Refresh Button */}
+        {/* Sidebar Footer: Version (v1.1.49) & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-zinc-300">Version: Beta v{CURRENT_APP_VERSION}</span>

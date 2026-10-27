@@ -1,4 +1,6 @@
+import { parseFormattedNumber } from '../utils/formatters';
 import React, { useState, useMemo } from 'react';
+import { navigateBack } from '../context/NavigationContext';
 import { useApp } from '../context/AppContext';
 import { X, Filter, Check, Search } from 'lucide-react';
 import { AdvancedFilter } from '../types';
@@ -66,19 +68,19 @@ export const AdvancedFilterModal: React.FC = () => {
 
   const handleApply = () => {
     setAdvancedFilter(localFilter);
-    setIsFilterModalOpen(false);
+    navigateBack();
   };
 
   const handleClear = () => {
     clearAdvancedFilter();
-    setIsFilterModalOpen(false);
+    navigateBack();
   };
 
   const handleAnimatedClose = () => {
     setIsClosing(true);
     setTimeout(() => {
       setIsClosing(false);
-      setIsFilterModalOpen(false);
+      navigateBack();
     }, 180);
   };
 
@@ -182,7 +184,7 @@ export const AdvancedFilterModal: React.FC = () => {
                   onChange={(e) =>
                     setLocalFilter((prev) => ({
                       ...prev,
-                      minAmount: e.target.value === '' ? undefined : Number(e.target.value),
+                      minAmount: e.target.value === '' ? undefined : parseFormattedNumber(e.target.value),
                     }))
                   }
                   placeholder="0"
@@ -198,7 +200,7 @@ export const AdvancedFilterModal: React.FC = () => {
                   onChange={(e) =>
                     setLocalFilter((prev) => ({
                       ...prev,
-                      maxAmount: e.target.value === '' ? undefined : Number(e.target.value),
+                      maxAmount: e.target.value === '' ? undefined : parseFormattedNumber(e.target.value),
                     }))
                   }
                   placeholder="1000"

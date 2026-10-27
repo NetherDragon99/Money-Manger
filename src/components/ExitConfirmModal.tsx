@@ -38,10 +38,10 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
           </div>
           <div>
             <h3 className="text-base font-bold text-white">
-              {isArabic ? 'الخروج من التطبيق' : 'Exit Application'}
+              {isArabic ? 'هل تريد الخروج من التطبيق؟' : 'Exit App?'}
             </h3>
             <p className="text-xs text-zinc-400 mt-0.5">
-              {isArabic ? 'هل تريد الخروج من التطبيق حقاً؟' : 'Do you want to exit the app?'}
+              {isArabic ? 'هل أنت متأكد من رغبتك بالخروج؟' : 'Are you sure you want to exit?'}
             </p>
           </div>
         </div>
@@ -61,7 +61,7 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
             }}
             className="py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 transition cursor-pointer active:scale-95 pointer-events-auto"
           >
-            {isArabic ? 'إلغاء والمتابعة' : 'Cancel / Stay'}
+            {isArabic ? 'البقاء' : 'Stay'}
           </button>
           <button
             type="button"
@@ -71,7 +71,7 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
             }}
             className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow-lg shadow-rose-900/40 transition cursor-pointer active:scale-95 pointer-events-auto"
           >
-            {isArabic ? 'خروج' : 'Exit App'}
+            {isArabic ? 'خروج' : 'Exit'}
           </button>
         </div>
       </div>

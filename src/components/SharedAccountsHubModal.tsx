@@ -1,3 +1,4 @@
+import { SwipeableTabs } from './SwipeableTabs';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   X,
@@ -648,48 +649,31 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
               </span>
             </div>
 
-        {/* Two Dedicated Tabs: "Shared by Me" (أنا مشيره) and "Shared with Me" (متشير معايا) */}
-        <div className="p-3 border-b border-zinc-800/60 bg-zinc-950/90 shrink-0">
-          <div className="grid grid-cols-2 gap-2 p-1 bg-zinc-900/90 rounded-2xl">
-            <button
-              type="button"
-              onClick={() => setActiveTab('my_shares')}
-              className={`py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeTab === 'my_shares'
-                  ? 'bg-zinc-800 text-white shadow-sm border border-zinc-700/60'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5 text-blue-400" />
-              <span>{isArabic ? 'قسم أنا مشيره' : 'Shared by Me'}</span>
-              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-blue-500/20 text-blue-300">
-                {displayedMyFolders.length}
-              </span>
-            </button>
+                {/* 1:1 Finger-Tracking Carousel for Shared Spaces */}
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <SwipeableTabs
+            tabs={[
+              {
+                id: 'my_shares',
+                label: isArabic ? 'قسم أنا مشيره' : 'Shared by Me',
+                count: displayedMyFolders.length,
+                icon: <Users className="w-3.5 h-3.5 text-blue-400" />,
+              },
+              {
+                id: 'shared_with_me',
+                label: isArabic ? 'قسم متشير معايا' : 'Shared with Me',
+                count: displayedReceivedFolders.length,
+                icon: <Folder className="w-3.5 h-3.5 text-purple-400" />,
+              },
+            ]}
+            activeTab={activeTab}
+            onChange={(tab) => setActiveTab(tab as 'my_shares' | 'shared_with_me')}
+            className="flex-1 min-h-0"
+            tabBarClassName="px-3 pt-2 pb-1 bg-zinc-950/90 border-b border-zinc-800/60"
+            pillColorClass="bg-zinc-800 text-white shadow-sm border border-zinc-700/60"
+          >
+            <div className="p-4 space-y-3">
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('shared_with_me')}
-              className={`py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeTab === 'shared_with_me'
-                  ? 'bg-zinc-800 text-white shadow-sm border border-zinc-700/60'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <Folder className="w-3.5 h-3.5 text-purple-400" />
-              <span>{isArabic ? 'قسم متشير معايا' : 'Shared with Me'}</span>
-              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-purple-500/20 text-purple-300">
-                {displayedReceivedFolders.length}
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Tab Content Feed: Task-Style Block Cards */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {/* SECTION 1: Shared by Me */}
-          {activeTab === 'my_shares' && (
-            <>
               <div className="flex items-center justify-between pb-1">
                 <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
                   {isArabic ? 'صفحات ومجلدات المشاركة النشطة' : 'Your Active Share Spaces'}
@@ -955,12 +939,10 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                   })}
                 </div>
               )}
-            </>
-          )}
 
-          {/* SECTION 2: Shared with Me */}
-          {activeTab === 'shared_with_me' && (
-            <>
+            </div>
+            <div className="p-4 space-y-3">
+
               <div className="pb-1">
                 <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
                   {isArabic ? 'دعوات ومجلدات تمت مشاركتها معك' : 'Spaces Shared with You'}
@@ -1098,8 +1080,9 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
                   })}
                 </div>
               )}
-            </>
-          )}
+
+            </div>
+          </SwipeableTabs>
         </div>
         </>
         )}

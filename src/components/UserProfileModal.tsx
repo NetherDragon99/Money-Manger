@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { navigateBack } from '../context/NavigationContext';
 import { useApp } from '../context/AppContext';
 import {
   X,

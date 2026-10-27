@@ -1,3 +1,4 @@
+import { SwipeableTabs } from '../components/SwipeableTabs';
 import React, { useMemo, useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import {
@@ -650,52 +651,29 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
         )}
       </div>
 
-      {/* Segmented Control: Expense Categories vs Income Categories with Animated Sliding Pill */}
-      <div
-        onTouchStart={handleSubTouchStart}
-        onTouchEnd={handleSubTouchEnd}
-        className="relative flex p-1 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden select-none"
+            {/* 1:1 Finger-Tracking Carousel for Expense vs Income Categories */}
+      <SwipeableTabs
+        tabs={[
+          {
+            id: 'expense',
+            label: settings.language === 'ar' ? 'فئات المصروفات' : 'Expense Categories',
+            count: expenseCategories.length,
+          },
+          {
+            id: 'income',
+            label: settings.language === 'ar' ? 'فئات الإيرادات (الواردة)' : 'Income Categories',
+            count: incomeCategories.length,
+          },
+        ]}
+        activeTab={categoryTab}
+        onChange={(tab) => setCategoryTab(tab as 'expense' | 'income')}
+        pillActiveClass={[
+          'bg-zinc-800 text-white shadow-sm',
+          'bg-emerald-950/80 border border-emerald-500/30 text-emerald-400',
+        ]}
       >
-        {/* Sliding Indicator Pill */}
-        <div
-          className={`absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-xl transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] shadow-md ${
-            categoryTab === 'expense'
-              ? 'bg-zinc-800'
-              : 'bg-emerald-950/80 border border-emerald-500/30'
-          }`}
-          style={{
-            transform: settings.language === 'ar'
-              ? (categoryTab === 'expense' ? 'translateX(0)' : 'translateX(-100%)')
-              : (categoryTab === 'expense' ? 'translateX(0)' : 'translateX(100%)'),
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => setCategoryTab('expense')}
-          className={`relative z-10 flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer text-center ${
-            categoryTab === 'expense'
-              ? 'text-white'
-              : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          {settings.language === 'ar' ? 'فئات المصروفات' : 'Expense Categories'} ({expenseCategories.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setCategoryTab('income')}
-          className={`relative z-10 flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer text-center ${
-            categoryTab === 'income'
-              ? 'text-emerald-400'
-              : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          {settings.language === 'ar' ? 'فئات الإيرادات (الواردة)' : 'Income Categories'} ({incomeCategories.length})
-        </button>
-      </div>
-
-      {/* EXPENSE CATEGORIES TAB */}
-      {categoryTab === 'expense' && (
-        <div className="space-y-3 animate-in fade-in">
+        <div className="pb-16 sm:pb-20">
+          <div className="space-y-3 animate-in fade-in">
           <div className="flex items-center justify-between px-1">
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
               {settings.language === 'ar' ? 'ميزانية فئات المصروفات' : 'Expense Budgets'} ({expenseCategories.length})
@@ -753,11 +731,9 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
             })}
           </div>
         </div>
-      )}
-
-      {/* INCOME CATEGORIES TAB */}
-      {categoryTab === 'income' && (
-        <div className="space-y-3 animate-in fade-in">
+        </div>
+        <div className="pb-16 sm:pb-20">
+          <div className="space-y-3 animate-in fade-in">
           <div className="flex items-center justify-between px-1">
             <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
               {settings.language === 'ar' ? 'فئات الإيرادات والدخل الوارد' : 'Incoming Income Categories'} ({incomeCategories.length})
@@ -837,7 +813,8 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
             </div>
           )}
         </div>
-      )}
+        </div>
+      </SwipeableTabs>
     </div>
   </div>
   );

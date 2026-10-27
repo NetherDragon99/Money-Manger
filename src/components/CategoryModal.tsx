@@ -1,4 +1,6 @@
+import { formatDisplayNumber, parseFormattedNumber, handleNumericInputChange } from '../utils/formatters';
 import React, { useState, useEffect, useRef } from 'react';
+import { navigateBack } from '../context/NavigationContext';
 import { useApp } from '../context/AppContext';
 import { X, Trash2, AlertTriangle } from 'lucide-react';
 import { Category, TransactionType } from '../types';
@@ -68,7 +70,7 @@ export const CategoryModal: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const parsedBudget = parseFloat(budgetLimit) || 0;
+    const parsedBudget = parseFormattedNumber(budgetLimit);
     const trimmedName = name.trim() || 'Category';
 
     if (editingCategory) {
@@ -110,7 +112,7 @@ export const CategoryModal: React.FC = () => {
         settings.language === 'ar' ? 'تم حذف الفئة بنجاح' : 'Category deleted successfully',
         'success'
       );
-      closeCategoryModal();
+      navigateBack();
     }
   };
 
@@ -118,7 +120,7 @@ export const CategoryModal: React.FC = () => {
     setIsClosing(true);
     setTimeout(() => {
       setIsClosing(false);
-      closeCategoryModal();
+      navigateBack();
     }, 180);
   };
 
@@ -280,22 +282,19 @@ export const CategoryModal: React.FC = () => {
               </label>
               <input
                 ref={budgetInputRef}
-                type="number"
-                step="any"
-                value={budgetLimit}
-                onFocus={(e) => {
-                  if (e.target.value === '0') setBudgetLimit('');
+                type="text"
+                inputMode="decimal"
+                value={formatDisplayNumber(budgetLimit)}
+                onFocus={() => {
+                  if (budgetLimit === '0') setBudgetLimit('');
                 }}
-                onBlur={(e) => {
-                  if (!e.target.value.trim()) setBudgetLimit('0');
+                onBlur={() => {
+                  if (!budgetLimit.trim()) setBudgetLimit('0');
                 }}
                 onChange={(e) => {
-                  const val = e.target.value;
-                  if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
-                    setBudgetLimit(val.replace(/^0+/, ''));
-                  } else {
-                    setBudgetLimit(val);
-                  }
+                  handleNumericInputChange(e, (cleaned) => {
+                    setBudgetLimit(cleaned);
+                  });
                 }}
                 placeholder="0 = No limit"
                 className="w-full px-4 py-3 rounded-xl bg-zinc-900 border border-zinc-800 focus:border-blue-500 text-white text-sm outline-none transition"

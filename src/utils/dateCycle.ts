@@ -206,18 +206,30 @@ export function isTransactionInRange(tx: Transaction, range: DateRange): boolean
   return true;
 }
 
+import { formatNumberWithCommas } from './formatters';
+export {
+  formatNumberWithCommas,
+  formatDisplayNumber,
+  parseFormattedNumber,
+  cleanNumericString,
+  handleNumericInputChange,
+  isManualAdjustment,
+} from './formatters';
+
 /**
  * Formats a currency amount ensuring strict minus sign for negative numbers
+ * Formats with standard thousands grouping commas (e.g. 10,000 and 1,000,000).
  */
 export function formatCurrency(amount: number, symbol = '£', lang?: 'en' | 'ar'): string {
   const isNeg = amount < 0;
-  const absVal = Math.abs(amount).toFixed(2);
+  const absVal = Math.abs(isNaN(amount) ? 0 : amount);
+  const formattedAbs = formatNumberWithCommas(absVal, 2);
   const localizedSymbol = getLocalizedCurrencySymbol(symbol, lang || 'en');
   // Strictly display -£ X if negative
   if (isNeg) {
-    return `-${localizedSymbol} ${absVal}`;
+    return `-${localizedSymbol} ${formattedAbs}`;
   }
-  return `${localizedSymbol} ${absVal}`;
+  return `${localizedSymbol} ${formattedAbs}`;
 }
 
 /**

@@ -45,6 +45,7 @@ import {
   loadRecurringTransactions,
   saveRecurringTransactions,
   checkAndProcessRecurring,
+  getNextScheduledOccurrence,
 } from '../utils/recurring';
 import {
   loadSecuritySettings,
@@ -99,6 +100,8 @@ import {
   flushGranularDirtyQueue,
   pullLatestRemoteState,
 } from '../utils/autoBackup';
+
+export type SyncStatus = 'syncing' | 'online' | 'offline' | 'awaiting_choice' | 'local_only';
 
 export interface SyncConflictData {
   uid: string;
@@ -192,7 +195,10 @@ interface AppContextType {
   isAddTxModalOpen: boolean;
   defaultTxAccountId?: string;
   defaultTxAmount?: number;
-  openAddTxModal: (defaultAccountId?: string, initialAmount?: number) => void;
+  defaultTxIsRecurring?: boolean;
+  openAddTxModal: (defaultAccountId?: string, initialAmount?: number, initialIsRecurring?: boolean) => void;
+  executeManualRecurringRules: (ruleIds: string[]) => number;
+  processDueRecurring: (showUserToast?: boolean) => number;
   closeAddTxModal: () => void;
   editingTx: Transaction | null;
   openEditTxModal: (tx: Transaction) => void;
@@ -237,7 +243,6 @@ interface AppContextType {
   addRecurringTransaction: (rec: Omit<RecurringTransaction, 'id' | 'createdAt'>) => void;
   updateRecurringTransaction: (rec: RecurringTransaction) => void;
   deleteRecurringTransaction: (id: string) => void;
-  processDueRecurring: () => number;
 
   // Smart Budget Alerts
   budgetAlerts: BudgetAlert[];
@@ -367,6 +372,14 @@ interface AppContextType {
   } | null;
   closeCustomDialog: () => void;
 
+  // Sub-pages and Deep Navigation
+  activeShareDetailFolder: any | null;
+  setActiveShareDetailFolder: (folder: any | null) => void;
+  selectedFeatureId: string | null;
+  setSelectedFeatureId: (id: string | null) => void;
+  featureGuideLayout: 'grid' | 'split' | 'full';
+  setFeatureGuideLayout: (layout: 'grid' | 'split' | 'full') => void;
+
   // Seamless Shared Account Live View Switcher
   activeSharedId: string | null;
   setActiveSharedId: (id: string | null) => void;
@@ -374,6 +387,10 @@ interface AppContextType {
   setActiveSharedSnapshot: (snapshot: any | null) => void;
   openSharedLiveView: (id?: string, snapshot?: any) => void;
   closeSharedLiveView: () => void;
+
+  // Cloud Sync Status Indicator
+  syncStatus: SyncStatus;
+  lastSyncedAt: number | null;
 
   // Localization
   t: (key: keyof typeof translations.en) => string;
@@ -429,6 +446,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isAddTxModalOpen, setIsAddTxModalOpen] = useState(false);
   const [defaultTxAccountId, setDefaultTxAccountId] = useState<string | undefined>(undefined);
   const [defaultTxAmount, setDefaultTxAmount] = useState<number | undefined>(undefined);
+  const [defaultTxIsRecurring, setDefaultTxIsRecurring] = useState<boolean>(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [viewingTx, setViewingTx] = useState<Transaction | null>(null);
 
@@ -495,7 +513,46 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isDeviceOnline, setIsDeviceOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
-  const [isConnectedToRtdb, setIsConnectedToRtdb] = useState<boolean>(true);
+  const [isConnectedToRtdb, setIsConnectedToRtdb] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+
+  const inFlightSyncCountRef = useRef(0);
+  const [inFlightSyncCount, setInFlightSyncCount] = useState(0);
+  const syncSafetyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerGranularPush = useCallback(async (fn: () => Promise<void>) => {
+    inFlightSyncCountRef.current++;
+    setInFlightSyncCount(inFlightSyncCountRef.current);
+
+    if (syncSafetyTimeoutRef.current) {
+      clearTimeout(syncSafetyTimeoutRef.current);
+    }
+    syncSafetyTimeoutRef.current = setTimeout(() => {
+      inFlightSyncCountRef.current = 0;
+      setInFlightSyncCount(0);
+      setIsSyncing(false);
+    }, 15000);
+
+    try {
+      await fn();
+    } catch (err) {
+      console.warn('[Sync] Push delta error:', err);
+    } finally {
+      inFlightSyncCountRef.current = Math.max(0, inFlightSyncCountRef.current - 1);
+      setInFlightSyncCount(inFlightSyncCountRef.current);
+      if (inFlightSyncCountRef.current === 0 && syncSafetyTimeoutRef.current) {
+        clearTimeout(syncSafetyTimeoutRef.current);
+        syncSafetyTimeoutRef.current = null;
+      }
+      try {
+        setDirtyCount(Object.keys(loadGranularDirtyQueue()).length);
+        const nowTime = Date.now();
+        setLastSyncedAt(nowTime);
+        localStorage.setItem('mm_last_sync_timestamp', String(nowTime));
+      } catch {}
+    }
+  }, []);
 
   const recordSyncActivity = useCallback(() => {
     try {
@@ -514,6 +571,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   pendingCloudBackupRef.current = pendingCloudBackup;
   const pendingSyncConflictRef = useRef<SyncConflictData | null>(null);
   pendingSyncConflictRef.current = pendingSyncConflict;
+
+  // Single derived source of truth for cloud synchronization status
+  const syncStatus: SyncStatus = useMemo(() => {
+    if (!auth.currentUser && !getCachedAuthUser()) {
+      return 'local_only';
+    }
+    if (pendingSyncConflict) {
+      return 'awaiting_choice';
+    }
+    const isOnline = isDeviceOnline && (typeof navigator !== 'undefined' ? navigator.onLine : true);
+    if (!isOnline || !isConnectedToRtdb) {
+      return 'offline';
+    }
+    if (isSyncing || inFlightSyncCount > 0 || dirtyCount > 0) {
+      return 'syncing';
+    }
+    return 'online';
+  }, [
+    pendingSyncConflict,
+    isDeviceOnline,
+    isConnectedToRtdb,
+    isSyncing,
+    inFlightSyncCount,
+    dirtyCount,
+  ]);
 
   // References to keep data accessible synchronously in async auth callbacks
   const transactionsRef = useRef(transactions);
@@ -753,6 +835,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     if (selectedAccountId === id) {
       setSelectedAccountId(null);
+    }
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDeletion(auth.currentUser!.uid, 'accounts', id, isSyncUnlockedRef.current));
     }
 
     showToast(t('deletedSuccess'), 'success');
@@ -1118,42 +1204,153 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Recurring transactions CRUD
   const addRecurringTransaction = (recData: Omit<RecurringTransaction, 'id' | 'createdAt'>) => {
+    const tempRule: RecurringTransaction = {
+      ...recData,
+      id: 'temp',
+      createdAt: Date.now(),
+    };
+    const nextOcc = getNextScheduledOccurrence(tempRule, new Date(`${recData.startDate}T${recData.startTime || '00:00'}`));
+
     const newRec: RecurringTransaction = {
       ...recData,
       id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       createdAt: Date.now(),
+      nextRun: nextOcc ? nextOcc.getTime() : undefined,
+      nextDueDate: nextOcc ? formatDateToYYYYMMDD(nextOcc) : recData.nextDueDate,
+      updatedAt: Date.now(),
     };
     setRecurringTransactions((prev) => [...prev, newRec]);
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'recurring', newRec, isSyncUnlockedRef.current));
+    }
+
     showToast(t('savedSuccess'), 'success');
   };
 
   const updateRecurringTransaction = (updated: RecurringTransaction) => {
-    setRecurringTransactions((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+    const nextOcc = getNextScheduledOccurrence(updated, new Date(`${updated.startDate}T${updated.startTime || '00:00'}`));
+    const finalUpdated: RecurringTransaction = {
+      ...updated,
+      nextRun: nextOcc ? nextOcc.getTime() : updated.nextRun,
+      nextDueDate: nextOcc ? formatDateToYYYYMMDD(nextOcc) : updated.nextDueDate,
+      updatedAt: Date.now(),
+    };
+    setRecurringTransactions((prev) => prev.map((r) => (r.id === finalUpdated.id ? finalUpdated : r)));
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'recurring', finalUpdated, isSyncUnlockedRef.current));
+    }
+
     showToast(t('updatedSuccess'), 'success');
   };
 
   const deleteRecurringTransaction = (id: string) => {
     setRecurringTransactions((prev) => prev.filter((r) => r.id !== id));
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDeletion(auth.currentUser!.uid, 'recurring', id, isSyncUnlockedRef.current));
+    }
+
     showToast(t('deletedSuccess'), 'success');
   };
 
-  const processDueRecurring = (): number => {
-    const today = formatDateToYYYYMMDD(new Date());
-    const res = checkAndProcessRecurring(recurringTransactions, today);
+  const processDueRecurring = (showUserToast = false): number => {
+    const tombstones = loadLocalTombstones();
+    const tombstoneSet = new Set(Object.keys(tombstones));
+    const res = checkAndProcessRecurring(recurringTransactions, transactions, tombstoneSet, Date.now());
+
     if (res.newTransactions.length > 0) {
       setRecurringTransactions(res.updatedRecurring);
-      const createdTxs: Transaction[] = res.newTransactions.map((tx) => ({
-        ...tx,
-        id: `tx_rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        createdAt: Date.now(),
-      }));
-      const updatedTxs = [...transactions, ...createdTxs];
-      setTransactions(updatedTxs);
-      const syncedAccounts = syncAllAccountBalances(accounts, updatedTxs);
+
+      // Merge newly generated transactions chronologically
+      const combinedTxs = [...transactions, ...res.newTransactions].sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return (a.time || '').localeCompare(b.time || '');
+      });
+
+      const syncedAccounts = syncAllAccountBalances(accounts, combinedTxs);
+      setTransactions(combinedTxs);
       setAccounts(syncedAccounts);
-      return res.newTransactions.length;
+
+      // Save to IndexedDB & RTDB deltas
+      if (auth.currentUser && isSyncUnlockedRef.current) {
+        for (const newTx of res.newTransactions) {
+          triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'transactions', newTx, isSyncUnlockedRef.current));
+        }
+        for (const updRec of res.updatedRecurring) {
+          triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'recurring', updRec, isSyncUnlockedRef.current));
+        }
+      }
+
+      const isArabic = settings.language === 'ar';
+      showToast(
+        isArabic
+          ? `تمت إضافة ${res.totalAdded} معاملة متكررة`
+          : `${res.totalAdded} recurring transaction(s) were added`,
+        'success'
+      );
+      return res.totalAdded;
+    } else if (showUserToast) {
+      const isArabic = settings.language === 'ar';
+      showToast(
+        isArabic ? 'لا توجد معاملات دورية مستحقة اليوم' : 'No recurring transactions due today',
+        'info'
+      );
     }
     return 0;
+  };
+
+  const executeManualRecurringRules = (ruleIds: string[]): number => {
+    if (!ruleIds || ruleIds.length === 0) return 0;
+    const now = new Date();
+    const dateStr = formatDateToYYYYMMDD(now);
+    const timeStr = formatTimeToHHMM(now);
+    const nowMs = Date.now();
+
+    const selectedRules = recurringTransactions.filter((r) => ruleIds.includes(r.id));
+    if (selectedRules.length === 0) return 0;
+
+    const manualTxs: Transaction[] = selectedRules.map((rec, idx) => ({
+      id: `rec_${rec.id}_manual_${nowMs}_${idx}`,
+      type: rec.type,
+      amount: rec.amount,
+      date: dateStr,
+      time: timeStr,
+      accountId: rec.accountId,
+      toAccountId: rec.toAccountId,
+      categoryId: rec.categoryId,
+      categoryName: rec.categoryName,
+      categoryIcon: rec.categoryIcon,
+      description: rec.description,
+      createdAt: nowMs + idx,
+      isFromRecurring: true,
+      recurringRuleId: rec.id,
+    }));
+
+    const combinedTxs = [...transactions, ...manualTxs].sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return (a.time || '').localeCompare(b.time || '');
+    });
+
+    const syncedAccounts = syncAllAccountBalances(accounts, combinedTxs);
+    setTransactions(combinedTxs);
+    setAccounts(syncedAccounts);
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      for (const mTx of manualTxs) {
+        triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'transactions', mTx, isSyncUnlockedRef.current));
+      }
+    }
+
+    const isArabic = settings.language === 'ar';
+    showToast(
+      isArabic
+        ? `تم تنفيذ ${manualTxs.length} معاملة بنجاح`
+        : `Processed ${manualTxs.length} transaction(s) successfully`,
+      'success'
+    );
+    return manualTxs.length;
   };
 
   // Check and process due recurring transactions on initial load
@@ -1658,6 +1855,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     const onOnline = () => {
       setIsDeviceOnline(true);
+      setIsConnectedToRtdb(true);
       recordSyncActivity();
       if (isSyncUnlockedRef.current) {
         handleReconnectAndFlush();
@@ -1665,6 +1863,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
     const onOffline = () => {
       setIsDeviceOnline(false);
+      setIsConnectedToRtdb(false);
       recordSyncActivity();
     };
     window.addEventListener('online', onOnline);
@@ -1672,16 +1871,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     let unsubConnected: (() => void) | null = null;
     if (rtdb) {
-      const connectedRef = ref(rtdb, '.info/connected');
-      const listener = onValue(connectedRef, (snap: DataSnapshot) => {
-        const connected = snap.val() === true;
-        setIsConnectedToRtdb(connected);
-        recordSyncActivity();
-        if (connected && isSyncUnlockedRef.current) {
-          handleReconnectAndFlush();
-        }
-      });
-      unsubConnected = () => off(connectedRef, 'value', listener as any);
+      try {
+        const connectedRef = ref(rtdb, '.info/connected');
+        const listener = onValue(connectedRef, (snap: DataSnapshot) => {
+          const val = snap.val();
+          if (val === true) {
+            setIsConnectedToRtdb(true);
+            setIsDeviceOnline(true);
+            if (isSyncUnlockedRef.current) {
+              handleReconnectAndFlush();
+            }
+          } else if (val === false) {
+            if (typeof navigator !== 'undefined' && !navigator.onLine) {
+              setIsConnectedToRtdb(false);
+            }
+          }
+          recordSyncActivity();
+        });
+        unsubConnected = () => {
+          try {
+            if (rtdb) off(connectedRef, 'value', listener as any);
+          } catch {}
+        };
+      } catch (err) {
+        console.warn('[Sync] .info/connected listener failed:', err);
+      }
     }
 
     return () => {
@@ -2118,13 +2332,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
 
     // Modals open/close handlers
-  const openAddTxModal = (preselectedAccountId?: string, initialAmount?: number) => {
+  const openAddTxModal = (
+    preselectedAccountId?: string,
+    initialAmount?: number,
+    initialIsRecurring?: boolean
+  ) => {
     const targetAccountId =
       preselectedAccountId ||
       selectedAccountId ||
       (accounts[0] ? accounts[0].id : undefined);
     setDefaultTxAccountId(targetAccountId);
     setDefaultTxAmount(initialAmount);
+    setDefaultTxIsRecurring(Boolean(initialIsRecurring));
     setEditingTx(null);
     setIsAddTxModalOpen(true);
   };
@@ -2251,6 +2470,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const syncedAccounts = syncAllAccountBalances(accounts, updatedTransactions);
     setAccounts(syncedAccounts);
 
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'transactions', newTx, isSyncUnlockedRef.current));
+    }
+
     showToast(t('savedSuccess'), 'success');
   };
 
@@ -2286,6 +2509,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setViewingTx(finalTx);
     }
 
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'transactions', finalTx, isSyncUnlockedRef.current));
+    }
+
     showToast(t('updatedSuccess'), 'success');
   };
 
@@ -2298,6 +2525,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     if (viewingTx && viewingTx.id === id) {
       setViewingTx(null);
+    }
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDeletion(auth.currentUser!.uid, 'transactions', id, isSyncUnlockedRef.current));
     }
 
     showToast(t('deletedSuccess'), 'success');
@@ -2313,10 +2544,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     let updatedTxs = [...transactions];
+    let initialTx: Transaction | null = null;
     // If starting with non-zero balance, add initial balance transaction
     if (initialBalance !== 0) {
       const now = new Date();
-      const initialTx: Transaction = {
+      initialTx = {
         id: `tx_init_${Date.now()}`,
         type: initialBalance > 0 ? 'income' : 'expense',
         amount: Math.abs(initialBalance),
@@ -2334,6 +2566,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const updatedAccounts = syncAllAccountBalances([...accounts, newAcc], updatedTxs);
     setAccounts(updatedAccounts);
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      const uid = auth.currentUser.uid;
+      triggerGranularPush(() => writeGranularDelta(uid, 'accounts', newAcc, isSyncUnlockedRef.current));
+      if (initialBalance !== 0) {
+        const txToPush = initialTx;
+        triggerGranularPush(() => writeGranularDelta(uid, 'transactions', txToPush, isSyncUnlockedRef.current));
+      }
+    }
+
     showToast(t('savedSuccess'), 'success');
   };
 
@@ -2357,6 +2599,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           accountId: updatedAcc.id,
           categoryName: 'Manual Adjustment',
           categoryIcon: '⚙️',
+          isAdjustment: true,
           description: `Manual Adjustment: Changed from ${symbol}${oldBalance.toFixed(2)} to ${symbol}${newBalanceTarget.toFixed(2)}`,
           createdAt: Date.now(),
         };
@@ -2368,6 +2611,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const updatedList = accounts.map((a) => (a.id === updatedAcc.id ? updatedAcc : a));
     const synced = syncAllAccountBalances(updatedList, currentTxs);
     setAccounts(synced);
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'accounts', updatedAcc, isSyncUnlockedRef.current));
+    }
 
     showToast(t('updatedSuccess'), 'success');
   };
@@ -2404,16 +2651,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       orderIndex: categories.length,
     };
     setCategories((prev) => [...prev, newCat]);
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'categories', newCat, isSyncUnlockedRef.current));
+    }
+
     showToast(t('savedSuccess'), 'success');
   };
 
   const updateCategory = (updatedCat: Category) => {
     setCategories((prev) => prev.map((c) => (c.id === updatedCat.id ? updatedCat : c)));
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'categories', updatedCat, isSyncUnlockedRef.current));
+    }
+
     showToast(t('updatedSuccess'), 'success');
   };
 
   const deleteCategory = (id: string) => {
     setCategories((prev) => prev.filter((c) => c.id !== id));
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDeletion(auth.currentUser!.uid, 'categories', id, isSyncUnlockedRef.current));
+    }
+
     showToast(t('deletedSuccess'), 'success');
   };
 
@@ -2461,7 +2723,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // SETTINGS
   const updateSettings = (newSettings: Partial<AppSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }));
+    const updated = { ...settings, ...newSettings };
+    setSettings(updated);
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularManifest(auth.currentUser!.uid, updated, updated.userProfile, isSyncUnlockedRef.current));
+    }
     showToast(t('updatedSuccess'), 'success');
   };
 
@@ -3084,6 +3350,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setCustomDialogState(null);
   };
 
+  // Sub-pages and Deep Navigation
+  const [activeShareDetailFolder, setActiveShareDetailFolder] = useState<any | null>(null);
+  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
+  const [featureGuideLayout, setFeatureGuideLayout] = useState<'grid' | 'split' | 'full'>('grid');
+
   // Seamless Shared Account Live View Switcher (Item 13)
   const [activeSharedId, setActiveSharedId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
@@ -3160,6 +3431,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsSidebarOpen,
     openAddTxModal,
     closeAddTxModal,
+    executeManualRecurringRules,
     openEditTxModal,
     closeEditTxModal,
     openTxDetailsModal,
@@ -3269,6 +3541,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isAddTxModalOpen,
       defaultTxAccountId,
       defaultTxAmount,
+      defaultTxIsRecurring,
       editingTx,
       viewingTx,
       isAccountModalOpen,
@@ -3302,8 +3575,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isCategoryMultiSelect,
       toasts,
       customDialogState,
+      activeShareDetailFolder,
+      setActiveShareDetailFolder,
+      selectedFeatureId,
+      setSelectedFeatureId,
+      featureGuideLayout,
+      setFeatureGuideLayout,
       activeSharedId,
       activeSharedSnapshot,
+      syncStatus,
+      lastSyncedAt,
       t,
     }),
     [
@@ -3323,6 +3604,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isAddTxModalOpen,
       defaultTxAccountId,
       defaultTxAmount,
+      defaultTxIsRecurring,
       editingTx,
       viewingTx,
       isAccountModalOpen,
@@ -3357,8 +3639,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isCategoryMultiSelect,
       toasts,
       customDialogState,
+      activeShareDetailFolder,
+      setActiveShareDetailFolder,
+      selectedFeatureId,
+      setSelectedFeatureId,
+      featureGuideLayout,
+      setFeatureGuideLayout,
       activeSharedId,
       activeSharedSnapshot,
+      syncStatus,
+      lastSyncedAt,
       t,
     ]
   );

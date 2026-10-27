@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { navigateBack } from '../context/NavigationContext';
 import {
   ArrowLeft,
   MoreVertical,
@@ -226,7 +227,7 @@ export const AccountDetailsView: React.FC = () => {
       <header className="sticky top-0 z-40 bg-black/90 backdrop-blur-md px-4 py-3.5 flex items-center justify-between border-b border-zinc-800/80">
         <button
           type="button"
-          onClick={() => setSelectedAccountId(null)}
+          onClick={() => navigateBack()}
           className="p-2 -ml-2 rounded-full hover:bg-zinc-800 text-zinc-300 hover:text-white transition"
         >
           <ArrowLeft className="w-5 h-5" />

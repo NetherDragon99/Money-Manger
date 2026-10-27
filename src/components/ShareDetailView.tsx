@@ -1,3 +1,5 @@
+import { TransferBadge } from './TransferBadge';
+import { formatDisplayNumber, parseFormattedNumber, handleNumericInputChange } from '../utils/formatters';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ArrowLeft,
@@ -30,9 +32,11 @@ import {
   Wallet,
   FolderDown,
   Search,
+  RefreshCw,
 } from 'lucide-react';
 import { matchesTransactionSearch } from '../utils/searchUtils';
 import { useApp } from '../context/AppContext';
+import { navigateBack } from '../context/NavigationContext';
 import { Account, Category, Transaction } from '../types';
 import { auth, rtdb } from '../utils/firebase';
 import { ref, onValue, off } from 'firebase/database';
@@ -348,7 +352,7 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
 
   let title = '';
   if (isTransfer) {
-    title = `${isArabic ? 'تحويل' : 'Transfer'}: ${fromName} → ${toName}`;
+    title = isArabic ? `من ${fromName} إلى ${toName}` : `From ${fromName} → To ${toName}`;
   } else if (tx.description && tx.description.trim() !== '') {
     title = tx.description;
   } else {
@@ -403,23 +407,44 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
             </div>
           )}
 
-          <div
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center text-sm shrink-0 ${
-              isTransfer
-                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400 font-bold'
-                : tx.type === 'income'
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                : tx.type === 'expense'
-                ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                : 'bg-zinc-950 border-zinc-800'
-            }`}
-          >
-            {isTransfer ? '⇄' : tx.categoryIcon || '💸'}
-          </div>
+          {isTransfer ? (
+            <TransferBadge
+              fromIcon={fromIcon}
+              fromName={fromName}
+              fromColor={fromAcc?.color}
+              toIcon={toIcon}
+              toName={toName}
+              toColor={toAcc?.color}
+              size="sm"
+            />
+          ) : (
+            <div
+              className={`w-8 h-8 rounded-xl border flex items-center justify-center text-sm shrink-0 ${
+                tx.type === 'income'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                  : tx.type === 'expense'
+                  ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                  : 'bg-zinc-950 border-zinc-800'
+              }`}
+            >
+              {tx.categoryIcon || '💸'}
+            </div>
+          )}
           <div className="min-w-0">
-            <span className="text-xs font-semibold text-white block truncate">
-              {title}
-            </span>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-xs font-semibold text-white truncate max-w-[140px] sm:max-w-xs block">
+                {title}
+              </span>
+              {Boolean(tx.isFromRecurring || tx.recurringRuleId) && (
+                <span
+                  className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded-full text-[9px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 shrink-0"
+                  title={isArabic ? 'معاملة متكررة تلقائية' : 'Automated Recurring'}
+                >
+                  <RefreshCw className="w-2 h-2 shrink-0" />
+                  <span className="hidden xs:inline text-[8px]">{isArabic ? 'دورية' : 'Recurring'}</span>
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
               {isTransfer ? (
                 <>
@@ -1097,7 +1122,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       );
       return;
     }
-    const amountVal = parseFloat(txAmount);
+    const amountVal = parseFormattedNumber(txAmount);
     if (!amountVal || amountVal <= 0) {
       showToast(isArabic ? 'يرجى إدخال مبلغ صحيح' : 'Please enter a valid amount', 'error');
       return;
@@ -2140,13 +2165,17 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                   {isArabic ? 'المبلغ' : 'Amount'}
                 </label>
                 <input
-                  type="number"
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
                   autoFocus
                   required
                   placeholder="0.00"
-                  value={txAmount}
-                  onChange={(e) => setTxAmount(e.target.value)}
+                  value={formatDisplayNumber(txAmount)}
+                  onChange={(e) => {
+                    handleNumericInputChange(e, (cleaned) => {
+                      setTxAmount(cleaned);
+                    });
+                  }}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-lg focus:outline-none focus:border-blue-500"
                 />
               </div>

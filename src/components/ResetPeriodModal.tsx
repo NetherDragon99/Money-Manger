@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { navigateBack } from '../context/NavigationContext';
 import { useApp } from '../context/AppContext';
 import { X, Clock, Calendar, RotateCcw } from 'lucide-react';
 import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';

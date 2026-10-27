@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { navigateBack } from '../context/NavigationContext';
 import { useApp } from '../context/AppContext';
 import { formatCurrency } from '../utils/dateCycle';
 import { AlertTriangle, ArrowRightLeft, Trash2, X } from 'lucide-react';
@@ -43,7 +44,7 @@ export const RemainingBalanceModal: React.FC = () => {
 
   return (
     <div
-      onClick={closeRemainingBalanceModal}
+      onClick={navigateBack}
       onTouchMove={(e) => e.stopPropagation()}
       className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain"
     >
@@ -69,7 +70,7 @@ export const RemainingBalanceModal: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={closeRemainingBalanceModal}
+            onClick={navigateBack}
             className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
           >
             <X className="w-4 h-4" />
@@ -175,7 +176,7 @@ export const RemainingBalanceModal: React.FC = () => {
         <div className="flex gap-2.5 pt-2">
           <button
             type="button"
-            onClick={closeRemainingBalanceModal}
+            onClick={navigateBack}
             className="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition cursor-pointer"
           >
             {isArabic ? 'إلغاء' : 'Cancel'}

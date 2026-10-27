@@ -1,3 +1,5 @@
+import { SwipeableTabs } from '../components/SwipeableTabs';
+import { isManualAdjustment } from '../utils/formatters';
 import React, { useState, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import {
@@ -81,8 +83,8 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
     };
   }, [cycleTransactions, accounts]);
 
-  // Category Breakdown for the active type (expense or income)
-  const categoryAnalytics = useMemo(() => {
+  // Helper to compute Category Breakdown for a specific transaction type
+  const computeCategoryAnalytics = (targetType: 'expense' | 'income') => {
     const map = new Map<
       string,
       {
@@ -97,7 +99,7 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
     let totalAmount = 0;
 
     for (const tx of cycleTransactions) {
-      if (tx.type === activeAnalysisType) {
+      if (tx.type === targetType && !isManualAdjustment(tx)) {
         totalAmount += tx.amount;
         const key = tx.categoryId || tx.categoryName || 'Unknown';
         const existing = map.get(key) || {
@@ -121,8 +123,38 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
       .sort((a, b) => b.amount - a.amount);
 
     return { list, totalAmount };
-  }, [cycleTransactions, activeAnalysisType]);
+  };
 
+  const expenseAnalytics = useMemo(() => computeCategoryAnalytics('expense'), [cycleTransactions]);
+  const incomeAnalytics = useMemo(() => computeCategoryAnalytics('income'), [cycleTransactions]);
+
+  const categoryAnalytics = activeAnalysisType === 'expense' ? expenseAnalytics : incomeAnalytics;
+
+  // Helper to compute Donut paths for an analytics list
+  const computeDonutPaths = (analytics: { list: any[]; totalAmount: number }) => {
+    if (analytics.totalAmount === 0 || analytics.list.length === 0) return [];
+    const r = 64;
+    const circ = 2 * Math.PI * r;
+    let accumulatedAngle = 0;
+
+    return analytics.list.slice(0, 5).map((item, idx) => {
+      const sliceFraction = item.amount / analytics.totalAmount;
+      const strokeLength = sliceFraction * circ;
+      const strokeDashoffset = -accumulatedAngle;
+      accumulatedAngle += strokeLength;
+
+      return {
+        pathData: `M 80 16 A ${r} ${r} 0 1 1 79.99 16`,
+        strokeDasharray: `${strokeLength} ${circ - strokeLength}`,
+        strokeDashoffset,
+        color: DONUT_COLORS[idx % DONUT_COLORS.length],
+        strokeWidth: 24,
+      };
+    });
+  };
+
+  const expenseDonutPaths = useMemo(() => computeDonutPaths(expenseAnalytics), [expenseAnalytics]);
+  const incomeDonutPaths = useMemo(() => computeDonutPaths(incomeAnalytics), [incomeAnalytics]);
   // SECTION 3: Spending vs Income Bar Chart (4 Periods: 1-7, 8-14, 15-21, 22-End)
   const periodsData = useMemo(() => {
     const periods = [
@@ -281,177 +313,257 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
         </div>
       </div>
 
-      {/* Expense / Income Toggle Segmented Control with Animated Sliding Pill */}
-      <div
-        onTouchStart={handleSubTouchStart}
-        onTouchEnd={handleSubTouchEnd}
-        className="relative flex p-1 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden select-none"
+      {/* 1:1 Finger-Tracking Carousel for Expense vs Income Analytics */}
+      <SwipeableTabs
+        tabs={[
+          {
+            id: 'expense',
+            label: t('expense'),
+            count: expenseAnalytics.list.length,
+          },
+          {
+            id: 'income',
+            label: t('income'),
+            count: incomeAnalytics.list.length,
+          },
+        ]}
+        activeTab={activeAnalysisType}
+        onChange={(tab) => setActiveAnalysisType(tab as 'expense' | 'income')}
+        pillActiveClass={[
+          'bg-rose-950/80 border border-rose-500/40 text-rose-400',
+          'bg-emerald-950/80 border border-emerald-500/40 text-emerald-400',
+        ]}
       >
-        {/* Animated Sliding Pill */}
-        <div
-          className={`absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-xl transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] shadow-md ${
-            activeAnalysisType === 'expense'
-              ? 'bg-rose-950/80 border border-rose-500/40'
-              : 'bg-emerald-950/80 border border-emerald-500/40'
-          }`}
-          style={{
-            transform: settings.language === 'ar'
-              ? (activeAnalysisType === 'expense' ? 'translateX(0)' : 'translateX(-100%)')
-              : (activeAnalysisType === 'expense' ? 'translateX(0)' : 'translateX(100%)'),
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => setActiveAnalysisType('expense')}
-          className={`relative z-10 flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer text-center ${
-            activeAnalysisType === 'expense'
-              ? 'text-rose-400'
-              : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          {t('expense')}
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveAnalysisType('income')}
-          className={`relative z-10 flex-1 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer text-center ${
-            activeAnalysisType === 'income'
-              ? 'text-emerald-400'
-              : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          {t('income')}
-        </button>
-      </div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 landscape:grid-cols-2 gap-5 landscape:gap-4 items-start">
+            {/* Section 1: Top Expense Categories */}
+            <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-3.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-rose-400">
+                  {t('topCategories')} ({expenseAnalytics.list.length})
+                </h3>
+                <span className="text-xs font-mono text-zinc-400 font-bold">
+                  Total: {formatCurrency(expenseAnalytics.totalAmount, currencySymbol)}
+                </span>
+              </div>
 
-      {/* Section 1 & 2 Grid on Large Screens & Mobile Landscape */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 landscape:grid-cols-2 gap-5 landscape:gap-4 items-start">
-        {/* Section 1: Top Categories */}
-        <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-3.5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-              {t('topCategories')} ({categoryAnalytics.list.length})
-            </h3>
-            <span className="text-xs font-mono text-zinc-400 font-bold">
-              Total: {formatCurrency(categoryAnalytics.totalAmount, currencySymbol)}
-            </span>
-          </div>
-
-          {categoryAnalytics.list.length === 0 ? (
-            <p className="text-xs text-zinc-500 py-4 text-center">{t('noInsightsData')}</p>
-          ) : (
-            <div className="space-y-2.5">
-              {displayedCategories.map((item, idx) => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800/60"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
-                      {item.icon}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs">
-                        {item.name}
+              {expenseAnalytics.list.length === 0 ? (
+                <p className="text-xs text-zinc-500 py-4 text-center">{t('noInsightsData')}</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {(showAllCategories ? expenseAnalytics.list : expenseAnalytics.list.slice(0, 3)).map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800/60"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
+                          {item.icon}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs">
+                            {item.name}
+                          </div>
+                          <div className="text-[10px] text-zinc-400 mt-0.5">
+                            {item.count} {t('transactionsCount')} • {item.percentage.toFixed(1)}%
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-[10px] text-zinc-400 mt-0.5">
-                        {item.count} {t('transactionsCount')} • {item.percentage.toFixed(1)}%
+
+                      <div className="text-right shrink-0">
+                        <div className="text-sm font-mono font-black text-rose-400">
+                          {formatCurrency(item.amount, currencySymbol)}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ))}
 
-                  <div className="text-right shrink-0">
-                    <div className="text-sm font-mono font-black text-white">
-                      {formatCurrency(item.amount, currencySymbol)}
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {/* 4th item "Show More / View All" button */}
-              {categoryAnalytics.list.length > 3 && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllCategories(!showAllCategories)}
-                  className="w-full py-2.5 rounded-xl bg-zinc-950/80 hover:bg-zinc-800 text-blue-400 text-xs font-bold flex items-center justify-center gap-1 transition"
-                >
-                  <span>{showAllCategories ? t('showLess') : `${t('viewAll')} (${categoryAnalytics.list.length})`}</span>
-                  {showAllCategories ? (
-                    <ChevronUp className="w-4 h-4" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4" />
+                  {expenseAnalytics.list.length > 3 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllCategories(!showAllCategories)}
+                      className="w-full py-2.5 rounded-xl bg-zinc-950/80 hover:bg-zinc-800 text-blue-400 text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer"
+                    >
+                      <span>{showAllCategories ? t('showLess') : `${t('viewAll')} (${expenseAnalytics.list.length})`}</span>
+                      {showAllCategories ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
                   )}
-                </button>
+                </div>
               )}
             </div>
-          )}
-        </div>
 
-        {/* Section 2: Analytics Donut Chart */}
-        <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-4">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-            {t('categoryShare')}
-          </h3>
+            {/* Section 2: Expense Analytics Donut Chart */}
+            <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-rose-400">
+                {t('categoryShare')}
+              </h3>
 
-          {categoryAnalytics.totalAmount === 0 ? (
-            <p className="text-xs text-zinc-500 py-6 text-center">{t('noInsightsData')}</p>
-          ) : (
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-6 pt-2">
-              {/* SVG Donut Chart with total in center */}
-              <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
-                <svg width="170" height="170" viewBox="0 0 160 160" className="transform -rotate-90">
-                  <circle
-                    cx="80"
-                    cy="80"
-                    r="64"
-                    fill="none"
-                    stroke="#18181b"
-                    strokeWidth="24"
-                  />
-                  {donutPaths.map((slice, i) => (
-                    <path
-                      key={i}
-                      d={slice.pathData}
-                      fill="none"
-                      stroke={slice.color}
-                      strokeWidth={slice.strokeWidth}
-                      strokeLinecap="round"
-                      className="transition-all duration-500"
-                    />
-                  ))}
-                </svg>
-                {/* Total Amount in center hole */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
-                  <span className="text-[10px] text-zinc-400 font-semibold uppercase">
-                    Total
-                  </span>
-                  <span className="text-xs sm:text-sm font-black font-mono text-white tracking-tight">
-                    {formatCurrency(categoryAnalytics.totalAmount, currencySymbol)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Color-coded Legend */}
-              <div className="flex-1 w-full space-y-2 max-h-48 overflow-y-auto pr-1">
-                {categoryAnalytics.list.map((cat, idx) => (
-                  <div key={cat.id} className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}
-                      />
-                      <span className="text-zinc-300 truncate max-w-[120px]">{cat.name}</span>
-                    </div>
-                    <div className="font-mono text-zinc-400 font-semibold shrink-0 pl-2">
-                      {formatCurrency(cat.amount, currencySymbol)} ({cat.percentage.toFixed(0)}%)
+              {expenseAnalytics.totalAmount === 0 ? (
+                <p className="text-xs text-zinc-500 py-6 text-center">{t('noInsightsData')}</p>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-6 pt-2">
+                  <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
+                    <svg width="170" height="170" viewBox="0 0 160 160" className="transform -rotate-90">
+                      <circle cx="80" cy="80" r="64" fill="none" stroke="#18181b" strokeWidth="24" />
+                      {expenseDonutPaths.map((slice, i) => (
+                        <path
+                          key={i}
+                          d={slice.pathData}
+                          fill="none"
+                          stroke={slice.color}
+                          strokeWidth={slice.strokeWidth}
+                          strokeDasharray={slice.strokeDasharray}
+                          strokeDashoffset={slice.strokeDashoffset}
+                          strokeLinecap="round"
+                          className="transition-all duration-500"
+                        />
+                      ))}
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
+                      <span className="text-[10px] text-zinc-400 font-semibold uppercase">Total</span>
+                      <span className="text-xs sm:text-sm font-black font-mono text-rose-400 tracking-tight">
+                        {formatCurrency(expenseAnalytics.totalAmount, currencySymbol)}
+                      </span>
                     </div>
                   </div>
-                ))}
-              </div>
+
+                  <div className="flex-1 w-full space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {expenseAnalytics.list.map((cat, idx) => (
+                      <div key={cat.id} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}
+                          />
+                          <span className="text-zinc-300 truncate max-w-[120px]">{cat.name}</span>
+                        </div>
+                        <div className="font-mono text-zinc-400 font-semibold shrink-0 pl-2">
+                          {formatCurrency(cat.amount, currencySymbol)} ({cat.percentage.toFixed(0)}%)
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 landscape:grid-cols-2 gap-5 landscape:gap-4 items-start">
+            {/* Section 1: Top Income Categories */}
+            <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-3.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                  {t('topCategories')} ({incomeAnalytics.list.length})
+                </h3>
+                <span className="text-xs font-mono text-zinc-400 font-bold">
+                  Total: {formatCurrency(incomeAnalytics.totalAmount, currencySymbol)}
+                </span>
+              </div>
+
+              {incomeAnalytics.list.length === 0 ? (
+                <p className="text-xs text-zinc-500 py-4 text-center">{t('noInsightsData')}</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {(showAllCategories ? incomeAnalytics.list : incomeAnalytics.list.slice(0, 3)).map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800/60"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
+                          {item.icon}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs">
+                            {item.name}
+                          </div>
+                          <div className="text-[10px] text-zinc-400 mt-0.5">
+                            {item.count} {t('transactionsCount')} • {item.percentage.toFixed(1)}%
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="text-sm font-mono font-black text-emerald-400">
+                          {formatCurrency(item.amount, currencySymbol)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {incomeAnalytics.list.length > 3 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllCategories(!showAllCategories)}
+                      className="w-full py-2.5 rounded-xl bg-zinc-950/80 hover:bg-zinc-800 text-blue-400 text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer"
+                    >
+                      <span>{showAllCategories ? t('showLess') : `${t('viewAll')} (${incomeAnalytics.list.length})`}</span>
+                      {showAllCategories ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Section 2: Income Analytics Donut Chart */}
+            <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                {t('categoryShare')}
+              </h3>
+
+              {incomeAnalytics.totalAmount === 0 ? (
+                <p className="text-xs text-zinc-500 py-6 text-center">{t('noInsightsData')}</p>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-6 pt-2">
+                  <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
+                    <svg width="170" height="170" viewBox="0 0 160 160" className="transform -rotate-90">
+                      <circle cx="80" cy="80" r="64" fill="none" stroke="#18181b" strokeWidth="24" />
+                      {incomeDonutPaths.map((slice, i) => (
+                        <path
+                          key={i}
+                          d={slice.pathData}
+                          fill="none"
+                          stroke={slice.color}
+                          strokeWidth={slice.strokeWidth}
+                          strokeDasharray={slice.strokeDasharray}
+                          strokeDashoffset={slice.strokeDashoffset}
+                          strokeLinecap="round"
+                          className="transition-all duration-500"
+                        />
+                      ))}
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
+                      <span className="text-[10px] text-zinc-400 font-semibold uppercase">Total</span>
+                      <span className="text-xs sm:text-sm font-black font-mono text-emerald-400 tracking-tight">
+                        {formatCurrency(incomeAnalytics.totalAmount, currencySymbol)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 w-full space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {incomeAnalytics.list.map((cat, idx) => (
+                      <div key={cat.id} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}
+                          />
+                          <span className="text-zinc-300 truncate max-w-[120px]">{cat.name}</span>
+                        </div>
+                        <div className="font-mono text-zinc-400 font-semibold shrink-0 pl-2">
+                          {formatCurrency(cat.amount, currencySymbol)} ({cat.percentage.toFixed(0)}%)
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </SwipeableTabs>
 
       {/* Section 3: Spending vs Income Bar Chart */}
       <div className="p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl space-y-4">

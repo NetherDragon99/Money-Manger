@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
 import path from 'path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -7,12 +8,19 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({ command }) => {
   const isDev = command === 'serve';
   const base = isDev ? '/' : './';
+  const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
 
   return {
     base,
     plugins: [
       react(),
       tailwindcss(),
+      {
+        name: 'html-version-transform',
+        transformIndexHtml(html: string) {
+          return html.replace(/%APP_VERSION%/g, packageJson.version || '1.1.49');
+        },
+      },
       VitePWA({
         registerType: 'autoUpdate',
         injectRegister: 'auto',

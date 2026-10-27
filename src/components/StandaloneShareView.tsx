@@ -1,3 +1,4 @@
+import { TransferBadge } from './TransferBadge';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Share2,
@@ -687,7 +688,7 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
 
                                     let title = '';
                                     if (isTransfer) {
-                                      title = `${isArabic ? 'تحويل' : 'Transfer'}: ${fromName} → ${toName}`;
+                                      title = isArabic ? `من ${fromName} إلى ${toName}` : `From ${fromName} → To ${toName}`;
                                     } else if (tx.description && tx.description.trim() !== '') {
                                       title = tx.description;
                                     } else {
@@ -719,17 +720,27 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                                         <div className="flex items-center justify-between w-full">
                                           {/* Left: Category Icon */}
                                           <div className="flex items-center gap-3 min-w-0">
-                                            <div
-                                              className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
-                                                isIncome
-                                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                                  : isExpense
-                                                  ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                                  : 'bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold'
-                                              }`}
-                                            >
-                                              {isTransfer ? '⇄' : tx.categoryIcon || '💵'}
-                                            </div>
+                                            {isTransfer ? (
+                                              <TransferBadge
+                                                fromIcon={fromIcon}
+                                                fromName={fromName}
+                                                fromColor={fromAcc?.color}
+                                                toIcon={toIcon}
+                                                toName={toName}
+                                                toColor={toAcc?.color}
+                                                size="md"
+                                              />
+                                            ) : (
+                                              <div
+                                                className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
+                                                  isIncome
+                                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                                }`}
+                                              >
+                                                {tx.categoryIcon || '💵'}
+                                              </div>
+                                            )}
 
                                             {/* Center: Title & Metadata Subtitle */}
                                             <div className="min-w-0 text-left rtl:text-right">

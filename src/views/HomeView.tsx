@@ -1,3 +1,4 @@
+import { SwipeableTabs } from '../components/SwipeableTabs';
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import {
@@ -491,34 +492,6 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
         </div>
       )}
 
-      {/* 2. Sub-Navigation Tabs (Under Header): Daily vs Calendar */}
-      <div className="px-4 pt-3 pb-1 max-w-2xl mx-auto w-full">
-        <div className="flex p-1 rounded-2xl bg-zinc-900/90 border border-zinc-800/80">
-          <button
-            type="button"
-            onClick={() => setHomeSubView('daily')}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
-              homeSubView === 'daily'
-                ? 'bg-zinc-800 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            {t('daily')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setHomeSubView('calendar')}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
-              homeSubView === 'calendar'
-                ? 'bg-zinc-800 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            {t('calendar')}
-          </button>
-        </div>
-      </div>
-
       {/* View Content: Responsive Tablet & Desktop Container (Item 2) */}
       <div className="flex-1 px-4 py-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto space-y-4">
         {/* Smart Budget Alert Banner */}
@@ -567,9 +540,26 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
           </div>
         )}
 
-        {/* VIEW A: DAILY */}
-        {homeSubView === 'daily' && (
-          <div className="space-y-4 landscape:space-y-0 landscape:grid landscape:grid-cols-12 landscape:gap-5 landscape:items-start">
+                {/* 1:1 Finger-Tracking Carousel for Daily vs Calendar */}
+        <SwipeableTabs
+          tabs={[
+            { id: 'daily', label: t('daily') },
+            { id: 'calendar', label: t('calendar') },
+          ]}
+          activeTab={homeSubView}
+          onChange={(tab) => setHomeSubView(tab as 'daily' | 'calendar')}
+          onBoundaryDrag={(direction, deltaX, phase) => {
+            if (direction === 'start') {
+              window.dispatchEvent(
+                new CustomEvent('mm-sidebar-drag', {
+                  detail: { phase, deltaX, isRtl: settings.language === 'ar' },
+                })
+              );
+            }
+          }}
+        >
+          <div className="pb-16 sm:pb-20">
+            <div className="space-y-4 landscape:space-y-0 landscape:grid landscape:grid-cols-12 landscape:gap-5 landscape:items-start">
             {/* Left Summary Column: Sticky on md/landscape with Quick Accounts Balance Breakdown */}
             <div className="landscape:col-span-5 space-y-4 md:sticky landscape:sticky top-4 self-start max-h-[calc(100dvh-6rem)] overflow-y-auto no-scrollbar">
               {/* Public Summary Block: INCOME (Green), EXPENSE (Red), BALANCE (Gold/White).
@@ -685,11 +675,9 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
               />
             </div>
           </div>
-        )}
-
-        {/* VIEW B: CALENDAR */}
-        {homeSubView === 'calendar' && (
-          <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-6 landscape:space-y-0 landscape:grid landscape:grid-cols-12 landscape:gap-5 items-start">
+          </div>
+          <div className="pb-16 sm:pb-20">
+            <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-6 landscape:space-y-0 landscape:grid landscape:grid-cols-12 landscape:gap-5 items-start">
             {/* Monthly Calendar Grid Card */}
             <div className="lg:col-span-7 landscape:col-span-7 p-4 sm:p-5 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl">
               {/* Month Navigation */}
@@ -847,7 +835,8 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
               />
             </div>
           </div>
-        )}
+          </div>
+        </SwipeableTabs>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
+import { NavigationProvider, useNavigation, navigateBack } from './context/NavigationContext';
 import { HomeView } from './views/HomeView';
 import { BudgetView } from './views/BudgetView';
 import { InsightsView } from './views/InsightsView';
@@ -22,7 +23,9 @@ import { SyncConflictModal } from './components/SyncConflictModal';
 import { ResetPeriodModal } from './components/ResetPeriodModal';
 import { AdvancedFilterModal } from './components/AdvancedFilterModal';
 import { EmojiPickerModal } from './components/EmojiPickerModal';
-import { AppFeaturesModal } from './components/AppFeaturesModal';
+const AppFeaturesModal = React.lazy(() =>
+  import('./components/AppFeaturesModal').then((m) => ({ default: m.AppFeaturesModal }))
+);
 import { WhatsNewModal } from './components/WhatsNewModal';
 import { ExitConfirmModal } from './components/ExitConfirmModal';
 import { AppLockScreen } from './components/AppLockScreen';
@@ -125,8 +128,7 @@ const MainAppContent: React.FC = () => {
 
   const [isBarsVisible, setIsBarsVisible] = useState<boolean>(true);
   const [updating, setUpdating] = useState(false);
-  const [isExitModalOpen, setIsExitModalOpen] = useState(false);
-  const tabHistoryRef = useRef<TabType[]>(['home']);
+  const { isExitModalOpen, cancelExit, confirmExit } = useNavigation();
 
   // Capture PWA beforeinstallprompt event immediately in React state and window.deferredPwaPrompt
   const [deferredPwaPrompt, setDeferredPwaPrompt] = useState<any>(() => {
@@ -208,12 +210,7 @@ const MainAppContent: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const current = tabHistoryRef.current;
-    if (current[current.length - 1] !== currentTab) {
-      current.push(currentTab);
-    }
-  }, [currentTab]);
+  
 
   // Background Auto Backup Loop
   useEffect(() => {
@@ -287,232 +284,7 @@ const MainAppContent: React.FC = () => {
     settings.userProfile?.customAvatarUrl,
   ]);
 
-  const isExitingAppRef = useRef(false);
-  const navStateRef = useRef({
-    isAppLocked,
-    isExitModalOpen,
-    isPinModalOpen,
-    isRecurringModalOpen,
-    isEmojiPickerOpen,
-    isFeaturesModalOpen,
-    isWhatsNewOpen,
-    isFilterModalOpen,
-    isResetPeriodModalOpen,
-    isUserProfileModalOpen,
-    isCategoryModalOpen,
-    isAccountModalOpen,
-    viewingTx,
-    isAddTxModalOpen,
-    editingTx,
-    isSidebarOpen,
-    isSharedHubModalOpen,
-    isEditingSpace,
-    editingShareId,
-    customDialogState,
-    selectedAccountId,
-    currentTab,
-    isTxMultiSelect,
-    isCategoryMultiSelect,
-    isAccountMultiSelect,
-    activeSharedId,
-    activeSharedSnapshot,
-    shareModalState,
-    remainingBalanceModalState,
-  });
-
-  navStateRef.current = {
-    isAppLocked,
-    isExitModalOpen,
-    isPinModalOpen,
-    isRecurringModalOpen,
-    isEmojiPickerOpen,
-    isFeaturesModalOpen,
-    isWhatsNewOpen,
-    isFilterModalOpen,
-    isResetPeriodModalOpen,
-    isUserProfileModalOpen,
-    isCategoryModalOpen,
-    isAccountModalOpen,
-    viewingTx,
-    isAddTxModalOpen,
-    editingTx,
-    isSidebarOpen,
-    isSharedHubModalOpen,
-    isEditingSpace,
-    editingShareId,
-    customDialogState,
-    selectedAccountId,
-    currentTab,
-    isTxMultiSelect,
-    isCategoryMultiSelect,
-    isAccountMultiSelect,
-    activeSharedId,
-    activeSharedSnapshot,
-    shareModalState,
-    remainingBalanceModalState,
-  };
-
-  // Android Hardware Back Button navigation & exit interceptor: Strict Priority Chain
-  useEffect(() => {
-    if (!window.history.state || !window.history.state.exitGuard) {
-      window.history.pushState({ exitGuard: true }, '');
-    }
-
-    const handlePopState = () => {
-      if (isExitingAppRef.current) return;
-
-      const s = navStateRef.current;
-
-      // 0. If App is locked, prevent any back navigation
-      if (s.isAppLocked) {
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-
-      // Layer 7: High-Priority Dialogs & Confirmations
-      if (s.isWhatsNewOpen) {
-        setIsWhatsNewOpen(false);
-        try {
-          localStorage.setItem('last_seen_app_version', CURRENT_APP_VERSION);
-        } catch {}
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.customDialogState) {
-        closeCustomDialog();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isExitModalOpen) {
-        setIsExitModalOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.remainingBalanceModalState?.isOpen) {
-        closeRemainingBalanceModal();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isPinModalOpen) {
-        setIsPinModalOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-
-      // Layer 6: Feature & Action Modals
-      if (s.shareModalState?.isOpen) {
-        closeShareModal();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isEmojiPickerOpen) {
-        closeEmojiPicker();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isCategoryModalOpen) {
-        closeCategoryModal();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isAccountModalOpen) {
-        closeAccountModal();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.viewingTx) {
-        closeTxDetailsModal();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isAddTxModalOpen || s.editingTx) {
-        closeAddTxModal();
-        closeEditTxModal();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isRecurringModalOpen) {
-        setIsRecurringModalOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-
-      // Layer 4: Sidebars & Sheet Overlays (Dismiss BEFORE underlying sub-pages!)
-      if (s.isFeaturesModalOpen) {
-        setIsFeaturesModalOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isFilterModalOpen) {
-        setIsFilterModalOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isResetPeriodModalOpen) {
-        setIsResetPeriodModalOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isUserProfileModalOpen) {
-        setIsUserProfileModalOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.isSidebarOpen) {
-        setIsSidebarOpen(false);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-
-      // Layer 4.5: Space Edit Settings Modal
-      if (s.isEditingSpace || s.editingShareId) {
-        setIsEditingSpace(false);
-        setEditingShareId(null);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-
-      // Layer 2: Full-Screen Sub-pages
-      if (s.isSharedHubModalOpen) {
-        setIsSharedHubModalOpen(false);
-        setIsEditingSpace(false);
-        setEditingShareId(null);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.selectedAccountId) {
-        setSelectedAccountId(null);
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-      if (s.activeSharedId || s.activeSharedSnapshot) {
-        closeSharedLiveView();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-
-      // Layer 1: Multi-Select Mode active -> Clear selection and return (keep active tab untouched)
-      if (s.isTxMultiSelect || s.isCategoryMultiSelect || s.isAccountMultiSelect) {
-        clearGlobalSelection();
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-
-      // Active tab !== 'home' -> Reset active tab to 'home'
-      if (s.currentTab !== 'home') {
-        setCurrentTab('home');
-        window.history.pushState({ exitGuard: true }, '');
-        return;
-      }
-
-      // On root Home tab with zero modals/sub-views open -> Show Sleek Exit Confirmation!
-      setIsExitModalOpen(true);
-      window.history.pushState({ exitGuard: true }, '');
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  
 
   // Unified bulletproof scroll tracker (window + container)
   const lastScrollTopRef = useRef<number>(0);
@@ -566,65 +338,179 @@ const MainAppContent: React.FC = () => {
     setIsHeaderVisible(true);
   }, [currentTab]);
 
-  // Touch gesture swipe handling across tabs & sidebar (Item 1)
-  const [isSwiping, setIsSwiping] = useState(false);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  // 1:1 Finger-Tracking Drag Carousel & Gesture Hand-off across Main Tabs & Sidebar
+  const [mainDragOffset, setMainDragOffset] = useState<number>(0);
+  const [isMainDragging, setIsMainDragging] = useState<boolean>(false);
+  const [targetAdjacentTab, setTargetAdjacentTab] = useState<TabType | null>(null);
+
+  const mainTouchStateRef = useRef<{
+    startX: number;
+    startY: number;
+    startTime: number;
+    isHorizontal: boolean | null;
+    isEdgeZone: boolean;
+    isSidebarEngaged: boolean;
+  }>({
+    startX: 0,
+    startY: 0,
+    startTime: 0,
+    isHorizontal: null,
+    isEdgeZone: false,
+    isSidebarEngaged: false,
+  });
+
+  const prefersReducedMotion = typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (isAnyModalOpen) return;
     const target = e.target as HTMLElement;
-    if (target.closest('input, textarea, select, [data-no-swipe], .no-swipe, .overflow-x-auto, button')) return;
+    if (
+      target.closest(
+        'input, textarea, select, button, [data-no-swipe], [data-no-drag], .no-swipe, .overflow-x-auto, svg, canvas, .recharts-responsive-container'
+      )
+    ) {
+      return;
+    }
+
     const touch = e.touches[0];
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    const isRtl = settings.language === 'ar';
+    const screenWidth = window.innerWidth;
+    const isEdgeZone = isRtl
+      ? touch.clientX >= screenWidth - 28
+      : touch.clientX <= 28;
+
+    mainTouchStateRef.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      startTime: Date.now(),
+      isHorizontal: null,
+      isEdgeZone,
+      isSidebarEngaged: isEdgeZone,
+    };
+
+    if (isEdgeZone) {
+      window.dispatchEvent(
+        new CustomEvent('mm-sidebar-drag', {
+          detail: { phase: 'start', deltaX: 0, clientX: touch.clientX, isRtl },
+        })
+      );
+    }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (isAnyModalOpen || !touchStartRef.current) return;
+    if (isAnyModalOpen) return;
+    const state = mainTouchStateRef.current;
     const touch = e.touches[0];
-    const deltaX = touch.clientX - touchStartRef.current.x;
-    const deltaY = touch.clientY - touchStartRef.current.y;
-    if (Math.abs(deltaX) > 15 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
-      if (!isSwiping) setIsSwiping(true);
+    const deltaX = touch.clientX - state.startX;
+    const deltaY = touch.clientY - state.startY;
+    const isRtl = settings.language === 'ar';
+
+    if (state.isSidebarEngaged) {
+      window.dispatchEvent(
+        new CustomEvent('mm-sidebar-drag', {
+          detail: { phase: 'move', deltaX, clientX: touch.clientX, isRtl },
+        })
+      );
+      return;
+    }
+
+    if (state.isHorizontal === null) {
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+      if (absX < 8 && absY < 8) return;
+
+      if (absY >= absX) {
+        state.isHorizontal = false;
+        return;
+      }
+      state.isHorizontal = true;
+      setIsMainDragging(true);
+    }
+
+    if (!state.isHorizontal) return;
+
+    const curIdx = TABS.indexOf(currentTab);
+    const isDraggingToStart = isRtl ? deltaX < 0 : deltaX > 0;
+    const isDraggingToEnd = isRtl ? deltaX > 0 : deltaX < 0;
+
+    // Boundary hand-off on Home tab: pulling toward start edge opens Sidebar with 1:1 tracking
+    if (curIdx === 0 && isDraggingToStart) {
+      state.isSidebarEngaged = true;
+      setIsMainDragging(false);
+      setMainDragOffset(0);
+      window.dispatchEvent(
+        new CustomEvent('mm-sidebar-drag', {
+          detail: { phase: 'start', deltaX: 0, clientX: touch.clientX, isRtl },
+        })
+      );
+      return;
+    }
+
+    // Determine adjacent tab
+    let adj: TabType | null = null;
+    if (isDraggingToStart && curIdx > 0) {
+      adj = TABS[curIdx - 1];
+    } else if (isDraggingToEnd && curIdx < TABS.length - 1) {
+      adj = TABS[curIdx + 1];
+    }
+    setTargetAdjacentTab(adj);
+
+    // Apply live 1:1 translation clamped by bounds
+    if ((isDraggingToStart && curIdx === 0) || (isDraggingToEnd && curIdx === TABS.length - 1)) {
+      setMainDragOffset(deltaX * 0.25); // Rubber-band effect at hard ends
+    } else {
+      setMainDragOffset(deltaX);
     }
   };
 
   const handleTouchCancel = () => {
-    setIsSwiping(false);
-    touchStartRef.current = null;
+    setIsMainDragging(false);
+    setMainDragOffset(0);
+    setTargetAdjacentTab(null);
+    mainTouchStateRef.current.isHorizontal = null;
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    setIsSwiping(false);
-    if (!touchStartRef.current) return;
+    const state = mainTouchStateRef.current;
     const touch = e.changedTouches[0];
-    const deltaX = touch.clientX - touchStartRef.current.x;
-    const deltaY = touch.clientY - touchStartRef.current.y;
-    touchStartRef.current = null;
-
-    // Must be predominantly horizontal gesture
-    if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY) * 1.5) return;
-
+    const deltaX = touch.clientX - state.startX;
+    const duration = Math.max(Date.now() - state.startTime, 1);
+    const velocity = Math.abs(deltaX) / duration;
     const isRtl = settings.language === 'ar';
-    const swipeRight = deltaX > 0;
-    const swipeLeft = deltaX < 0;
 
-    const currentIndex = TABS.indexOf(currentTab);
-
-    if ((!isRtl && swipeRight) || (isRtl && swipeLeft)) {
-      // Swiping right: go to previous tab or open sidebar if on Home
-      if (currentIndex === 0) {
-        setIsSidebarOpen(true);
-      } else if (currentIndex > 0) {
-        setCurrentTab(TABS[currentIndex - 1]);
-      }
-    } else {
-      // Swiping left: go to next tab
-      if (currentIndex < TABS.length - 1) {
-        setCurrentTab(TABS[currentIndex + 1]);
-      }
+    if (state.isSidebarEngaged) {
+      window.dispatchEvent(
+        new CustomEvent('mm-sidebar-drag', {
+          detail: { phase: 'end', deltaX, clientX: touch.clientX, isRtl },
+        })
+      );
+      state.isSidebarEngaged = false;
+      return;
     }
-  };
 
+    if (state.isHorizontal) {
+      setIsMainDragging(false);
+      const screenWidth = window.innerWidth || 360;
+      const curIdx = TABS.indexOf(currentTab);
+      const isDraggingToStart = isRtl ? deltaX < 0 : deltaX > 0;
+      const isDraggingToEnd = isRtl ? deltaX > 0 : deltaX < 0;
+
+      const shouldSwitch = Math.abs(deltaX) > screenWidth * 0.2 || velocity > 0.25;
+
+      if (shouldSwitch) {
+        if (isDraggingToStart && curIdx > 0) {
+          setCurrentTab(TABS[curIdx - 1]);
+        } else if (isDraggingToEnd && curIdx < TABS.length - 1) {
+          setCurrentTab(TABS[curIdx + 1]);
+        }
+      }
+      setMainDragOffset(0);
+      setTargetAdjacentTab(null);
+    }
+
+    state.isHorizontal = null;
+  };
   // Auto-check for newest updates on every app open and resume
   useEffect(() => {
     let checkInProgress = false;
@@ -767,20 +653,26 @@ const MainAppContent: React.FC = () => {
           )}
 
           {/* Active Tab View Display: Scroll Container Enforces Smooth Scrolling across ALL Breakpoints */}
+          {/* 1:1 Finger-Tracking Main View Carousel Container */}
           <div
-            className={`flex-1 min-h-0 w-full flex flex-col relative overflow-y-auto overflow-x-hidden touch-pan-y overscroll-y-contain ${
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchCancel}
+            className={`flex-1 min-h-0 w-full flex flex-col relative overflow-x-hidden touch-pan-y overscroll-y-contain ${
               isAnyModalOpen ? 'overflow-y-hidden max-h-[100dvh] select-none pointer-events-none' : ''
             }`}
-            style={isAnyModalOpen ? { touchAction: 'none' } : { touchAction: 'pan-y' }}
+            style={{
+              touchAction: isAnyModalOpen ? 'none' : 'pan-y',
+              transform: isMainDragging && mainDragOffset !== 0 ? `translate3d(${mainDragOffset}px, 0, 0)` : undefined,
+              transition: isMainDragging || prefersReducedMotion ? 'none' : 'transform 260ms cubic-bezier(0.25, 1, 0.5, 1)',
+            }}
           >
             {(() => {
               const curIdx = TABS.indexOf(currentTab);
               const shouldMount = (tab: TabType) => {
                 if (tab === currentTab) return true;
-                if (isSwiping) {
-                  const idx = TABS.indexOf(tab);
-                  return Math.abs(idx - curIdx) === 1;
-                }
+                if (isMainDragging && targetAdjacentTab === tab) return true;
                 return false;
               };
 
@@ -837,27 +729,29 @@ const MainAppContent: React.FC = () => {
         {/* Shared Accounts Hub Modal */}
         <SharedAccountsHubModal
           isOpen={isSharedHubModalOpen}
-          onClose={() => setIsSharedHubModalOpen(false)}
+          onClose={navigateBack}
         />
 
         {/* Recurring Transactions Modal */}
         <RecurringTransactionsModal
           isOpen={isRecurringModalOpen}
-          onClose={() => setIsRecurringModalOpen(false)}
+          onClose={navigateBack}
           onOpenAddModal={() => openAddTxModal()}
         />
 
         {/* Security PIN Setup Modal */}
         <PinSetupModal
           isOpen={isPinModalOpen}
-          onClose={() => setIsPinModalOpen(false)}
+          onClose={navigateBack}
         />
 
-        {/* App Features & Release Notes Modal */}
-        <AppFeaturesModal
-          isOpen={isFeaturesModalOpen}
-          onClose={() => setIsFeaturesModalOpen(false)}
-        />
+        {/* App Features & Release Notes Modal (Lazy Loaded) */}
+        <React.Suspense fallback={null}>
+          <AppFeaturesModal
+            isOpen={isFeaturesModalOpen}
+            onClose={navigateBack}
+          />
+        </React.Suspense>
 
         {/* Automatic What's New on First Launch of each version */}
         <WhatsNewModal />
@@ -866,22 +760,8 @@ const MainAppContent: React.FC = () => {
         {/* Android Exit Confirmation Modal */}
         <ExitConfirmModal
           isOpen={isExitModalOpen}
-          onClose={() => {
-            setIsExitModalOpen(false);
-            if (!window.history.state || !window.history.state.exitGuard) {
-              window.history.pushState({ exitGuard: true }, '');
-            }
-          }}
-          onConfirmExit={() => {
-            isExitingAppRef.current = true;
-            setIsExitModalOpen(false);
-            try {
-              window.close();
-            } catch (e) {}
-            if (window.history.length > 1) {
-              window.history.go(-window.history.length);
-            }
-          }}
+          onClose={cancelExit}
+          onConfirmExit={confirmExit}
         />
 
         {/* Global Emoji Picker */}

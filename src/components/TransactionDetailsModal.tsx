@@ -1,6 +1,8 @@
+import { TransferBadge } from './TransferBadge';
 import React, { useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { X, Trash2, Edit3, ArrowRight, Share2 } from 'lucide-react';
+import { navigateBack } from '../context/NavigationContext';
+import { X, Trash2, Edit3, ArrowRight, Share2, RefreshCw } from 'lucide-react';
 import { getHistoricalBalance, getTransferHistoricalBalances } from '../utils/balanceEngine';
 import { formatCurrency, formatFullDateTime } from '../utils/dateCycle';
 
@@ -118,16 +120,30 @@ export const TransactionDetailsModal: React.FC = () => {
 
         {/* Big Icon & Main Info */}
         <div className="flex flex-col items-center text-center space-y-2">
-          <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-3xl shadow-lg">
-            {isTransfer ? '⇄' : viewingTx.categoryIcon || '💵'}
-          </div>
+          {isTransfer ? (
+            <div className="p-1.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 shadow-lg">
+              <TransferBadge
+                fromIcon={viewingTx.fromAccountIcon || account?.icon}
+                fromName={viewingTx.fromAccountName || account?.name}
+                fromColor={account?.color}
+                toIcon={viewingTx.toAccountIcon || toAccount?.icon}
+                toName={viewingTx.toAccountName || toAccount?.name}
+                toColor={toAccount?.color}
+                size="md"
+              />
+            </div>
+          ) : (
+            <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-3xl shadow-lg">
+              {viewingTx.categoryIcon || '💵'}
+            </div>
+          )}
           <div>
             <h4 className="text-xl font-bold text-white">
-              {viewingTx.description
-                ? viewingTx.description
-                : isTransfer
-                ? `${account?.name} → ${toAccount?.name}`
-                : viewingTx.categoryName || 'Transaction'}
+              {isTransfer
+                ? (settings.language === 'ar'
+                    ? `من ${viewingTx.fromAccountName || account?.name || 'حساب'} إلى ${viewingTx.toAccountName || toAccount?.name || 'حساب'}`
+                    : `From ${viewingTx.fromAccountName || account?.name || 'Account'} → To ${viewingTx.toAccountName || toAccount?.name || 'Account'}`)
+                : viewingTx.description || viewingTx.categoryName || 'Transaction'}
             </h4>
             <p className="text-xs text-zinc-400 mt-0.5">
               {formatFullDateTime(viewingTx.date, viewingTx.time, settings.language)}
@@ -135,15 +151,26 @@ export const TransactionDetailsModal: React.FC = () => {
           </div>
 
           {/* Account indicator */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800/80 text-xs font-medium text-zinc-300">
-            {isTransfer ? (
-              <span className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800/80 text-xs font-medium text-zinc-300">
+              {isTransfer ? (
+                <span className="flex items-center gap-1.5">
+                  <span>{account?.icon} {account?.name}</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-blue-400" />
+                  <span>{toAccount?.icon} {toAccount?.name}</span>
+                </span>
+              ) : (
                 <span>{account?.icon} {account?.name}</span>
-                <ArrowRight className="w-3.5 h-3.5 text-blue-400" />
-                <span>{toAccount?.icon} {toAccount?.name}</span>
-              </span>
-            ) : (
-              <span>{account?.icon} {account?.name}</span>
+              )}
+            </div>
+
+            {Boolean(viewingTx.isFromRecurring || viewingTx.recurringRuleId) && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-xs font-semibold text-amber-300 shadow-sm shadow-amber-950/40">
+                <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {settings.language === 'ar' ? 'معاملة متكررة تلقائية' : 'Automated Recurring Transaction'}
+                </span>
+              </div>
             )}
           </div>
         </div>

@@ -1,9 +1,10 @@
+import { TransferBadge } from './TransferBadge';
 import React, { useMemo } from 'react';
 import { Transaction } from '../types';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatTime12h } from '../utils/dateCycle';
 import { getTransferHistoricalBalances } from '../utils/balanceEngine';
-import { Check } from 'lucide-react';
+import { Check, RefreshCw } from 'lucide-react';
 import { useLongPress } from '../hooks/useLongPress';
 
 interface TransactionItemProps {
@@ -52,15 +53,14 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({
     return getTransferHistoricalBalances(transaction, accounts, transactions);
   }, [isTransfer, transaction, fromAccount, toAccount, accounts, transactions]);
 
+  const fromName = fromAccount?.name || transaction.fromAccountName || (settings.language === 'ar' ? 'حساب' : 'Account');
+  const toName = toAccount?.name || transaction.toAccountName || (settings.language === 'ar' ? 'حساب' : 'Account');
+  const fromIcon = fromAccount?.icon || transaction.fromAccountIcon;
+  const toIcon = toAccount?.icon || transaction.toAccountIcon;
+
   let title = '';
   if (isTransfer) {
-    if (hideAccountBadge) {
-      title = transaction.description && transaction.description.trim() !== ''
-        ? transaction.description
-        : (settings.language === 'ar' ? 'تحويل' : 'Transfer');
-    } else {
-      title = `${fromAccount?.name || 'Account'} > ${toAccount?.name || 'Account'}`;
-    }
+    title = settings.language === 'ar' ? `من ${fromName} إلى ${toName}` : `From ${fromName} → To ${toName}`;
   } else if (transaction.description && transaction.description.trim() !== '') {
     title = transaction.description;
   } else {
@@ -73,14 +73,10 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({
   if (isTransfer) {
     const transferLabel = settings.language === 'ar' ? 'تحويل' : 'Transfer';
     const hasCustomDescription = Boolean(transaction.description && transaction.description.trim() !== '');
-    if (hideAccountBadge) {
-      if (hasCustomDescription) {
-        subtitle = `${timeFormatted ? `${timeFormatted} • ` : ''}${transferLabel} • ${transaction.date}`;
-      } else {
-        subtitle = timeFormatted ? `${timeFormatted} • ${transaction.date}` : transaction.date;
-      }
+    if (hasCustomDescription) {
+      subtitle = `${transaction.description} • ${timeFormatted ? `${timeFormatted} • ` : ''}${transaction.date}`;
     } else {
-      subtitle = timeFormatted ? `${timeFormatted} • ${transferLabel}` : transferLabel;
+      subtitle = timeFormatted ? `${timeFormatted} • ${transferLabel}` : `${transferLabel} • ${transaction.date}`;
     }
   } else {
     const hasCustomDescription = Boolean(transaction.description && transaction.description.trim() !== '');
@@ -138,22 +134,43 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({
             </div>
           )}
 
-          <div
-            className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
-              transaction.type === 'income'
-                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                : transaction.type === 'expense'
-                ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-            }`}
-          >
-            {isTransfer ? '⇄' : transaction.categoryIcon || '💵'}
-          </div>
+          {isTransfer ? (
+            <TransferBadge
+              fromIcon={fromIcon}
+              fromName={fromName}
+              fromColor={fromAccount?.color}
+              toIcon={toIcon}
+              toName={toName}
+              toColor={toAccount?.color}
+              size="md"
+            />
+          ) : (
+            <div
+              className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
+                transaction.type === 'income'
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  : 'bg-red-500/10 text-red-400 border border-red-500/20'
+              }`}
+            >
+              {transaction.categoryIcon || '💵'}
+            </div>
+          )}
 
           {/* Center: Title & Subtitle */}
           <div className="min-w-0 text-left rtl:text-right">
-            <div className="text-sm font-bold text-white truncate max-w-[180px] sm:max-w-xs group-hover:text-blue-300 transition">
-              {title}
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-sm font-bold text-white truncate max-w-[160px] sm:max-w-xs group-hover:text-blue-300 transition">
+                {title}
+              </span>
+              {Boolean(transaction.isFromRecurring || transaction.recurringRuleId) && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 shrink-0"
+                  title={settings.language === 'ar' ? 'معاملة متكررة تلقائية' : 'Automated Recurring'}
+                >
+                  <RefreshCw className="w-2.5 h-2.5 shrink-0" />
+                  <span className="hidden xs:inline text-[9px]">{settings.language === 'ar' ? 'دورية' : 'Recurring'}</span>
+                </span>
+              )}
             </div>
             <div className="text-xs text-zinc-400 truncate mt-0.5">
               {subtitle}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { navigateBack } from '../context/NavigationContext';
 import { useApp } from '../context/AppContext';
 import { Account, Category, Transaction } from '../types';
 import {
@@ -331,7 +332,7 @@ export const ShareFolderModal: React.FC = () => {
 
   return (
     <div
-      onClick={closeShareModal}
+      onClick={navigateBack}
       onTouchMove={(e) => e.stopPropagation()}
       className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200 overscroll-contain"
     >
@@ -357,7 +358,7 @@ export const ShareFolderModal: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={closeShareModal}
+            onClick={navigateBack}
             className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
           >
             <X className="w-4 h-4" />

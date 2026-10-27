@@ -1,3 +1,4 @@
+import { parseFormattedNumber } from './formatters';
 import { Account, Category, Transaction, AppSettings, AppData, RecurringTransaction } from '../types';
 import { DEFAULT_ACCOUNTS, INITIAL_CATEGORIES, DEFAULT_SETTINGS } from './constants';
 import { syncAllAccountBalances } from './balanceEngine';
@@ -106,7 +107,7 @@ export function saveSettings(settings: AppSettings): void {
  */
 export function exportAllDataAsJSON(data: AppData): void {
   const exportPayload = {
-    version: '1.1.48',
+    version: '1.1.49',
     exportDate: new Date().toISOString(),
     ...data,
   };
@@ -130,7 +131,7 @@ export function exportAccountAsJSON(account: Account, allTransactions: Transacti
     (tx) => tx.accountId === account.id || tx.toAccountId === account.id
   );
   const payload = {
-    version: '1.1.48',
+    version: '1.1.49',
     type: 'single_account_backup',
     exportDate: new Date().toISOString(),
     account,
@@ -310,7 +311,10 @@ export function executeCustomDataImport(
 
     if (config.mode === 'replace') {
       if (incomingAccounts.length > 0) {
-        finalAccounts = incomingAccounts;
+        finalAccounts = incomingAccounts.map((a) => ({
+          ...a,
+          balance: parseFormattedNumber(a.balance),
+        }));
         importedAccountsCount = incomingAccounts.length;
       }
     } else {
@@ -318,10 +322,14 @@ export function executeCustomDataImport(
       for (const incAcc of incomingAccounts) {
         if (!incAcc || !incAcc.id) continue;
         const existingIdx = finalAccounts.findIndex((a) => a.id === incAcc.id);
+        const cleanAcc = {
+          ...incAcc,
+          balance: parseFormattedNumber(incAcc.balance),
+        };
         if (existingIdx >= 0) {
-          finalAccounts[existingIdx] = { ...finalAccounts[existingIdx], ...incAcc };
+          finalAccounts[existingIdx] = { ...finalAccounts[existingIdx], ...cleanAcc };
         } else {
-          finalAccounts.push(incAcc);
+          finalAccounts.push(cleanAcc);
         }
         importedAccountsCount++;
       }
@@ -400,9 +408,13 @@ export function executeCustomDataImport(
   if (config.importTransactions) {
     const incomingTxs: Transaction[] = Array.isArray(payload.transactions) ? payload.transactions : [];
 
+    const sanitizedTxs = incomingTxs.map((tx) => ({
+      ...tx,
+      amount: parseFormattedNumber(tx.amount),
+    }));
     if (config.mode === 'replace') {
-      finalTransactions = incomingTxs;
-      importedTransactionsCount = incomingTxs.length;
+      finalTransactions = sanitizedTxs;
+      importedTransactionsCount = sanitizedTxs.length;
 
       // Also replace recurring transactions if present in backup
       if (Array.isArray(payload.recurringTransactions)) {
@@ -411,8 +423,12 @@ export function executeCustomDataImport(
     } else {
       // Merge mode: Deduplicate by transaction.id
       const existingTxIds = new Set(finalTransactions.map((t) => t.id));
-      for (const tx of incomingTxs) {
-        if (!tx || !tx.id) continue;
+      for (const rawTx of incomingTxs) {
+        if (!rawTx || !rawTx.id) continue;
+        const tx = {
+          ...rawTx,
+          amount: parseFormattedNumber(rawTx.amount),
+        };
         if (!existingTxIds.has(tx.id)) {
           finalTransactions.push(tx);
           existingTxIds.add(tx.id);

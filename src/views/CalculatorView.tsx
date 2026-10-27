@@ -47,7 +47,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
   const evaluateMath = (raw: string): number | null => {
     if (!raw.trim()) return 0;
     try {
-      let expr = raw;
+      let expr = raw.replace(/,/g, '');
 
       // 1. Convert visual math symbols to computational tokens
       expr = expr.replace(/×/g, '*');
@@ -229,7 +229,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
   };
 
   const handleCreateTransaction = () => {
-    const finalAmount = result !== 0 ? Math.abs(result) : Math.abs(parseFloat(expression) || 0);
+    const finalAmount = result !== 0 ? Math.abs(result) : Math.abs(parseFloat(String(expression).replace(/,/g, '')) || 0);
     if (finalAmount <= 0) {
       showToast(isArabic ? 'يرجى إدخال مبلغ صالح أولاً' : 'Please calculate a valid amount first', 'info');
       return;
@@ -588,7 +588,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
             >
               <span>{recentHistory[0].expression}</span>
               <span className="text-zinc-600">=</span>
-              <span className="text-blue-400/80">{recentHistory[0].result}</span>
+              <span className="text-blue-400/80">{typeof recentHistory[0].result === 'number' ? recentHistory[0].result.toLocaleString('en-US') : recentHistory[0].result}</span>
             </div>
           )}
 
@@ -610,7 +610,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
 
             {/* Large Bold Live Result */}
             <div className="calc-display-result text-2xl sm:text-3xl md:text-5xl lg:text-6xl font-black font-mono tracking-tight text-white truncate">
-              {result !== 0 ? result.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0'}
+              {result !== 0 ? result.toLocaleString('en-US', { maximumFractionDigits: 6 }) : '0'}
             </div>
           </div>
 

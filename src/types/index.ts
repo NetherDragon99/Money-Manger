@@ -9,6 +9,7 @@ export interface Account {
   isPrivate: boolean; // if true, exclude from Home & Insights totals; if false, include in Public totals
   customMonthStartDay: number | 'default'; // 1-31 or 'default'
   notes: string;
+  color?: string;
   updatedAt?: number;
 }
 
@@ -35,6 +36,9 @@ export interface Transaction {
   categoryIcon?: string;
   description: string;
   isUneditable?: boolean; // For automatic manual balance adjustments
+  isAdjustment?: boolean; // Tag for manual balance adjustments
+  isFromRecurring?: boolean; // Tag for automated recurring transactions
+  recurringRuleId?: string; // ID of the generating recurring rule
   createdAt: number;
   updatedAt?: number;
   fromBalanceBefore?: number;
@@ -91,6 +95,17 @@ export interface UserProfile {
   updatedAt?: number;
 }
 
+export interface AdvancedScheduleConfig {
+  isAdvanced?: boolean;
+  scheduleType?: 'multiple_times_daily' | 'weekly_days' | 'monthly_days' | string;
+  timesOfDay?: string[];
+  daysOfWeek?: number[];
+  unifiedTime?: string;
+  customDayTimes?: Record<number, string>;
+  daysOfMonth?: number[];
+  timeOfMonth?: string;
+}
+
 export type RecurringFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';
 
 export interface RecurringTransaction {
@@ -106,6 +121,10 @@ export interface RecurringTransaction {
   frequency: RecurringFrequency;
   startDate: string; // YYYY-MM-DD
   nextDueDate: string; // YYYY-MM-DD
+  startTime?: string;
+  nextRun?: number;
+  lastRun?: number;
+  advancedSchedule?: AdvancedScheduleConfig;
   autoProcess: boolean;
   createdAt: number;
   lastProcessedDate?: string;
@@ -197,4 +216,23 @@ export interface SyncStatus {
     en: string;
     ar: string;
   };
+}
+
+
+export interface ReleaseNote {
+  version: string;
+  releaseDate: string;
+  title: { en: string; ar: string };
+  highlights: { en: string[]; ar: string[] };
+}
+
+export interface FeatureItem {
+  id: string;
+  icon: string;
+  category: 'core' | 'finance' | 'pwa' | 'customization';
+  title: { en: string; ar: string };
+  subtitle: { en: string; ar: string }; // 2-to-5-word summary subtitle (Grid Only)
+  description: { en: string; ar: string }; // Thorough practical description
+  howToUse: { en: string[]; ar: string[] }; // Step-by-step practical guide
+  proTip?: { en: string; ar: string }; // Strictly optional genuine helpful tip
 }

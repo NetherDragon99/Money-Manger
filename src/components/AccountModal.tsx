@@ -1,4 +1,6 @@
+import { formatNumberWithCommas, formatDisplayNumber, parseFormattedNumber, handleNumericInputChange } from '../utils/formatters';
 import React, { useState, useEffect, useRef } from 'react';
+import { navigateBack } from '../context/NavigationContext';
 import { useApp } from '../context/AppContext';
 import { X, Smile, ShieldAlert } from 'lucide-react';
 import { Account } from '../types';
@@ -89,7 +91,7 @@ export const AccountModal: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const parsedBalance = parseFloat(balance) || 0;
+    const parsedBalance = parseFormattedNumber(balance);
     const customStart = monthStartDay === 'default' ? 'default' : parseInt(monthStartDay, 10);
 
     if (editingAccount) {
@@ -115,19 +117,19 @@ export const AccountModal: React.FC = () => {
         parsedBalance
       );
     }
-    closeAccountModal();
+    navigateBack();
   };
 
   const handleAnimatedClose = () => {
     setIsClosing(true);
     setTimeout(() => {
       setIsClosing(false);
-      closeAccountModal();
+      navigateBack();
     }, 180);
   };
 
   const oldBalance = editingAccount ? editingAccount.balance : 0;
-  const currentNumericBalance = parseFloat(balance) || 0;
+  const currentNumericBalance = parseFormattedNumber(balance);
   const balanceDiff = currentNumericBalance - oldBalance;
   const willTriggerManualAdjustment =
     editingAccount !== null && Math.abs(balanceDiff) >= 0.009;
@@ -202,28 +204,25 @@ export const AccountModal: React.FC = () => {
               {editingAccount && (
                 <span className="text-xs text-zinc-500">
                   Current: {settings.currencySymbol}
-                  {oldBalance.toFixed(2)}
+                  {formatNumberWithCommas(oldBalance, 2)}
                 </span>
               )}
             </div>
             <input
               ref={balanceInputRef}
-              type="number"
-              step="any"
-              value={balance}
-              onFocus={(e) => {
-                if (e.target.value === '0') setBalance('');
+              type="text"
+              inputMode="decimal"
+              value={formatDisplayNumber(balance)}
+              onFocus={() => {
+                if (balance === '0') setBalance('');
               }}
-              onBlur={(e) => {
-                if (!e.target.value.trim()) setBalance('0');
+              onBlur={() => {
+                if (!balance.trim()) setBalance('0');
               }}
               onChange={(e) => {
-                const val = e.target.value;
-                if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
-                  setBalance(val.replace(/^0+/, ''));
-                } else {
-                  setBalance(val);
-                }
+                handleNumericInputChange(e, (cleaned) => {
+                  setBalance(cleaned);
+                }, true);
               }}
               placeholder="0.00"
               className="w-full px-4 py-3 rounded-xl bg-zinc-900 border border-zinc-800 focus:border-blue-500 text-white text-sm outline-none transition"
@@ -238,7 +237,7 @@ export const AccountModal: React.FC = () => {
                     Changing balance will automatically generate an uneditable{' '}
                     {balanceDiff > 0 ? 'income' : 'expense'} transaction of{' '}
                     {settings.currencySymbol}
-                    {Math.abs(balanceDiff).toFixed(2)}.
+                    {formatNumberWithCommas(Math.abs(balanceDiff), 2)}.
                   </p>
                 </div>
               </div>

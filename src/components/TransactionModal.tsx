@@ -1,13 +1,16 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
+import { navigateBack } from '../context/NavigationContext';
 import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw } from 'lucide-react';
 import { TransactionType, RecurringFrequency } from '../types';
-import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatFullDateTime } from '../utils/dateCycle';
+import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatDisplayNumber } from '../utils/dateCycle';
 import { calculateNextDueDate } from '../utils/recurring';
 import { Numpad } from './Numpad';
 import { MiniDateTimePicker } from './MiniDateTimePicker';
 import { CategoryDirectoryModal } from './CategoryDirectoryModal';
 import { getLocalizedCurrencySymbol } from '../utils/currencies';
+
+const TYPES: TransactionType[] = ['income', 'expense', 'transfer'];
 
 export const TransactionModal: React.FC = () => {
   const {
@@ -20,13 +23,15 @@ export const TransactionModal: React.FC = () => {
     updateTransaction,
     addRecurringTransaction,
     openAddAccountModal,
-    openAddCategoryModal,
     t,
     settings,
     defaultTxAccountId,
     defaultTxAmount,
+    defaultTxIsRecurring,
     selectedAccountId,
   } = useApp();
+
+  const isArabic = settings.language === 'ar';
 
   const [type, setType] = useState<TransactionType>('expense');
   const [amountStr, setAmountStr] = useState<string>('0');
@@ -45,6 +50,84 @@ export const TransactionModal: React.FC = () => {
   const [isClosing, setIsClosing] = useState<boolean>(false);
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
   const [recurringFrequency, setRecurringFrequency] = useState<RecurringFrequency>('monthly');
+
+  // Advanced Recurring Schedule State
+  const [isAdvancedSchedule, setIsAdvancedSchedule] = useState<boolean>(false);
+  const [advancedScheduleType, setAdvancedScheduleType] = useState<'weekly_days' | 'monthly_days' | 'multiple_times_daily'>('weekly_days');
+  const [selectedDaysOfWeek, setSelectedDaysOfWeek] = useState<number[]>([1]); // default Mon
+  const [unifiedWeeklyTime, setUnifiedWeeklyTime] = useState<string>('09:00');
+  const [customWeeklyTimes, setCustomWeeklyTimes] = useState<Record<number, string>>({});
+  const [isCustomDayTimes, setIsCustomDayTimes] = useState<boolean>(false);
+  const [selectedDaysOfMonth, setSelectedDaysOfMonth] = useState<number[]>([1]);
+  const [monthlyTime, setMonthlyTime] = useState<string>('09:00');
+  const [multipleTimesDaily, setMultipleTimesDaily] = useState<string[]>(['09:00', '18:00']);
+
+  const weekDaysMap = [
+    { day: 0, labelEn: 'Sun', labelAr: 'أحد' },
+    { day: 1, labelEn: 'Mon', labelAr: 'إثنين' },
+    { day: 2, labelEn: 'Tue', labelAr: 'ثلاثاء' },
+    { day: 3, labelEn: 'Wed', labelAr: 'أربعاء' },
+    { day: 4, labelEn: 'Thu', labelAr: 'خميس' },
+    { day: 5, labelEn: 'Fri', labelAr: 'جمعة' },
+    { day: 6, labelEn: 'Sat', labelAr: 'سبت' },
+  ];
+
+  const toggleDayOfWeek = (d: number) => {
+    setSelectedDaysOfWeek((prev) =>
+      prev.includes(d) ? (prev.length > 1 ? prev.filter((x) => x !== d) : prev) : [...prev, d].sort((a, b) => a - b)
+    );
+  };
+
+  const toggleDayOfMonth = (d: number) => {
+    setSelectedDaysOfMonth((prev) =>
+      prev.includes(d) ? (prev.length > 1 ? prev.filter((x) => x !== d) : prev) : [...prev, d].sort((a, b) => a - b)
+    );
+  };
+
+  const addMultiTime = () => {
+    if (multipleTimesDaily.length < 5) {
+      setMultipleTimesDaily((prev) => [...prev, '12:00']);
+    }
+  };
+
+  const removeMultiTime = (idx: number) => {
+    if (multipleTimesDaily.length > 1) {
+      setMultipleTimesDaily((prev) => prev.filter((_, i) => i !== idx));
+    }
+  };
+
+  const updateMultiTime = (idx: number, val: string) => {
+    setMultipleTimesDaily((prev) => {
+      const copy = [...prev];
+      copy[idx] = val;
+      return copy;
+    });
+  };
+
+  // Visual viewport height for seamless on-screen keyboard dock support
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    const updateViewport = () => {
+      if (window.visualViewport) {
+        setViewportHeight(window.visualViewport.height);
+      }
+    };
+    window.visualViewport.addEventListener('resize', updateViewport);
+    window.visualViewport.addEventListener('scroll', updateViewport);
+    updateViewport();
+    return () => {
+      window.visualViewport?.removeEventListener('resize', updateViewport);
+      window.visualViewport?.removeEventListener('scroll', updateViewport);
+    };
+  }, []);
+
+  // Check prefers-reduced-motion
+  const prefersReducedMotion = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }, []);
 
   const handleAnimatedClose = () => {
     setIsClosing(true);
@@ -75,8 +158,6 @@ export const TransactionModal: React.FC = () => {
   }, [accountDropdownOpen]);
 
   // Clean Reset Rule & Initialize on Open / Edit
-  // STRICT AUDIT: Form initialization ONLY runs when modal transitions from closed to open
-  // or when editingTx?.id changes. It NEVER re-runs on live accounts/categories array changes!
   const prevIsOpenRef = useRef(false);
   const prevEditingTxIdRef = useRef<string | null>(null);
 
@@ -112,8 +193,8 @@ export const TransactionModal: React.FC = () => {
       setDescription(editingTx.description || '');
       setIsRecurring(false);
       setRecurringFrequency('monthly');
+      setIsAdvancedSchedule(false);
     } else {
-      // Clean Reset Rule: reset amount to 0 or defaultTxAmount, note to "", type to Expense
       setType('expense');
       setAmountStr(defaultTxAmount && defaultTxAmount > 0 ? defaultTxAmount.toString() : '0');
       const now = new Date();
@@ -123,16 +204,15 @@ export const TransactionModal: React.FC = () => {
       setDescription('');
       const defaultAcc = defaultTxAccountId || selectedAccountId || (accounts[0] ? accounts[0].id : '');
       setAccountId(defaultAcc);
-      // Destination account for transfers: always auto-select a valid different account
       const otherAcc = accounts.find((a) => a.id !== defaultAcc);
       setToAccountId(otherAcc ? otherAcc.id : '');
-      // Select first matching category
       const defaultCat = categories.find((c) => c.type === 'expense');
       setCategoryId(defaultCat ? defaultCat.id : '');
-      setIsRecurring(false);
+      setIsRecurring(Boolean(defaultTxIsRecurring));
       setRecurringFrequency('monthly');
+      setIsAdvancedSchedule(false);
     }
-  }, [isAddTxModalOpen, editingTx?.id]);
+  }, [isAddTxModalOpen, editingTx?.id, defaultTxIsRecurring]);
 
   // When type changes, ensure valid category selection & Transfer destination
   const prevTypeRef = useRef(type);
@@ -155,14 +235,31 @@ export const TransactionModal: React.FC = () => {
     }
   }, [type]);
 
-  // Filtered categories for the active type
+  const getFrequencyLabel = (freq: RecurringFrequency) => {
+    switch (freq) {
+      case 'daily':
+        return t('repeatDaily');
+      case 'weekly':
+        return t('repeatWeekly');
+      case 'biweekly':
+        return t('repeatBiweekly');
+      case 'monthly':
+        return t('repeatMonthly');
+      case 'yearly':
+        return t('repeatYearly');
+      default:
+        return freq;
+    }
+  };
+
   const availableCategories = useMemo(() => {
     return categories.filter((c) => c.type === type);
   }, [categories, type]);
 
   const selectedCategory = useMemo(() => {
-    return categories.find((c) => c.id === categoryId) || availableCategories[0];
-  }, [categories, categoryId, availableCategories]);
+    if (type === 'transfer') return null;
+    return categories.find((c) => c.id === categoryId) || availableCategories[0] || null;
+  }, [categories, categoryId, availableCategories, type]);
 
   const selectedAccount = useMemo(() => {
     return accounts.find((a) => a.id === accountId) || accounts[0];
@@ -172,10 +269,133 @@ export const TransactionModal: React.FC = () => {
     return accounts.find((a) => a.id === toAccountId) || accounts.find((a) => a.id !== accountId);
   }, [accounts, toAccountId, accountId]);
 
+  const handleTypeSelect = useCallback((newType: TransactionType) => {
+    setType(newType);
+    if (newType === 'transfer') {
+      const destination = accounts.find((a) => a.id !== accountId);
+      if (destination) {
+        setToAccountId(destination.id);
+      }
+    }
+  }, [accounts, accountId]);
+
+  // Swipe & Drag Gesture State
+  const modalContainerRef = useRef<HTMLDivElement | null>(null);
+  const [dragDeltaX, setDragDeltaX] = useState<number>(0);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const gestureRef = useRef<{
+    startX: number;
+    startY: number;
+    startTime: number;
+    active: boolean;
+    cancelled: boolean;
+  }>({
+    startX: 0,
+    startY: 0,
+    startTime: 0,
+    active: false,
+    cancelled: false,
+  });
+
+  const currentTypeIndex = useMemo(() => TYPES.indexOf(type), [type]);
+
+  const handleSwipePointerDown = (e: React.PointerEvent) => {
+    // 1. Ignore 28px screen edge zone (Sidebar swipe & browser edge navigation safety)
+    if (e.clientX < 28 || e.clientX > window.innerWidth - 28) return;
+
+    // 2. Ignore interactive elements: category scroll row, keypad, inputs, dropdowns
+    const target = e.target as HTMLElement;
+    if (
+      target.closest('[data-category-scroll="true"]') ||
+      target.closest('[data-keypad="true"]') ||
+      target.closest('[data-dropdown="true"]') ||
+      target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.tagName === 'SELECT' ||
+      target.isContentEditable
+    ) {
+      return;
+    }
+
+    gestureRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startTime: Date.now(),
+      active: true,
+      cancelled: false,
+    };
+    setIsDragging(false);
+    setDragDeltaX(0);
+  };
+
+  const handleSwipePointerMove = (e: React.PointerEvent) => {
+    if (!gestureRef.current.active || gestureRef.current.cancelled) return;
+
+    const deltaX = e.clientX - gestureRef.current.startX;
+    const deltaY = e.clientY - gestureRef.current.startY;
+
+    if (!isDragging) {
+      // If user moved vertically more than horizontally, cancel swipe tracking to allow normal scroll
+      if (Math.abs(deltaY) > Math.abs(deltaX) || Math.abs(deltaY) > 12) {
+        gestureRef.current.cancelled = true;
+        return;
+      }
+      // If horizontal movement exceeds 8px, lock horizontal drag mode
+      if (Math.abs(deltaX) > 8) {
+        setIsDragging(true);
+      }
+    }
+
+    if (isDragging) {
+      setDragDeltaX(deltaX);
+    }
+  };
+
+  const handleSwipePointerUp = () => {
+    if (!gestureRef.current.active) return;
+    gestureRef.current.active = false;
+
+    if (isDragging) {
+      const deltaX = dragDeltaX;
+      // Reversing drag direction in RTL:
+      // In LTR: drag left (deltaX < 0) advances to next tab; drag right (deltaX > 0) goes to prev tab
+      // In RTL: drag right (deltaX > 0) advances to next tab; drag left (deltaX < 0) goes to prev tab
+      const normDelta = isArabic ? -deltaX : deltaX;
+      const threshold = 40;
+
+      let nextIndex = currentTypeIndex;
+      if (normDelta < -threshold && currentTypeIndex < TYPES.length - 1) {
+        nextIndex = currentTypeIndex + 1;
+      } else if (normDelta > threshold && currentTypeIndex > 0) {
+        nextIndex = currentTypeIndex - 1;
+      }
+
+      if (nextIndex !== currentTypeIndex) {
+        handleTypeSelect(TYPES[nextIndex]);
+      }
+
+      setIsDragging(false);
+      setDragDeltaX(0);
+    }
+  };
+
+  // Live Tracking Active Tab Indicator Calculation
+  const indicatorOffsetPercent = useMemo(() => {
+    const basePercent = currentTypeIndex * 33.3333;
+    if (!isDragging || !modalContainerRef.current) {
+      return basePercent;
+    }
+    const modalWidth = modalContainerRef.current.offsetWidth || 360;
+    // Normalized drag ratio (drag left -> moves indicator right in LTR)
+    const dragRatio = (isArabic ? dragDeltaX : -dragDeltaX) / modalWidth;
+    const dragOffset = dragRatio * 33.3333;
+    return Math.max(0, Math.min(66.6666, basePercent + dragOffset));
+  }, [currentTypeIndex, isDragging, dragDeltaX, isArabic]);
+
   // Smart Update Rule: In Edit mode, keep Update button disabled until at least one field is modified
   const isModified = useMemo(() => {
     if (!editingTx) return true;
-    const numAmt = parseFloat(amountStr) || 0;
+    const numAmt = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
     if (editingTx.type !== type) return true;
     if (Math.abs(editingTx.amount - numAmt) > 0.0001) return true;
     if (editingTx.date !== date) return true;
@@ -187,7 +407,7 @@ export const TransactionModal: React.FC = () => {
     return false;
   }, [editingTx, type, amountStr, date, hasTime, time, accountId, toAccountId, categoryId, description]);
 
-  const numericAmount = parseFloat(amountStr) || 0;
+  const numericAmount = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
   const isTransferSameAccount = type === 'transfer' && accountId === toAccountId;
   const canSave = numericAmount > 0 && !isTransferSameAccount && isModified;
 
@@ -220,6 +440,19 @@ export const TransactionModal: React.FC = () => {
     } else {
       addTransaction(payload);
       if (isRecurring) {
+        const advConfig = isAdvancedSchedule
+          ? {
+              isAdvanced: true,
+              scheduleType: advancedScheduleType,
+              daysOfWeek: advancedScheduleType === 'weekly_days' ? selectedDaysOfWeek : undefined,
+              unifiedTime: advancedScheduleType === 'weekly_days' && !isCustomDayTimes ? unifiedWeeklyTime : undefined,
+              customDayTimes: advancedScheduleType === 'weekly_days' && isCustomDayTimes ? customWeeklyTimes : undefined,
+              daysOfMonth: advancedScheduleType === 'monthly_days' ? selectedDaysOfMonth : undefined,
+              timeOfMonth: advancedScheduleType === 'monthly_days' ? monthlyTime : undefined,
+              timesOfDay: advancedScheduleType === 'multiple_times_daily' ? multipleTimesDaily : undefined,
+            }
+          : undefined;
+
         addRecurringTransaction({
           type,
           amount: numericAmount,
@@ -231,8 +464,10 @@ export const TransactionModal: React.FC = () => {
           categoryIcon: type === 'transfer' ? undefined : selectedCategory?.icon,
           frequency: recurringFrequency,
           startDate: date,
+          startTime: hasTime ? time : '09:00',
           nextDueDate: calculateNextDueDate(date, recurringFrequency),
           autoProcess: true,
+          advancedSchedule: advConfig,
         });
       }
     }
@@ -250,63 +485,81 @@ export const TransactionModal: React.FC = () => {
       }`}
     >
       <div
+        ref={modalContainerRef}
         onClick={(e) => {
           e.stopPropagation();
           setAccountDropdownOpen(null);
         }}
-        className={`w-full max-w-lg max-h-[96dvh] my-auto flex flex-col rounded-t-3xl sm:rounded-3xl landscape:rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl overflow-hidden text-white transition-all duration-200 ${
+        onPointerDown={handleSwipePointerDown}
+        onPointerMove={handleSwipePointerMove}
+        onPointerUp={handleSwipePointerUp}
+        onPointerCancel={handleSwipePointerUp}
+        style={{
+          maxHeight: viewportHeight ? `${Math.min(viewportHeight, window.innerHeight)}px` : '96dvh',
+        }}
+        className={`w-full max-w-lg my-auto flex flex-col rounded-t-3xl sm:rounded-3xl landscape:rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl overflow-hidden text-white transition-all duration-200 touch-pan-y select-none ${
           isClosing ? 'modal-container-closing' : 'modal-container-anim'
         }`}
       >
-        {/* Top Bar: Close X & 3-Way Type Pill Toggle */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800/80">
+        {/* Top Bar: Close X & Interactive 3-Way Type Pill Toggle */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800/80 shrink-0">
           <button
             type="button"
             onClick={handleAnimatedClose}
-            className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition"
+            className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
 
-          {/* 3-Way Type Pill Toggle */}
-          <div className="flex items-center p-1 rounded-full bg-zinc-900 border border-zinc-800">
+          {/* 3-Way Type Pill Toggle with Live 1:1 Tracking Indicator */}
+          <div className="relative flex items-center p-1 rounded-full bg-zinc-900 border border-zinc-800 w-64 sm:w-72 select-none overflow-hidden">
+            {/* Live-Tracking Sliding Background Pill */}
+            <div
+              className={`absolute top-1 bottom-1 rounded-full shadow-md ${
+                isDragging || prefersReducedMotion ? 'transition-none' : 'transition-all duration-200 ease-out'
+              } ${
+                type === 'income'
+                  ? 'bg-emerald-600'
+                  : type === 'expense'
+                  ? 'bg-red-600'
+                  : 'bg-blue-600'
+              }`}
+              style={{
+                width: 'calc((100% - 8px) / 3)',
+                [isArabic ? 'right' : 'left']: `calc(4px + ${indicatorOffsetPercent}%)`,
+              }}
+            />
+
+            {/* Income Button */}
             <button
               type="button"
-              onClick={() => setType('income')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition ${
-                type === 'income'
-                  ? 'bg-emerald-600 text-white shadow-md'
-                  : 'text-zinc-400 hover:text-zinc-200'
+              onClick={() => handleTypeSelect('income')}
+              className={`relative z-10 flex-1 flex items-center justify-center gap-1 py-1.5 rounded-full text-xs font-bold transition-colors cursor-pointer ${
+                type === 'income' ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <ArrowDown className="w-3.5 h-3.5 text-emerald-300" />
               <span>{t('income')}</span>
             </button>
+
+            {/* Expense Button */}
             <button
               type="button"
-              onClick={() => setType('expense')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition ${
-                type === 'expense'
-                  ? 'bg-red-600 text-white shadow-md'
-                  : 'text-zinc-400 hover:text-zinc-200'
+              onClick={() => handleTypeSelect('expense')}
+              className={`relative z-10 flex-1 flex items-center justify-center gap-1 py-1.5 rounded-full text-xs font-bold transition-colors cursor-pointer ${
+                type === 'expense' ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <ArrowUp className="w-3.5 h-3.5 text-red-300" />
               <span>{t('expense')}</span>
             </button>
+
+            {/* Transfer Button */}
             <button
               type="button"
-              onClick={() => {
-                setType('transfer');
-                const destination = accounts.find((a) => a.id !== accountId);
-                if (destination) {
-                  setToAccountId(destination.id);
-                }
-              }}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition ${
-                type === 'transfer'
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-zinc-400 hover:text-zinc-200'
+              onClick={() => handleTypeSelect('transfer')}
+              className={`relative z-10 flex-1 flex items-center justify-center gap-1 py-1.5 rounded-full text-xs font-bold transition-colors cursor-pointer ${
+                type === 'transfer' ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <ArrowLeftRight className="w-3.5 h-3.5 text-blue-300" />
@@ -317,8 +570,14 @@ export const TransactionModal: React.FC = () => {
           <div className="w-9" /> {/* Spacer */}
         </div>
 
-        {/* Scrollable Upper Section */}
-        <div className="flex-1 overflow-y-auto overscroll-contain touch-pan-y px-5 py-3 space-y-4">
+        {/* Scrollable Upper Section with Subtle Fluid Drag Feedback */}
+        <div
+          style={{
+            transform: isDragging && !prefersReducedMotion ? `translateX(${dragDeltaX * 0.15}px)` : 'none',
+            transition: isDragging || prefersReducedMotion ? 'none' : 'transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+          }}
+          className="flex-1 overflow-y-auto overscroll-contain touch-pan-y px-5 py-3 space-y-3.5"
+        >
           {/* Amount Display & Read-Only Context in Edit Mode */}
           <div className="text-center py-1">
             {editingTx && selectedAccount && (
@@ -335,7 +594,7 @@ export const TransactionModal: React.FC = () => {
                   {currencySymbol}
                 </span>
                 <span className="text-4xl sm:text-5xl font-mono font-black text-white tracking-tight">
-                  {amountStr}
+                  {formatDisplayNumber(amountStr)}
                 </span>
               </div>
             </div>
@@ -398,11 +657,11 @@ export const TransactionModal: React.FC = () => {
                   e.stopPropagation();
                   setAccountDropdownOpen(accountDropdownOpen === 'single' ? null : 'single');
                 }}
-                className="w-full flex items-center justify-between p-3 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition"
+                className="w-full flex items-center justify-between p-3 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition cursor-pointer"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="text-2xl">{selectedAccount?.icon || '💵'}</span>
-                  <div className="text-left">
+                  <div className="text-left rtl:text-right">
                     <div className="text-sm font-semibold text-white">{selectedAccount?.name}</div>
                     <div className="text-xs text-zinc-400">
                       Balance: {selectedAccount ? formatCurrency(selectedAccount.balance, currencySymbol) : ''}
@@ -415,6 +674,7 @@ export const TransactionModal: React.FC = () => {
               {accountDropdownOpen === 'single' && (
                 <div
                   ref={dropdownRef}
+                  data-dropdown="true"
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => e.stopPropagation()}
                   className="absolute z-30 left-0 right-0 mt-1 rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-1.5 max-h-52 overflow-y-auto"
@@ -428,7 +688,7 @@ export const TransactionModal: React.FC = () => {
                         setAccountId(acc.id);
                         setAccountDropdownOpen(null);
                       }}
-                      className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition ${
+                      className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left rtl:text-right transition cursor-pointer ${
                         acc.id === accountId ? 'bg-blue-600/20 text-white' : 'text-zinc-300 hover:bg-zinc-800'
                       }`}
                     >
@@ -441,7 +701,6 @@ export const TransactionModal: React.FC = () => {
                       </span>
                     </button>
                   ))}
-                  {/* The very last item inside this dropdown menu MUST be "+ Add New Account" */}
                   <button
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
@@ -449,7 +708,7 @@ export const TransactionModal: React.FC = () => {
                       setAccountDropdownOpen(null);
                       openAddAccountModal();
                     }}
-                    className="w-full flex items-center gap-2 p-2.5 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/10 border-t border-zinc-800 mt-1 transition"
+                    className="w-full flex items-center gap-2 p-2.5 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/10 border-t border-zinc-800 mt-1 transition cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
                     <span>{t('addNewAccount')}</span>
@@ -471,7 +730,7 @@ export const TransactionModal: React.FC = () => {
                       e.stopPropagation();
                       setAccountDropdownOpen(accountDropdownOpen === 'from' ? null : 'from');
                     }}
-                    className="w-full flex flex-col p-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-left"
+                    className="w-full flex flex-col p-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-left rtl:text-right cursor-pointer"
                   >
                     <div className="flex items-center gap-1.5 truncate">
                       <span className="text-lg">{selectedAccount?.icon}</span>
@@ -485,6 +744,7 @@ export const TransactionModal: React.FC = () => {
                   {accountDropdownOpen === 'from' && (
                     <div
                       ref={dropdownRef}
+                      data-dropdown="true"
                       onClick={(e) => e.stopPropagation()}
                       onPointerDown={(e) => e.stopPropagation()}
                       className="absolute z-30 left-0 w-48 mt-1 rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-1.5 max-h-48 overflow-y-auto"
@@ -501,7 +761,7 @@ export const TransactionModal: React.FC = () => {
                             setAccountId(acc.id);
                             setAccountDropdownOpen(null);
                           }}
-                          className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs ${
+                          className={`w-full flex items-center justify-between p-2 rounded-xl text-left rtl:text-right text-xs cursor-pointer ${
                             acc.id === accountId ? 'bg-blue-600/20 text-white' : 'text-zinc-300 hover:bg-zinc-800'
                           }`}
                         >
@@ -520,7 +780,7 @@ export const TransactionModal: React.FC = () => {
                     setAccountId(toAccountId);
                     setToAccountId(temp);
                   }}
-                  className="p-2.5 rounded-full bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-blue-400 mt-4 active:scale-90 transition"
+                  className="p-2.5 rounded-full bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-blue-400 mt-4 active:scale-90 transition cursor-pointer"
                 >
                   <ArrowLeftRight className="w-4 h-4" />
                 </button>
@@ -535,7 +795,7 @@ export const TransactionModal: React.FC = () => {
                       e.stopPropagation();
                       setAccountDropdownOpen(accountDropdownOpen === 'to' ? null : 'to');
                     }}
-                    className="w-full flex flex-col p-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-left"
+                    className="w-full flex flex-col p-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-left rtl:text-right cursor-pointer"
                   >
                     <div className="flex items-center gap-1.5 truncate">
                       <span className="text-lg">{selectedToAccount?.icon || '🏦'}</span>
@@ -549,6 +809,7 @@ export const TransactionModal: React.FC = () => {
                   {accountDropdownOpen === 'to' && (
                     <div
                       ref={dropdownRef}
+                      data-dropdown="true"
                       onClick={(e) => e.stopPropagation()}
                       onPointerDown={(e) => e.stopPropagation()}
                       className="absolute z-30 right-0 w-48 mt-1 rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-1.5 max-h-48 overflow-y-auto"
@@ -567,7 +828,7 @@ export const TransactionModal: React.FC = () => {
                               setToAccountId(acc.id);
                               setAccountDropdownOpen(null);
                             }}
-                            className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs ${
+                            className={`w-full flex items-center justify-between p-2 rounded-xl text-left rtl:text-right text-xs cursor-pointer ${
                               isSelected
                                 ? 'bg-blue-600/20 text-white'
                                 : 'text-zinc-300 hover:bg-zinc-800'
@@ -590,7 +851,88 @@ export const TransactionModal: React.FC = () => {
             </div>
           )}
 
-          {/* Notes / Description Input */}
+          {/* Modern Responsive Recurring Transaction Toggle (Directly ABOVE Description) */}
+          {!editingTx && (
+            <div className="rounded-2xl bg-zinc-900/70 border border-zinc-800/80 p-2.5 transition-all shadow-sm">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setIsRecurring(!isRecurring)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setIsRecurring(!isRecurring);
+                  }
+                }}
+                className={`flex items-center justify-between w-full px-3 py-2 rounded-xl transition cursor-pointer select-none ${
+                  isRecurring
+                    ? 'bg-blue-600/15 border border-blue-500/40 text-blue-300'
+                    : 'bg-zinc-950/60 hover:bg-zinc-900 border border-zinc-800/60 text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition ${
+                      isRecurring
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-zinc-800/80 text-zinc-400'
+                    }`}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 transition-transform duration-300 ${isRecurring ? 'rotate-180' : ''}`} />
+                  </div>
+                  <div className="text-left rtl:text-right truncate">
+                    <span className="text-xs font-bold block truncate">
+                      {settings.language === 'ar' ? 'معاملة دورية متكررة' : 'Recurring Transaction'}
+                    </span>
+                    <span className="text-[10px] text-zinc-500 block truncate">
+                      {isRecurring
+                        ? (settings.language === 'ar' ? `تتكرر: ${getFrequencyLabel(recurringFrequency)}` : `Repeats: ${getFrequencyLabel(recurringFrequency)}`)
+                        : (settings.language === 'ar' ? 'تلقائي وفق جدول زمني' : 'Auto-repeats on schedule')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Modern Switch Toggle Track */}
+                <div
+                  className={`w-10 h-5.5 rounded-full p-0.5 transition-colors shrink-0 flex items-center ${
+                    isRecurring ? 'bg-blue-600 justify-end' : 'bg-zinc-800 justify-start'
+                  }`}
+                >
+                  <div className="w-4.5 h-4.5 rounded-full bg-white shadow-md transform transition" />
+                </div>
+              </div>
+
+              {/* Accordion smooth expansion */}
+              <div className={`accordion-wrapper ${isRecurring ? 'open' : 'closed'}`}>
+                <div className="accordion-inner pt-2.5 mt-2 border-t border-zinc-800/60">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5 px-1">
+                    {settings.language === 'ar' ? 'دورة التكرار' : 'Repeat Frequency'}
+                  </span>
+                  <div className="grid grid-cols-5 gap-1 sm:gap-1.5">
+                    {(['daily', 'weekly', 'biweekly', 'monthly', 'yearly'] as RecurringFrequency[]).map((freq) => (
+                      <button
+                        key={freq}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRecurringFrequency(freq);
+                        }}
+                        className={`py-1.5 px-1 text-[10px] font-bold rounded-lg capitalize transition cursor-pointer text-center truncate ${
+                          recurringFrequency === freq
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 ring-1 ring-blue-400/50'
+                            : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800/80 hover:bg-zinc-900'
+                        }`}
+                      >
+                        {getFrequencyLabel(freq)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Notes / Description Input (Directly BELOW Recurring Toggle) */}
           <div>
             <input
               type="text"
@@ -600,72 +942,35 @@ export const TransactionModal: React.FC = () => {
               className="w-full px-4 py-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
             />
           </div>
+        </div>
 
-          {/* Recurring Schedule Switch & Frequency Selection */}
-          {!editingTx && (
-            <div className="p-3 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-2">
-              <label className="flex items-center justify-between cursor-pointer">
-                <div className="flex items-center gap-2">
-                  <RefreshCw className={`w-4 h-4 ${isRecurring ? 'text-blue-400' : 'text-zinc-500'}`} />
-                  <span className="text-xs font-semibold text-zinc-300">
-                    {settings.language === 'ar' ? 'معاملة دورية متكررة' : 'Make this a Recurring Transaction'}
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={isRecurring}
-                  onChange={(e) => setIsRecurring(e.target.checked)}
-                  className="w-4 h-4 rounded text-blue-600 bg-zinc-800 border-zinc-700 cursor-pointer"
-                />
-              </label>
-
-              {/* Accordion smooth expansion */}
-              <div className={`accordion-wrapper ${isRecurring ? 'open' : 'closed'}`}>
-                <div className="accordion-inner pt-2 border-t border-zinc-800/60">
-                  <span className="block text-[11px] text-zinc-400 mb-1.5 font-medium">
-                    {settings.language === 'ar' ? 'دورة التكرار' : 'Repeat Frequency'}
-                  </span>
-                  <div className="grid grid-cols-5 gap-1">
-                    {(['daily', 'weekly', 'biweekly', 'monthly', 'yearly'] as RecurringFrequency[]).map((freq) => (
-                      <button
-                        key={freq}
-                        type="button"
-                        onClick={() => setRecurringFrequency(freq)}
-                        className={`py-1.5 text-[10px] font-bold rounded-lg capitalize transition cursor-pointer ${
-                          recurringFrequency === freq
-                            ? 'bg-blue-600 text-white shadow-md'
-                            : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800'
-                        }`}
-                      >
-                        {freq === 'biweekly' ? '2-Wk' : freq}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Category Selector: Completely HIDE for Transfer */}
+        {/* Fixed Bottom Dock Container (Category Bar Pinned Above Keypad, with safe-area & visualViewport) */}
+        <div
+          data-keypad="true"
+          className="border-t border-zinc-800/80 bg-zinc-950 px-5 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0 z-10 shadow-[0_-8px_20px_rgba(0,0,0,0.5)]"
+        >
+          {/* Sticky Category Selector Row (Pinned Directly Above Keypad, Hidden for Transfer) */}
           {type !== 'transfer' && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                  Category
+            <div className="pb-2">
+              <div className="flex items-center justify-between mb-1 px-0.5">
+                <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                  {settings.language === 'ar' ? 'التصنيف' : 'Category'}
                 </span>
-                {/* "Show All" button opens full Categories Directory modal */}
                 <button
                   type="button"
                   onClick={() => setShowCategoryDirectory(true)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-600/20 border border-blue-500/40 text-xs font-bold text-blue-400 hover:text-blue-300 hover:bg-blue-600/30 transition shrink-0 active:scale-95"
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-blue-600/20 border border-blue-500/40 text-[11px] font-bold text-blue-400 hover:text-blue-300 hover:bg-blue-600/30 transition shrink-0 active:scale-95 cursor-pointer"
                 >
-                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <LayoutGrid className="w-3 h-3" />
                   <span>{settings.language === 'ar' ? 'عرض الكل' : 'Show All'}</span>
                 </button>
               </div>
 
               {/* Horizontally scrollable row of Category pills */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none overscroll-contain">
+              <div
+                data-category-scroll="true"
+                className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none overscroll-contain touch-pan-x"
+              >
                 {availableCategories.map((cat) => {
                   const isSelected = cat.id === selectedCategory?.id;
                   return (
@@ -673,9 +978,9 @@ export const TransactionModal: React.FC = () => {
                       key={cat.id}
                       type="button"
                       onClick={() => setCategoryId(cat.id)}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold shrink-0 transition ${
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition cursor-pointer ${
                         isSelected
-                          ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30'
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 ring-1 ring-blue-400/40'
                           : 'bg-zinc-900 border border-zinc-800/90 text-zinc-300 hover:bg-zinc-800'
                       }`}
                     >
@@ -687,10 +992,8 @@ export const TransactionModal: React.FC = () => {
               </div>
             </div>
           )}
-        </div>
 
-        {/* Custom In-App Numpad & Save (Always Visible at Bottom) */}
-        <div className="border-t border-zinc-800/80 bg-zinc-950 px-5 pt-1 pb-4">
+          {/* Keypad */}
           <Numpad
             value={amountStr}
             onChange={setAmountStr}

@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { navigateBack } from '../context/NavigationContext';
 import { useApp } from '../context/AppContext';
 import { Sparkles, CheckCircle2, ArrowRight, X } from 'lucide-react';
-import { APP_RELEASE_NOTES } from '../utils/appFeatures';
 import { CURRENT_APP_VERSION } from '../utils/versionChecker';
+import { ReleaseNote } from '../types';
 
 const LAST_SEEN_KEY = 'last_seen_app_version';
 
 export const WhatsNewModal: React.FC = () => {
   const { settings, isWhatsNewOpen, setIsWhatsNewOpen } = useApp();
+  const [latestNote, setLatestNote] = useState<ReleaseNote | null>(null);
   const [isClosing, setIsClosing] = useState(false);
   const isArabic = settings.language === 'ar';
 
@@ -27,6 +29,19 @@ export const WhatsNewModal: React.FC = () => {
     }
   }, [setIsWhatsNewOpen]);
 
+  // Dynamically load release notes chunk only when modal is open
+  useEffect(() => {
+    if (isWhatsNewOpen && !latestNote) {
+      import('../utils/appFeatures')
+        .then((mod) => {
+          if (mod.APP_RELEASE_NOTES && mod.APP_RELEASE_NOTES.length > 0) {
+            setLatestNote(mod.APP_RELEASE_NOTES[0]);
+          }
+        })
+        .catch((err) => console.warn('Failed to lazy load release notes:', err));
+    }
+  }, [isWhatsNewOpen, latestNote]);
+
   const handleDismiss = () => {
     try {
       localStorage.setItem(LAST_SEEN_KEY, CURRENT_APP_VERSION);
@@ -36,14 +51,11 @@ export const WhatsNewModal: React.FC = () => {
     setIsClosing(true);
     setTimeout(() => {
       setIsClosing(false);
-      setIsWhatsNewOpen(false);
+      navigateBack();
     }, 180);
   };
 
-  if (!isWhatsNewOpen) return null;
-
-  const latestNote = APP_RELEASE_NOTES[0];
-  if (!latestNote) return null;
+  if (!isWhatsNewOpen || !latestNote) return null;
 
   return (
     <div

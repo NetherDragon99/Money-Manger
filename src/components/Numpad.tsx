@@ -53,7 +53,7 @@ export const Numpad: React.FC<NumpadProps> = ({ value, onChange, lang = 'en' }) 
   };
 
   const handleQuickAdd = (amount: number) => {
-    const cur = parseFloat(value) || 0;
+    const cur = parseFloat(String(value).replace(/,/g, '')) || 0;
     const next = Math.max(0, cur + amount);
     onChange(Number.isInteger(next) ? String(next) : next.toFixed(2));
   };

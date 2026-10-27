@@ -1,18 +1,146 @@
-/**
- * Recurring Transactions Manager Modal
- * View, trigger, and manage scheduled recurring expenses and incomes
- */
-
-import React, { useState } from 'react';
-import { X, RefreshCw, Calendar, Plus, Trash2, CheckCircle2, Clock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, RefreshCw, Plus, Trash2, CheckCircle2, Clock, Check } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { RecurringTransaction } from '../types';
+import { formatNumberWithCommas } from '../utils/formatters';
+import { useLongPress } from '../hooks/useLongPress';
 
 interface RecurringTransactionsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenAddModal: () => void;
 }
+
+interface RecurringItemRowProps {
+  item: RecurringTransaction;
+  isMultiSelect: boolean;
+  isSelected: boolean;
+  onToggleSelect: (id: string) => void;
+  onStartMultiSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+  accountName: string;
+  currencySymbol: string;
+  isArabic: boolean;
+}
+
+const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
+  item,
+  isMultiSelect,
+  isSelected,
+  onToggleSelect,
+  onStartMultiSelect,
+  onDelete,
+  accountName,
+  currencySymbol,
+  isArabic,
+}) => {
+  const { handlers } = useLongPress({
+    onLongPress: () => {
+      onStartMultiSelect(item.id);
+    },
+    onClick: () => {
+      if (isMultiSelect) {
+        onToggleSelect(item.id);
+      }
+    },
+  });
+
+  const getFrequencyDisplay = () => {
+    const adv = item.advancedSchedule;
+    if (adv?.isAdvanced) {
+      if (adv.scheduleType === 'weekly_days' && adv.daysOfWeek?.length) {
+        const daysMap = isArabic
+          ? ['أحد', 'إثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت']
+          : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        return adv.daysOfWeek.map((d) => daysMap[d]).join(', ');
+      }
+      if (adv.scheduleType === 'monthly_days' && adv.daysOfMonth?.length) {
+        return (isArabic ? 'أيام: ' : 'Days: ') + adv.daysOfMonth.join(', ');
+      }
+      if (adv.scheduleType === 'multiple_times_daily' && adv.timesOfDay?.length) {
+        return adv.timesOfDay.join(', ');
+      }
+    }
+    return item.frequency;
+  };
+
+  return (
+    <div
+      {...handlers}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onStartMultiSelect(item.id);
+      }}
+      className={`p-3.5 rounded-2xl border transition select-none flex items-center justify-between gap-3 ${
+        isSelected
+          ? 'bg-blue-950/40 border-blue-500/80 shadow-md shadow-blue-950/40 cursor-pointer'
+          : isMultiSelect
+          ? 'bg-zinc-900/60 hover:bg-zinc-850 border-zinc-800/80 cursor-pointer'
+          : 'bg-zinc-900/60 hover:border-zinc-700 border-zinc-800/80'
+      }`}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        {isMultiSelect && (
+          <div
+            className={`w-5 h-5 rounded-lg flex items-center justify-center transition border shrink-0 ${
+              isSelected
+                ? 'bg-blue-600 border-blue-500 text-white'
+                : 'bg-zinc-950 border-zinc-700 text-transparent'
+            }`}
+          >
+            <Check className="w-3.5 h-3.5 stroke-[3]" />
+          </div>
+        )}
+
+        <div className="w-10 h-10 rounded-xl bg-zinc-800/90 border border-zinc-700/60 flex items-center justify-center text-xl shrink-0">
+          {item.categoryIcon || '🔄'}
+        </div>
+
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-white truncate">
+              {item.description || item.categoryName || 'Recurring'}
+            </span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 capitalize shrink-0 truncate max-w-[120px]">
+              {getFrequencyDisplay()}
+            </span>
+          </div>
+          <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5 truncate">
+            <span className="truncate">{accountName}</span>
+            <span>•</span>
+            <span className="flex items-center gap-1 text-zinc-400 font-mono shrink-0">
+              <Clock className="w-3 h-3 text-amber-400" />
+              {isArabic ? 'الاستحقاق:' : 'Due:'} {item.nextDueDate}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 shrink-0">
+        <span
+          className={`font-mono text-sm font-bold ${
+            item.type === 'income' ? 'text-emerald-400' : 'text-red-400'
+          }`}
+        >
+          {item.type === 'income' ? '+' : '-'}
+          {currencySymbol}
+          {formatNumberWithCommas(item.amount, 2)}
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(item.id);
+          }}
+          className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition cursor-pointer"
+          title="Delete"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProps> = ({
   isOpen,
@@ -23,35 +151,56 @@ export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProp
     recurringTransactions,
     deleteRecurringTransaction,
     processDueRecurring,
+    executeManualRecurringRules,
+    openAddTxModal,
     settings,
     accounts,
-    showToast,
   } = useApp();
+
   const isArabic = settings.language === 'ar';
   const [isClosing, setIsClosing] = useState(false);
+  const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
+  const isMultiSelect = selectedRuleIds.length > 0;
+
+  // Auto-check recurring transactions on modal open
+  useEffect(() => {
+    processDueRecurring(false);
+  }, []);
 
   const handleAnimatedClose = () => {
     setIsClosing(true);
+    setSelectedRuleIds([]);
     setTimeout(() => {
       setIsClosing(false);
       onClose();
     }, 180);
   };
 
+  const handleToggleSelect = (id: string) => {
+    setSelectedRuleIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleStartMultiSelect = (id: string) => {
+    if (!selectedRuleIds.includes(id)) {
+      setSelectedRuleIds((prev) => [...prev, id]);
+    }
+  };
+
   const handleProcessNow = () => {
-    const processedCount = processDueRecurring();
-    if (processedCount > 0) {
-      showToast(
-        isArabic
-          ? `تم ترحيل ${processedCount} معاملة دورية بنجاح!`
-          : `Processed ${processedCount} recurring transaction(s)!`,
-        'success'
-      );
+    if (selectedRuleIds.length > 0) {
+      // Execute ONLY the selected rules without altering their future schedule
+      executeManualRecurringRules(selectedRuleIds);
+      setSelectedRuleIds([]);
     } else {
-      showToast(
-        isArabic ? 'لا توجد معاملات دورية مستحقة اليوم' : 'No recurring transactions due today',
-        'info'
-      );
+      // Prompt user with confirmation before processing all active rules
+      const message = isArabic
+        ? 'تنفيذ جميع القواعد النشطة الآن؟'
+        : 'Process all active rules now?';
+      if (window.confirm(message)) {
+        processDueRecurring(true);
+      }
     }
   };
 
@@ -78,26 +227,40 @@ export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProp
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 bg-zinc-900/40 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shrink-0">
               <RefreshCw className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-base font-bold text-white">
+            <div className="min-w-0">
+              <h3 className="text-base font-bold text-white truncate">
                 {isArabic ? 'المعاملات المتكررة المجدولة' : 'Recurring Transactions'}
               </h3>
-              <p className="text-[11px] text-zinc-400">
-                {isArabic ? 'إدارة المصاريف والدخول الدورية التلقائية' : 'Manage automatic scheduled expenses & income'}
+              <p className="text-[11px] text-zinc-400 truncate">
+                {isMultiSelect
+                  ? (isArabic ? `تم تحديد ${selectedRuleIds.length} قواعد` : `${selectedRuleIds.length} rules selected`)
+                  : (isArabic ? 'إدارة المصاريف والدخول الدورية التلقائية' : 'Manage automatic scheduled expenses & income')}
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleAnimatedClose}
-            className="p-1 rounded-full text-zinc-400 hover:text-white cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          <div className="flex items-center gap-2">
+            {isMultiSelect && (
+              <button
+                type="button"
+                onClick={() => setSelectedRuleIds([])}
+                className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition cursor-pointer"
+              >
+                {isArabic ? 'إلغاء' : 'Clear'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleAnimatedClose}
+              className="p-1 rounded-full text-zinc-400 hover:text-white cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Content List */}
@@ -116,54 +279,18 @@ export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProp
             </div>
           ) : (
             recurringTransactions.map((item) => (
-              <div
+              <RecurringItemRow
                 key={item.id}
-                className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 flex items-center justify-between gap-3 hover:border-zinc-700 transition"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center text-xl shrink-0">
-                    {item.categoryIcon || '🔄'}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-white truncate">
-                        {item.description || item.categoryName || 'Recurring'}
-                      </span>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 capitalize shrink-0">
-                        {item.frequency}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
-                      <span>{getAccountName(item.accountId)}</span>
-                      <span>•</span>
-                      <span className="flex items-center gap-1 text-zinc-500 font-mono">
-                        <Clock className="w-3 h-3 text-amber-400" />
-                        {isArabic ? 'الاستحقاق:' : 'Due:'} {item.nextDueDate}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 shrink-0">
-                  <span
-                    className={`font-mono text-sm font-black ${
-                      item.type === 'income' ? 'text-emerald-400' : 'text-red-400'
-                    }`}
-                  >
-                    {item.type === 'income' ? '+' : '-'}
-                    {settings.currencySymbol}
-                    {item.amount.toLocaleString()}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => deleteRecurringTransaction(item.id)}
-                    className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition cursor-pointer"
-                    title="Delete"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+                item={item}
+                isMultiSelect={isMultiSelect}
+                isSelected={selectedRuleIds.includes(item.id)}
+                onToggleSelect={handleToggleSelect}
+                onStartMultiSelect={handleStartMultiSelect}
+                onDelete={deleteRecurringTransaction}
+                accountName={getAccountName(item.accountId)}
+                currencySymbol={settings.currencySymbol || '£'}
+                isArabic={isArabic}
+              />
             ))
           )}
         </div>
@@ -173,17 +300,28 @@ export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProp
           <button
             type="button"
             onClick={handleProcessNow}
-            className="flex-1 py-2.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-300 hover:text-white flex items-center justify-center gap-2 transition cursor-pointer"
+            className={`flex-1 py-2.5 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer ${
+              isMultiSelect
+                ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-950/40'
+                : 'bg-zinc-900 hover:bg-zinc-850 border-zinc-750 text-zinc-300 hover:text-white'
+            }`}
           >
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>{isArabic ? 'ترحيل المستحق الآن' : 'Process Due Now'}</span>
+            <CheckCircle2 className={`w-4 h-4 ${isMultiSelect ? 'text-white' : 'text-emerald-400'}`} />
+            <span>
+              {isMultiSelect
+                ? (isArabic ? `تنفيذ المحدد (${selectedRuleIds.length})` : `Process Selected (${selectedRuleIds.length})`)
+                : (isArabic ? 'ترحيل المستحق الآن' : 'Process Due Now')}
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => {
               handleAnimatedClose();
-              setTimeout(onOpenAddModal, 200);
+              // AUTO-ENABLE TOGGLE: Opens AddTransactionModal with isRecurring pre-selected/checked automatically!
+              setTimeout(() => {
+                openAddTxModal(undefined, undefined, true);
+              }, 200);
             }}
             className="flex-1 py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-blue-600/30"
           >

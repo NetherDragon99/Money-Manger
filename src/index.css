@@ -4,6 +4,9 @@
 html {
   -webkit-tap-highlight-color: transparent;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  font-size: clamp(13px, 3.6vw, 16px);
   overscroll-behavior-y: none;
 }
 
@@ -18,6 +21,43 @@ html, body, #root {
   width: 100%;
   min-height: 100%;
   max-width: 100%;
+}
+
+/* High-Zoom & Large OS Display Scaling Guard */
+*, ::before, ::after {
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+header, nav, [role="dialog"], .modal-container-anim, .card, [class*="card"] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+header, nav {
+  min-height: fit-content;
+}
+
+/* Modals fluid viewport constraint on high zoom */
+[role="dialog"] {
+  max-height: 92vh;
+  max-height: 92dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Safe area padding utilities */
+.safe-area-top {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+}
+.safe-area-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+.safe-area-left {
+  padding-left: max(0.5rem, env(safe-area-inset-left));
+}
+.safe-area-right {
+  padding-right: max(0.5rem, env(safe-area-inset-right));
 }
 
 /* Scrollbar styling */

@@ -15,6 +15,8 @@ declare global {
   interface Window {
     deferredPwaPrompt: BeforeInstallPromptEvent | null;
     deferredPWAInstallPrompt: BeforeInstallPromptEvent | null;
+    __appMounted?: boolean;
+    __clearBootWatchdog?: () => void;
   }
 }
 
@@ -166,4 +168,21 @@ if (rootEl) {
       <App />
     </RootErrorBoundary>
   );
+
+  // Mark app as successfully mounted, disarming boot error listeners and watchdog
+  window.__appMounted = true;
+  if (typeof window.__clearBootWatchdog === 'function') {
+    window.__clearBootWatchdog();
+  }
+
+  // Seamlessly fade out and detach the raw HTML boot loader
+  const bootLoader = document.getElementById('app-boot-loader');
+  if (bootLoader) {
+    bootLoader.style.transition = 'opacity 0.25s ease-out';
+    bootLoader.style.opacity = '0';
+    bootLoader.style.pointerEvents = 'none';
+    setTimeout(() => {
+      bootLoader.remove();
+    }, 260);
+  }
 }

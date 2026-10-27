@@ -98,26 +98,31 @@ export function matchesTransactionSearch(
     resolvedDestName,
   ];
 
-  // 4. Amount (Raw and Formatted)
+  // 4. Amount (Raw and Formatted with thousands commas)
   const amountFields: string[] = [];
-  if (tx?.amount !== undefined && tx?.amount !== null && !isNaN(Number(tx.amount))) {
-    const num = Number(tx.amount);
-    const rawAmt = tx.amount.toString();
-    const formattedAmt = num.toLocaleString();
+  if (tx?.amount !== undefined && tx?.amount !== null && !isNaN(Number(String(tx.amount).replace(/,/g, '')))) {
+    const num = Number(String(tx.amount).replace(/,/g, ''));
+    const rawAmt = num.toString();
+    const commaAmt = num.toLocaleString('en-US');
+    const commaFixed2 = num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fixedAmt = num.toFixed(2);
-    amountFields.push(rawAmt, formattedAmt, fixedAmt);
+    amountFields.push(rawAmt, commaAmt, commaFixed2, fixedAmt);
 
     if (context?.currencySymbol) {
       const sym = context.currencySymbol;
       amountFields.push(
         `${sym}${rawAmt}`,
         `${sym} ${rawAmt}`,
-        `${sym}${formattedAmt}`,
-        `${sym} ${formattedAmt}`,
+        `${sym}${commaAmt}`,
+        `${sym} ${commaAmt}`,
+        `${sym}${commaFixed2}`,
+        `${sym} ${commaFixed2}`,
         `${rawAmt}${sym}`,
         `${rawAmt} ${sym}`,
-        `${formattedAmt}${sym}`,
-        `${formattedAmt} ${sym}`
+        `${commaAmt}${sym}`,
+        `${commaAmt} ${sym}`,
+        `${commaFixed2}${sym}`,
+        `${commaFixed2} ${sym}`
       );
     }
   }
@@ -134,10 +139,13 @@ export function matchesTransactionSearch(
     ...dateFields,
   ];
 
+  const queryWithoutCommas = normalizedQuery.replace(/,/g, '');
   return allTargets.some((target) => {
     if (!target) return false;
     const normalizedTarget = normalizeSearchText(target);
-    return normalizedTarget.includes(normalizedQuery);
+    if (normalizedTarget.includes(normalizedQuery)) return true;
+    if (queryWithoutCommas && normalizedTarget.replace(/,/g, '').includes(queryWithoutCommas)) return true;
+    return false;
   });
 }
 
