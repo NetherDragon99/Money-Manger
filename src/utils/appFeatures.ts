@@ -21,6 +21,26 @@ export interface FeatureItem {
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.48',
+    releaseDate: 'October 27, 2026',
+    title: {
+      en: 'GitHub Pages Relative Base Path & Startup White-Screen Resilience Hotfix',
+      ar: 'إصلاح عاجل لمسار GitHub Pages وحماية التطبيق من الشاشة البيضاء عند بدء التشغيل',
+    },
+    highlights: {
+      en: [
+        'GitHub Pages Relative Base Resolution: Restored dynamic relative base path (base = isDev ? "/" : "./") and base-aware PWA manifest IDs and relative icons, resolving asset 404s and blank screens on GitHub Pages.',
+        'Startup & Offline Clock Resilience: Lazily initialized Firebase server time offset listeners with safe guards, eliminating unhandled top-level module exceptions during initial hydration.',
+        'Bilingual Error Boundary & Safe Early Scripts: Hardened the top-level React RootErrorBoundary with bilingual Arabic/English recovery options and guarded early PWA installation script listeners against runtime exceptions.',
+      ],
+      ar: [
+        'إصلاح المسار النسبي لـ GitHub Pages: استعادة المسار النسبي الديناميكي ومسارات ملف الـ manifest والأيقونات النسبية، مما يحل مشكلة الشاشة البيضاء وأخطاء 404 لتحميل الملفات.',
+        'مرونة بدء التشغيل ومزامنة الوقت: تهيئة مستمع فارق توقيت خادم Firebase بشكل آمن ومؤجل داخل دالة syncNow لتفادي أي استثناءات غير معالجة أثناء تحميل الوحدات.',
+        'شاشة استرداد ثنائية اللغة وحماية السكربت الأولي: تعزيز حاجز أخطاء React بشاشة استرداد ثنائية اللغة (عربي وإنجليزي) وتأمين استدعاءات تثبيت PWA المبكرة داخل try/catch لمنع أي توقف في التشغيل.',
+      ],
+    },
+  },
+  {
     version: '1.1.47',
     releaseDate: 'October 26, 2026',
     title: {

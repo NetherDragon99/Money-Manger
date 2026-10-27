@@ -92,11 +92,13 @@ class RootErrorBoundary extends Component<Props, State> {
             boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
           }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
-            <h1 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>
-              App Encountered an Issue
+            <h1 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>
+              App Encountered an Issue / واجه التطبيق مشكلة
             </h1>
-            <p style={{ fontSize: '13px', color: '#a1a1aa', marginBottom: '24px', lineHeight: '1.5' }}>
+            <p style={{ fontSize: '13px', color: '#a1a1aa', marginBottom: '24px', lineHeight: '1.6' }}>
               The application encountered a problem during startup. You can reload or reset stored data to return to a fresh state.
+              <br />
+              واجه التطبيق مشكلة أثناء بدء التشغيل. يمكنك إعادة التحميل أو إعادة تعيين البيانات المخزنة للعودة إلى حالة جديدة.
             </p>
             {this.state.error && (
               <pre style={{
@@ -128,7 +130,7 @@ class RootErrorBoundary extends Component<Props, State> {
                   cursor: 'pointer'
                 }}
               >
-                Reload
+                Reload / إعادة تحميل
               </button>
               <button
                 type="button"
@@ -145,7 +147,7 @@ class RootErrorBoundary extends Component<Props, State> {
                   cursor: 'pointer'
                 }}
               >
-                Reset Data
+                Reset / إعادة تعيين
               </button>
             </div>
           </div>

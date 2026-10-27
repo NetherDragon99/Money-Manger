@@ -3,7 +3,7 @@
  * Performs background version checks and coordinates seamless client-side updates.
  */
 
-export const CURRENT_APP_VERSION = '1.1.47';
+export const CURRENT_APP_VERSION = '1.1.48';
 const BACKUP_VERSION_ENDPOINT = 'NetherDragon99/Money-Manger';
 const AUTO_UPDATE_STORAGE_KEY = 'mm_auto_update_enabled';
 
@@ -66,9 +66,11 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
 
   // 1. Check live version.json on deployed host (bypassing browser cache)
   try {
-    const isGhPages = window.location.pathname.startsWith('/Money-Manger');
-    const base = isGhPages ? '/Money-Manger/' : '/';
-    const versionUrl = `${base}version.json?_t=${Date.now()}`;
+    const baseUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL)
+      ? import.meta.env.BASE_URL
+      : (typeof window !== 'undefined' && window.location.pathname.startsWith('/Money-Manger') ? '/Money-Manger/' : './');
+    const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+    const versionUrl = `${cleanBase}version.json?_t=${Date.now()}`;
     const res = await fetch(versionUrl, {
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Accept: 'application/json' },

@@ -4,9 +4,12 @@ import path from 'path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(() => {
+export default defineConfig(({ command }) => {
+  const isDev = command === 'serve';
+  const base = isDev ? '/' : './';
+
   return {
-    base: '/',
+    base,
     plugins: [
       react(),
       tailwindcss(),
@@ -22,7 +25,7 @@ export default defineConfig(() => {
           'pwa-512x512.png',
         ],
         manifest: {
-          id: '/',
+          id: base,
           name: 'Personal Finance Tracker',
           short_name: 'FinanceApp',
           description:
@@ -32,25 +35,25 @@ export default defineConfig(() => {
           display: 'standalone',
           display_override: ['standalone'],
           orientation: 'any',
-          start_url: '/',
-          scope: '/',
+          start_url: base,
+          scope: base,
           categories: ['finance', 'productivity', 'utilities'],
           prefer_related_applications: false,
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: 'pwa-192x192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-512x512.png',
+              src: 'pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-512x512.png',
+              src: 'pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
@@ -62,7 +65,7 @@ export default defineConfig(() => {
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
-          navigateFallback: 'index.html',
+          navigateFallback: isDev ? '/index.html' : 'index.html',
           navigateFallbackDenylist: [/^\/api/],
           runtimeCaching: [
             {

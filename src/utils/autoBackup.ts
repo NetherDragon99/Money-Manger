@@ -169,7 +169,7 @@ export async function executeAutoBackup(data: AppData): Promise<{ success: boole
   const fileName = `auto_backup_${timestamp}.json`;
 
   const backupPayload = {
-    version: '1.1.47',
+    version: '1.1.48',
     type: 'automated_backup',
     backupDate: new Date().toISOString(),
     ...data,
@@ -619,12 +619,20 @@ export function scheduleDualCloudBackup(
 // ============================================================================
 
 let serverTimeOffset = 0;
-if (typeof localStorage !== 'undefined') {
-  serverTimeOffset = Number(localStorage.getItem('mm_server_time_offset')) || 0;
-}
+let serverTimeOffsetListenerInitialized = false;
 
-if (typeof window !== 'undefined' && rtdb) {
+export function initServerTimeOffsetListener(): void {
+  if (serverTimeOffsetListenerInitialized) return;
+  if (typeof window === 'undefined') return;
   try {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem('mm_server_time_offset');
+      if (stored) {
+        serverTimeOffset = Number(stored) || 0;
+      }
+    }
+    if (!rtdb) return;
+    serverTimeOffsetListenerInitialized = true;
     const offsetRef = ref(rtdb, '.info/serverTimeOffset');
     onValue(offsetRef, (snap) => {
       const val = Number(snap.val());
@@ -645,9 +653,15 @@ if (typeof window !== 'undefined' && rtdb) {
  * Compensates for device clock skew using RTDB .info/serverTimeOffset.
  */
 export function syncNow(): number {
-  const cachedOffset = typeof localStorage !== 'undefined'
-    ? Number(localStorage.getItem('mm_server_time_offset')) || 0
-    : 0;
+  if (!serverTimeOffsetListenerInitialized) {
+    initServerTimeOffsetListener();
+  }
+  let cachedOffset = 0;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      cachedOffset = Number(localStorage.getItem('mm_server_time_offset')) || 0;
+    }
+  } catch {}
   return Date.now() + (cachedOffset || serverTimeOffset || 0);
 }
 
