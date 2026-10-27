@@ -377,8 +377,8 @@ interface AppContextType {
   setActiveShareDetailFolder: (folder: any | null) => void;
   selectedFeatureId: string | null;
   setSelectedFeatureId: (id: string | null) => void;
-  featureGuideLayout: 'grid' | 'split' | 'full';
-  setFeatureGuideLayout: (layout: 'grid' | 'split' | 'full') => void;
+  featureGuideLayout: 'grid' | 'split' | 'preview' | 'full';
+  setFeatureGuideLayout: (layout: 'grid' | 'split' | 'preview' | 'full') => void;
 
   // Seamless Shared Account Live View Switcher
   activeSharedId: string | null;
@@ -3353,7 +3353,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Sub-pages and Deep Navigation
   const [activeShareDetailFolder, setActiveShareDetailFolder] = useState<any | null>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
-  const [featureGuideLayout, setFeatureGuideLayout] = useState<'grid' | 'split' | 'full'>('grid');
+  const [featureGuideLayout, setFeatureGuideLayout] = useState<'grid' | 'split' | 'preview' | 'full'>('grid');
 
   // Seamless Shared Account Live View Switcher (Item 13)
   const [activeSharedId, setActiveSharedId] = useState<string | null>(() => {

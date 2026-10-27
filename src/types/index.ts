@@ -233,6 +233,7 @@ export interface FeatureItem {
   title: { en: string; ar: string };
   subtitle: { en: string; ar: string }; // 2-to-5-word summary subtitle (Grid Only)
   description: { en: string; ar: string }; // Thorough practical description
+  whereToFind?: { en: string; ar: string }; // Dedicated "Where to Find It" path & location
   howToUse: { en: string[]; ar: string[] }; // Step-by-step practical guide
   proTip?: { en: string; ar: string }; // Strictly optional genuine helpful tip
 }

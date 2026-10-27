@@ -10,16 +10,17 @@ import {
   BookOpen,
   ChevronRight,
   HelpCircle,
-  Eye,
-  EyeOff,
   LayoutGrid,
   Loader2,
   AlertTriangle,
   RotateCcw,
+  Compass,
+  MapPin,
+  Columns2,
+  PanelLeftClose,
+  PanelLeftOpen,
   ArrowLeft,
   ArrowRight,
-  Maximize2,
-  Minimize2,
 } from 'lucide-react';
 import { CURRENT_APP_VERSION } from '../utils/versionChecker';
 import { FeatureItem, ReleaseNote } from '../types';
@@ -84,7 +85,8 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
       const title = (isArabic ? feat.title.ar : feat.title.en).toLowerCase();
       const subtitle = (isArabic ? feat.subtitle.ar : feat.subtitle.en).toLowerCase();
       const desc = (isArabic ? feat.description.ar : feat.description.en).toLowerCase();
-      return title.includes(q) || subtitle.includes(q) || desc.includes(q);
+      const where = (isArabic ? (feat.whereToFind?.ar || '') : (feat.whereToFind?.en || '')).toLowerCase();
+      return title.includes(q) || subtitle.includes(q) || desc.includes(q) || where.includes(q);
     });
   }, [featuresData?.features, searchQuery, isArabic]);
 
@@ -95,13 +97,22 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
   }, [featuresData?.features, selectedId]);
 
   // Transition Helpers
-  const openFeatureInSplit = (id: string) => {
+  const openFeatureInPreview = (id: string) => {
     setSelectedId(id);
-    setFeatureGuideLayout('split');
+    setFeatureGuideLayout('preview');
   };
 
-  const expandToFullscreen = () => {
-    setFeatureGuideLayout('full');
+  const returnToGrid = () => {
+    setSelectedId(null);
+    setFeatureGuideLayout('grid');
+  };
+
+  const toggleSplitAndPreview = () => {
+    if (featureGuideLayout === 'split') {
+      setFeatureGuideLayout('preview');
+    } else {
+      setFeatureGuideLayout('split');
+    }
   };
 
   const handleAnimatedClose = () => {
@@ -112,7 +123,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
     }, 180);
   };
 
-  // 2. TOUCH GESTURE HANDLING: Horizontal Swipe Transitions with RTL Support
+  // 2. TOUCH GESTURE HANDLING: Directional Swipes between Preview, Split, and Grid
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
 
@@ -128,45 +139,61 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
     touchStartXRef.current = null;
     touchStartYRef.current = null;
 
-    // Guard: ignore vertical scrolls
-    if (Math.abs(deltaY) > Math.abs(deltaX) || Math.abs(deltaX) < 45) {
+    // Guard: ignore vertical scrolls or tiny taps
+    if (Math.abs(deltaY) > Math.abs(deltaX) || Math.abs(deltaX) < 40) {
       return;
     }
 
+    const isSplit = featureGuideLayout === 'split';
+    const isPreview = featureGuideLayout === 'preview' || featureGuideLayout === 'full';
+
     if (isArabic) {
-      // RTL: Inward swipe is Right (deltaX > 45), Return swipe is Left (deltaX < -45)
-      if (featureGuideLayout === 'split' && deltaX > 45) {
-        // Swipe inward -> Expand to Fullscreen State 3
-        expandToFullscreen();
-      } else if (featureGuideLayout === 'full' && deltaX < -45) {
-        // Swipe back once from State 3 -> Return to State 2
-        navigateBack();
-      } else if (featureGuideLayout === 'split' && deltaX < -45) {
-        // Swipe in return direction again from State 2 -> Collapse to State 1
-        navigateBack();
+      // In Arabic RTL:
+      if (isPreview) {
+        // Swiping Left-to-Right or inward expands from thin sidebar to 50/50 split
+        if (deltaX > 40 || deltaX < -40) {
+          setFeatureGuideLayout('split');
+        }
+      } else if (isSplit) {
+        // In 50/50 split view:
+        if (deltaX > 40) {
+          // Swipe in opposite direction returns to thin sidebar preview
+          setFeatureGuideLayout('preview');
+        } else if (deltaX < -40) {
+          // Swipe again towards return returns back to full cards grid
+          returnToGrid();
+        }
       }
     } else {
-      // LTR: Inward swipe is Left (deltaX < -45), Return swipe is Right (deltaX > 45)
-      if (featureGuideLayout === 'split' && deltaX < -45) {
-        // Swipe inward -> Expand to Fullscreen State 3
-        expandToFullscreen();
-      } else if (featureGuideLayout === 'full' && deltaX > 45) {
-        // Swipe back once from State 3 -> Return to State 2
-        navigateBack();
-      } else if (featureGuideLayout === 'split' && deltaX > 45) {
-        // Swipe in return direction again from State 2 -> Collapse to State 1
-        navigateBack();
+      // In LTR (English):
+      if (isPreview) {
+        // Swiping Left-to-Right while in preview mode expands sidebar to 50% and pushes detail panel
+        if (deltaX > 40) {
+          setFeatureGuideLayout('split');
+        }
+      } else if (isSplit) {
+        // In 50/50 split mode:
+        if (deltaX < -40) {
+          // Swiping in opposite direction (Right-to-Left) returns to thin sidebar preview
+          setFeatureGuideLayout('preview');
+        } else if (deltaX > 40) {
+          // Swiping Left-to-Right again returns back to the initial grid view
+          returnToGrid();
+        }
       }
     }
   };
 
   if (!isOpen) return null;
 
+  const isSplitMode = featureGuideLayout === 'split';
+  const isPreviewMode = featureGuideLayout === 'preview' || featureGuideLayout === 'full';
+
   return (
     <div
       onClick={handleAnimatedClose}
       onTouchMove={(e) => e.stopPropagation()}
-      className={`fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 overflow-y-auto bg-black/70 backdrop-blur-md overscroll-contain transition-all duration-200 ${
+      className={`fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 overflow-y-auto bg-black/75 backdrop-blur-md overscroll-contain transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
       dir={isArabic ? 'rtl' : 'ltr'}
@@ -178,7 +205,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
         }`}
       >
         {/* Top Header Bar */}
-        <div className="flex items-center justify-between px-5 sm:px-6 py-3.5 border-b border-zinc-800/80 bg-zinc-900/50 shrink-0">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-zinc-800/80 bg-zinc-900/50 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0">
               <BookOpen className="w-5 h-5" />
@@ -193,14 +220,14 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* If in State 2 or State 3, show return to grid button */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* If a feature is selected, show back-to-grid button */}
             {selectedId !== null && (
               <button
                 type="button"
-                onClick={navigateBack}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 transition cursor-pointer active:scale-95"
-                title={isArabic ? 'العودة لشبكة البطاقات' : 'Back to Grid'}
+                onClick={returnToGrid}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 transition cursor-pointer active:scale-95"
+                title={isArabic ? 'العودة للشبكة الرئيسية' : 'Return to Grid'}
               >
                 <LayoutGrid className="w-3.5 h-3.5 text-blue-400" />
                 <span className="hidden sm:inline">{isArabic ? 'عرض الشبكة' : 'Grid View'}</span>
@@ -277,8 +304,8 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder={
                           isArabic
-                            ? 'ابحث في كافة المميزات والأدلة...'
-                            : 'Search all features, guides, and tools...'
+                            ? 'ابحث في كافة المميزات والأدلة ومسارات الوصول...'
+                            : 'Search features, usage guides, and paths...'
                         }
                         className="w-full pl-9 pr-9 rtl:pl-9 rtl:pr-9 py-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
                       />
@@ -289,7 +316,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                   <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
                     {/* Release Notes Highlight Card */}
                     <div
-                      onClick={() => openFeatureInSplit('changelog')}
+                      onClick={() => openFeatureInPreview('changelog')}
                       role="button"
                       tabIndex={0}
                       className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-blue-950/40 via-zinc-900 to-zinc-900/90 border border-blue-500/30 hover:border-blue-400 hover:scale-[1.008] transition cursor-pointer shadow-lg group"
@@ -319,12 +346,12 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                       </div>
                     </div>
 
-                    {/* Feature Cards Grid (State 1: Displays Icon + Title + 2-5 Word Subtitle) */}
+                    {/* Feature Cards Grid (State 1: Displays Icon + Distinctive Title + Subtitle + Description) */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
                       {filteredFeatures.map((feat) => (
                         <div
                           key={feat.id}
-                          onClick={() => openFeatureInSplit(feat.id)}
+                          onClick={() => openFeatureInPreview(feat.id)}
                           role="button"
                           tabIndex={0}
                           className="p-4 rounded-3xl bg-zinc-900/80 border border-zinc-800/80 hover:bg-zinc-850 hover:border-zinc-700 hover:scale-[1.01] active:scale-[0.99] transition cursor-pointer flex flex-col justify-between group shadow-md"
@@ -344,7 +371,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                               {isArabic ? feat.title.ar : feat.title.en}
                             </h4>
 
-                            {/* Ultra-Concise 2-to-5-Word Subtitle (GRID ONLY) */}
+                            {/* Ultra-Concise Subtitle (GRID ONLY) */}
                             <p className="text-xs font-medium text-blue-400/90 mt-1">
                               {isArabic ? feat.subtitle.ar : feat.subtitle.en}
                             </p>
@@ -366,60 +393,119 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                 </div>
               ) : (
                 /* =========================================================================
-                    STATE 2 & STATE 3: 50/50 SPLIT VIEW & FULL-SCREEN DETAIL VIEW
+                    STATE 2 & STATE 3: INTERACTIVE 3-STATE MOTION ARCHITECTURE
+                    - Thin Sidebar (Preview Mode) OR 50/50 Expanded Sidebar (Split Mode)
+                    - Detail Panel smoothly adapts with animated push/glide
                     ========================================================================= */
                 <div
                   className="flex-1 flex min-h-0 overflow-hidden relative"
                   onTouchStart={handleTouchStart}
                   onTouchEnd={handleTouchEnd}
                 >
-                  {/* SIDE 1: COMPACT TITLES LIST
-                      - Visible in State 2 (50/50 split).
-                      - Hidden when in State 3 (full-screen detail view).
-                      - Subtitle is STRICTLY HIDDEN here as requested! */}
+                  {/* SIDEBAR CONTAINER:
+                      - In Preview Mode: Thins out to ~76-92px showing ONLY Icon + Title!
+                      - In Split Mode: Expands smoothly to 50% width!
+                      - Smooth motion animation with CSS transition */}
                   <div
-                    className={`border-r rtl:border-l rtl:border-r-0 border-zinc-800/80 bg-zinc-950 flex flex-col shrink-0 overflow-y-auto select-none transition-all duration-300 ease-in-out ${
-                      featureGuideLayout === 'full'
-                        ? 'hidden'
-                        : 'w-full sm:w-1/2 md:w-1/2 p-3 space-y-2'
+                    className={`border-r rtl:border-l rtl:border-r-0 border-zinc-800/80 bg-zinc-950 flex flex-col shrink-0 select-none transition-all duration-300 ease-in-out ${
+                      isSplitMode
+                        ? 'w-full sm:w-1/2 md:w-1/2 p-3 space-y-2 overflow-y-auto'
+                        : 'w-[76px] sm:w-[84px] md:w-[92px] p-2 space-y-2 overflow-y-auto items-center'
                     }`}
                   >
                     {/* Header in Split Mode */}
-                    <div className="flex items-center justify-between pb-2 border-b border-zinc-800/80 px-1">
-                      <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                        {isArabic ? 'قائمة المميزات' : 'Feature Directory'}
-                      </span>
+                    {isSplitMode && (
+                      <div className="flex items-center justify-between pb-2 border-b border-zinc-800/80 px-1 shrink-0">
+                        <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                          {isArabic ? 'قائمة المميزات' : 'Feature Directory'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={returnToGrid}
+                          className="text-xs font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer"
+                        >
+                          <LayoutGrid className="w-3.5 h-3.5" />
+                          <span>{isArabic ? 'الشبكة' : 'All Cards'}</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Release Notes Item in Sidebar */}
+                    {isSplitMode ? (
                       <button
                         type="button"
-                        onClick={navigateBack}
-                        className="text-xs font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer"
+                        onClick={() => setSelectedId('changelog')}
+                        className={`w-full p-2.5 rounded-2xl flex items-center gap-3 transition cursor-pointer text-left rtl:text-right ${
+                          selectedId === 'changelog'
+                            ? 'bg-blue-600/25 border border-blue-500/60 text-white shadow-md'
+                            : 'bg-zinc-900/60 border border-zinc-800/60 text-zinc-400 hover:bg-zinc-850 hover:text-white'
+                        }`}
                       >
-                        <LayoutGrid className="w-3.5 h-3.5" />
-                        <span>{isArabic ? 'الشبكة' : 'All Cards'}</span>
+                        <div className="w-8 h-8 rounded-xl bg-blue-600/20 flex items-center justify-center text-blue-400 shrink-0">
+                          <History className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-xs font-bold truncate block">
+                            {isArabic ? 'سجل التحديثات والإصدارات' : 'Release Notes & Updates'}
+                          </span>
+                          <span className="text-[10px] text-blue-400 font-mono">
+                            Beta v{CURRENT_APP_VERSION}
+                          </span>
+                        </div>
                       </button>
-                    </div>
+                    ) : (
+                      /* Thin Sidebar Button: Shows Icon and Title ONLY */
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId('changelog')}
+                        className={`w-full py-2.5 px-1 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer active:scale-95 ${
+                          selectedId === 'changelog'
+                            ? 'bg-blue-600/25 border border-blue-500/60 text-white shadow-lg shadow-blue-500/20'
+                            : 'bg-zinc-900/40 border border-zinc-800/40 text-zinc-400 hover:bg-zinc-850 hover:text-white'
+                        }`}
+                        title={isArabic ? 'سجل التحديثات' : 'Release Notes'}
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-blue-600/20 flex items-center justify-center text-blue-400 shrink-0">
+                          <History className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="text-[10px] font-bold text-center leading-tight line-clamp-2 max-w-[68px] px-0.5">
+                          {isArabic ? 'التحديثات' : 'Updates'}
+                        </span>
+                      </button>
+                    )}
 
-                    {/* Release Notes Button */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId('changelog')}
-                      className={`w-full p-2.5 rounded-2xl flex items-center gap-3 transition cursor-pointer text-left rtl:text-right ${
-                        selectedId === 'changelog'
-                          ? 'bg-blue-600/20 border border-blue-500/50 text-white shadow-md'
-                          : 'bg-zinc-900/60 border border-zinc-800/60 text-zinc-400 hover:bg-zinc-850 hover:text-white'
-                      }`}
-                    >
-                      <div className="w-8 h-8 rounded-xl bg-blue-600/20 flex items-center justify-center text-blue-400 shrink-0">
-                        <History className="w-4 h-4" />
-                      </div>
-                      <span className="text-xs font-bold truncate flex-1">
-                        {isArabic ? 'سجل التحديثات' : 'Release Notes'}
-                      </span>
-                    </button>
-
-                    {/* Features Compact List: Icon + Distinctive Title ONLY (Subtitle is HIDDEN) */}
+                    {/* Features List:
+                        - In Thin Mode: Icon and Distinctive Title ONLY!
+                        - In Split Mode: Icon, Title, and Category badge!
+                        - Clicking ANY item immediately updates the detail panel! */}
                     {featuresData?.features.map((feat) => {
                       const isSelected = selectedId === feat.id;
+
+                      if (!isSplitMode) {
+                        /* THIN SIDEBAR ITEM: Icon + Title ONLY as strictly requested */
+                        return (
+                          <button
+                            key={feat.id}
+                            type="button"
+                            onClick={() => setSelectedId(feat.id)}
+                            className={`w-full py-2.5 px-1 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer active:scale-95 group ${
+                              isSelected
+                                ? 'bg-blue-600/25 border border-blue-500/60 text-white shadow-lg shadow-blue-500/20'
+                                : 'bg-zinc-900/40 border border-zinc-800/40 text-zinc-400 hover:bg-zinc-850 hover:text-white'
+                            }`}
+                            title={isArabic ? feat.title.ar : feat.title.en}
+                          >
+                            <span className="text-2xl shrink-0 group-hover:scale-110 transition-transform">
+                              {feat.icon}
+                            </span>
+                            <span className="text-[10px] font-bold text-center leading-tight line-clamp-2 max-w-[68px] px-0.5">
+                              {isArabic ? feat.title.ar : feat.title.en}
+                            </span>
+                          </button>
+                        );
+                      }
+
+                      /* 50% SPLIT VIEW ITEM */
                       return (
                         <button
                           key={feat.id}
@@ -431,24 +517,36 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                               : 'bg-zinc-900/40 border border-zinc-800/40 text-zinc-400 hover:bg-zinc-850 hover:text-white'
                           }`}
                         >
-                          <span className="text-xl shrink-0">{feat.icon}</span>
-                          <span className="text-xs font-bold truncate flex-1 leading-snug">
-                            {isArabic ? feat.title.ar : feat.title.en}
-                          </span>
+                          <span className="text-2xl shrink-0">{feat.icon}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-bold truncate leading-snug">
+                                {isArabic ? feat.title.ar : feat.title.en}
+                              </span>
+                              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                                {feat.category}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-zinc-400 truncate block mt-0.5">
+                              {isArabic ? feat.subtitle.ar : feat.subtitle.en}
+                            </span>
+                          </div>
                         </button>
                       );
                     })}
                   </div>
 
-                  {/* SIDE 2: DETAILED GUIDE PANEL
-                      - Takes 50% in State 2 (Split View).
-                      - Takes 100% (full-width) in State 3 (Full-Screen Detail View). */}
+                  {/* DETAIL PANEL:
+                      - In Preview Mode: Takes the full remainder of the view.
+                      - In Split Mode: Pushed and flexed to take 50% with smooth motion animation.
+                      - Contains Icon, Description, "Where to Find", "How to Use", and "Pro Tip".
+                      - Strictly never outputs "preview pannel" or "preview mode" labels! */}
                   <div
-                    className={`flex-1 flex flex-col bg-zinc-950 overflow-hidden transition-all duration-300 ease-in-out ${
-                      featureGuideLayout === 'full' ? 'w-full' : 'w-full sm:w-1/2 md:w-1/2'
+                    className={`flex-1 flex flex-col bg-zinc-950 overflow-hidden min-w-0 transition-all duration-300 ease-in-out ${
+                      isSplitMode ? 'w-full sm:w-1/2 md:w-1/2' : 'w-full'
                     }`}
                   >
-                    {/* Detail Panel Header */}
+                    {/* Detail Header */}
                     <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-zinc-800/80 bg-zinc-900/50 shrink-0">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="text-sm sm:text-base font-bold text-white truncate">
@@ -465,46 +563,57 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {/* Expand/Collapse Toggle Button */}
-                        {featureGuideLayout === 'split' ? (
-                          <button
-                            type="button"
-                            onClick={expandToFullscreen}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-medium transition cursor-pointer active:scale-95"
-                            title={isArabic ? 'توسيع بملء الشاشة' : 'Expand Fullscreen'}
-                          >
-                            <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
-                            <span className="hidden sm:inline">{isArabic ? 'توسيع' : 'Expand'}</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={navigateBack}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-medium transition cursor-pointer active:scale-95"
-                            title={isArabic ? 'تصغير إلى العرض المقسم' : 'Collapse to Split'}
-                          >
-                            <Minimize2 className="w-3.5 h-3.5 text-blue-400" />
-                            <span className="hidden sm:inline">{isArabic ? 'تصغير' : 'Collapse'}</span>
-                          </button>
-                        )}
-
-                        {/* Close / Back Button to return to Grid */}
+                        {/* Toggle Split / Full Detail View */}
                         <button
                           type="button"
-                          onClick={navigateBack}
-                          className="p-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
-                          title={isArabic ? 'العودة للشبكة' : 'Return to Grid'}
+                          onClick={toggleSplitAndPreview}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold transition cursor-pointer active:scale-95"
+                          title={
+                            isSplitMode
+                              ? isArabic
+                                ? 'توسيع عرض التفاصيل'
+                                : 'Expand Details'
+                              : isArabic
+                              ? 'تقسيم الشاشة'
+                              : 'Split View'
+                          }
                         >
-                          <X className="w-4 h-4" />
+                          {isSplitMode ? (
+                            <PanelLeftClose className="w-3.5 h-3.5 text-blue-400" />
+                          ) : (
+                            <PanelLeftOpen className="w-3.5 h-3.5 text-blue-400" />
+                          )}
+                          <span className="hidden sm:inline">
+                            {isSplitMode
+                              ? isArabic
+                                ? 'توسيع'
+                                : 'Expand'
+                              : isArabic
+                              ? 'تقسيم'
+                              : 'Split'}
+                          </span>
+                        </button>
+
+                        {/* Back to Grid Button */}
+                        <button
+                          type="button"
+                          onClick={returnToGrid}
+                          className="p-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                          title={isArabic ? 'العودة لشبكة البطاقات' : 'Return to Grid'}
+                        >
+                          <LayoutGrid className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
 
                     {/* Detail Panel Scrollable Body */}
-                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+                    <div
+                      key={selectedId}
+                      className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 animate-in fade-in duration-200"
+                    >
                       {selectedId === 'changelog' ? (
                         /* RELEASE NOTES CONTENT */
-                        <div className="space-y-4 animate-in fade-in">
+                        <div className="space-y-4">
                           <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800">
                             <div className="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0">
                               <History className="w-4 h-4" />
@@ -573,15 +682,15 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                         </div>
                       ) : selectedFeature ? (
                         /* FEATURE GUIDE DETAIL CONTENT */
-                        <div className="space-y-5 animate-in fade-in">
+                        <div className="space-y-5">
                           {/* Banner */}
-                          <div className="p-5 rounded-3xl bg-zinc-900/80 border border-zinc-800/80 space-y-3">
-                            <div className="flex items-center gap-3.5">
+                          <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/80 border border-zinc-800/80 space-y-3 shadow-md">
+                            <div className="flex items-start gap-3.5">
                               <div className="w-14 h-14 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-3xl shadow-inner shrink-0">
                                 {selectedFeature.icon}
                               </div>
-                              <div>
-                                <div className="flex items-center gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <h4 className="text-base sm:text-lg font-black text-white">
                                     {isArabic ? selectedFeature.title.ar : selectedFeature.title.en}
                                   </h4>
@@ -589,7 +698,10 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                                     {selectedFeature.category}
                                   </span>
                                 </div>
-                                <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                                <p className="text-xs font-semibold text-blue-400 mt-0.5">
+                                  {isArabic ? selectedFeature.subtitle.ar : selectedFeature.subtitle.en}
+                                </p>
+                                <p className="text-xs text-zinc-300 mt-2 leading-relaxed">
                                   {isArabic
                                     ? selectedFeature.description.ar
                                     : selectedFeature.description.en}
@@ -598,18 +710,37 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                             </div>
                           </div>
 
-                          {/* Step-by-Step Instructions */}
-                          <div className="space-y-3">
-                            <h5 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                          {/* WHERE TO FIND IT SECTION (DEDICATED SECTION) */}
+                          {selectedFeature.whereToFind && (
+                            <div className="space-y-2">
+                              <h5 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-2">
+                                <Compass className="w-4 h-4 text-amber-400" />
+                                <span>
+                                  {isArabic ? 'أين تجد هذه الميزة في التطبيق؟' : 'Where to Find It in the App'}
+                                </span>
+                              </h5>
+
+                              <div className="p-3.5 sm:p-4 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3 shadow-inner">
+                                <MapPin className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+                                <p className="text-xs sm:text-sm text-amber-100 font-medium leading-relaxed">
+                                  {isArabic ? selectedFeature.whereToFind.ar : selectedFeature.whereToFind.en}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* HOW TO USE STEP-BY-STEP INSTRUCTIONS */}
+                          <div className="space-y-2">
+                            <h5 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
                               <HelpCircle className="w-4 h-4 text-emerald-400" />
                               <span>
                                 {isArabic
                                   ? 'كيفية استخدام هذه الميزة خطوة بخطوة'
-                                  : 'Where to Find It & How to Use It'}
+                                  : 'Step-by-Step Practical Guide'}
                               </span>
                             </h5>
 
-                            <div className="p-4 rounded-3xl bg-zinc-900/50 border border-zinc-800 space-y-3">
+                            <div className="p-4 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-3">
                               {selectedFeature.howToUse.en.map((_, sIdx) => {
                                 const stepText = isArabic
                                   ? selectedFeature.howToUse.ar[sIdx]
@@ -617,7 +748,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                                 return (
                                   <div
                                     key={sIdx}
-                                    className="flex items-start gap-3 text-xs text-zinc-200"
+                                    className="flex items-start gap-3 text-xs sm:text-sm text-zinc-200"
                                   >
                                     <span className="w-5 h-5 rounded-full bg-blue-600/30 border border-blue-500/50 text-blue-300 font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">
                                       {sIdx + 1}
@@ -629,13 +760,13 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                             </div>
                           </div>
 
-                          {/* GENUINE OPTIONAL PRO TIP: Rendered ONLY if proTip is present! */}
+                          {/* GENUINE OPTIONAL PRO TIP */}
                           {selectedFeature.proTip && (
-                            <div className="p-4 rounded-3xl bg-blue-950/20 border border-blue-500/30 flex items-start gap-3 text-xs text-blue-200">
+                            <div className="p-4 rounded-3xl bg-blue-950/20 border border-blue-500/30 flex items-start gap-3 text-xs sm:text-sm text-blue-200">
                               <Sparkles className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
                               <div className="space-y-0.5">
                                 <span className="font-bold text-blue-300 block">
-                                  {isArabic ? '💡 تلميح مفيد:' : '💡 Pro Tip:'}
+                                  {isArabic ? '💡 تلميح ذكي:' : '💡 Pro Tip:'}
                                 </span>
                                 <p className="leading-relaxed">
                                   {isArabic

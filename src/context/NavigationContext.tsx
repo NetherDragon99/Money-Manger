@@ -106,7 +106,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       stack.push('modal:features');
       if (s.selectedFeatureId) {
         stack.push(`subview:feature_guide:split:${s.selectedFeatureId}`);
-        if (s.featureGuideLayout === 'full') {
+        if (s.featureGuideLayout === 'full' || s.featureGuideLayout === 'preview') {
           stack.push(`subview:feature_guide:full:${s.selectedFeatureId}`);
         }
       }
@@ -284,7 +284,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
       }
       if (s.isFeaturesModalOpen && s.selectedFeatureId) {
-        if (s.featureGuideLayout === 'full') {
+        if (s.featureGuideLayout === 'full' || s.featureGuideLayout === 'preview') {
           s.setFeatureGuideLayout('split');
           return;
         }
