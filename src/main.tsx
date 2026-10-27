@@ -2,6 +2,7 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { getActiveLanguage, resetAppCacheSafely } from './utils/activeLanguage';
 
 declare global {
   interface BeforeInstallPromptEvent extends Event {
@@ -61,86 +62,75 @@ class RootErrorBoundary extends Component<Props, State> {
     console.error('Uncaught error in Personal Finance App:', error, errorInfo);
   }
 
-  private handleReset = () => {
-    try {
-      localStorage.clear();
-      window.location.reload();
-    } catch {
-      window.location.reload();
-    }
-  };
-
   public render() {
     if (this.state.hasError) {
+      const isAr = getActiveLanguage() === 'ar';
+      const title = isAr ? 'حدث خطأ غير متوقع' : 'Something Went Wrong';
+      const description = isAr
+        ? 'حدث خطأ غير متوقع أثناء تشغيل التطبيق. تم حفظ بياناتك بأمان.'
+        : 'An unexpected error occurred while starting the app. Your data is safely saved.';
+      const reloadBtn = isAr ? 'إعادة تحميل التطبيق' : 'Reload App';
+      const resetBtn = isAr ? 'إعادة تعيين ذاكرة التخزين المؤقت' : 'Reset App Cache';
+
       return (
-        <div style={{
-          minHeight: '100vh',
-          backgroundColor: '#000000',
-          color: '#ffffff',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '24px',
-          textAlign: 'center',
-          fontFamily: 'system-ui, -apple-system, sans-serif'
-        }}>
+        <div
+          dir={isAr ? 'rtl' : 'ltr'}
+          style={{
+            minHeight: '100vh',
+            backgroundColor: '#090d16',
+            color: '#ffffff',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+            textAlign: 'center',
+            fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+          }}
+        >
           <div style={{
             maxWidth: '440px',
-            backgroundColor: '#18181b',
-            border: '1px solid #27272a',
+            width: '100%',
+            backgroundColor: '#111827',
+            border: '1px solid #1f2937',
             borderRadius: '24px',
             padding: '32px 24px',
             boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
           }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
-            <h1 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>
-              App Encountered an Issue / واجه التطبيق مشكلة
+            <h1 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px', color: '#ffffff' }}>
+              {title}
             </h1>
-            <p style={{ fontSize: '13px', color: '#a1a1aa', marginBottom: '24px', lineHeight: '1.6' }}>
-              The application encountered a problem during startup. You can reload or reset stored data to return to a fresh state.
-              <br />
-              واجه التطبيق مشكلة أثناء بدء التشغيل. يمكنك إعادة التحميل أو إعادة تعيين البيانات المخزنة للعودة إلى حالة جديدة.
+            <p style={{ fontSize: '13px', color: '#9ca3af', marginBottom: '24px', lineHeight: '1.6' }}>
+              {description}
             </p>
             {this.state.error && (
-              <pre style={{
-                fontSize: '11px',
-                color: '#ef4444',
-                backgroundColor: '#09090b',
-                padding: '12px',
-                borderRadius: '12px',
-                textAlign: 'left',
-                overflowX: 'auto',
-                marginBottom: '20px'
-              }}>
-                {this.state.error.message}
+              <pre
+                dir="ltr"
+                style={{
+                  fontSize: '11px',
+                  color: '#ef4444',
+                  backgroundColor: '#030712',
+                  border: '1px solid #1f2937',
+                  padding: '12px',
+                  borderRadius: '12px',
+                  textAlign: 'left',
+                  overflowX: 'auto',
+                  marginBottom: '20px',
+                  maxHeight: '120px'
+                }}
+              >
+                {this.state.error.message || String(this.state.error)}
               </pre>
             )}
-            <div style={{ display: 'flex', gap: '12px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <button
                 type="button"
                 onClick={() => window.location.reload()}
                 style={{
-                  flex: 1,
-                  padding: '12px',
-                  borderRadius: '9999px',
-                  backgroundColor: '#27272a',
-                  color: '#ffffff',
-                  border: 'none',
-                  fontWeight: '600',
-                  fontSize: '13px',
-                  cursor: 'pointer'
-                }}
-              >
-                Reload / إعادة تحميل
-              </button>
-              <button
-                type="button"
-                onClick={this.handleReset}
-                style={{
-                  flex: 1,
-                  padding: '12px',
-                  borderRadius: '9999px',
+                  width: '100%',
+                  padding: '12px 20px',
+                  borderRadius: '14px',
                   backgroundColor: '#2563eb',
                   color: '#ffffff',
                   border: 'none',
@@ -149,7 +139,24 @@ class RootErrorBoundary extends Component<Props, State> {
                   cursor: 'pointer'
                 }}
               >
-                Reset / إعادة تعيين
+                {reloadBtn}
+              </button>
+              <button
+                type="button"
+                onClick={() => void resetAppCacheSafely()}
+                style={{
+                  width: '100%',
+                  padding: '12px 20px',
+                  borderRadius: '14px',
+                  backgroundColor: '#1f2937',
+                  color: '#d1d5db',
+                  border: '1px solid #374151',
+                  fontWeight: '600',
+                  fontSize: '13px',
+                  cursor: 'pointer'
+                }}
+              >
+                {resetBtn}
               </button>
             </div>
           </div>

@@ -53,7 +53,6 @@ import { flushOfflineQueue } from './utils/persistQueue';
 import { ShareFolderModal } from './components/ShareFolderModal';
 import { RemainingBalanceModal } from './components/RemainingBalanceModal';
 import { installPwa } from './utils/pwaInstall';
-import { ErrorBoundary } from './components/ErrorBoundary';
 
 const TABS: TabType[] = ['home', 'budget', 'insights', 'accounts', 'calculator'];
 
@@ -783,10 +782,10 @@ const MainAppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <ErrorBoundary>
-      <AppProvider>
+    <AppProvider>
+      <NavigationProvider>
         <MainAppContent />
-      </AppProvider>
-    </ErrorBoundary>
+      </NavigationProvider>
+    </AppProvider>
   );
 }

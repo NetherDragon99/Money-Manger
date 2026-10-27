@@ -29,6 +29,7 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
       style={{ overscrollBehavior: 'contain' }}
     >
       <div
+        dir={isArabic ? 'rtl' : 'ltr'}
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-sm max-h-[92dvh] overflow-y-auto my-auto rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-6 text-white space-y-4 relative pointer-events-auto animate-in zoom-in-95 duration-150"
       >

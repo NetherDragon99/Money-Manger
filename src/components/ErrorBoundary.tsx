@@ -1,5 +1,6 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, RotateCcw } from 'lucide-react';
+import { getActiveLanguage, resetAppCacheSafely } from '../utils/activeLanguage';
 
 interface Props {
   children: ReactNode;
@@ -31,33 +32,36 @@ export class ErrorBoundary extends Component<Props, State> {
     window.location.reload();
   };
 
-  private handleHardReset = () => {
-    try {
-      sessionStorage.clear();
-    } catch {
-      // Ignore
-    }
-    window.location.reload();
-  };
-
   public render() {
     if (this.state.hasError) {
+      const isAr = getActiveLanguage() === 'ar';
+      const title = isAr ? 'حدث خطأ غير متوقع' : 'Something Went Wrong';
+      const description = isAr
+        ? 'حدث خطأ غير متوقع أثناء تشغيل التطبيق. تم حفظ بياناتك بأمان.'
+        : 'An unexpected error occurred while starting the app. Your data is safely saved.';
+      const reloadBtn = isAr ? 'إعادة تحميل التطبيق' : 'Reload App';
+      const resetBtn = isAr ? 'إعادة تعيين ذاكرة التخزين المؤقت' : 'Reset App Cache';
+
       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950 text-white select-none">
-          <div className="w-full max-w-md p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 shadow-2xl text-center space-y-4 backdrop-blur-xl">
+        <div
+          dir={isAr ? 'rtl' : 'ltr'}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950 text-white select-none"
+        >
+          <div className="w-full max-w-md p-6 rounded-3xl bg-zinc-900/95 border border-zinc-800 shadow-2xl text-center space-y-4 backdrop-blur-xl">
             <div className="w-16 h-16 mx-auto rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-500">
               <AlertTriangle className="w-8 h-8" />
             </div>
 
             <div className="space-y-1">
-              <h2 className="text-lg font-bold text-white">Something Went Wrong</h2>
-              <p className="text-xs text-zinc-400">
-                حدث خطأ غير متوقع أثناء تشغيل التطبيق. تم حفظ بياناتك بأمان.
-              </p>
+              <h2 className="text-lg font-bold text-white">{title}</h2>
+              <p className="text-xs text-zinc-400 leading-relaxed">{description}</p>
             </div>
 
             {this.state.error && (
-              <div className="p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80 text-left text-[11px] font-mono text-rose-300/90 overflow-x-auto max-h-32">
+              <div
+                dir="ltr"
+                className="p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80 text-left text-[11px] font-mono text-rose-300/90 overflow-x-auto max-h-32"
+              >
                 {this.state.error.toString()}
               </div>
             )}
@@ -68,17 +72,17 @@ export class ErrorBoundary extends Component<Props, State> {
                 onClick={this.handleReload}
                 className="flex-1 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold shadow-lg shadow-blue-900/40 flex items-center justify-center gap-2 transition cursor-pointer"
               >
-                <RefreshCw className="w-4 h-4" />
-                <span>إعادة تحميل التطبيق (Reload)</span>
+                <RefreshCw className="w-4 h-4 shrink-0" />
+                <span>{reloadBtn}</span>
               </button>
 
               <button
                 type="button"
-                onClick={this.handleHardReset}
-                className="py-3 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-750 active:scale-95 text-zinc-300 text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer"
+                onClick={() => void resetAppCacheSafely()}
+                className="py-3 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-300 text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer"
               >
-                <RotateCcw className="w-4 h-4" />
-                <span>إعادة ضبط مؤقت</span>
+                <RotateCcw className="w-4 h-4 shrink-0" />
+                <span>{resetBtn}</span>
               </button>
             </div>
           </div>

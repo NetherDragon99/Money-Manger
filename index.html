@@ -82,12 +82,12 @@
         <!-- Error Card (Hidden by default, shown ONLY if boot fails before React mounts) -->
         <div id="app-boot-error" style="display: none; width: 100%; background: #131b2e; border: 1px solid #dc2626; border-radius: 18px; padding: 20px; margin-top: 16px; box-shadow: 0 15px 30px rgba(0,0,0,0.6); box-sizing: border-box;">
           <div style="font-size: 28px; margin-bottom: 8px;">⚠️</div>
-          <div style="font-size: 14px; font-weight: 700; color: #f87171; margin-bottom: 6px;">
-            Startup Issue Detected / تعذر بدء التشغيل
+          <div id="app-boot-error-title" style="font-size: 14px; font-weight: 700; color: #f87171; margin-bottom: 6px;">
+            Startup Issue Detected
           </div>
           <div id="app-boot-error-msg" style="font-size: 11px; color: #cbd5e1; background: #090d16; border: 1px solid #1e293b; border-radius: 10px; padding: 10px; margin-bottom: 14px; word-break: break-all; max-height: 120px; overflow-y: auto; font-family: monospace; text-align: left; direction: ltr;"></div>
           <button id="app-boot-reload-btn" type="button" onclick="window.location.reload()" style="display: inline-flex; align-items: center; justify-content: center; width: 100%; padding: 11px 18px; background: #2563eb; color: #ffffff; border: none; border-radius: 9999px; font-size: 13px; font-weight: 600; cursor: pointer;">
-            Reload / إعادة تحميل
+            Reload App
           </button>
         </div>
       </div>
@@ -111,15 +111,32 @@
         function showBootError(msg) {
           if (window.__appMounted) return;
           try {
+            var isAr = false;
+            try {
+              var s = localStorage.getItem('pwa_finance_settings');
+              if (s) {
+                var p = JSON.parse(s);
+                if (p && p.language === 'ar') isAr = true;
+              }
+            } catch (e) {}
+
             var loader = document.getElementById('app-boot-loader');
             var errBox = document.getElementById('app-boot-error');
+            var errTitle = document.getElementById('app-boot-error-title');
             var errMsg = document.getElementById('app-boot-error-msg');
+            var reloadBtn = document.getElementById('app-boot-reload-btn');
             var spinner = document.getElementById('app-boot-spinner');
-            if (loader && errBox && errMsg) {
-              errMsg.textContent = msg || 'An unknown error occurred during startup.';
+
+            if (errTitle) errTitle.textContent = isAr ? 'تعذر بدء التشغيل' : 'Startup Issue Detected';
+            if (reloadBtn) reloadBtn.textContent = isAr ? 'إعادة تحميل التطبيق' : 'Reload App';
+            if (errBox) {
+              errBox.dir = isAr ? 'rtl' : 'ltr';
               errBox.style.display = 'block';
-              if (spinner) spinner.style.display = 'none';
             }
+            if (errMsg) {
+              errMsg.textContent = msg || (isAr ? 'حدث خطأ غير معروف أثناء تشغيل التطبيق.' : 'An unknown error occurred during startup.');
+            }
+            if (spinner) spinner.style.display = 'none';
           } catch (e) {
             console.error('[BootLoader] Failed to show error:', e);
           }
@@ -128,7 +145,18 @@
         // 12-second mount watchdog
         var watchdogTimer = setTimeout(function () {
           if (!window.__appMounted) {
-            showBootError('Startup is taking longer than expected. Please reload or check your connection.\nيستغرق بدء التشغيل وقتاً أطول من المتوقع. يرجى إعادة التحميل.');
+            var isAr = false;
+            try {
+              var s = localStorage.getItem('pwa_finance_settings');
+              if (s) {
+                var p = JSON.parse(s);
+                if (p && p.language === 'ar') isAr = true;
+              }
+            } catch (e) {}
+            var timeoutMsg = isAr
+              ? 'يستغرق بدء التشغيل وقتاً أطول من المتوقع. يرجى إعادة التحميل أو التحقق من اتصالك.'
+              : 'Startup is taking longer than expected. Please reload or check your connection.';
+            showBootError(timeoutMsg);
           }
         }, 12000);
 
