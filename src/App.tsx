@@ -346,6 +346,7 @@ const MainAppContent: React.FC = () => {
   const isProgrammaticScrollRef = useRef<boolean>(false);
   const targetTabRef = useRef<TabType | null>(null);
   const isUserTouchingRef = useRef<boolean>(false);
+  const isHandScrollingRef = useRef<boolean>(false);
   const programmaticScrollTimerRef = useRef<any>(null);
   const scrollSettleTimerRef = useRef<any>(null);
 
@@ -464,10 +465,10 @@ const MainAppContent: React.FC = () => {
     let closestTab: TabType = currentTab;
     let minDistance = Infinity;
 
-    Array.from(container.children).forEach((child) => {
-      const pane = child as HTMLElement;
+    for (let i = 0; i < container.children.length; i++) {
+      const pane = container.children[i] as HTMLElement;
       const tabName = pane.getAttribute('data-tab') as TabType;
-      if (!tabName) return;
+      if (!tabName) continue;
       const paneRect = pane.getBoundingClientRect();
       const paneCenter = paneRect.left + paneRect.width / 2;
       const distance = Math.abs(paneCenter - containerCenter);
@@ -476,9 +477,11 @@ const MainAppContent: React.FC = () => {
         minDistance = distance;
         closestTab = tabName;
       }
-    });
+    }
 
-    if (closestTab && closestTab !== currentTab && minDistance < containerRect.width * 0.35) {
+    // Immediately synchronize the active tab and bottom nav indicator in real-time as the user scrolls
+    if (closestTab !== currentTab) {
+      isHandScrollingRef.current = true;
       setCurrentTab(closestTab);
     }
 
@@ -491,10 +494,10 @@ const MainAppContent: React.FC = () => {
       const cCenter = cRect.left + cRect.width / 2;
       let finalTab: TabType = currentTab;
       let finalMin = Infinity;
-      Array.from(c.children).forEach((ch) => {
-        const p = ch as HTMLElement;
+      for (let i = 0; i < c.children.length; i++) {
+        const p = c.children[i] as HTMLElement;
         const name = p.getAttribute('data-tab') as TabType;
-        if (!name) return;
+        if (!name) continue;
         const pRect = p.getBoundingClientRect();
         const pCenter = pRect.left + pRect.width / 2;
         const dist = Math.abs(pCenter - cCenter);
@@ -502,15 +505,23 @@ const MainAppContent: React.FC = () => {
           finalMin = dist;
           finalTab = name;
         }
-      });
+      }
       if (finalTab && finalTab !== currentTab) {
+        isHandScrollingRef.current = true;
         setCurrentTab(finalTab);
       }
-    }, 120);
+    }, 60);
   };
 
   // Synchronize the slider when currentTab is updated programmatically (from bottom navigation or internal links)
   useEffect(() => {
+    // If this tab change was triggered by user hand-scrolling,
+    // do NOT call scrollIntoView because the user's hand is already actively moving the page!
+    if (isHandScrollingRef.current) {
+      isHandScrollingRef.current = false;
+      return;
+    }
+
     const container = tabSliderRef.current;
     if (!container) return;
     const targetIndex = TABS.indexOf(currentTab);

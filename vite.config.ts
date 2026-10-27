@@ -18,7 +18,7 @@ export default defineConfig(({ command }) => {
       {
         name: 'html-version-transform',
         transformIndexHtml(html: string) {
-          return html.replace(/%APP_VERSION%/g, packageJson.version || '1.1.52');
+          return html.replace(/%APP_VERSION%/g, packageJson.version || '1.1.53');
         },
       },
       VitePWA({

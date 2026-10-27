@@ -4,6 +4,24 @@ export type { FeatureItem, ReleaseNote };
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.53',
+    releaseDate: 'October 27, 2026',
+    title: {
+      en: 'Real-Time Bottom Navigation Sync on Hand Swipe & Fast Gesture Coordination',
+      ar: 'مزامنة فورية ولحظية لشريط التنقل السفلي أثناء السحب السريع باليد',
+    },
+    highlights: {
+      en: [
+        'Instant Real-Time Footer Synchronization: The bottom navigation bar indicator pill and active tab now update instantly the exact moment the hand-scroll crosses the page midpoint, eliminating any delayed settle lags.',
+        'Zero Hand-Scroll Resistance: Hand swiping cleanly bypasses programmatic scrollIntoView triggers, allowing lightning-fast consecutive swiping across all views without queuing conflicts.',
+      ],
+      ar: [
+        'مزامنة فورية لشريط التنقل السفلي: مؤشر التبويب النشط وأزرار الشريط السفلي تتحدث لحظياً وفوراً في نفس لحظة تمرير الصفحة باليد بدون أي انتظار لتوقف الحركة.',
+        'سلاسة تامة دون مقاومة: السحب باليد يتجاوز التمرير التلقائي بالكامل لضمان سرعة فائقة عند التنقل السريع والمتتالي بين كافة الشاشات.',
+      ],
+    },
+  },
+  {
     version: '1.1.52',
     releaseDate: 'October 27, 2026',
     title: {
