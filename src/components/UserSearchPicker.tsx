@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
 import {
   Search,
   Check,
@@ -14,15 +14,20 @@ import {
   UserProfileCard,
   fetchUserProfileCard,
   loadKnownContacts,
+  loadDeduplicatedContacts,
+  removeKnownContact,
+  pruneStaleContacts,
   getAvatarColorGradient,
   getMemberInitials,
   isRealPhotoUrl,
+  useLiveMemberProfiles,
 } from '../utils/shareFolders';
 import {
   format16DigitId,
   format16DigitInput,
   cleanNumericId,
 } from '../utils/userId';
+import { useApp } from '../context/AppContext';
 
 export interface UserSearchPickerProps {
   selectedUser: UserProfileCard | null;
@@ -54,12 +59,20 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
     'idle' | 'searching' | 'found' | 'not_found' | 'self_id'
   >('idle');
   const [knownContactsList, setKnownContactsList] = useState<UserProfileCard[]>([]);
+  const { showToast } = useApp();
   const searchTimeoutRef = useRef<any>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const pendingCursorPosRef = useRef<number | null>(null);
 
   const cleanTyped = cleanNumericId(typedId);
   const cleanMyId = cleanNumericId(currentUserId || '');
+
+  // Deduplicate and extract 16-digit IDs for real-time live member profiles
+  const contact16Ids = useMemo(() => {
+    return knownContactsList.map((c) => c.numericId);
+  }, [knownContactsList]);
+
+  const liveProfiles = useLiveMemberProfiles(contact16Ids);
 
   // Synchronously restore cursor position after React re-renders formatted 4-digit groups
   useLayoutEffect(() => {
@@ -75,18 +88,38 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
     }
   });
 
-  // Load cached contacts on mount
-  useEffect(() => {
+  const loadContacts = useCallback(() => {
     try {
-      const contactsMap = loadKnownContacts();
-      const list = Object.values(contactsMap).filter(
-        (c) => c && c.numericId && c.numericId.length === 16 && c.numericId !== cleanMyId
-      );
-      setKnownContactsList(list.slice(0, 6));
+      const list = loadDeduplicatedContacts(cleanMyId);
+      setKnownContactsList(list.slice(0, 10));
+
+      // Asynchronously verify against Firebase and prune stale accounts in background
+      pruneStaleContacts(list.slice(0, 10), (prunedId) => {
+        setKnownContactsList((prev) => prev.filter((c) => c.numericId !== prunedId));
+      }).catch(() => {});
     } catch {
       setKnownContactsList([]);
     }
   }, [cleanMyId]);
+
+  useEffect(() => {
+    loadContacts();
+
+    const handleUpdated = () => loadContacts();
+    window.addEventListener('known_contacts_updated', handleUpdated);
+    return () => {
+      window.removeEventListener('known_contacts_updated', handleUpdated);
+    };
+  }, [loadContacts]);
+
+  const handleRemoveContact = (numericId: string) => {
+    removeKnownContact(numericId);
+    setKnownContactsList((prev) => prev.filter((c) => c.numericId !== numericId));
+    showToast?.(
+      isArabic ? 'تمت إزالة جهة الاتصال من القائمة' : 'Contact removed from list',
+      'info'
+    );
+  };
 
   // Execute lookup
   const performSearch = async (idToSearch: string) => {
@@ -442,33 +475,72 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
       {/* RECENT / KNOWN CONTACTS QUICK PICK CHIPS */}
       {showRecentContacts && knownContactsList.length > 0 && searchStatus !== 'found' && (
         <div className="space-y-1.5 pt-1">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
-            {isArabic ? 'جهات اتصال سابقة:' : 'Recent Contacts:'}
-          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
+              {isArabic ? 'جهات اتصال سابقة ومحفوظة:' : 'Recent & Saved Members:'}
+            </span>
+            <span className="text-[10px] text-zinc-500 font-mono">
+              {knownContactsList.length}
+            </span>
+          </div>
           <div className="flex flex-wrap gap-1.5">
-            {knownContactsList.map((contact) => (
-              <button
-                key={contact.numericId}
-                type="button"
-                onClick={() => onSelectUser(contact)}
-                className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-xs text-zinc-300 hover:text-white flex items-center gap-2 transition cursor-pointer active:scale-95"
-              >
+            {knownContactsList.map((contact) => {
+              const liveProf = liveProfiles[contact.numericId];
+              const effectiveName = liveProf?.name || contact.name || `User ${contact.numericId.slice(0, 4)}`;
+              const rawPhoto = (liveProf?.photoURL && liveProf.photoURL.trim()) || contact.photoURL || '';
+              const effectivePhoto = isRealPhotoUrl(rawPhoto) ? rawPhoto : '';
+              const effectiveAvatar = liveProf?.avatar || (!isRealPhotoUrl(rawPhoto) && rawPhoto ? rawPhoto : (contact.avatar || '👤'));
+
+              return (
                 <div
-                  className={`w-4 h-4 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
-                    contact.numericId || contact.name
-                  )}`}
+                  key={contact.numericId}
+                  className="group inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-xl bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-800 hover:border-zinc-700 text-xs text-zinc-300 hover:text-white transition shadow-sm"
                 >
-                  {contact.photoURL && isRealPhotoUrl(contact.photoURL) ? (
-                    <img src={contact.photoURL} alt={contact.name} className="w-full h-full object-cover" />
-                  ) : contact.avatar && contact.avatar !== '👤' ? (
-                    contact.avatar
-                  ) : (
-                    contact.name.slice(0, 1).toUpperCase()
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectUser({
+                        ...contact,
+                        name: effectiveName,
+                        photoURL: effectivePhoto,
+                        avatar: effectiveAvatar,
+                      });
+                    }}
+                    className="flex items-center gap-2 cursor-pointer truncate max-w-[150px] focus:outline-none"
+                    title={effectiveName}
+                  >
+                    <div
+                      className={`w-4 h-4 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
+                        contact.numericId || effectiveName
+                      )}`}
+                    >
+                      {effectivePhoto ? (
+                        <img src={effectivePhoto} alt={effectiveName} className="w-full h-full object-cover" />
+                      ) : effectiveAvatar && effectiveAvatar !== '👤' ? (
+                        effectiveAvatar
+                      ) : (
+                        getMemberInitials(effectiveName, contact.numericId).slice(0, 1)
+                      )}
+                    </div>
+                    <span className="font-medium truncate">{effectiveName}</span>
+                  </button>
+
+                  {/* Remove Contact Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveContact(contact.numericId);
+                    }}
+                    className="p-1 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition cursor-pointer shrink-0 opacity-70 group-hover:opacity-100"
+                    title={isArabic ? 'إزالة من جهات الاتصال' : 'Remove contact'}
+                    aria-label={isArabic ? 'إزالة من جهات الاتصال' : 'Remove contact'}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
                 </div>
-                <span className="font-medium truncate max-w-[100px]">{contact.name}</span>
-              </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

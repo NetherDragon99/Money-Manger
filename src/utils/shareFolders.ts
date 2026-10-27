@@ -520,13 +520,77 @@ export function upsertSpaceInV3Cache(space: ShareFolder): ShareFolder {
   return normalized;
 }
 
+const STORAGE_REMOVED_CONTACTS_KEY = 'mm_removed_contacts_v1';
+
+export function getRemovedContactIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_REMOVED_CONTACTS_KEY);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveRemovedContactIds(ids: Set<string>): void {
+  try {
+    localStorage.setItem(STORAGE_REMOVED_CONTACTS_KEY, JSON.stringify(Array.from(ids)));
+  } catch {}
+}
+
 /**
- * Load locally cached known contacts (16-digit ID -> UserProfileCard)
+ * Manually removes a contact from the saved directory by 16-digit ID.
+ */
+export function removeKnownContact(numericId: string): void {
+  try {
+    const cleanId = normalize16DigitId(numericId);
+    if (!cleanId) return;
+    const contacts = loadKnownContacts();
+    delete contacts[cleanId];
+    localStorage.setItem(STORAGE_KNOWN_CONTACTS_KEY, JSON.stringify(contacts));
+
+    const removed = getRemovedContactIds();
+    removed.add(cleanId);
+    saveRemovedContactIds(removed);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('known_contacts_updated', { detail: { removedId: cleanId } }));
+    }
+  } catch (e) {
+    console.warn('[ShareFolders] Failed to remove contact:', e);
+  }
+}
+
+/**
+ * Load locally cached known contacts (16-digit ID -> UserProfileCard), strictly keyed & deduplicated by 16-digit ID.
  */
 export function loadKnownContacts(): Record<string, UserProfileCard> {
   try {
     const raw = localStorage.getItem(STORAGE_KNOWN_CONTACTS_KEY);
-    return raw ? JSON.parse(raw) : {};
+    const parsed = raw ? JSON.parse(raw) : {};
+    const normalized: Record<string, UserProfileCard> = {};
+    for (const [key, val] of Object.entries(parsed)) {
+      if (!val || typeof val !== 'object') continue;
+      const cleanId = normalize16DigitId((val as any).numericId || key);
+      if (cleanId.length === 16) {
+        const rawPhoto = (val as any).photoURL || '';
+        const cleanPhoto = isRealPhotoUrl(rawPhoto) ? rawPhoto.trim() : '';
+        const cleanAvatar = (val as any).avatar || (!isRealPhotoUrl(rawPhoto) && rawPhoto ? rawPhoto : '👤');
+        const existing = normalized[cleanId];
+        const valUpdated = (val as any).updatedAt || 0;
+        const existUpdated = existing?.updatedAt || 0;
+        if (!existing || valUpdated >= existUpdated) {
+          normalized[cleanId] = {
+            numericId: cleanId,
+            name: (val as any).name || existing?.name || `User ${cleanId.slice(0, 4)}`,
+            avatar: cleanAvatar,
+            photoURL: cleanPhoto,
+            uid: (val as any).uid || existing?.uid,
+            updatedAt: valUpdated || Date.now(),
+          };
+        }
+      }
+    }
+    return normalized;
   } catch {
     return {};
   }
@@ -549,7 +613,7 @@ export function isRealPhotoUrl(url?: string | null): boolean {
 }
 
 /**
- * Save / Cache a known contact locally
+ * Save / Cache a known contact locally, strictly keyed by unique 16-digit ID
  */
 export function saveKnownContact(contact: Partial<UserProfileCard> & { numericId: string }): void {
   try {
@@ -565,11 +629,133 @@ export function saveKnownContact(contact: Partial<UserProfileCard> & { numericId
       avatar: cleanAvatar,
       photoURL: cleanPhoto,
       updatedAt: Date.now(),
+      uid: contact.uid || contacts[cleanId]?.uid,
     };
     localStorage.setItem(STORAGE_KNOWN_CONTACTS_KEY, JSON.stringify(contacts));
+
+    // Clear from removed set if re-saved
+    const removed = getRemovedContactIds();
+    if (removed.has(cleanId)) {
+      removed.delete(cleanId);
+      saveRemovedContactIds(removed);
+    }
   } catch (e) {
     console.warn('[ShareFolders] Failed to save contact:', e);
   }
+}
+
+/**
+ * Loads all saved and previously invited contacts, strictly deduplicated by unique 16-digit ID.
+ * Merges contacts from localStorage with members from all user spaces,
+ * excluding the current user and any manually removed IDs.
+ */
+export function loadDeduplicatedContacts(excludeId?: string): UserProfileCard[] {
+  const cleanExclude = normalize16DigitId(excludeId || '');
+  const removedSet = getRemovedContactIds();
+  const contactsMap = loadKnownContacts();
+  const map = new Map<string, UserProfileCard>();
+
+  // 1. Ingest from contactsMap
+  for (const [rawId, card] of Object.entries(contactsMap)) {
+    const clean = normalize16DigitId(card.numericId || rawId);
+    if (clean.length === 16 && clean !== cleanExclude && !removedSet.has(clean)) {
+      const rawPhoto = card.photoURL || '';
+      map.set(clean, {
+        numericId: clean,
+        name: card.name || `User ${clean.slice(0, 4)}`,
+        avatar: card.avatar || (!isRealPhotoUrl(rawPhoto) && rawPhoto ? rawPhoto : '👤'),
+        photoURL: isRealPhotoUrl(rawPhoto) ? rawPhoto.trim() : '',
+        uid: card.uid,
+        updatedAt: card.updatedAt || 0,
+      });
+    }
+  }
+
+  // 2. Ingest members from all current and historical spaces
+  const allSpaces = loadAllSpacesV3();
+  for (const space of allSpaces) {
+    const owner16 = normalize16DigitId(space.owner16DigitId || space.ownerNumericId);
+    if (owner16.length === 16 && owner16 !== cleanExclude && !removedSet.has(owner16)) {
+      if (!map.has(owner16)) {
+        const rawPhoto = space.ownerPhotoURL || '';
+        map.set(owner16, {
+          numericId: owner16,
+          name: space.ownerName || `User ${owner16.slice(0, 4)}`,
+          avatar: space.ownerAvatar || (!isRealPhotoUrl(rawPhoto) && rawPhoto ? rawPhoto : '👤'),
+          photoURL: isRealPhotoUrl(rawPhoto) ? rawPhoto.trim() : '',
+          uid: space.ownerUid,
+          updatedAt: space.updatedAt || 0,
+        });
+      }
+    }
+
+    for (const m of space.members || []) {
+      const mid = normalize16DigitId(m.numericId);
+      if (mid.length === 16 && mid !== cleanExclude && !removedSet.has(mid)) {
+        if (!map.has(mid)) {
+          const rawPhoto = m.photoURL || '';
+          map.set(mid, {
+            numericId: mid,
+            name: m.name || `User ${mid.slice(0, 4)}`,
+            avatar: m.avatar || (!isRealPhotoUrl(rawPhoto) && rawPhoto ? rawPhoto : '👤'),
+            photoURL: isRealPhotoUrl(rawPhoto) ? rawPhoto.trim() : '',
+            uid: (m as any).uid,
+            updatedAt: m.addedAt || m.invitedAt || space.updatedAt || 0,
+          });
+        }
+      }
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+/**
+ * Asynchronously verifies contacts against Firebase RTDB in parallel.
+ * If a contact definitely does not exist on the server (snap.exists() === false),
+ * it is pruned from local storage and from the active list.
+ */
+export async function pruneStaleContacts(
+  contacts: UserProfileCard[],
+  onPruned?: (prunedId: string) => void
+): Promise<UserProfileCard[]> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return contacts;
+  }
+
+  const remaining: UserProfileCard[] = [];
+
+  await Promise.all(
+    contacts.map(async (contact) => {
+      const cleanId = normalize16DigitId(contact.numericId);
+      if (cleanId.length !== 16) return;
+
+      try {
+        const [profileSnap, numSnap] = await Promise.all([
+          withTimeout(get(ref(rtdb, `shared_accounts/profile_${cleanId}`)), 3000).catch(() => null),
+          withTimeout(get(ref(rtdb, `numericIds/${cleanId}`)), 3000).catch(() => null),
+        ]);
+
+        if (profileSnap?.exists() || numSnap?.exists()) {
+          remaining.push(contact);
+          return;
+        }
+
+        if (profileSnap !== null && numSnap !== null && !profileSnap.exists() && !numSnap.exists()) {
+          console.info(`[ShareFolders] Pruning stale contact whose profile no longer exists on server: ${cleanId}`);
+          removeKnownContact(cleanId);
+          onPruned?.(cleanId);
+          return;
+        }
+
+        remaining.push(contact);
+      } catch {
+        remaining.push(contact);
+      }
+    })
+  );
+
+  return remaining;
 }
 
 /**
@@ -958,7 +1144,14 @@ export async function fetchUserProfileCard(numericId: string): Promise<UserProfi
     }
   } catch {}
 
-  // 3. Fallback check: local known contacts cache (NEVER read root 'shared_accounts')
+  // 3. Server queries completed without a match:
+  // If online, the account was deleted or does not exist on the server -> prune from cache
+  if (typeof navigator !== 'undefined' && navigator.onLine) {
+    removeKnownContact(clean16Id);
+    return null;
+  }
+
+  // Fallback check only if offline or network unreachable
   const cached = getKnownContact(clean16Id);
   if (cached) {
     return cached;
