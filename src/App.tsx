@@ -314,6 +314,10 @@ const MainAppContent: React.FC = () => {
     if (target.closest?.('[role="dialog"], [data-modal], .modal-container-anim, .overflow-y-auto.fixed, [data-no-header-scroll], aside')) {
       return;
     }
+    // Ignore purely horizontal slider container scrolls
+    if (target.classList?.contains('tabs-slider')) {
+      return;
+    }
 
     const currentScrollTop = target.scrollTop;
     const deltaY = currentScrollTop - lastScrollTopRef.current;
@@ -337,204 +341,115 @@ const MainAppContent: React.FC = () => {
     setIsHeaderVisible(true);
   }, [currentTab]);
 
-  // 1:1 Finger-Tracking Drag Carousel & Gesture Hand-off across Main Tabs & Sidebar
-  const [mainDragOffset, setMainDragOffset] = useState<number>(0);
-  const [isMainDragging, setIsMainDragging] = useState<boolean>(false);
-  const [targetAdjacentTab, setTargetAdjacentTab] = useState<TabType | null>(null);
-
-  const mainTouchStateRef = useRef<{
-    startX: number;
-    startY: number;
-    startTime: number;
-    isHorizontal: boolean | null;
-    isEdgeZone: boolean;
-    isSidebarEngaged: boolean;
-  }>({
-    startX: 0,
-    startY: 0,
-    startTime: 0,
-    isHorizontal: null,
-    isEdgeZone: false,
-    isSidebarEngaged: false,
-  });
+  // Native CSS Horizontal Page Swiping Engine across Main Views
+  const tabSliderRef = useRef<HTMLDivElement>(null);
+  const isProgrammaticScrollRef = useRef<boolean>(false);
+  const programmaticScrollTimerRef = useRef<any>(null);
+  const scrollSettleTimerRef = useRef<any>(null);
 
   const prefersReducedMotion = typeof window !== 'undefined'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (isAnyModalOpen) return;
-    const target = e.target as HTMLElement;
-    if (
-      target.closest(
-        'input, textarea, select, button, [data-no-swipe], [data-no-drag], .no-swipe, .overflow-x-auto, svg, canvas, .recharts-responsive-container'
-      )
-    ) {
-      return;
+  // Real native horizontal scroll handler: Detects active page cleanly based on viewport center alignment
+  const handleSliderScroll = () => {
+    if (isProgrammaticScrollRef.current) return;
+    const container = tabSliderRef.current;
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const containerCenter = containerRect.left + containerRect.width / 2;
+
+    let closestTab: TabType = currentTab;
+    let minDistance = Infinity;
+
+    Array.from(container.children).forEach((child) => {
+      const pane = child as HTMLElement;
+      const tabName = pane.getAttribute('data-tab') as TabType;
+      if (!tabName) return;
+      const paneRect = pane.getBoundingClientRect();
+      const paneCenter = paneRect.left + paneRect.width / 2;
+      const distance = Math.abs(paneCenter - containerCenter);
+
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestTab = tabName;
+      }
+    });
+
+    if (closestTab && closestTab !== currentTab && minDistance < containerRect.width * 0.35) {
+      setCurrentTab(closestTab);
     }
 
-    const touch = e.touches[0];
-    const isRtl = settings.language === 'ar';
-    const screenWidth = window.innerWidth;
-    const isEdgeZone = isRtl
-      ? touch.clientX >= screenWidth - 28
-      : touch.clientX <= 28;
-
-    mainTouchStateRef.current = {
-      startX: touch.clientX,
-      startY: touch.clientY,
-      startTime: Date.now(),
-      isHorizontal: null,
-      isEdgeZone,
-      isSidebarEngaged: false,
-    };
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (isAnyModalOpen) return;
-    const state = mainTouchStateRef.current;
-    const touch = e.touches[0];
-    const deltaX = touch.clientX - state.startX;
-    const deltaY = touch.clientY - state.startY;
-    const isRtl = settings.language === 'ar';
-
-    if (state.isSidebarEngaged) {
-      window.dispatchEvent(
-        new CustomEvent('mm-sidebar-drag', {
-          detail: { phase: 'move', deltaX, clientX: touch.clientX, isRtl },
-        })
-      );
-      return;
-    }
-
-    const absX = Math.abs(deltaX);
-    const absY = Math.abs(deltaY);
-
-    if (state.isHorizontal === null) {
-      // If user starts vertical scrolling first, immediately cancel horizontal drag so vertical scroll proceeds natively
-      if (absY > 8 && absY >= absX) {
-        state.isHorizontal = false;
-        setIsMainDragging(false);
-        return;
-      }
-
-      // Wait until the finger moves at least 12px
-      if (absX < 12 && absY < 12) return;
-
-      // If vertical movement dominates, cancel horizontal drag immediately so native vertical scrolling proceeds uninterrupted
-      if (absY >= absX) {
-        state.isHorizontal = false;
-        setIsMainDragging(false);
-        return;
-      }
-
-      // Only engage horizontal translation when horizontal movement clearly dominates (absX > 12 and absX > absY * 1.5)
-      if (absX > absY * 1.5 && absX > 12) {
-        state.isHorizontal = true;
-        setIsMainDragging(true);
-
-        // Edge zone boundary hand-off on Home tab
-        const curIdx = TABS.indexOf(currentTab);
-        const isDraggingToStart = isRtl ? deltaX < 0 : deltaX > 0;
-        if (curIdx === 0 && isDraggingToStart && state.isEdgeZone) {
-          state.isSidebarEngaged = true;
-          setIsMainDragging(false);
-          setMainDragOffset(0);
-          window.dispatchEvent(
-            new CustomEvent('mm-sidebar-drag', {
-              detail: { phase: 'start', deltaX: 0, clientX: touch.clientX, isRtl },
-            })
-          );
-          return;
+    if (scrollSettleTimerRef.current) clearTimeout(scrollSettleTimerRef.current);
+    scrollSettleTimerRef.current = setTimeout(() => {
+      if (isProgrammaticScrollRef.current) return;
+      const c = tabSliderRef.current;
+      if (!c) return;
+      const cRect = c.getBoundingClientRect();
+      const cCenter = cRect.left + cRect.width / 2;
+      let finalTab: TabType = currentTab;
+      let finalMin = Infinity;
+      Array.from(c.children).forEach((ch) => {
+        const p = ch as HTMLElement;
+        const name = p.getAttribute('data-tab') as TabType;
+        if (!name) return;
+        const pRect = p.getBoundingClientRect();
+        const pCenter = pRect.left + pRect.width / 2;
+        const dist = Math.abs(pCenter - cCenter);
+        if (dist < finalMin) {
+          finalMin = dist;
+          finalTab = name;
         }
-      } else {
-        return;
+      });
+      if (finalTab && finalTab !== currentTab) {
+        setCurrentTab(finalTab);
       }
-    }
-
-    if (!state.isHorizontal) return;
-
-    const curIdx = TABS.indexOf(currentTab);
-    const isDraggingToStart = isRtl ? deltaX < 0 : deltaX > 0;
-    const isDraggingToEnd = isRtl ? deltaX > 0 : deltaX < 0;
-
-    // Boundary hand-off on Home tab: pulling toward start edge opens Sidebar with 1:1 tracking
-    if (curIdx === 0 && isDraggingToStart) {
-      state.isSidebarEngaged = true;
-      setIsMainDragging(false);
-      setMainDragOffset(0);
-      window.dispatchEvent(
-        new CustomEvent('mm-sidebar-drag', {
-          detail: { phase: 'start', deltaX: 0, clientX: touch.clientX, isRtl },
-        })
-      );
-      return;
-    }
-
-    // Determine adjacent tab
-    let adj: TabType | null = null;
-    if (isDraggingToStart && curIdx > 0) {
-      adj = TABS[curIdx - 1];
-    } else if (isDraggingToEnd && curIdx < TABS.length - 1) {
-      adj = TABS[curIdx + 1];
-    }
-    setTargetAdjacentTab(adj);
-
-    // Apply live 1:1 translation clamped by bounds
-    if ((isDraggingToStart && curIdx === 0) || (isDraggingToEnd && curIdx === TABS.length - 1)) {
-      setMainDragOffset(deltaX * 0.25); // Rubber-band effect at hard ends
-    } else {
-      setMainDragOffset(deltaX);
-    }
+    }, 120);
   };
 
-  const handleTouchCancel = () => {
-    setIsMainDragging(false);
-    setMainDragOffset(0);
-    setTargetAdjacentTab(null);
-    mainTouchStateRef.current.isHorizontal = null;
-    mainTouchStateRef.current.isSidebarEngaged = false;
-  };
+  // Synchronize the slider when currentTab is updated programmatically (from bottom navigation or internal links)
+  useEffect(() => {
+    const container = tabSliderRef.current;
+    if (!container) return;
+    const targetIndex = TABS.indexOf(currentTab);
+    if (targetIndex < 0) return;
+    const targetPane = container.children[targetIndex] as HTMLElement;
+    if (!targetPane) return;
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    const state = mainTouchStateRef.current;
-    const touch = e.changedTouches[0];
-    const deltaX = touch.clientX - state.startX;
-    const duration = Math.max(Date.now() - state.startTime, 1);
-    const velocity = Math.abs(deltaX) / duration;
-    const isRtl = settings.language === 'ar';
+    const containerRect = container.getBoundingClientRect();
+    const paneRect = targetPane.getBoundingClientRect();
+    const distance = Math.abs((paneRect.left + paneRect.width / 2) - (containerRect.left + containerRect.width / 2));
+    if (distance < 8) return;
 
-    if (state.isSidebarEngaged) {
-      window.dispatchEvent(
-        new CustomEvent('mm-sidebar-drag', {
-          detail: { phase: 'end', deltaX, clientX: touch.clientX, isRtl },
-        })
-      );
-      state.isSidebarEngaged = false;
-      return;
-    }
+    isProgrammaticScrollRef.current = true;
+    if (programmaticScrollTimerRef.current) clearTimeout(programmaticScrollTimerRef.current);
 
-    if (state.isHorizontal) {
-      setIsMainDragging(false);
-      const screenWidth = window.innerWidth || 360;
-      const curIdx = TABS.indexOf(currentTab);
-      const isDraggingToStart = isRtl ? deltaX < 0 : deltaX > 0;
-      const isDraggingToEnd = isRtl ? deltaX > 0 : deltaX < 0;
+    targetPane.scrollIntoView({
+      behavior: prefersReducedMotion ? 'instant' : 'smooth',
+      inline: 'start',
+      block: 'nearest',
+    });
 
-      const shouldSwitch = Math.abs(deltaX) > screenWidth * 0.2 || velocity > 0.25;
+    programmaticScrollTimerRef.current = setTimeout(() => {
+      isProgrammaticScrollRef.current = false;
+    }, 450);
+  }, [currentTab, prefersReducedMotion]);
 
-      if (shouldSwitch) {
-        if (isDraggingToStart && curIdx > 0) {
-          setCurrentTab(TABS[curIdx - 1]);
-        } else if (isDraggingToEnd && curIdx < TABS.length - 1) {
-          setCurrentTab(TABS[curIdx + 1]);
-        }
-      }
-      setMainDragOffset(0);
-      setTargetAdjacentTab(null);
-    }
+  // Ensure instant alignment on language direction change or initial mount
+  useEffect(() => {
+    const container = tabSliderRef.current;
+    if (!container) return;
+    const targetIndex = TABS.indexOf(currentTab);
+    if (targetIndex < 0) return;
+    const targetPane = container.children[targetIndex] as HTMLElement;
+    if (!targetPane) return;
 
-    state.isHorizontal = null;
-  };
+    targetPane.scrollIntoView({
+      behavior: 'instant',
+      inline: 'start',
+      block: 'nearest',
+    });
+  }, [settings.language]);
   // Auto-check for newest updates on every app open and resume
   useEffect(() => {
     let checkInProgress = false;
@@ -679,115 +594,112 @@ const MainAppContent: React.FC = () => {
             </div>
           )}
 
-          {/* Active Tab View Display: Scroll Container Enforces Smooth Scrolling across ALL Breakpoints */}
-          {/* 1:1 Finger-Tracking Main View Carousel Container */}
+          {/* Native CSS Horizontal Scroll-Snap Slider Across Main Views */}
           <div
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            onTouchCancel={handleTouchCancel}
-            className={`flex-1 min-h-0 w-full flex flex-col relative overflow-x-hidden touch-pan-y overscroll-y-contain ${
-              isAnyModalOpen ? 'overflow-y-hidden max-h-[100dvh] select-none pointer-events-none' : ''
-            }`}
+            ref={tabSliderRef}
+            onScroll={handleSliderScroll}
+            className="tabs-slider w-full flex-1 min-h-0 flex flex-row overflow-x-auto overflow-y-hidden snap-x snap-mandatory no-scrollbar"
             style={{
-              touchAction: isAnyModalOpen ? 'none' : 'pan-y',
-              transform: isMainDragging && mainDragOffset !== 0 ? `translate3d(${mainDragOffset}px, 0, 0)` : undefined,
-              transition: isMainDragging || prefersReducedMotion ? 'none' : 'transform 260ms cubic-bezier(0.25, 1, 0.5, 1)',
+              scrollSnapType: 'x mandatory',
+              WebkitOverflowScrolling: 'touch',
+              overscrollBehaviorX: 'contain',
+              scrollbarWidth: 'none',
             }}
           >
-            {(() => {
-              const curIdx = TABS.indexOf(currentTab);
-              const shouldMount = (tab: TabType) => {
-                if (tab === currentTab) return true;
-                if (isMainDragging && targetAdjacentTab === tab) return true;
-                return false;
-              };
+            {/* Tab 0: Home */}
+            <div
+              data-tab="home"
+              className="w-full min-w-full h-full flex-shrink-0 snap-start snap-always overflow-y-auto overscroll-y-contain flex flex-col"
+              style={{
+                flex: '0 0 100%',
+                width: '100%',
+                minWidth: '100%',
+                height: '100%',
+                scrollSnapAlign: 'start',
+                scrollSnapStop: 'always',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                WebkitOverflowScrolling: 'touch',
+              }}
+            >
+              <HomeView isBarsVisible={isBarsVisible} />
+            </div>
 
-              return (
-                <>
-                  {shouldMount('home') && (
-                    <div
-                      className={currentTab === 'home' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
-                      style={{
-                        flex: '1 1 0%',
-                        minHeight: 0,
-                        height: '100%',
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        WebkitOverflowScrolling: 'touch',
-                        touchAction: 'pan-y',
-                      }}
-                    >
-                      <HomeView isBarsVisible={isBarsVisible} />
-                    </div>
-                  )}
-                  {shouldMount('budget') && (
-                    <div
-                      className={currentTab === 'budget' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
-                      style={{
-                        flex: '1 1 0%',
-                        minHeight: 0,
-                        height: '100%',
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        WebkitOverflowScrolling: 'touch',
-                        touchAction: 'pan-y',
-                      }}
-                    >
-                      <BudgetView isBarsVisible={isBarsVisible} />
-                    </div>
-                  )}
-                  {shouldMount('insights') && (
-                    <div
-                      className={currentTab === 'insights' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
-                      style={{
-                        flex: '1 1 0%',
-                        minHeight: 0,
-                        height: '100%',
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        WebkitOverflowScrolling: 'touch',
-                        touchAction: 'pan-y',
-                      }}
-                    >
-                      <InsightsView isBarsVisible={isBarsVisible} />
-                    </div>
-                  )}
-                  {shouldMount('accounts') && (
-                    <div
-                      className={currentTab === 'accounts' ? 'w-full min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-y-contain' : 'hidden'}
-                      style={{
-                        flex: '1 1 0%',
-                        minHeight: 0,
-                        height: '100%',
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        WebkitOverflowScrolling: 'touch',
-                        touchAction: 'pan-y',
-                      }}
-                    >
-                      <AccountsView isBarsVisible={isBarsVisible} />
-                    </div>
-                  )}
-                  {shouldMount('calculator') && (
-                    <div
-                      className={currentTab === 'calculator' ? 'h-full flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-y-contain pb-20 md:pb-28 landscape:pb-14' : 'hidden'}
-                      style={{
-                        flex: '1 1 0%',
-                        minHeight: 0,
-                        height: '100%',
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        WebkitOverflowScrolling: 'touch',
-                        touchAction: 'pan-y',
-                      }}
-                    >
-                      <CalculatorView isBarsVisible={isBarsVisible} />
-                    </div>
-                  )}
-                </>
-              );
-            })()}
+            {/* Tab 1: Budget */}
+            <div
+              data-tab="budget"
+              className="w-full min-w-full h-full flex-shrink-0 snap-start snap-always overflow-y-auto overscroll-y-contain flex flex-col"
+              style={{
+                flex: '0 0 100%',
+                width: '100%',
+                minWidth: '100%',
+                height: '100%',
+                scrollSnapAlign: 'start',
+                scrollSnapStop: 'always',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                WebkitOverflowScrolling: 'touch',
+              }}
+            >
+              <BudgetView isBarsVisible={isBarsVisible} />
+            </div>
+
+            {/* Tab 2: Insights */}
+            <div
+              data-tab="insights"
+              className="w-full min-w-full h-full flex-shrink-0 snap-start snap-always overflow-y-auto overscroll-y-contain flex flex-col"
+              style={{
+                flex: '0 0 100%',
+                width: '100%',
+                minWidth: '100%',
+                height: '100%',
+                scrollSnapAlign: 'start',
+                scrollSnapStop: 'always',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                WebkitOverflowScrolling: 'touch',
+              }}
+            >
+              <InsightsView isBarsVisible={isBarsVisible} />
+            </div>
+
+            {/* Tab 3: Accounts */}
+            <div
+              data-tab="accounts"
+              className="w-full min-w-full h-full flex-shrink-0 snap-start snap-always overflow-y-auto overscroll-y-contain flex flex-col"
+              style={{
+                flex: '0 0 100%',
+                width: '100%',
+                minWidth: '100%',
+                height: '100%',
+                scrollSnapAlign: 'start',
+                scrollSnapStop: 'always',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                WebkitOverflowScrolling: 'touch',
+              }}
+            >
+              <AccountsView isBarsVisible={isBarsVisible} />
+            </div>
+
+            {/* Tab 4: Calculator */}
+            <div
+              data-tab="calculator"
+              className="w-full min-w-full h-full flex-shrink-0 snap-start snap-always overflow-y-auto overscroll-y-contain flex flex-col pb-20 md:pb-28 landscape:pb-14"
+              style={{
+                flex: '0 0 100%',
+                width: '100%',
+                minWidth: '100%',
+                height: '100%',
+                scrollSnapAlign: 'start',
+                scrollSnapStop: 'always',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                WebkitOverflowScrolling: 'touch',
+              }}
+            >
+              <CalculatorView isBarsVisible={isBarsVisible} />
+            </div>
           </div>
           <MultiSelectActionBar />
           <Navigation isBarsVisible={isBarsVisible} />

@@ -650,7 +650,7 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
             </div>
 
                 {/* 1:1 Finger-Tracking Carousel for Shared Spaces */}
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain">
           <SwipeableTabs
             tabs={[
               {

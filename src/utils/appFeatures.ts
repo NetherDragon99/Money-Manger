@@ -4,6 +4,26 @@ export type { FeatureItem, ReleaseNote };
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.51',
+    releaseDate: 'October 27, 2026',
+    title: {
+      en: 'Native Vertical Scrolling Fix & Pure CSS Horizontal Page Swiping Engine',
+      ar: 'إصلاح التمرير الرأسي الشامل ومحرك السحب الأفقي الطبيعي عبر الصفحات',
+    },
+    highlights: {
+      en: [
+        'Natural Vertical Scrolling Restored: Eliminated nested scroll traps and artificial touch captures across Home, Budget, Insights, Accounts, and Calculator views.',
+        'Real Native Horizontal Page Swiping: Replaced laggy JS animation transforms with native CSS scroll-snap (overflow-x: auto, snap-x mandatory) for silky-smooth 120 FPS page switching.',
+        'Unconstrained Segmented Controls: Redesigned SwipeableTabs to render content in direct flow without overflow-hidden or height restrictions.',
+      ],
+      ar: [
+        'استعادة التمرير الرأسي الطبيعي: إزالة كافة قيود التمرير المتداخلة وحبس الأحداث في صفحات الرئيسية، الميزانية، التحليلات، الحسابات، والحاسبة.',
+        'سحب أفقي طبيعي وسلس بين الصفحات: استبدال تحريكات الجافاسكريبت بمحرك تمرير CSS طبيعي فائق السرعة وبدون أي بطء أو تقطيع.',
+        'أزرار تنقل انسيابية: إعادة تصميم التبويبات الفرعية لعرض المحتوى مباشرة في الصفحة بحرية ودون حبس داخل حاويات مقيدة.',
+      ],
+    },
+  },
+  {
     version: '1.1.50',
     releaseDate: 'October 27, 2026',
     title: {
