@@ -30,6 +30,7 @@ import {
   Trash2,
   Loader2,
   LogOut,
+  ChevronRight,
 } from 'lucide-react';
 import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from '../utils/security';
 import { format16DigitId } from '../utils/userId';
@@ -332,8 +333,12 @@ export const Sidebar: React.FC = () => {
     setIsClosing(true);
     setTimeout(() => {
       setIsClosing(false);
-      navigateBack();
-      afterClose?.();
+      if (afterClose) {
+        setIsSidebarOpen(false);
+        afterClose();
+      } else {
+        navigateBack();
+      }
     }, 180);
   };
 
@@ -485,10 +490,11 @@ export const Sidebar: React.FC = () => {
           isClosing ? 'opacity-0 -translate-x-full rtl:translate-x-full' : 'animate-in slide-in-from-left rtl:slide-in-from-right duration-300'
         }`}
       >
-        {/* User Profile Header: Entire Section is 100% Clickable Card (Item 10) */}
+        {/* User Profile Header: Entire Section is 100% Clickable Card */}
         <div
           onClick={() => {
-            handleAnimatedClose(() => setIsUserProfileModalOpen(true));
+            setIsSidebarOpen(false);
+            setIsUserProfileModalOpen(true);
           }}
           role="button"
           tabIndex={0}
@@ -579,6 +585,11 @@ export const Sidebar: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Profile Click Indicator */}
+          <div className="flex items-center gap-1 shrink-0 ml-1 rtl:ml-0 rtl:mr-1">
+            <ChevronRight className={`w-4 h-4 text-zinc-500 group-hover:text-blue-400 group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5 transition ${isArabic ? 'rotate-180' : ''}`} />
           </div>
 
           {currentUser && (
@@ -797,6 +808,22 @@ export const Sidebar: React.FC = () => {
 
           {/* Features, Guides, and Scheduled Recurring */}
           <div className="space-y-2.5">
+            {/* User Profile & Cloud Account Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsSidebarOpen(false);
+                setIsUserProfileModalOpen(true);
+              }}
+              className="w-full flex items-center justify-between p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xs font-bold text-zinc-200 transition cursor-pointer shadow-md active:scale-98"
+            >
+              <div className="flex items-center gap-2.5">
+                <User className="w-4 h-4 text-blue-400" />
+                <span>{isArabic ? 'الملف الشخصي والحساب السحابي' : 'User Profile & Cloud Account'}</span>
+              </div>
+              <ChevronRight className={`w-4 h-4 text-zinc-500 group-hover:text-white transition ${isArabic ? 'rotate-180' : ''}`} />
+            </button>
+
             {/* Recurring Transactions Manager Button */}
             <button
               type="button"
@@ -1164,7 +1191,7 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar Footer: Version (v1.1.55) & Refresh Button */}
+        {/* Sidebar Footer: Version (v1.1.56) & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-zinc-300">Version: Beta v{CURRENT_APP_VERSION}</span>

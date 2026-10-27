@@ -4,6 +4,24 @@ export type { FeatureItem, ReleaseNote };
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.56',
+    releaseDate: 'October 27, 2026',
+    title: {
+      en: 'User Profile Navigation Fix & Dedicated Cloud Account Menu Access',
+      ar: 'إصلاح فتح صفحة الملف الشخصي وتوفير زر وصول مباشر للحساب السحابي',
+    },
+    highlights: {
+      en: [
+        'Instant Profile Launch: Fixed an issue where tapping the user profile header failed to open due to a navigation popstate conflict, now opening cleanly and reliably.',
+        'Dedicated Menu Action: Added an explicit "User Profile & Cloud Account" button in the sidebar drawer for convenient one-tap access.',
+      ],
+      ar: [
+        'فتح فوري للملف الشخصي: إصلاح تعطل فتح صفحة الملف الشخصي بسبب تعارض في سجل التنقل لتفتح فوراً وبسلاسة تامة بمجرد النقر.',
+        'زر وصول مخصص: إضافة زر مباشر ومميز "الملف الشخصي والحساب السحابي" في القائمة الجانبية لسهولة إدارة الحساب والمزامنة.',
+      ],
+    },
+  },
+  {
     version: '1.1.55',
     releaseDate: 'October 27, 2026',
     title: {
