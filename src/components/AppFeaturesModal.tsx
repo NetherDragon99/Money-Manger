@@ -16,9 +16,6 @@ import {
   RotateCcw,
   Compass,
   MapPin,
-  Columns2,
-  PanelLeftClose,
-  PanelLeftOpen,
   ArrowLeft,
   ArrowRight,
 } from 'lucide-react';
@@ -96,7 +93,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
     return featuresData?.features.find((f) => f.id === selectedId) || null;
   }, [featuresData?.features, selectedId]);
 
-  // Transition Helpers
+  // Transition Helpers: 2-page direct flow (Grid <-> Preview)
   const openFeatureInPreview = (id: string) => {
     setSelectedId(id);
     setFeatureGuideLayout('preview');
@@ -107,14 +104,6 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
     setFeatureGuideLayout('grid');
   };
 
-  const toggleSplitAndPreview = () => {
-    if (featureGuideLayout === 'split') {
-      setFeatureGuideLayout('preview');
-    } else {
-      setFeatureGuideLayout('split');
-    }
-  };
-
   const handleAnimatedClose = () => {
     setIsClosing(true);
     setTimeout(() => {
@@ -123,7 +112,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
     }, 180);
   };
 
-  // 2. TOUCH GESTURE HANDLING: Directional Swipes between Preview, Split, and Grid
+  // 2. TOUCH GESTURE HANDLING: Direct Swipe from Preview back to the First Page (Grid)
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
 
@@ -144,50 +133,11 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
       return;
     }
 
-    const isSplit = featureGuideLayout === 'split';
-    const isPreview = featureGuideLayout === 'preview' || featureGuideLayout === 'full';
-
-    if (isArabic) {
-      // In Arabic RTL:
-      if (isPreview) {
-        // Swiping Left-to-Right or inward expands from thin sidebar to 50/50 split
-        if (deltaX > 40 || deltaX < -40) {
-          setFeatureGuideLayout('split');
-        }
-      } else if (isSplit) {
-        // In 50/50 split view:
-        if (deltaX > 40) {
-          // Swipe in opposite direction returns to thin sidebar preview
-          setFeatureGuideLayout('preview');
-        } else if (deltaX < -40) {
-          // Swipe again towards return returns back to full cards grid
-          returnToGrid();
-        }
-      }
-    } else {
-      // In LTR (English):
-      if (isPreview) {
-        // Swiping Left-to-Right while in preview mode expands sidebar to 50% and pushes detail panel
-        if (deltaX > 40) {
-          setFeatureGuideLayout('split');
-        }
-      } else if (isSplit) {
-        // In 50/50 split mode:
-        if (deltaX < -40) {
-          // Swiping in opposite direction (Right-to-Left) returns to thin sidebar preview
-          setFeatureGuideLayout('preview');
-        } else if (deltaX > 40) {
-          // Swiping Left-to-Right again returns back to the initial grid view
-          returnToGrid();
-        }
-      }
-    }
+    // Direct swipe transition: Return from preview mode back to the first page (Grid)
+    returnToGrid();
   };
 
   if (!isOpen) return null;
-
-  const isSplitMode = featureGuideLayout === 'split';
-  const isPreviewMode = featureGuideLayout === 'preview' || featureGuideLayout === 'full';
 
   return (
     <div
@@ -221,7 +171,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* If a feature is selected, show back-to-grid button */}
+            {/* If in Preview, show Return to Grid button */}
             {selectedId !== null && (
               <button
                 type="button"
@@ -286,11 +236,12 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
             </div>
           )}
 
-          {/* LOADED CONTENT: 3-STATE LAYOUT FLOW */}
+          {/* LOADED CONTENT: 2-STATE DIRECT ARCHITECTURE (PAGE 1: GRID <-> PAGE 2: PREVIEW WITH THIN SIDEBAR) */}
           {!isLoading && !loadError && (
             <>
               {/* =========================================================================
-                  STATE 1: FULL-SCREEN CARDS GRID (When no feature is currently selected)
+                  PAGE 1: FIRST PAGE (FULL-SCREEN CARDS GRID)
+                  - Displays Icon, Title, and Short Description on a good size
                   ========================================================================= */}
               {selectedId === null ? (
                 <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -346,7 +297,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                       </div>
                     </div>
 
-                    {/* Feature Cards Grid (State 1: Displays Icon + Distinctive Title + Subtitle + Description) */}
+                    {/* Feature Cards Grid (Displays Icon + Distinctive Title + Subtitle + Short Description) */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
                       {filteredFeatures.map((feat) => (
                         <div
@@ -371,7 +322,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                               {isArabic ? feat.title.ar : feat.title.en}
                             </h4>
 
-                            {/* Ultra-Concise Subtitle (GRID ONLY) */}
+                            {/* Ultra-Concise Subtitle */}
                             <p className="text-xs font-medium text-blue-400/90 mt-1">
                               {isArabic ? feat.subtitle.ar : feat.subtitle.en}
                             </p>
@@ -393,159 +344,70 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                 </div>
               ) : (
                 /* =========================================================================
-                    STATE 2 & STATE 3: INTERACTIVE 3-STATE MOTION ARCHITECTURE
-                    - Thin Sidebar (Preview Mode) OR 50/50 Expanded Sidebar (Split Mode)
-                    - Detail Panel smoothly adapts with animated push/glide
+                    PAGE 2: PREVIEW VIEW WITH THIN QUICK-ACCESS SIDEBAR
+                    - Thin Sidebar: Displays Icon + Title ONLY
+                    - Detail Area: Displays Icon, Full Description, Where to Find, How to Use
+                    - Tapping any item on the thin sidebar immediately updates the detail panel
+                    - Swiping horizontally directly returns back to the First Page (Grid)
                     ========================================================================= */
                 <div
                   className="flex-1 flex min-h-0 overflow-hidden relative"
                   onTouchStart={handleTouchStart}
                   onTouchEnd={handleTouchEnd}
                 >
-                  {/* SIDEBAR CONTAINER:
-                      - In Preview Mode: Thins out to ~76-92px showing ONLY Icon + Title!
-                      - In Split Mode: Expands smoothly to 50% width!
-                      - Smooth motion animation with CSS transition */}
-                  <div
-                    className={`border-r rtl:border-l rtl:border-r-0 border-zinc-800/80 bg-zinc-950 flex flex-col shrink-0 select-none transition-all duration-300 ease-in-out ${
-                      isSplitMode
-                        ? 'w-full sm:w-1/2 md:w-1/2 p-3 space-y-2 overflow-y-auto'
-                        : 'w-[76px] sm:w-[84px] md:w-[92px] p-2 space-y-2 overflow-y-auto items-center'
-                    }`}
-                  >
-                    {/* Header in Split Mode */}
-                    {isSplitMode && (
-                      <div className="flex items-center justify-between pb-2 border-b border-zinc-800/80 px-1 shrink-0">
-                        <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                          {isArabic ? 'قائمة المميزات' : 'Feature Directory'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={returnToGrid}
-                          className="text-xs font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer"
-                        >
-                          <LayoutGrid className="w-3.5 h-3.5" />
-                          <span>{isArabic ? 'الشبكة' : 'All Cards'}</span>
-                        </button>
+                  {/* THIN QUICK-ACCESS SIDEBAR:
+                      - Displays ONLY the Icon and Title
+                      - Compact, vertical column */}
+                  <div className="w-[76px] sm:w-[84px] md:w-[92px] p-2 space-y-2 overflow-y-auto items-center border-r rtl:border-l rtl:border-r-0 border-zinc-800/80 bg-zinc-950 flex flex-col shrink-0 select-none transition-all duration-200">
+                    {/* Release Notes Item in Thin Sidebar */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId('changelog')}
+                      className={`w-full py-2.5 px-1 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer active:scale-95 ${
+                        selectedId === 'changelog'
+                          ? 'bg-blue-600/25 border border-blue-500/60 text-white shadow-lg shadow-blue-500/20'
+                          : 'bg-zinc-900/40 border border-zinc-800/40 text-zinc-400 hover:bg-zinc-850 hover:text-white'
+                      }`}
+                      title={isArabic ? 'سجل التحديثات' : 'Release Notes'}
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-blue-600/20 flex items-center justify-center text-blue-400 shrink-0">
+                        <History className="w-3.5 h-3.5" />
                       </div>
-                    )}
+                      <span className="text-[10px] font-bold text-center leading-tight line-clamp-2 max-w-[68px] px-0.5">
+                        {isArabic ? 'التحديثات' : 'Updates'}
+                      </span>
+                    </button>
 
-                    {/* Release Notes Item in Sidebar */}
-                    {isSplitMode ? (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedId('changelog')}
-                        className={`w-full p-2.5 rounded-2xl flex items-center gap-3 transition cursor-pointer text-left rtl:text-right ${
-                          selectedId === 'changelog'
-                            ? 'bg-blue-600/25 border border-blue-500/60 text-white shadow-md'
-                            : 'bg-zinc-900/60 border border-zinc-800/60 text-zinc-400 hover:bg-zinc-850 hover:text-white'
-                        }`}
-                      >
-                        <div className="w-8 h-8 rounded-xl bg-blue-600/20 flex items-center justify-center text-blue-400 shrink-0">
-                          <History className="w-4 h-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <span className="text-xs font-bold truncate block">
-                            {isArabic ? 'سجل التحديثات والإصدارات' : 'Release Notes & Updates'}
-                          </span>
-                          <span className="text-[10px] text-blue-400 font-mono">
-                            Beta v{CURRENT_APP_VERSION}
-                          </span>
-                        </div>
-                      </button>
-                    ) : (
-                      /* Thin Sidebar Button: Shows Icon and Title ONLY */
-                      <button
-                        type="button"
-                        onClick={() => setSelectedId('changelog')}
-                        className={`w-full py-2.5 px-1 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer active:scale-95 ${
-                          selectedId === 'changelog'
-                            ? 'bg-blue-600/25 border border-blue-500/60 text-white shadow-lg shadow-blue-500/20'
-                            : 'bg-zinc-900/40 border border-zinc-800/40 text-zinc-400 hover:bg-zinc-850 hover:text-white'
-                        }`}
-                        title={isArabic ? 'سجل التحديثات' : 'Release Notes'}
-                      >
-                        <div className="w-7 h-7 rounded-lg bg-blue-600/20 flex items-center justify-center text-blue-400 shrink-0">
-                          <History className="w-3.5 h-3.5" />
-                        </div>
-                        <span className="text-[10px] font-bold text-center leading-tight line-clamp-2 max-w-[68px] px-0.5">
-                          {isArabic ? 'التحديثات' : 'Updates'}
-                        </span>
-                      </button>
-                    )}
-
-                    {/* Features List:
-                        - In Thin Mode: Icon and Distinctive Title ONLY!
-                        - In Split Mode: Icon, Title, and Category badge!
-                        - Clicking ANY item immediately updates the detail panel! */}
+                    {/* Features List in Thin Sidebar: Icon and Title ONLY */}
                     {featuresData?.features.map((feat) => {
                       const isSelected = selectedId === feat.id;
-
-                      if (!isSplitMode) {
-                        /* THIN SIDEBAR ITEM: Icon + Title ONLY as strictly requested */
-                        return (
-                          <button
-                            key={feat.id}
-                            type="button"
-                            onClick={() => setSelectedId(feat.id)}
-                            className={`w-full py-2.5 px-1 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer active:scale-95 group ${
-                              isSelected
-                                ? 'bg-blue-600/25 border border-blue-500/60 text-white shadow-lg shadow-blue-500/20'
-                                : 'bg-zinc-900/40 border border-zinc-800/40 text-zinc-400 hover:bg-zinc-850 hover:text-white'
-                            }`}
-                            title={isArabic ? feat.title.ar : feat.title.en}
-                          >
-                            <span className="text-2xl shrink-0 group-hover:scale-110 transition-transform">
-                              {feat.icon}
-                            </span>
-                            <span className="text-[10px] font-bold text-center leading-tight line-clamp-2 max-w-[68px] px-0.5">
-                              {isArabic ? feat.title.ar : feat.title.en}
-                            </span>
-                          </button>
-                        );
-                      }
-
-                      /* 50% SPLIT VIEW ITEM */
                       return (
                         <button
                           key={feat.id}
                           type="button"
                           onClick={() => setSelectedId(feat.id)}
-                          className={`w-full p-2.5 rounded-2xl flex items-center gap-3 transition cursor-pointer text-left rtl:text-right ${
+                          className={`w-full py-2.5 px-1 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer active:scale-95 group ${
                             isSelected
-                              ? 'bg-blue-600/25 border border-blue-500/60 text-white shadow-lg'
+                              ? 'bg-blue-600/25 border border-blue-500/60 text-white shadow-lg shadow-blue-500/20'
                               : 'bg-zinc-900/40 border border-zinc-800/40 text-zinc-400 hover:bg-zinc-850 hover:text-white'
                           }`}
+                          title={isArabic ? feat.title.ar : feat.title.en}
                         >
-                          <span className="text-2xl shrink-0">{feat.icon}</span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="text-xs font-bold truncate leading-snug">
-                                {isArabic ? feat.title.ar : feat.title.en}
-                              </span>
-                              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
-                                {feat.category}
-                              </span>
-                            </div>
-                            <span className="text-[11px] text-zinc-400 truncate block mt-0.5">
-                              {isArabic ? feat.subtitle.ar : feat.subtitle.en}
-                            </span>
-                          </div>
+                          <span className="text-2xl shrink-0 group-hover:scale-110 transition-transform">
+                            {feat.icon}
+                          </span>
+                          <span className="text-[10px] font-bold text-center leading-tight line-clamp-2 max-w-[68px] px-0.5">
+                            {isArabic ? feat.title.ar : feat.title.en}
+                          </span>
                         </button>
                       );
                     })}
                   </div>
 
                   {/* DETAIL PANEL:
-                      - In Preview Mode: Takes the full remainder of the view.
-                      - In Split Mode: Pushed and flexed to take 50% with smooth motion animation.
-                      - Contains Icon, Description, "Where to Find", "How to Use", and "Pro Tip".
-                      - Strictly never outputs "preview pannel" or "preview mode" labels! */}
-                  <div
-                    className={`flex-1 flex flex-col bg-zinc-950 overflow-hidden min-w-0 transition-all duration-300 ease-in-out ${
-                      isSplitMode ? 'w-full sm:w-1/2 md:w-1/2' : 'w-full'
-                    }`}
-                  >
+                      - Full width of the remaining space
+                      - Contains Icon, Full Description, Where to Find, How to Use, Pro Tip */}
+                  <div className="flex-1 flex flex-col bg-zinc-950 overflow-hidden min-w-0 w-full transition-all duration-200">
                     {/* Detail Header */}
                     <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-zinc-800/80 bg-zinc-900/50 shrink-0">
                       <div className="flex items-center gap-2 min-w-0">
@@ -563,45 +425,17 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {/* Toggle Split / Full Detail View */}
-                        <button
-                          type="button"
-                          onClick={toggleSplitAndPreview}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold transition cursor-pointer active:scale-95"
-                          title={
-                            isSplitMode
-                              ? isArabic
-                                ? 'توسيع عرض التفاصيل'
-                                : 'Expand Details'
-                              : isArabic
-                              ? 'تقسيم الشاشة'
-                              : 'Split View'
-                          }
-                        >
-                          {isSplitMode ? (
-                            <PanelLeftClose className="w-3.5 h-3.5 text-blue-400" />
-                          ) : (
-                            <PanelLeftOpen className="w-3.5 h-3.5 text-blue-400" />
-                          )}
-                          <span className="hidden sm:inline">
-                            {isSplitMode
-                              ? isArabic
-                                ? 'توسيع'
-                                : 'Expand'
-                              : isArabic
-                              ? 'تقسيم'
-                              : 'Split'}
-                          </span>
-                        </button>
-
                         {/* Back to Grid Button */}
                         <button
                           type="button"
                           onClick={returnToGrid}
-                          className="p-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold transition cursor-pointer active:scale-95"
                           title={isArabic ? 'العودة لشبكة البطاقات' : 'Return to Grid'}
                         >
-                          <LayoutGrid className="w-4 h-4" />
+                          <LayoutGrid className="w-3.5 h-3.5 text-blue-400" />
+                          <span className="hidden sm:inline">
+                            {isArabic ? 'عرض الشبكة' : 'Grid View'}
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -710,7 +544,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                             </div>
                           </div>
 
-                          {/* WHERE TO FIND IT SECTION (DEDICATED SECTION) */}
+                          {/* WHERE TO FIND IT SECTION */}
                           {selectedFeature.whereToFind && (
                             <div className="space-y-2">
                               <h5 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-2">

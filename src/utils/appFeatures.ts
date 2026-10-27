@@ -4,6 +4,24 @@ export type { FeatureItem, ReleaseNote };
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.55',
+    releaseDate: 'October 27, 2026',
+    title: {
+      en: 'Streamlined 2-Page Feature Guide & Instant Swipe Return',
+      ar: 'تبسيط دليل المميزات لصفحتين مباشرين مع العودة الفورية بالسحب',
+    },
+    highlights: {
+      en: [
+        'Direct 2-Page Flow: Skipped the intermediate split layout for an immediate, focused detail view with a thin quick-access sidebar upon tapping any feature card.',
+        'Instant Swipe Return: A single horizontal swipe gesture now immediately returns you from the detail view directly back to the first directory cards grid.',
+      ],
+      ar: [
+        'تنقل مباشر ومبسط بين صفحتين: إلغاء العرض المقسم الوسيط للانتقال فوراً للشريط الجانبي المدمج مع لوحة الشرح المفصلة عند لمس أي بطاقة.',
+        'عودة فورية بالسحب: إيماءة سحب أفقية واحدة تعيدك مباشرة وبسلاسة تامة من لوحة التفاصيل إلى شبكة البطاقات الأولى.',
+      ],
+    },
+  },
+  {
     version: '1.1.54',
     releaseDate: 'October 27, 2026',
     title: {
