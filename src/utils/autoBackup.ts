@@ -17,6 +17,7 @@ import { cleanNumericId } from './userId';
 import { ShareFolder, loadMyShareFolders, loadReceivedShareFolders } from './shareFolders';
 import { queueOfflineCloudBackup } from './persistQueue';
 import { INITIAL_CATEGORIES } from './constants';
+import { migrateRecurringRule } from './recurring';
 
 export interface FullAppBackupPayload {
   version: string;
@@ -169,7 +170,7 @@ export async function executeAutoBackup(data: AppData): Promise<{ success: boole
   const fileName = `auto_backup_${timestamp}.json`;
 
   const backupPayload = {
-    version: '1.1.58',
+    version: '1.1.59',
     type: 'automated_backup',
     backupDate: new Date().toISOString(),
     ...data,
@@ -787,7 +788,7 @@ export async function fetchCloudAccountSnapshot(uid: string): Promise<{
       const tombVal = (tombSnap && tombSnap.exists() && tombSnap.val()) || {};
 
       const txs = Object.values(txVal.items || {});
-      const recurring = Object.values(recVal.items || {});
+      const recurring = Object.values(recVal.items || {}).map((r: any) => migrateRecurringRule(r));
       const accounts = Object.values(accVal.items || {});
       const categories = Object.values(catVal.items || {});
       const budgets = Object.values(budVal.items || {});
@@ -893,7 +894,7 @@ export async function writeV4ResolvedState(
       items: any[];
     }> = [
       { name: 'transactions', items: state.transactions || [] },
-      { name: 'recurring', items: state.recurringTransactions || [] },
+      { name: 'recurring', items: (state.recurringTransactions || []).map((r) => migrateRecurringRule(r)) },
       { name: 'accounts', items: state.accounts || [] },
       { name: 'categories', items: state.categories || [] },
       { name: 'budgets', items: state.budgets || [] },
@@ -1019,12 +1020,13 @@ export async function writeGranularDelta(
     return;
   }
 
-  const now = item.updatedAt || syncNow();
-  const stamped = { ...item, updatedAt: now };
+  const payloadItem = collection === 'recurring' ? migrateRecurringRule(item) : item;
+  const now = payloadItem.updatedAt || syncNow();
+  const stamped = { ...payloadItem, updatedAt: now };
 
   if (!navigator.onLine || !rtdb) {
     enqueueGranularDirtyItem(
-      { collection, id: item.id, action: 'upsert', data: stamped, updatedAt: now },
+      { collection, id: payloadItem.id, action: 'upsert', data: stamped, updatedAt: now },
       uid,
       isSyncUnlocked
     );
@@ -1036,7 +1038,7 @@ export async function writeGranularDelta(
     ownerUid: uid,
     accountName: collection,
     updatedAt: now,
-    [`items/${item.id}`]: stamped,
+    [`items/${payloadItem.id}`]: stamped,
   };
   try {
     await update(colRef, JSON.parse(JSON.stringify(payload)));
@@ -1305,7 +1307,11 @@ export async function pullLatestRemoteState(uid: string): Promise<{
     return {
       manifest: manSnap.exists() ? manSnap.val() : null,
       transactions: txSnap.exists() ? (txSnap.val()?.items || {}) : {},
-      recurring: recSnap.exists() ? (recSnap.val()?.items || {}) : {},
+      recurring: recSnap.exists()
+        ? Object.fromEntries(
+            Object.entries(recSnap.val()?.items || {}).map(([k, v]) => [k, migrateRecurringRule(v as any)])
+          )
+        : {},
       accounts: accSnap.exists() ? (accSnap.val()?.items || {}) : {},
       categories: catSnap.exists() ? (catSnap.val()?.items || {}) : {},
       budgets: budSnap.exists() ? (budSnap.val()?.items || {}) : {},
@@ -1373,7 +1379,8 @@ export function attachV4LiveListeners(
   if (callbacks.onRecurring) {
     attachListener(recRef, (val) => {
       const itemsMap = val.items || {};
-      callbacks.onRecurring!(Object.values(itemsMap), itemsMap);
+      const migrated = Object.values(itemsMap).map((r: any) => migrateRecurringRule(r));
+      callbacks.onRecurring!(migrated, itemsMap);
     });
   }
   if (callbacks.onAccounts) {

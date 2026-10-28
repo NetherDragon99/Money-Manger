@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
-import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw } from 'lucide-react';
-import { TransactionType, RecurringFrequency, RecurringTransaction } from '../types';
+import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw, Trash2 } from 'lucide-react';
+import { TransactionType, RecurringFrequency, RecurringTransaction, AdvancedScheduleConfig } from '../types';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatDisplayNumber } from '../utils/dateCycle';
-import { calculateNextDueDate } from '../utils/recurring';
+import { calculateNextDueDate, getScheduleSummaryText, migrateRecurringRule, normalizeHHMM, normalizeTimesList } from '../utils/recurring';
 import { Numpad } from './Numpad';
 import { MiniDateTimePicker } from './MiniDateTimePicker';
 import { CategoryDirectoryModal } from './CategoryDirectoryModal';
@@ -57,14 +57,16 @@ export const TransactionModal: React.FC = () => {
 
   // Advanced Recurring Schedule State
   const [isAdvancedSchedule, setIsAdvancedSchedule] = useState<boolean>(false);
-  const [advancedScheduleType, setAdvancedScheduleType] = useState<'weekly_days' | 'monthly_days' | 'multiple_times_daily'>('weekly_days');
+  const [advancedTab, setAdvancedTab] = useState<'weekdays' | 'month_days' | 'times_daily'>('weekdays');
+  const [useWeekdayFilter, setUseWeekdayFilter] = useState<boolean>(false);
   const [selectedDaysOfWeek, setSelectedDaysOfWeek] = useState<number[]>([1]); // default Mon
-  const [unifiedWeeklyTime, setUnifiedWeeklyTime] = useState<string>('09:00');
-  const [customWeeklyTimes, setCustomWeeklyTimes] = useState<Record<number, string>>({});
-  const [isCustomDayTimes, setIsCustomDayTimes] = useState<boolean>(false);
+  const [useMonthDayFilter, setUseMonthDayFilter] = useState<boolean>(false);
   const [selectedDaysOfMonth, setSelectedDaysOfMonth] = useState<number[]>([1]);
-  const [monthlyTime, setMonthlyTime] = useState<string>('09:00');
-  const [multipleTimesDaily, setMultipleTimesDaily] = useState<string[]>(['09:00', '18:00']);
+  const [timesOfDay, setTimesOfDay] = useState<string[]>(['09:00']);
+  const [hasCustomTimes, setHasCustomTimes] = useState<boolean>(false);
+  const [weekdayTimes, setWeekdayTimes] = useState<Record<number, string[]>>({});
+  const [monthDayTimes, setMonthDayTimes] = useState<Record<number, string[]>>({});
+  const [selectedDayOverrideToAdd, setSelectedDayOverrideToAdd] = useState<string>('');
 
   const weekDaysMap = [
     { day: 0, labelEn: 'Sun', labelAr: 'أحد' },
@@ -78,35 +80,153 @@ export const TransactionModal: React.FC = () => {
 
   const toggleDayOfWeek = (d: number) => {
     setSelectedDaysOfWeek((prev) =>
-      prev.includes(d) ? (prev.length > 1 ? prev.filter((x) => x !== d) : prev) : [...prev, d].sort((a, b) => a - b)
+      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((a, b) => a - b)
     );
+  };
+
+  const selectAllDaysOfWeek = () => {
+    setSelectedDaysOfWeek([0, 1, 2, 3, 4, 5, 6]);
+  };
+
+  const clearDaysOfWeek = () => {
+    setSelectedDaysOfWeek([]);
   };
 
   const toggleDayOfMonth = (d: number) => {
     setSelectedDaysOfMonth((prev) =>
-      prev.includes(d) ? (prev.length > 1 ? prev.filter((x) => x !== d) : prev) : [...prev, d].sort((a, b) => a - b)
+      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((a, b) => a - b)
     );
   };
 
-  const addMultiTime = () => {
-    if (multipleTimesDaily.length < 5) {
-      setMultipleTimesDaily((prev) => [...prev, '12:00']);
+  const selectAllDaysOfMonth = () => {
+    setSelectedDaysOfMonth(Array.from({ length: 31 }, (_, i) => i + 1));
+  };
+
+  const clearDaysOfMonth = () => {
+    setSelectedDaysOfMonth([]);
+  };
+
+  const addTimeSlot = () => {
+    if (timesOfDay.length < 6) {
+      setTimesOfDay((prev) => [...prev, '12:00']);
     }
   };
 
-  const removeMultiTime = (idx: number) => {
-    if (multipleTimesDaily.length > 1) {
-      setMultipleTimesDaily((prev) => prev.filter((_, i) => i !== idx));
+  const removeTimeSlot = (idx: number) => {
+    if (timesOfDay.length > 1) {
+      setTimesOfDay((prev) => prev.filter((_, i) => i !== idx));
     }
   };
 
-  const updateMultiTime = (idx: number, val: string) => {
-    setMultipleTimesDaily((prev) => {
+  const updateTimeSlot = (idx: number, val: string) => {
+    setTimesOfDay((prev) => {
       const copy = [...prev];
       copy[idx] = val;
       return copy;
     });
   };
+
+  const addDayOverride = (overrideType: 'weekday' | 'month_day', dayNum: number) => {
+    if (overrideType === 'weekday') {
+      setWeekdayTimes((prev) => ({
+        ...prev,
+        [dayNum]: ['09:00'],
+      }));
+    } else {
+      setMonthDayTimes((prev) => ({
+        ...prev,
+        [dayNum]: ['09:00'],
+      }));
+    }
+  };
+
+  const removeDayOverride = (overrideType: 'weekday' | 'month_day', dayNum: number) => {
+    if (overrideType === 'weekday') {
+      setWeekdayTimes((prev) => {
+        const copy = { ...prev };
+        delete copy[dayNum];
+        return copy;
+      });
+    } else {
+      setMonthDayTimes((prev) => {
+        const copy = { ...prev };
+        delete copy[dayNum];
+        return copy;
+      });
+    }
+  };
+
+  const addTimeSlotToDay = (overrideType: 'weekday' | 'month_day', dayNum: number) => {
+    if (overrideType === 'weekday') {
+      setWeekdayTimes((prev) => {
+        const list = prev[dayNum] || ['09:00'];
+        if (list.length >= 5) return prev;
+        return { ...prev, [dayNum]: [...list, '12:00'] };
+      });
+    } else {
+      setMonthDayTimes((prev) => {
+        const list = prev[dayNum] || ['09:00'];
+        if (list.length >= 5) return prev;
+        return { ...prev, [dayNum]: [...list, '12:00'] };
+      });
+    }
+  };
+
+  const removeTimeSlotFromDay = (overrideType: 'weekday' | 'month_day', dayNum: number, timeIdx: number) => {
+    if (overrideType === 'weekday') {
+      setWeekdayTimes((prev) => {
+        const list = prev[dayNum];
+        if (!list || list.length <= 1) {
+          // Deleting last time slot removes the day override entirely
+          const copy = { ...prev };
+          delete copy[dayNum];
+          return copy;
+        }
+        return { ...prev, [dayNum]: list.filter((_, i) => i !== timeIdx) };
+      });
+    } else {
+      setMonthDayTimes((prev) => {
+        const list = prev[dayNum];
+        if (!list || list.length <= 1) {
+          // Deleting last time slot removes the day override entirely
+          const copy = { ...prev };
+          delete copy[dayNum];
+          return copy;
+        }
+        return { ...prev, [dayNum]: list.filter((_, i) => i !== timeIdx) };
+      });
+    }
+  };
+
+  const updateTimeSlotInDay = (overrideType: 'weekday' | 'month_day', dayNum: number, timeIdx: number, val: string) => {
+    if (overrideType === 'weekday') {
+      setWeekdayTimes((prev) => {
+        const list = [...(prev[dayNum] || ['09:00'])];
+        list[timeIdx] = val;
+        return { ...prev, [dayNum]: list };
+      });
+    } else {
+      setMonthDayTimes((prev) => {
+        const list = [...(prev[dayNum] || ['09:00'])];
+        list[timeIdx] = val;
+        return { ...prev, [dayNum]: list };
+      });
+    }
+  };
+
+  const availableWeekdayOverrides = useMemo(() => {
+    const baseDays = useWeekdayFilter && selectedDaysOfWeek.length > 0
+      ? selectedDaysOfWeek
+      : [0, 1, 2, 3, 4, 5, 6];
+    return baseDays.filter((d) => !(d in weekdayTimes));
+  }, [useWeekdayFilter, selectedDaysOfWeek, weekdayTimes]);
+
+  const availableMonthDayOverrides = useMemo(() => {
+    const baseDays = useMonthDayFilter && selectedDaysOfMonth.length > 0
+      ? selectedDaysOfMonth
+      : Array.from({ length: 31 }, (_, i) => i + 1);
+    return baseDays.filter((d) => !(d in monthDayTimes));
+  }, [useMonthDayFilter, selectedDaysOfMonth, monthDayTimes]);
 
   // Visual viewport height for seamless on-screen keyboard dock support
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
@@ -200,7 +320,7 @@ export const TransactionModal: React.FC = () => {
       setRecurringFrequency('monthly');
       setIsAdvancedSchedule(false);
     } else if (editingRecurring) {
-      const r = editingRecurring;
+      const r = migrateRecurringRule(editingRecurring);
       setType(r.type);
       setAmountStr(r.amount.toString());
       setDate(r.startDate);
@@ -216,17 +336,37 @@ export const TransactionModal: React.FC = () => {
       const adv = r.advancedSchedule;
       if (adv && adv.isAdvanced) {
         setIsAdvancedSchedule(true);
-        setAdvancedScheduleType((adv.scheduleType as any) || 'weekly_days');
+        setUseWeekdayFilter(Boolean(adv.useWeekdayFilter ?? r.useWeekdayFilter));
         setSelectedDaysOfWeek(adv.daysOfWeek && adv.daysOfWeek.length > 0 ? adv.daysOfWeek : [1]);
-        setUnifiedWeeklyTime(adv.unifiedTime || r.startTime || '09:00');
-        const hasCustom = Boolean(adv.customDayTimes && Object.keys(adv.customDayTimes).length > 0);
-        setIsCustomDayTimes(hasCustom);
-        setCustomWeeklyTimes(adv.customDayTimes || {});
+        setUseMonthDayFilter(Boolean(adv.useMonthDayFilter ?? r.useMonthDayFilter));
         setSelectedDaysOfMonth(adv.daysOfMonth && adv.daysOfMonth.length > 0 ? adv.daysOfMonth : [1]);
-        setMonthlyTime(adv.timeOfMonth || r.startTime || '09:00');
-        setMultipleTimesDaily(adv.timesOfDay && adv.timesOfDay.length > 0 ? adv.timesOfDay : ['09:00', '18:00']);
+        const times = adv.timesOfDay && adv.timesOfDay.length > 0
+          ? adv.timesOfDay
+          : [adv.unifiedTime || adv.timeOfMonth || r.startTime || '09:00'];
+        setTimesOfDay(times);
+        setHasCustomTimes(Boolean(adv.hasCustomTimes));
+        setWeekdayTimes(adv.weekdayTimes || {});
+        setMonthDayTimes(adv.monthDayTimes || {});
+        setSelectedDayOverrideToAdd('');
+        if (adv.useWeekdayFilter) {
+          setAdvancedTab('weekdays');
+        } else if (adv.useMonthDayFilter) {
+          setAdvancedTab('month_days');
+        } else {
+          setAdvancedTab('times_daily');
+        }
       } else {
         setIsAdvancedSchedule(false);
+        setUseWeekdayFilter(false);
+        setSelectedDaysOfWeek([1]);
+        setUseMonthDayFilter(false);
+        setSelectedDaysOfMonth([1]);
+        setTimesOfDay([r.startTime || '09:00']);
+        setHasCustomTimes(false);
+        setWeekdayTimes({});
+        setMonthDayTimes({});
+        setSelectedDayOverrideToAdd('');
+        setAdvancedTab('weekdays');
       }
     } else {
       setType('expense');
@@ -234,7 +374,8 @@ export const TransactionModal: React.FC = () => {
       const now = new Date();
       setDate(formatDateToYYYYMMDD(now));
       setHasTime(true);
-      setTime(formatTimeToHHMM(now));
+      const nowTime = formatTimeToHHMM(now);
+      setTime(nowTime);
       setDescription('');
       const defaultAcc = defaultTxAccountId || selectedAccountId || (accounts[0] ? accounts[0].id : '');
       setAccountId(defaultAcc);
@@ -255,6 +396,16 @@ export const TransactionModal: React.FC = () => {
       setIsRecurring(Boolean(defaultTxIsRecurring));
       setRecurringFrequency('monthly');
       setIsAdvancedSchedule(false);
+      setUseWeekdayFilter(false);
+      setSelectedDaysOfWeek([1]);
+      setUseMonthDayFilter(false);
+      setSelectedDaysOfMonth([1]);
+      setTimesOfDay([nowTime || '09:00']);
+      setHasCustomTimes(false);
+      setWeekdayTimes({});
+      setMonthDayTimes({});
+      setSelectedDayOverrideToAdd('');
+      setAdvancedTab('weekdays');
     }
   }, [isAddTxModalOpen, editingTx?.id, editingRecurring?.id, defaultTxIsRecurring, settings.categoryOrder]);
 
@@ -456,31 +607,122 @@ export const TransactionModal: React.FC = () => {
     return Math.max(0, Math.min(66.6666, basePercent + dragOffset));
   }, [currentTypeIndex, isDragging, dragDeltaX, isArabic]);
 
-  const buildAdvConfig = () =>
-    isAdvancedSchedule
-      ? {
-          isAdvanced: true,
-          scheduleType: advancedScheduleType,
-          daysOfWeek: advancedScheduleType === 'weekly_days' ? selectedDaysOfWeek : undefined,
-          unifiedTime: advancedScheduleType === 'weekly_days' && !isCustomDayTimes ? unifiedWeeklyTime : undefined,
-          customDayTimes: advancedScheduleType === 'weekly_days' && isCustomDayTimes ? customWeeklyTimes : undefined,
-          daysOfMonth: advancedScheduleType === 'monthly_days' ? selectedDaysOfMonth : undefined,
-          timeOfMonth: advancedScheduleType === 'monthly_days' ? monthlyTime : undefined,
-          timesOfDay: advancedScheduleType === 'multiple_times_daily' ? multipleTimesDaily : undefined,
-        }
-      : undefined;
+  const buildAdvConfig = (): AdvancedScheduleConfig | undefined => {
+    if (!isAdvancedSchedule) return undefined;
+    const cleanDefaultTimes = normalizeTimesList(timesOfDay);
+    const safeDefaultTimes = cleanDefaultTimes.length > 0 ? cleanDefaultTimes : [hasTime ? time : '09:00'];
+
+    const cleanWeekdayTimes: Record<number, string[]> = {};
+    if (hasCustomTimes) {
+      for (const [k, v] of Object.entries(weekdayTimes)) {
+        const d = Number(k);
+        const list = normalizeTimesList(v);
+        if (!isNaN(d) && list.length > 0) cleanWeekdayTimes[d] = list;
+      }
+    }
+
+    const cleanMonthDayTimes: Record<number, string[]> = {};
+    if (hasCustomTimes) {
+      for (const [k, v] of Object.entries(monthDayTimes)) {
+        const d = Number(k);
+        const list = normalizeTimesList(v);
+        if (!isNaN(d) && list.length > 0) cleanMonthDayTimes[d] = list;
+      }
+    }
+
+    const hasActiveOverrides = hasCustomTimes && (Object.keys(cleanWeekdayTimes).length > 0 || Object.keys(cleanMonthDayTimes).length > 0);
+
+    return {
+      isAdvanced: true,
+      scheduleType: 'advanced',
+      useWeekdayFilter,
+      daysOfWeek: useWeekdayFilter ? selectedDaysOfWeek : undefined,
+      useMonthDayFilter,
+      daysOfMonth: useMonthDayFilter ? selectedDaysOfMonth : undefined,
+      timesOfDay: safeDefaultTimes,
+      defaultTimes: safeDefaultTimes,
+      unifiedTime: safeDefaultTimes[0] || '09:00',
+      hasCustomTimes: hasActiveOverrides,
+      weekdayTimes: hasActiveOverrides && Object.keys(cleanWeekdayTimes).length > 0 ? cleanWeekdayTimes : undefined,
+      monthDayTimes: hasActiveOverrides && Object.keys(cleanMonthDayTimes).length > 0 ? cleanMonthDayTimes : undefined,
+    };
+  };
+
+  const scheduleSummaryText = useMemo(() => {
+    return getScheduleSummaryText(
+      {
+        frequency: recurringFrequency,
+        startDate: date,
+        isAdvanced: isAdvancedSchedule,
+        useWeekdayFilter,
+        daysOfWeek: selectedDaysOfWeek,
+        useMonthDayFilter,
+        daysOfMonth: selectedDaysOfMonth,
+        timesOfDay: timesOfDay.length > 0 ? timesOfDay : [hasTime && time ? time : '09:00'],
+        startTime: hasTime && time ? time : '09:00',
+        hasCustomTimes,
+        weekdayTimes,
+        monthDayTimes,
+      },
+      isArabic ? 'ar' : 'en'
+    );
+  }, [
+    recurringFrequency,
+    date,
+    isAdvancedSchedule,
+    useWeekdayFilter,
+    selectedDaysOfWeek,
+    useMonthDayFilter,
+    selectedDaysOfMonth,
+    timesOfDay,
+    hasCustomTimes,
+    weekdayTimes,
+    monthDayTimes,
+    hasTime,
+    time,
+    isArabic,
+  ]);
+
+  const isFilterEmpty = useMemo(() => {
+    if (!isRecurring || !isAdvancedSchedule) return false;
+    if (useWeekdayFilter && selectedDaysOfWeek.length === 0) return true;
+    if (useMonthDayFilter && selectedDaysOfMonth.length === 0) return true;
+    if (timesOfDay.length === 0) return true;
+    return false;
+  }, [isRecurring, isAdvancedSchedule, useWeekdayFilter, selectedDaysOfWeek, useMonthDayFilter, selectedDaysOfMonth, timesOfDay]);
+
+  const filterEmptyHint = useMemo(() => {
+    if (!isRecurring || !isAdvancedSchedule) return '';
+    if (useWeekdayFilter && selectedDaysOfWeek.length === 0) {
+      return isArabic
+        ? 'يرجى تحديد يوم واحد على الأقل من أيام الأسبوع'
+        : 'Please select at least one weekday';
+    }
+    if (useMonthDayFilter && selectedDaysOfMonth.length === 0) {
+      return isArabic
+        ? 'يرجى تحديد يوم واحد على الأقل من أيام الشهر'
+        : 'Please select at least one day of the month';
+    }
+    if (timesOfDay.length === 0) {
+      return isArabic
+        ? 'يرجى تحديد وقت واحد على الأقل للتنفيذ'
+        : 'Please specify at least one execution time';
+    }
+    return '';
+  }, [isRecurring, isAdvancedSchedule, useWeekdayFilter, selectedDaysOfWeek, useMonthDayFilter, selectedDaysOfMonth, timesOfDay, isArabic]);
 
   // Smart Update Rule: In Edit mode, keep Update button disabled until at least one field is modified
   const isModified = useMemo(() => {
     if (editingRecurring) {
-      const r = editingRecurring;
+      const r = migrateRecurringRule(editingRecurring);
       const amt = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
       const origAdv = r.advancedSchedule && r.advancedSchedule.isAdvanced ? r.advancedSchedule : null;
+      const curAdv = buildAdvConfig() || null;
       const curSig = JSON.stringify([
         type, amt, date, hasTime ? time : '09:00', accountId,
         type === 'transfer' ? toAccountId : '',
         type === 'transfer' ? '' : categoryId,
-        description.trim(), recurringFrequency, buildAdvConfig() || null,
+        description.trim(), recurringFrequency, curAdv,
       ]);
       const origSig = JSON.stringify([
         r.type, r.amount, r.startDate, r.startTime || '09:00', r.accountId,
@@ -501,13 +743,13 @@ export const TransactionModal: React.FC = () => {
     return false;
   }, [
     editingTx, editingRecurring, type, amountStr, date, hasTime, time, accountId, toAccountId, categoryId, description,
-    recurringFrequency, isAdvancedSchedule, advancedScheduleType, selectedDaysOfWeek, unifiedWeeklyTime,
-    customWeeklyTimes, isCustomDayTimes, selectedDaysOfMonth, monthlyTime, multipleTimesDaily,
+    recurringFrequency, isAdvancedSchedule, useWeekdayFilter, selectedDaysOfWeek, useMonthDayFilter,
+    selectedDaysOfMonth, timesOfDay, hasCustomTimes, weekdayTimes, monthDayTimes,
   ]);
 
   const numericAmount = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
   const isTransferSameAccount = type === 'transfer' && accountId === toAccountId;
-  const canSave = numericAmount > 0 && !isTransferSameAccount && isModified;
+  const canSave = numericAmount > 0 && !isTransferSameAccount && isModified && !isFilterEmpty;
 
   if (!isAddTxModalOpen) return null;
 
@@ -531,6 +773,7 @@ export const TransactionModal: React.FC = () => {
     };
 
     if (editingRecurring) {
+      const advConfig = buildAdvConfig();
       // Ask whether the edit applies to future occurrences only or to past & future ones
       setPendingRecurringEdit({
         ...editingRecurring,
@@ -545,7 +788,9 @@ export const TransactionModal: React.FC = () => {
         frequency: recurringFrequency,
         startDate: date,
         startTime: hasTime ? time : '09:00',
-        advancedSchedule: buildAdvConfig(),
+        advancedSchedule: advConfig,
+        useWeekdayFilter: advConfig?.useWeekdayFilter,
+        useMonthDayFilter: advConfig?.useMonthDayFilter,
       });
       return;
     }
@@ -575,6 +820,8 @@ export const TransactionModal: React.FC = () => {
           nextDueDate: calculateNextDueDate(date, recurringFrequency),
           autoProcess: true,
           advancedSchedule: advConfig,
+          useWeekdayFilter: advConfig?.useWeekdayFilter,
+          useMonthDayFilter: advConfig?.useMonthDayFilter,
         });
       }
     }
@@ -1043,10 +1290,9 @@ export const TransactionModal: React.FC = () => {
                         onClick={(e) => {
                           e.stopPropagation();
                           setRecurringFrequency(freq);
-                          setIsAdvancedSchedule(false);
                         }}
                         className={`py-1.5 px-1 text-[10px] font-bold rounded-lg capitalize transition cursor-pointer text-center truncate ${
-                          recurringFrequency === freq && !isAdvancedSchedule
+                          recurringFrequency === freq
                             ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 ring-1 ring-blue-400/50'
                             : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800/80 hover:bg-zinc-900'
                         }`}
@@ -1054,6 +1300,19 @@ export const TransactionModal: React.FC = () => {
                         {getFrequencyLabel(freq)}
                       </button>
                     ))}
+                  </div>
+
+                  {/* Live Human-Readable Summary Banner */}
+                  <div className="mt-2.5 p-2.5 rounded-xl bg-blue-950/40 border border-blue-500/30 flex items-start gap-2 text-blue-200">
+                    <Calendar className="w-4 h-4 shrink-0 mt-0.5 text-blue-400" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-blue-400/80 mb-0.5">
+                        {isArabic ? 'ملخص جدول التكرار' : 'Schedule Summary'}
+                      </div>
+                      <div className="text-xs font-semibold leading-relaxed text-blue-100">
+                        {scheduleSummaryText}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Advanced custom schedule */}
@@ -1066,124 +1325,533 @@ export const TransactionModal: React.FC = () => {
                       }}
                       className={'w-full flex items-center justify-between px-3 py-2 rounded-xl text-[11px] font-bold transition cursor-pointer border ' + (isAdvancedSchedule ? 'bg-blue-600/15 border-blue-500/40 text-blue-300' : 'bg-zinc-950 border-zinc-800/80 text-zinc-400 hover:text-white')}
                     >
-                      <span>{isArabic ? 'جدول زمني متقدم' : 'Advanced schedule'}</span>
-                      <span>{isAdvancedSchedule ? (isArabic ? 'مفعّل' : 'ON') : (isArabic ? 'متوقف' : 'OFF')}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span>{isArabic ? 'جدول زمني متقدم' : 'Advanced schedule'}</span>
+                        <span className="text-[10px] font-normal text-zinc-500">
+                          {isArabic ? '(تصفية الأيام والأوقات)' : '(Day filters & daily times)'}
+                        </span>
+                      </div>
+                      <span className={'px-2 py-0.5 rounded-full text-[10px] ' + (isAdvancedSchedule ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400')}>
+                        {isAdvancedSchedule ? (isArabic ? 'مفعّل' : 'ON') : (isArabic ? 'متوقف' : 'OFF')}
+                      </span>
                     </button>
 
                     {isAdvancedSchedule && (
-                      <div className="mt-2 space-y-2" onClick={(e) => e.stopPropagation()}>
-                        <div className="grid grid-cols-3 gap-1">
-                          {([
-                            ['weekly_days', isArabic ? 'أيام الأسبوع' : 'Weekdays'],
-                            ['monthly_days', isArabic ? 'أيام الشهر' : 'Month days'],
-                            ['multiple_times_daily', isArabic ? 'عدة مرات يومياً' : 'Times daily'],
-                          ] as const).map(([key, label]) => (
-                            <button
-                              key={key}
-                              type="button"
-                              onClick={() => setAdvancedScheduleType(key)}
-                              className={'py-1.5 px-1 text-[10px] font-bold rounded-lg transition cursor-pointer truncate ' + (advancedScheduleType === key ? 'bg-blue-600 text-white' : 'bg-zinc-950 text-zinc-400 border border-zinc-800/80 hover:text-white')}
-                            >
-                              {label}
-                            </button>
-                          ))}
+                      <div className="mt-2.5 space-y-2.5" onClick={(e) => e.stopPropagation()}>
+                        {/* 3 Advanced Schedule Tabs */}
+                        <div className="grid grid-cols-3 gap-1 p-1 bg-zinc-950 rounded-xl border border-zinc-800/80">
+                          <button
+                            type="button"
+                            onClick={() => setAdvancedTab('weekdays')}
+                            className={`py-1.5 px-1 text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 truncate ${
+                              advancedTab === 'weekdays'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-zinc-400 hover:text-white'
+                            }`}
+                          >
+                            <span>{isArabic ? 'أيام الأسبوع' : 'Weekdays'}</span>
+                            {useWeekdayFilter && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setAdvancedTab('month_days')}
+                            className={`py-1.5 px-1 text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 truncate ${
+                              advancedTab === 'month_days'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-zinc-400 hover:text-white'
+                            }`}
+                          >
+                            <span>{isArabic ? 'أيام الشهر' : 'Month days'}</span>
+                            {useMonthDayFilter && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setAdvancedTab('times_daily')}
+                            className={`py-1.5 px-1 text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 truncate ${
+                              advancedTab === 'times_daily'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-zinc-400 hover:text-white'
+                            }`}
+                          >
+                            <span>{isArabic ? 'أوقات اليوم' : 'Times daily'}</span>
+                            <span className="text-[10px] opacity-75 font-mono">({timesOfDay.length})</span>
+                            {hasCustomTimes && (Object.keys(weekdayTimes).length > 0 || Object.keys(monthDayTimes).length > 0) && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                            )}
+                          </button>
                         </div>
 
-                        {advancedScheduleType === 'weekly_days' && (
-                          <div className="space-y-2">
-                            <div className="grid grid-cols-7 gap-1">
-                              {weekDaysMap.map((w) => (
-                                <button
-                                  key={w.day}
-                                  type="button"
-                                  onClick={() => toggleDayOfWeek(w.day)}
-                                  className={'py-1.5 text-[10px] font-bold rounded-lg transition cursor-pointer ' + (selectedDaysOfWeek.includes(w.day) ? 'bg-blue-600 text-white' : 'bg-zinc-950 text-zinc-400 border border-zinc-800/80')}
-                                >
-                                  {isArabic ? w.labelAr : w.labelEn}
-                                </button>
-                              ))}
-                            </div>
-                            <label className="flex items-center gap-2 text-[11px] text-zinc-400 cursor-pointer">
-                              <input type="checkbox" checked={isCustomDayTimes} onChange={(e) => setIsCustomDayTimes(e.target.checked)} />
-                              <span>{isArabic ? 'وقت مختلف لكل يوم' : 'Custom time per day'}</span>
-                            </label>
-                            {isCustomDayTimes ? (
-                              <div className="space-y-1">
-                                {selectedDaysOfWeek.map((d) => (
-                                  <div key={d} className="flex items-center justify-between text-[11px] text-zinc-300">
-                                    <span>{isArabic ? weekDaysMap[d].labelAr : weekDaysMap[d].labelEn}</span>
-                                    <input
-                                      type="time"
-                                      value={customWeeklyTimes[d] || unifiedWeeklyTime}
-                                      onChange={(e) => setCustomWeeklyTimes((prev) => ({ ...prev, [d]: e.target.value }))}
-                                      className="px-2 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-white text-xs"
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <input
-                                type="time"
-                                value={unifiedWeeklyTime}
-                                onChange={(e) => setUnifiedWeeklyTime(e.target.value)}
-                                className="w-full px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-white text-xs"
-                              />
-                            )}
-                          </div>
-                        )}
-
-                        {advancedScheduleType === 'monthly_days' && (
-                          <div className="space-y-2">
-                            <div className="grid grid-cols-7 gap-1">
-                              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                                <button
-                                  key={d}
-                                  type="button"
-                                  onClick={() => toggleDayOfMonth(d)}
-                                  className={'py-1 text-[10px] font-bold rounded-md transition cursor-pointer ' + (selectedDaysOfMonth.includes(d) ? 'bg-blue-600 text-white' : 'bg-zinc-950 text-zinc-400 border border-zinc-800/80')}
-                                >
-                                  {d}
-                                </button>
-                              ))}
-                            </div>
-                            <input
-                              type="time"
-                              value={monthlyTime}
-                              onChange={(e) => setMonthlyTime(e.target.value)}
-                              className="w-full px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-white text-xs"
-                            />
-                          </div>
-                        )}
-
-                        {advancedScheduleType === 'multiple_times_daily' && (
-                          <div className="space-y-1.5">
-                            {multipleTimesDaily.map((tm, idx) => (
-                              <div key={idx} className="flex items-center gap-2">
-                                <input
-                                  type="time"
-                                  value={tm}
-                                  onChange={(e) => updateMultiTime(idx, e.target.value)}
-                                  className="flex-1 px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-white text-xs"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => removeMultiTime(idx)}
-                                  className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 cursor-pointer"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            ))}
-                            {multipleTimesDaily.length < 5 && (
+                        {/* Tab 1: Weekdays */}
+                        {advancedTab === 'weekdays' && (
+                          <div className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800/80 space-y-2.5">
+                            {/* Toggle: Filter by specific weekdays */}
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-zinc-300">
+                                {isArabic ? 'تحديد أيام معينة من الأسبوع' : 'Filter by specific weekdays'}
+                              </span>
                               <button
                                 type="button"
-                                onClick={addMultiTime}
-                                className="w-full py-1.5 rounded-lg bg-zinc-950 border border-zinc-800/80 text-[11px] font-bold text-blue-400 hover:text-blue-300 cursor-pointer flex items-center justify-center gap-1"
+                                onClick={() => {
+                                  const next = !useWeekdayFilter;
+                                  setUseWeekdayFilter(next);
+                                  if (next && selectedDaysOfWeek.length === 0) {
+                                    setSelectedDaysOfWeek([1]);
+                                  }
+                                }}
+                                className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
+                                  useWeekdayFilter ? 'bg-blue-600 justify-end' : 'bg-zinc-800 justify-start'
+                                }`}
                               >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>{isArabic ? 'إضافة وقت' : 'Add time'}</span>
+                                <div className="w-4 h-4 rounded-full bg-white shadow-sm" />
                               </button>
+                            </div>
+
+                            {useWeekdayFilter ? (
+                              <div className="space-y-2 pt-1 border-t border-zinc-800/60">
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <span className="text-zinc-400">
+                                    {isArabic
+                                      ? `تم اختيار ${selectedDaysOfWeek.length} من 7 أيام`
+                                      : `${selectedDaysOfWeek.length} of 7 days selected`}
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={selectAllDaysOfWeek}
+                                      className="text-blue-400 hover:text-blue-300 font-semibold cursor-pointer"
+                                    >
+                                      {isArabic ? 'تحديد الكل' : 'Select All'}
+                                    </button>
+                                    <span className="text-zinc-600">•</span>
+                                    <button
+                                      type="button"
+                                      onClick={clearDaysOfWeek}
+                                      className="text-zinc-400 hover:text-zinc-200 font-semibold cursor-pointer"
+                                    >
+                                      {isArabic ? 'مسح' : 'Clear'}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-7 gap-1">
+                                  {weekDaysMap.map((w) => {
+                                    const isSel = selectedDaysOfWeek.includes(w.day);
+                                    return (
+                                      <button
+                                        key={w.day}
+                                        type="button"
+                                        onClick={() => toggleDayOfWeek(w.day)}
+                                        className={`py-2 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                                          isSel
+                                            ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400/40'
+                                            : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white'
+                                        }`}
+                                      >
+                                        {isArabic ? w.labelAr : w.labelEn}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+
+                                {selectedDaysOfWeek.length === 0 && (
+                                  <div className="text-[11px] text-amber-400/90 font-medium text-center py-1">
+                                    {isArabic
+                                      ? '⚠️ يرجى اختيار يوم واحد على الأقل من أيام الأسبوع'
+                                      : '⚠️ Please select at least one weekday'}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-zinc-500 py-1">
+                                {isArabic
+                                  ? 'جميع أيام الأسبوع الـ 7 مشمولة دون استثناء.'
+                                  : 'All 7 weekdays are included (no weekday restriction).'}
+                              </div>
                             )}
+                          </div>
+                        )}
+
+                        {/* Tab 2: Month days */}
+                        {advancedTab === 'month_days' && (
+                          <div className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800/80 space-y-2.5">
+                            {/* Toggle: Filter by specific month days (OFF by default) */}
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-zinc-300">
+                                {isArabic ? 'تحديد أيام معينة من الشهر' : 'Filter by specific month days'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = !useMonthDayFilter;
+                                  setUseMonthDayFilter(next);
+                                  if (next && selectedDaysOfMonth.length === 0) {
+                                    setSelectedDaysOfMonth([1]);
+                                  }
+                                }}
+                                className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
+                                  useMonthDayFilter ? 'bg-blue-600 justify-end' : 'bg-zinc-800 justify-start'
+                                }`}
+                              >
+                                <div className="w-4 h-4 rounded-full bg-white shadow-sm" />
+                              </button>
+                            </div>
+
+                            {useMonthDayFilter ? (
+                              <div className="space-y-2 pt-1 border-t border-zinc-800/60">
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <span className="text-zinc-400">
+                                    {isArabic
+                                      ? `تم اختيار ${selectedDaysOfMonth.length} من 31 يوماً`
+                                      : `${selectedDaysOfMonth.length} of 31 days selected`}
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={selectAllDaysOfMonth}
+                                      className="text-blue-400 hover:text-blue-300 font-semibold cursor-pointer"
+                                    >
+                                      {isArabic ? 'تحديد الكل (1–31)' : 'Select All (1–31)'}
+                                    </button>
+                                    <span className="text-zinc-600">•</span>
+                                    <button
+                                      type="button"
+                                      onClick={clearDaysOfMonth}
+                                      className="text-zinc-400 hover:text-zinc-200 font-semibold cursor-pointer"
+                                    >
+                                      {isArabic ? 'مسح' : 'Clear'}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-7 gap-1">
+                                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
+                                    const isSel = selectedDaysOfMonth.includes(d);
+                                    return (
+                                      <button
+                                        key={d}
+                                        type="button"
+                                        onClick={() => toggleDayOfMonth(d)}
+                                        className={`py-1.5 text-[11px] font-mono font-bold rounded-lg transition cursor-pointer ${
+                                          isSel
+                                            ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400/40'
+                                            : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white'
+                                        }`}
+                                      >
+                                        {d}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+
+                                <div className="text-[10px] text-zinc-500 leading-tight pt-1">
+                                  {isArabic
+                                    ? '* في الأشهر الأقصر، تُنفّذ أيام 29 و30 و31 تلقائياً في آخر يوم من ذلك الشهر.'
+                                    : '* In shorter months, days 29, 30, and 31 automatically execute on the last day of the month.'}
+                                </div>
+
+                                {selectedDaysOfMonth.length === 0 && (
+                                  <div className="text-[11px] text-amber-400/90 font-medium text-center py-1">
+                                    {isArabic
+                                      ? '⚠️ يرجى اختيار يوم واحد على الأقل من أيام الشهر'
+                                      : '⚠️ Please select at least one day of the month'}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-zinc-500 py-1">
+                                {isArabic
+                                  ? 'جميع أيام الشهر مفعلة (لن يتم حظر أي يوم من الشهر).'
+                                  : 'All month days are allowed (no month-day restriction).'}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Tab 3: Times daily */}
+                        {advancedTab === 'times_daily' && (
+                          <div className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800/80 space-y-3">
+                            {/* Section 1: Default Time(s) */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <span className="text-xs font-semibold text-zinc-200 block">
+                                    {isArabic ? 'التوقيت الافتراضي' : 'Default Time(s)'}
+                                  </span>
+                                  <span className="text-[10px] text-zinc-500 block">
+                                    {isArabic
+                                      ? 'يُطبّق على جميع الأيام المجدولة التي ليس لها توقيت مخصص'
+                                      : 'Applies to all active days without a custom override'}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-mono text-zinc-400 px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800">
+                                  {timesOfDay.length} {isArabic ? 'أوقات' : 'slot(s)'}
+                                </span>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                {timesOfDay.map((tm, idx) => (
+                                  <div key={idx} className="flex items-center gap-2">
+                                    <div className="w-6 text-[11px] font-mono text-zinc-500 text-center">
+                                      #{idx + 1}
+                                    </div>
+                                    <input
+                                      type="time"
+                                      value={tm}
+                                      onChange={(e) => updateTimeSlot(idx, e.target.value)}
+                                      className="flex-1 px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs font-mono focus:outline-none focus:border-blue-500"
+                                    />
+                                    {timesOfDay.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => removeTimeSlot(idx)}
+                                        className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition cursor-pointer"
+                                        title={isArabic ? 'حذف هذا الوقت' : 'Remove time'}
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+
+                                {timesOfDay.length < 5 && (
+                                  <button
+                                    type="button"
+                                    onClick={addTimeSlot}
+                                    className="w-full py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-blue-500/50 text-xs font-semibold text-blue-400 hover:text-blue-300 cursor-pointer flex items-center justify-center gap-1.5 transition"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>{isArabic ? 'إضافة وقت افتراضي إضافي' : 'Add default time'}</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Section 2: Custom Times for Specific Days */}
+                            <div className="pt-2.5 border-t border-zinc-800/70 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <span className="text-xs font-semibold text-zinc-200 block">
+                                    {isArabic ? 'تخصيص توقيت لأيام محددة' : 'Custom Times for Specific Days'}
+                                  </span>
+                                  <span className="text-[10px] text-zinc-500 block">
+                                    {isArabic
+                                      ? 'تحديد أوقات مخصصة لأيام معينة من الأسبوع أو الشهر'
+                                      : 'Set custom execution times for specific weekdays or month days'}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setHasCustomTimes(!hasCustomTimes)}
+                                  className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center shrink-0 ${
+                                    hasCustomTimes ? 'bg-blue-600 justify-end' : 'bg-zinc-800 justify-start'
+                                  }`}
+                                >
+                                  <div className="w-4 h-4 rounded-full bg-white shadow-sm" />
+                                </button>
+                              </div>
+
+                              {hasCustomTimes ? (
+                                <div className="space-y-2.5 pt-1">
+                                  {/* Day Override Selector Dropdown */}
+                                  {(availableWeekdayOverrides.length > 0 || availableMonthDayOverrides.length > 0) && (
+                                    <div className="flex items-center gap-2">
+                                      <select
+                                        value={selectedDayOverrideToAdd}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          if (!val) return;
+                                          if (val.startsWith('w:')) {
+                                            addDayOverride('weekday', Number(val.slice(2)));
+                                          } else if (val.startsWith('m:')) {
+                                            addDayOverride('month_day', Number(val.slice(2)));
+                                          }
+                                          setSelectedDayOverrideToAdd('');
+                                        }}
+                                        className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-blue-500 cursor-pointer"
+                                      >
+                                        <option value="">
+                                          {isArabic ? '+ اختر يوماً لتخصيص توقيت له...' : '+ Add custom time for a specific day...'}
+                                        </option>
+                                        {availableWeekdayOverrides.length > 0 && (
+                                          <optgroup label={isArabic ? 'أيام الأسبوع' : 'Weekdays'}>
+                                            {availableWeekdayOverrides.map((d) => (
+                                              <option key={`w:${d}`} value={`w:${d}`}>
+                                                {isArabic ? weekDaysMap[d].labelAr : weekDaysMap[d].labelEn}
+                                              </option>
+                                            ))}
+                                          </optgroup>
+                                        )}
+                                        {availableMonthDayOverrides.length > 0 && (
+                                          <optgroup label={isArabic ? 'أيام الشهر' : 'Month days'}>
+                                            {availableMonthDayOverrides.map((d) => (
+                                              <option key={`m:${d}`} value={`m:${d}`}>
+                                                {isArabic ? `يوم ${d}` : `Day ${d}`}
+                                              </option>
+                                            ))}
+                                          </optgroup>
+                                        )}
+                                      </select>
+                                    </div>
+                                  )}
+
+                                  {/* List of active day overrides */}
+                                  {Object.keys(weekdayTimes).length === 0 && Object.keys(monthDayTimes).length === 0 ? (
+                                    <div className="p-3 rounded-xl bg-zinc-900/40 border border-zinc-800/60 text-center text-[11px] text-zinc-500">
+                                      {isArabic
+                                        ? 'لم تتم إضافة أي أيام مخصصة بعد. اختر يوماً من القائمة أعلاه لتعيين توقيت مخصص له.'
+                                        : 'No custom day overrides added yet. Select a day from the dropdown above to customize its times.'}
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-2">
+                                      {/* Weekday overrides */}
+                                      {Object.entries(weekdayTimes).map(([dStr, timesList]) => {
+                                        const dNum = Number(dStr);
+                                        const dayInfo = weekDaysMap[dNum] || { labelEn: `Day ${dNum}`, labelAr: `يوم ${dNum}` };
+                                        return (
+                                          <div
+                                            key={`weekday-${dNum}`}
+                                            className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2"
+                                          >
+                                            <div className="flex items-center justify-between">
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="text-xs font-bold text-blue-300">
+                                                  📅 {isArabic ? dayInfo.labelAr : dayInfo.labelEn}
+                                                </span>
+                                                <span className="text-[10px] text-zinc-500">
+                                                  ({isArabic ? 'يوم من الأسبوع' : 'Weekday'})
+                                                </span>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => removeDayOverride('weekday', dNum)}
+                                                className="text-[11px] text-red-400 hover:text-red-300 flex items-center gap-1 cursor-pointer transition"
+                                                title={isArabic ? 'حذف هذا التخصيص' : 'Delete override'}
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                                <span>{isArabic ? 'إلغاء التخصيص' : 'Remove'}</span>
+                                              </button>
+                                            </div>
+
+                                            <div className="space-y-1.5">
+                                              {timesList.map((tm, tIdx) => (
+                                                <div key={tIdx} className="flex items-center gap-2">
+                                                  <input
+                                                    type="time"
+                                                    value={tm}
+                                                    onChange={(e) => updateTimeSlotInDay('weekday', dNum, tIdx, e.target.value)}
+                                                    className="flex-1 px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-white text-xs font-mono focus:outline-none focus:border-blue-500"
+                                                  />
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => removeTimeSlotFromDay('weekday', dNum, tIdx)}
+                                                    className="p-1 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition cursor-pointer"
+                                                    title={isArabic ? 'حذف هذا الوقت' : 'Remove time'}
+                                                  >
+                                                    <X className="w-3.5 h-3.5" />
+                                                  </button>
+                                                </div>
+                                              ))}
+
+                                              {timesList.length < 5 && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => addTimeSlotToDay('weekday', dNum)}
+                                                  className="w-full py-1 rounded-lg bg-zinc-950 border border-zinc-800/80 hover:border-blue-500/40 text-[11px] font-semibold text-blue-400 hover:text-blue-300 cursor-pointer flex items-center justify-center gap-1 transition"
+                                                >
+                                                  <Plus className="w-3 h-3" />
+                                                  <span>{isArabic ? 'إضافة وقت لهذا اليوم' : 'Add time for this day'}</span>
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+
+                                      {/* Month day overrides */}
+                                      {Object.entries(monthDayTimes).map(([dStr, timesList]) => {
+                                        const dNum = Number(dStr);
+                                        return (
+                                          <div
+                                            key={`monthday-${dNum}`}
+                                            className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2"
+                                          >
+                                            <div className="flex items-center justify-between">
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="text-xs font-bold text-emerald-300">
+                                                  🗓️ {isArabic ? `يوم ${dNum}` : `Day ${dNum}`}
+                                                </span>
+                                                <span className="text-[10px] text-zinc-500">
+                                                  ({isArabic ? 'يوم من الشهر' : 'Month day'})
+                                                </span>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => removeDayOverride('month_day', dNum)}
+                                                className="text-[11px] text-red-400 hover:text-red-300 flex items-center gap-1 cursor-pointer transition"
+                                                title={isArabic ? 'حذف هذا التخصيص' : 'Delete override'}
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                                <span>{isArabic ? 'إلغاء التخصيص' : 'Remove'}</span>
+                                              </button>
+                                            </div>
+
+                                            <div className="space-y-1.5">
+                                              {timesList.map((tm, tIdx) => (
+                                                <div key={tIdx} className="flex items-center gap-2">
+                                                  <input
+                                                    type="time"
+                                                    value={tm}
+                                                    onChange={(e) => updateTimeSlotInDay('month_day', dNum, tIdx, e.target.value)}
+                                                    className="flex-1 px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-white text-xs font-mono focus:outline-none focus:border-blue-500"
+                                                  />
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => removeTimeSlotFromDay('month_day', dNum, tIdx)}
+                                                    className="p-1 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition cursor-pointer"
+                                                    title={isArabic ? 'حذف هذا الوقت' : 'Remove time'}
+                                                  >
+                                                    <X className="w-3.5 h-3.5" />
+                                                  </button>
+                                                </div>
+                                              ))}
+
+                                              {timesList.length < 5 && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => addTimeSlotToDay('month_day', dNum)}
+                                                  className="w-full py-1 rounded-lg bg-zinc-950 border border-zinc-800/80 hover:border-emerald-500/40 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 cursor-pointer flex items-center justify-center gap-1 transition"
+                                                >
+                                                  <Plus className="w-3 h-3" />
+                                                  <span>{isArabic ? 'إضافة وقت لهذا اليوم' : 'Add time for this day'}</span>
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  <div className="text-[10px] text-zinc-500 leading-tight pt-1">
+                                    {isArabic
+                                      ? '* الأولوية: تخصيص يوم الشهر > تخصيص يوم الأسبوع > التوقيت الافتراضي. في الأيام المخصصة، تُنفذ المعاملة في أوقات التخصيص فقط.'
+                                      : '* Precedence: Month-day override > Weekday override > Default Time(s). Overridden days run ONLY at their custom times.'}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-zinc-500 py-0.5">
+                                  {isArabic
+                                    ? 'جميع الأيام النشطة تستخدم التوقيت الافتراضي أعلاه.'
+                                    : 'All active scheduled days use the default execution time(s) above.'}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1261,6 +1929,15 @@ export const TransactionModal: React.FC = () => {
             onChange={setAmountStr}
             lang={settings.language}
           />
+
+          {/* Validation warning hint when active recurring filter has 0 days/times selected */}
+          {isRecurring && isAdvancedSchedule && isFilterEmpty && (
+            <div className="pt-2 text-center">
+              <span className="text-[11px] text-amber-400 font-semibold px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 inline-block">
+                {filterEmptyHint}
+              </span>
+            </div>
+          )}
 
           {/* Full-width Blue Save / Update Transaction Button */}
           <div className="pt-2">

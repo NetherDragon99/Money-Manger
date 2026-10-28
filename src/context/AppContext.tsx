@@ -1282,13 +1282,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const startAnchor = new Date(sy, sm - 1, sd, sh || 0, smin || 0, 0, 0);
     const nextOcc = getNextScheduledOccurrence(tempRule, new Date(startAnchor.getTime() - 1));
 
+    const nowMs = Date.now();
     const newRec: RecurringTransaction = {
       ...recData,
-      id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      createdAt: Date.now(),
+      id: `rec_${nowMs}_${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: nowMs,
+      effectiveFrom: recData.effectiveFrom || nowMs,
       nextRun: nextOcc ? nextOcc.getTime() : undefined,
       nextDueDate: nextOcc ? formatDateToYYYYMMDD(nextOcc) : recData.nextDueDate,
-      updatedAt: Date.now(),
+      updatedAt: nowMs,
     };
     setRecurringTransactions((prev) => [...prev, newRec]);
 
@@ -1304,11 +1306,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const [sh, smin] = (updated.startTime || '09:00').split(':').map(Number);
     const startAnchor = new Date(sy, sm - 1, sd, sh || 0, smin || 0, 0, 0);
     const nextOcc = getNextScheduledOccurrence(updated, new Date(startAnchor.getTime() - 1));
+    const nowMs = Date.now();
     const finalUpdated: RecurringTransaction = {
       ...updated,
+      effectiveFrom: updated.effectiveFrom || nowMs,
       nextRun: nextOcc ? nextOcc.getTime() : updated.nextRun,
       nextDueDate: nextOcc ? formatDateToYYYYMMDD(nextOcc) : updated.nextDueDate,
-      updatedAt: Date.now(),
+      updatedAt: nowMs,
     };
     setRecurringTransactions((prev) => prev.map((r) => (r.id === finalUpdated.id ? finalUpdated : r)));
 
@@ -1382,8 +1386,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       nextDate = getNextScheduledOccurrence(normalized, new Date(lastRun && lastRun > 0 ? lastRun : startMs - 1));
     }
 
+    const effectiveFrom = (scheduleChanged || scope === 'future')
+      ? nowMs
+      : (original?.effectiveFrom || nowMs);
+
     const finalRule: RecurringTransaction = {
       ...normalized,
+      effectiveFrom,
       lastRun,
       nextRun: nextDate.getTime(),
       nextDueDate: formatDateToYYYYMMDD(nextDate),

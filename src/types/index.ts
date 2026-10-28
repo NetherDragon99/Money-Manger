@@ -97,12 +97,18 @@ export interface UserProfile {
 
 export interface AdvancedScheduleConfig {
   isAdvanced?: boolean;
-  scheduleType?: 'multiple_times_daily' | 'weekly_days' | 'monthly_days' | string;
-  timesOfDay?: string[];
+  scheduleType?: 'multiple_times_daily' | 'weekly_days' | 'monthly_days' | 'advanced' | string;
+  useWeekdayFilter?: boolean;
   daysOfWeek?: number[];
+  useMonthDayFilter?: boolean;
+  daysOfMonth?: number[];
+  timesOfDay?: string[];
+  defaultTimes?: string[];
   unifiedTime?: string;
   customDayTimes?: Record<number, string>;
-  daysOfMonth?: number[];
+  weekdayTimes?: Record<number, string[]>;
+  monthDayTimes?: Record<number, string[]>;
+  hasCustomTimes?: boolean;
   timeOfMonth?: string;
 }
 
@@ -124,6 +130,9 @@ export interface RecurringTransaction {
   startTime?: string;
   nextRun?: number;
   lastRun?: number;
+  effectiveFrom?: number;
+  useWeekdayFilter?: boolean;
+  useMonthDayFilter?: boolean;
   advancedSchedule?: AdvancedScheduleConfig;
   autoProcess: boolean;
   createdAt: number;

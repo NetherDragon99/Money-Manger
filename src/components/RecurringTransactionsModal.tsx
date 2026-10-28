@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { RecurringTransaction } from '../types';
 import { formatNumberWithCommas } from '../utils/formatters';
 import { useLongPress } from '../hooks/useLongPress';
+import { getScheduleSummaryText } from '../utils/recurring';
 
 interface RecurringTransactionsModalProps {
   isOpen: boolean;
@@ -50,22 +51,7 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
   });
 
   const getFrequencyDisplay = () => {
-    const adv = item.advancedSchedule;
-    if (adv?.isAdvanced) {
-      if (adv.scheduleType === 'weekly_days' && adv.daysOfWeek?.length) {
-        const daysMap = isArabic
-          ? ['أحد', 'إثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت']
-          : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        return adv.daysOfWeek.map((d) => daysMap[d]).join(', ');
-      }
-      if (adv.scheduleType === 'monthly_days' && adv.daysOfMonth?.length) {
-        return (isArabic ? 'أيام: ' : 'Days: ') + adv.daysOfMonth.join(', ');
-      }
-      if (adv.scheduleType === 'multiple_times_daily' && adv.timesOfDay?.length) {
-        return adv.timesOfDay.join(', ');
-      }
-    }
-    return item.frequency;
+    return getScheduleSummaryText(item, isArabic ? 'ar' : 'en');
   };
 
   return (
@@ -105,7 +91,10 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
             <span className="text-xs font-bold text-white truncate">
               {item.description || item.categoryName || 'Recurring'}
             </span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 capitalize shrink-0 truncate max-w-[120px]">
+            <span
+              className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 shrink-0 truncate max-w-[150px] sm:max-w-[220px]"
+              title={getFrequencyDisplay()}
+            >
               {getFrequencyDisplay()}
             </span>
           </div>

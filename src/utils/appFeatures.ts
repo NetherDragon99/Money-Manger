@@ -4,6 +4,28 @@ export type { FeatureItem, ReleaseNote };
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.59',
+    releaseDate: 'October 28, 2026',
+    title: {
+      en: 'Unified Recurring Schedules: Connected Weekday & Month-Day Filters, Multi-Time Overrides & Cloud Sync',
+      ar: 'جدولة دورية موحدة: ربط فلاتر الأسبوع والشهر، توقيتات مخصصة ومزامنة سحابية شاملة',
+    },
+    highlights: {
+      en: [
+        'Dedicated Times Daily Tab: Unified multi-time scheduling with default fallback execution times and per-day multi-time overrides for specific weekdays and month days.',
+        'Connected Weekday & Month-Day Filters: Run recurring rules on specific weekdays only within chosen month days without locking to Day 1.',
+        'Bi-Weekly Calendar Preset: Accurate every-2-weeks interval calculated using calendar dates to eliminate DST time shifts.',
+        'Anti-Duplicate Cloud & Share Sync: Real-time propagation of scheduled and retroactively edited rules with effectiveFrom timestamp boundaries to prevent duplicate catch-up transactions.',
+      ],
+      ar: [
+        'تبويب مخصص لأوقات اليوم: إدارة شاملة للتوقيت الافتراضي مع إمكانية تحديد عدة أوقات مخصصة لأيام محددة من الأسبوع أو الشهر.',
+        'ربط فلاتر أيام الأسبوع وأيام الشهر: جدولة المعاملات في أيام محددة من الأسبوع ضمن أيام معينة من الشهر دون تقييد باليوم الأول.',
+        'خيار كل أسبوعين الدقيق: حساب فترة الأسبوعين بالتقويم الفعلي لمنع أي تغيير في التوقيت بسبب التوقيت الصيفي.',
+        'مزامنة سحابية ومنع التكرار: مزامنة فورية للقواعد والتعديلات بأثر رجعي مع حدود زمنية تمنع تكرار المعاملات المتأخرة عبر السحابة والمساحات المشتركة.',
+      ],
+    },
+  },
+  {
     version: '1.1.58',
     releaseDate: 'October 28, 2026',
     title: {

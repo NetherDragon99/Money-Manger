@@ -4,7 +4,7 @@ import { DEFAULT_ACCOUNTS, INITIAL_CATEGORIES, DEFAULT_SETTINGS } from './consta
 import { syncAllAccountBalances } from './balanceEngine';
 import { saveItemToIndexedDB, saveFullDataToIndexedDB } from './indexedDB';
 import { debouncedPersist } from './persistQueue';
-import { loadRecurringTransactions } from './recurring';
+import { loadRecurringTransactions, migrateRecurringRule } from './recurring';
 import {
   loadMyShareFolders,
   saveMyShareFolders,
@@ -107,9 +107,9 @@ export function saveSettings(settings: AppSettings): void {
  * Exports full app data as a downloadable JSON file
  */
 export function exportAllDataAsJSON(data: AppData & { recurringTransactions?: RecurringTransaction[] }): void {
-  const recurring = data.recurringTransactions || loadRecurringTransactions();
+  const recurring = (data.recurringTransactions || loadRecurringTransactions()).map(migrateRecurringRule);
   const exportPayload = {
-    version: '1.1.58',
+    version: '1.1.59',
     exportDate: new Date().toISOString(),
     ...data,
     recurringTransactions: recurring,
@@ -134,7 +134,7 @@ export function exportAccountAsJSON(account: Account, allTransactions: Transacti
     (tx) => tx.accountId === account.id || tx.toAccountId === account.id
   );
   const payload = {
-    version: '1.1.58',
+    version: '1.1.59',
     type: 'single_account_backup',
     exportDate: new Date().toISOString(),
     account,
@@ -423,13 +423,19 @@ export function executeCustomDataImport(
       ...tx,
       amount: parseFormattedNumber(tx.amount),
     }));
+    const incomingRecurringRaw = Array.isArray(payload.recurringTransactions)
+      ? payload.recurringTransactions
+      : Array.isArray(payload.recurring)
+      ? payload.recurring
+      : null;
+
     if (config.mode === 'replace') {
       finalTransactions = sanitizedTxs;
       importedTransactionsCount = sanitizedTxs.length;
 
-      // Also replace recurring transactions if present in backup
-      if (Array.isArray(payload.recurringTransactions)) {
-        finalRecurring = payload.recurringTransactions;
+      // Also replace recurring transactions if present in backup (migrated with full schedule fidelity)
+      if (incomingRecurringRaw) {
+        finalRecurring = incomingRecurringRaw.map(migrateRecurringRule);
       }
     } else {
       // Merge mode: Deduplicate by transaction.id
@@ -447,12 +453,12 @@ export function executeCustomDataImport(
         }
       }
 
-      // Merge recurring rules
-      if (Array.isArray(payload.recurringTransactions)) {
+      // Merge recurring rules with full schema migration
+      if (incomingRecurringRaw) {
         const existingRecurIds = new Set(finalRecurring.map((r) => r.id));
-        for (const recur of payload.recurringTransactions) {
+        for (const recur of incomingRecurringRaw) {
           if (recur && recur.id && !existingRecurIds.has(recur.id)) {
-            finalRecurring.push(recur);
+            finalRecurring.push(migrateRecurringRule(recur));
             existingRecurIds.add(recur.id);
           }
         }

@@ -4,6 +4,7 @@
  */
 
 import { AppData, Account, Category, Transaction, AppSettings, RecurringTransaction } from '../types';
+import { migrateRecurringRule } from './recurring';
 
 const DB_NAME = 'PersonalFinanceTrackerDB';
 const DB_VERSION = 1;
@@ -118,7 +119,7 @@ export async function loadFullDataFromIndexedDB(): Promise<(Partial<AppData> & {
     if (transactions && Array.isArray(transactions)) data.transactions = transactions;
     if (settings && typeof settings === 'object') data.settings = settings;
     if (recurringTransactions && Array.isArray(recurringTransactions)) {
-      data.recurringTransactions = recurringTransactions;
+      data.recurringTransactions = recurringTransactions.map(migrateRecurringRule);
     }
 
     return data;
@@ -145,10 +146,10 @@ export async function saveFullDataToIndexedDB(
       store.put(data.transactions, 'transactions');
       store.put(data.settings, 'settings');
       if (data.recurringTransactions) {
-        store.put(data.recurringTransactions, 'recurring_transactions');
+        store.put(data.recurringTransactions.map(migrateRecurringRule), 'recurring_transactions');
       }
       store.put(new Date().toISOString(), 'last_saved_at');
-      store.put('1.1.58', 'version');
+      store.put('1.1.59', 'version');
 
       transaction.oncomplete = () => {
         db.close();
