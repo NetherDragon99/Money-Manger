@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
 import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw } from 'lucide-react';
-import { TransactionType, RecurringFrequency } from '../types';
+import { TransactionType, RecurringFrequency, RecurringTransaction } from '../types';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatDisplayNumber } from '../utils/dateCycle';
 import { calculateNextDueDate } from '../utils/recurring';
 import { Numpad } from './Numpad';
@@ -29,6 +29,9 @@ export const TransactionModal: React.FC = () => {
     defaultTxAmount,
     defaultTxIsRecurring,
     selectedAccountId,
+    editingRecurring,
+    applyRecurringRuleEdit,
+    transactions,
   } = useApp();
 
   const isArabic = settings.language === 'ar';
@@ -50,6 +53,7 @@ export const TransactionModal: React.FC = () => {
   const [isClosing, setIsClosing] = useState<boolean>(false);
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
   const [recurringFrequency, setRecurringFrequency] = useState<RecurringFrequency>('monthly');
+  const [pendingRecurringEdit, setPendingRecurringEdit] = useState<RecurringTransaction | null>(null);
 
   // Advanced Recurring Schedule State
   const [isAdvancedSchedule, setIsAdvancedSchedule] = useState<boolean>(false);
@@ -167,11 +171,12 @@ export const TransactionModal: React.FC = () => {
       prevEditingTxIdRef.current = null;
       setAccountDropdownOpen(null);
       setShowDateTimePicker(false);
+      setPendingRecurringEdit(null);
       return;
     }
 
     const isNewlyOpened = !prevIsOpenRef.current;
-    const currentTxId = editingTx ? editingTx.id : null;
+    const currentTxId = editingTx ? editingTx.id : editingRecurring ? 'rec:' + editingRecurring.id : null;
     const isDifferentTx = currentTxId !== prevEditingTxIdRef.current;
 
     if (!isNewlyOpened && !isDifferentTx) {
@@ -194,6 +199,35 @@ export const TransactionModal: React.FC = () => {
       setIsRecurring(false);
       setRecurringFrequency('monthly');
       setIsAdvancedSchedule(false);
+    } else if (editingRecurring) {
+      const r = editingRecurring;
+      setType(r.type);
+      setAmountStr(r.amount.toString());
+      setDate(r.startDate);
+      setHasTime(true);
+      setTime(r.startTime || '09:00');
+      setAccountId(r.accountId);
+      const fallbackTo = accounts.find((a) => a.id !== r.accountId);
+      setToAccountId(r.toAccountId || (fallbackTo ? fallbackTo.id : ''));
+      setCategoryId(r.categoryId || '');
+      setDescription(r.description || '');
+      setIsRecurring(true);
+      setRecurringFrequency(r.frequency);
+      const adv = r.advancedSchedule;
+      if (adv && adv.isAdvanced) {
+        setIsAdvancedSchedule(true);
+        setAdvancedScheduleType((adv.scheduleType as any) || 'weekly_days');
+        setSelectedDaysOfWeek(adv.daysOfWeek && adv.daysOfWeek.length > 0 ? adv.daysOfWeek : [1]);
+        setUnifiedWeeklyTime(adv.unifiedTime || r.startTime || '09:00');
+        const hasCustom = Boolean(adv.customDayTimes && Object.keys(adv.customDayTimes).length > 0);
+        setIsCustomDayTimes(hasCustom);
+        setCustomWeeklyTimes(adv.customDayTimes || {});
+        setSelectedDaysOfMonth(adv.daysOfMonth && adv.daysOfMonth.length > 0 ? adv.daysOfMonth : [1]);
+        setMonthlyTime(adv.timeOfMonth || r.startTime || '09:00');
+        setMultipleTimesDaily(adv.timesOfDay && adv.timesOfDay.length > 0 ? adv.timesOfDay : ['09:00', '18:00']);
+      } else {
+        setIsAdvancedSchedule(false);
+      }
     } else {
       setType('expense');
       setAmountStr(defaultTxAmount && defaultTxAmount > 0 ? defaultTxAmount.toString() : '0');
@@ -222,7 +256,7 @@ export const TransactionModal: React.FC = () => {
       setRecurringFrequency('monthly');
       setIsAdvancedSchedule(false);
     }
-  }, [isAddTxModalOpen, editingTx?.id, defaultTxIsRecurring, settings.categoryOrder]);
+  }, [isAddTxModalOpen, editingTx?.id, editingRecurring?.id, defaultTxIsRecurring, settings.categoryOrder]);
 
   // When type changes, ensure valid category selection & Transfer destination
   const prevTypeRef = useRef(type);
@@ -422,8 +456,38 @@ export const TransactionModal: React.FC = () => {
     return Math.max(0, Math.min(66.6666, basePercent + dragOffset));
   }, [currentTypeIndex, isDragging, dragDeltaX, isArabic]);
 
+  const buildAdvConfig = () =>
+    isAdvancedSchedule
+      ? {
+          isAdvanced: true,
+          scheduleType: advancedScheduleType,
+          daysOfWeek: advancedScheduleType === 'weekly_days' ? selectedDaysOfWeek : undefined,
+          unifiedTime: advancedScheduleType === 'weekly_days' && !isCustomDayTimes ? unifiedWeeklyTime : undefined,
+          customDayTimes: advancedScheduleType === 'weekly_days' && isCustomDayTimes ? customWeeklyTimes : undefined,
+          daysOfMonth: advancedScheduleType === 'monthly_days' ? selectedDaysOfMonth : undefined,
+          timeOfMonth: advancedScheduleType === 'monthly_days' ? monthlyTime : undefined,
+          timesOfDay: advancedScheduleType === 'multiple_times_daily' ? multipleTimesDaily : undefined,
+        }
+      : undefined;
+
   // Smart Update Rule: In Edit mode, keep Update button disabled until at least one field is modified
   const isModified = useMemo(() => {
+    if (editingRecurring) {
+      const r = editingRecurring;
+      const amt = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
+      const origAdv = r.advancedSchedule && r.advancedSchedule.isAdvanced ? r.advancedSchedule : null;
+      const curSig = JSON.stringify([
+        type, amt, date, hasTime ? time : '09:00', accountId,
+        type === 'transfer' ? toAccountId : '',
+        type === 'transfer' ? '' : categoryId,
+        description.trim(), recurringFrequency, buildAdvConfig() || null,
+      ]);
+      const origSig = JSON.stringify([
+        r.type, r.amount, r.startDate, r.startTime || '09:00', r.accountId,
+        r.toAccountId || '', r.categoryId || '', r.description || '', r.frequency, origAdv,
+      ]);
+      return curSig !== origSig;
+    }
     if (!editingTx) return true;
     const numAmt = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
     if (editingTx.type !== type) return true;
@@ -435,7 +499,11 @@ export const TransactionModal: React.FC = () => {
     if ((editingTx.categoryId || '') !== (type === 'transfer' ? '' : categoryId)) return true;
     if ((editingTx.description || '') !== description.trim()) return true;
     return false;
-  }, [editingTx, type, amountStr, date, hasTime, time, accountId, toAccountId, categoryId, description]);
+  }, [
+    editingTx, editingRecurring, type, amountStr, date, hasTime, time, accountId, toAccountId, categoryId, description,
+    recurringFrequency, isAdvancedSchedule, advancedScheduleType, selectedDaysOfWeek, unifiedWeeklyTime,
+    customWeeklyTimes, isCustomDayTimes, selectedDaysOfMonth, monthlyTime, multipleTimesDaily,
+  ]);
 
   const numericAmount = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
   const isTransferSameAccount = type === 'transfer' && accountId === toAccountId;
@@ -462,6 +530,26 @@ export const TransactionModal: React.FC = () => {
       description: description.trim(),
     };
 
+    if (editingRecurring) {
+      // Ask whether the edit applies to future occurrences only or to past & future ones
+      setPendingRecurringEdit({
+        ...editingRecurring,
+        type,
+        amount: numericAmount,
+        description: description.trim(),
+        accountId: finalAccountId,
+        toAccountId: finalToAccountId,
+        categoryId: type === 'transfer' ? undefined : selectedCategory?.id,
+        categoryName: type === 'transfer' ? undefined : selectedCategory?.name,
+        categoryIcon: type === 'transfer' ? undefined : selectedCategory?.icon,
+        frequency: recurringFrequency,
+        startDate: date,
+        startTime: hasTime ? time : '09:00',
+        advancedSchedule: buildAdvConfig(),
+      });
+      return;
+    }
+
     if (editingTx) {
       updateTransaction({
         ...editingTx,
@@ -470,18 +558,7 @@ export const TransactionModal: React.FC = () => {
     } else {
       addTransaction(payload);
       if (isRecurring) {
-        const advConfig = isAdvancedSchedule
-          ? {
-              isAdvanced: true,
-              scheduleType: advancedScheduleType,
-              daysOfWeek: advancedScheduleType === 'weekly_days' ? selectedDaysOfWeek : undefined,
-              unifiedTime: advancedScheduleType === 'weekly_days' && !isCustomDayTimes ? unifiedWeeklyTime : undefined,
-              customDayTimes: advancedScheduleType === 'weekly_days' && isCustomDayTimes ? customWeeklyTimes : undefined,
-              daysOfMonth: advancedScheduleType === 'monthly_days' ? selectedDaysOfMonth : undefined,
-              timeOfMonth: advancedScheduleType === 'monthly_days' ? monthlyTime : undefined,
-              timesOfDay: advancedScheduleType === 'multiple_times_daily' ? multipleTimesDaily : undefined,
-            }
-          : undefined;
+        const advConfig = buildAdvConfig();
 
         addRecurringTransaction({
           type,
@@ -503,6 +580,17 @@ export const TransactionModal: React.FC = () => {
     }
     closeAddTxModal();
   };
+
+  const confirmRecurringEdit = (scope: 'future' | 'all') => {
+    if (!pendingRecurringEdit) return;
+    applyRecurringRuleEdit(pendingRecurringEdit, scope);
+    setPendingRecurringEdit(null);
+    closeAddTxModal();
+  };
+
+  const linkedPastCount = pendingRecurringEdit
+    ? transactions.filter((tx) => tx.recurringRuleId === pendingRecurringEdit.id).length
+    : 0;
 
   const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
 
@@ -608,6 +696,13 @@ export const TransactionModal: React.FC = () => {
           }}
           className="flex-1 overflow-y-auto overscroll-contain touch-pan-y px-5 py-3 space-y-3.5"
         >
+          {editingRecurring && (
+            <div className="rounded-2xl bg-blue-600/10 border border-blue-500/30 px-3 py-2 text-[11px] font-semibold text-blue-300 flex items-center gap-2">
+              <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+              <span>{isArabic ? 'تعديل قاعدة المعاملة الدورية' : 'Editing recurring rule'}</span>
+            </div>
+          )}
+
           {/* Amount Display & Read-Only Context in Edit Mode */}
           <div className="text-center py-1">
             {editingTx && selectedAccount && (
@@ -887,11 +982,13 @@ export const TransactionModal: React.FC = () => {
               <div
                 role="button"
                 tabIndex={0}
-                onClick={() => setIsRecurring(!isRecurring)}
+                onClick={() => {
+                  if (!editingRecurring) setIsRecurring(!isRecurring);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    setIsRecurring(!isRecurring);
+                    if (!editingRecurring) setIsRecurring(!isRecurring);
                   }
                 }}
                 className={`flex items-center justify-between w-full px-3 py-2 rounded-xl transition cursor-pointer select-none ${
@@ -946,9 +1043,10 @@ export const TransactionModal: React.FC = () => {
                         onClick={(e) => {
                           e.stopPropagation();
                           setRecurringFrequency(freq);
+                          setIsAdvancedSchedule(false);
                         }}
                         className={`py-1.5 px-1 text-[10px] font-bold rounded-lg capitalize transition cursor-pointer text-center truncate ${
-                          recurringFrequency === freq
+                          recurringFrequency === freq && !isAdvancedSchedule
                             ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 ring-1 ring-blue-400/50'
                             : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800/80 hover:bg-zinc-900'
                         }`}
@@ -956,6 +1054,140 @@ export const TransactionModal: React.FC = () => {
                         {getFrequencyLabel(freq)}
                       </button>
                     ))}
+                  </div>
+
+                  {/* Advanced custom schedule */}
+                  <div className="mt-2.5 pt-2.5 border-t border-zinc-800/60">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsAdvancedSchedule(!isAdvancedSchedule);
+                      }}
+                      className={'w-full flex items-center justify-between px-3 py-2 rounded-xl text-[11px] font-bold transition cursor-pointer border ' + (isAdvancedSchedule ? 'bg-blue-600/15 border-blue-500/40 text-blue-300' : 'bg-zinc-950 border-zinc-800/80 text-zinc-400 hover:text-white')}
+                    >
+                      <span>{isArabic ? 'جدول زمني متقدم' : 'Advanced schedule'}</span>
+                      <span>{isAdvancedSchedule ? (isArabic ? 'مفعّل' : 'ON') : (isArabic ? 'متوقف' : 'OFF')}</span>
+                    </button>
+
+                    {isAdvancedSchedule && (
+                      <div className="mt-2 space-y-2" onClick={(e) => e.stopPropagation()}>
+                        <div className="grid grid-cols-3 gap-1">
+                          {([
+                            ['weekly_days', isArabic ? 'أيام الأسبوع' : 'Weekdays'],
+                            ['monthly_days', isArabic ? 'أيام الشهر' : 'Month days'],
+                            ['multiple_times_daily', isArabic ? 'عدة مرات يومياً' : 'Times daily'],
+                          ] as const).map(([key, label]) => (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => setAdvancedScheduleType(key)}
+                              className={'py-1.5 px-1 text-[10px] font-bold rounded-lg transition cursor-pointer truncate ' + (advancedScheduleType === key ? 'bg-blue-600 text-white' : 'bg-zinc-950 text-zinc-400 border border-zinc-800/80 hover:text-white')}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {advancedScheduleType === 'weekly_days' && (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-7 gap-1">
+                              {weekDaysMap.map((w) => (
+                                <button
+                                  key={w.day}
+                                  type="button"
+                                  onClick={() => toggleDayOfWeek(w.day)}
+                                  className={'py-1.5 text-[10px] font-bold rounded-lg transition cursor-pointer ' + (selectedDaysOfWeek.includes(w.day) ? 'bg-blue-600 text-white' : 'bg-zinc-950 text-zinc-400 border border-zinc-800/80')}
+                                >
+                                  {isArabic ? w.labelAr : w.labelEn}
+                                </button>
+                              ))}
+                            </div>
+                            <label className="flex items-center gap-2 text-[11px] text-zinc-400 cursor-pointer">
+                              <input type="checkbox" checked={isCustomDayTimes} onChange={(e) => setIsCustomDayTimes(e.target.checked)} />
+                              <span>{isArabic ? 'وقت مختلف لكل يوم' : 'Custom time per day'}</span>
+                            </label>
+                            {isCustomDayTimes ? (
+                              <div className="space-y-1">
+                                {selectedDaysOfWeek.map((d) => (
+                                  <div key={d} className="flex items-center justify-between text-[11px] text-zinc-300">
+                                    <span>{isArabic ? weekDaysMap[d].labelAr : weekDaysMap[d].labelEn}</span>
+                                    <input
+                                      type="time"
+                                      value={customWeeklyTimes[d] || unifiedWeeklyTime}
+                                      onChange={(e) => setCustomWeeklyTimes((prev) => ({ ...prev, [d]: e.target.value }))}
+                                      className="px-2 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-white text-xs"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <input
+                                type="time"
+                                value={unifiedWeeklyTime}
+                                onChange={(e) => setUnifiedWeeklyTime(e.target.value)}
+                                className="w-full px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-white text-xs"
+                              />
+                            )}
+                          </div>
+                        )}
+
+                        {advancedScheduleType === 'monthly_days' && (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-7 gap-1">
+                              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                                <button
+                                  key={d}
+                                  type="button"
+                                  onClick={() => toggleDayOfMonth(d)}
+                                  className={'py-1 text-[10px] font-bold rounded-md transition cursor-pointer ' + (selectedDaysOfMonth.includes(d) ? 'bg-blue-600 text-white' : 'bg-zinc-950 text-zinc-400 border border-zinc-800/80')}
+                                >
+                                  {d}
+                                </button>
+                              ))}
+                            </div>
+                            <input
+                              type="time"
+                              value={monthlyTime}
+                              onChange={(e) => setMonthlyTime(e.target.value)}
+                              className="w-full px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-white text-xs"
+                            />
+                          </div>
+                        )}
+
+                        {advancedScheduleType === 'multiple_times_daily' && (
+                          <div className="space-y-1.5">
+                            {multipleTimesDaily.map((tm, idx) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                <input
+                                  type="time"
+                                  value={tm}
+                                  onChange={(e) => updateMultiTime(idx, e.target.value)}
+                                  className="flex-1 px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-white text-xs"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeMultiTime(idx)}
+                                  className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                            {multipleTimesDaily.length < 5 && (
+                              <button
+                                type="button"
+                                onClick={addMultiTime}
+                                className="w-full py-1.5 rounded-lg bg-zinc-950 border border-zinc-800/80 text-[11px] font-bold text-blue-400 hover:text-blue-300 cursor-pointer flex items-center justify-center gap-1"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>{isArabic ? 'إضافة وقت' : 'Add time'}</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1042,11 +1274,78 @@ export const TransactionModal: React.FC = () => {
                   : 'bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-60'
               }`}
             >
-              {editingTx ? t('updateTransaction') : t('saveTransaction')}
+              {editingTx || editingRecurring ? t('updateTransaction') : t('saveTransaction')}
             </button>
           </div>
         </div>
       </div>
+
+      {/* Recurring edit scope confirmation */}
+      {pendingRecurringEdit && (
+        <div
+          role="dialog"
+          className="fixed inset-0 z-[95] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            setPendingRecurringEdit(null);
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            dir={isArabic ? 'rtl' : 'ltr'}
+            className="w-full max-w-sm rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-5 space-y-4 text-white"
+          >
+            <div className="space-y-1">
+              <h3 className="text-base font-bold">
+                {isArabic ? 'تطبيق التعديلات على:' : 'Apply your changes to:'}
+              </h3>
+              <p className="text-xs text-zinc-400">
+                {isArabic
+                  ? 'اختر نطاق تطبيق التعديلات على هذه المعاملة المتكررة.'
+                  : 'Choose how far these edits should reach for this recurring rule.'}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => confirmRecurringEdit('future')}
+              className="w-full text-left rtl:text-right p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-blue-500/50 transition cursor-pointer"
+            >
+              <div className="text-sm font-bold text-white">
+                {isArabic ? 'المعاملات القادمة فقط' : 'Future occurrences only'}
+              </div>
+              <div className="text-[11px] text-zinc-400 mt-0.5">
+                {isArabic
+                  ? 'تحديث قالب القاعدة فقط، دون المساس بالمعاملات المسجلة سابقاً.'
+                  : 'Updates the rule template only; past transactions stay untouched.'}
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => confirmRecurringEdit('all')}
+              className="w-full text-left rtl:text-right p-3 rounded-2xl bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/40 transition cursor-pointer"
+            >
+              <div className="text-sm font-bold text-blue-200">
+                {isArabic ? 'المعاملات السابقة والقادمة' : 'Past & future occurrences'}
+              </div>
+              <div className="text-[11px] text-zinc-400 mt-0.5">
+                {isArabic
+                  ? 'تحديث القاعدة وجميع المعاملات المولّدة منها (' + linkedPastCount + ') مع إعادة حساب الأرصدة والمزامنة مع السحابة والمساحات المشتركة.'
+                  : 'Updates the rule and all ' + linkedPastCount + ' transaction(s) generated from it, recalculates balances and syncs to the cloud backup and shared spaces.'}
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPendingRecurringEdit(null)}
+              className="w-full py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white hover:bg-zinc-900 transition cursor-pointer"
+            >
+              {isArabic ? 'إلغاء' : 'Cancel'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Full-Screen Category Directory Modal with Search & Create */}
       <CategoryDirectoryModal

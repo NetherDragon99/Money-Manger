@@ -14,6 +14,9 @@ export const TransactionDetailsModal: React.FC = () => {
     deleteTransaction,
     accounts,
     transactions,
+    recurringTransactions,
+    openEditRecurringModal,
+    setIsRecurringModalOpen,
     settings,
     showConfirm,
     openShareModal,
@@ -165,12 +168,30 @@ export const TransactionDetailsModal: React.FC = () => {
             </div>
 
             {Boolean(viewingTx.isFromRecurring || viewingTx.recurringRuleId) && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-xs font-semibold text-amber-300 shadow-sm shadow-amber-950/40">
-                <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+              <button
+                type="button"
+                onClick={() => {
+                  closeTxDetailsModal();
+                  const rule = viewingTx.recurringRuleId
+                    ? recurringTransactions.find((r) => r.id === viewingTx.recurringRuleId)
+                    : undefined;
+                  if (rule) {
+                    openEditRecurringModal(rule);
+                  } else {
+                    setIsRecurringModalOpen(true);
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-xs font-semibold text-amber-300 shadow-sm shadow-amber-950/40 transition active:scale-95 cursor-pointer group"
+                title={settings.language === 'ar' ? 'عرض وإدارة القاعدة المتكررة' : 'View & manage recurring rule'}
+              >
+                <RefreshCw className="w-3.5 h-3.5 shrink-0 group-hover:rotate-180 transition-transform duration-500" />
                 <span>
-                  {settings.language === 'ar' ? 'معاملة متكررة تلقائية' : 'Automated Recurring Transaction'}
+                  {settings.language === 'ar' ? 'معاملة متكررة تلقائياً' : 'Automated Recurring Transaction'}
                 </span>
-              </div>
+                <span className="text-[10px] text-amber-400 underline underline-offset-2 ml-1 rtl:mr-1 rtl:ml-0 font-normal">
+                  {settings.language === 'ar' ? 'إدارة' : 'Manage'}
+                </span>
+              </button>
             )}
           </div>
         </div>

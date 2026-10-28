@@ -4,6 +4,28 @@ export type { FeatureItem, ReleaseNote };
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.58',
+    releaseDate: 'October 28, 2026',
+    title: {
+      en: 'Interactive Recurring Rule Editing, Scheduled Catch-Up & Advanced Timing',
+      ar: 'تحرير تفاعلي للقواعد المتكررة، تنفيذ دقيق للمواعيد السابقة وجدولة متقدمة',
+    },
+    highlights: {
+      en: [
+        'Interactive Rule Editing: Click any recurring rule to edit details and schedule with a choice between "Future only" or "Past & future" retroactive updates.',
+        'Exact Scheduled Date & Time Catch-Up: Missed occurrences preserve their exact scheduled timestamp (never app-open time) with deterministic deduplication and instant auto-backup.',
+        '100% Full Transaction Cloning: Automated transactions preserve original descriptions, notes, categories, and account metadata with visual recurring badges across all views.',
+        'Simple Presets & Advanced Multi-Day Scheduling: One-tap presets (Daily/Weekly/Monthly) plus advanced controls for specific weekdays, custom per-day times, month days, and intra-day repeat times.',
+      ],
+      ar: [
+        'تحرير تفاعلي للقواعد المتكررة: النقر على أي قاعدة متكررة لفتح شاشة التعديل الكاملة مع خيار تطبيق التعديل على "المعاملات القادمة فقط" أو "السابقة والقادمة".',
+        'تنفيذ دقيق للمواعيد المجدولة السابقة: المعاملات المتأخرة تسجل بدقة تاريخها ووقتها المجدولين (وليس وقت فتح التطبيق) مع منع التكرار ومزامنة النسخ السحابي فوراً.',
+        'استنساخ كامل 100% للمعاملات: الحفاظ الكامل على الأوصاف والتصنيفات الأصلية مع إظهار شارة مميزة للمعاملات المتكررة في جميع الشاشات والمساحات المشتركة.',
+        'خيارات بسيطة وجدولة متقدمة: قوالب سريعة بنقرة واحدة (يومي/أسبوعي/شهري) مع وضع متقدم يتيح تحديد أيام الأسبوع بأوقات مخصصة وأيام الشهر وتكرارات متعددة في اليوم.',
+      ],
+    },
+  },
+  {
     version: '1.1.57',
     releaseDate: 'October 28, 2026',
     title: {

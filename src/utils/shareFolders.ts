@@ -2974,16 +2974,22 @@ export async function propagateTransactionToLinkedSpaces(
       continue;
     }
 
+    // Moved OUT of a shared account: an updated tx that no longer touches any account of this
+    // space (and is not explicitly bound to it) must be removed from the space.
+    const movedOut =
+      action === 'update' && isLinkedByTx && !isLinkedByAccount && !isLinkedByExplicitShare;
+    const effectiveAction: 'add' | 'update' | 'delete' = movedOut ? 'delete' : action;
+
     const nextTxs = [...existingTxs];
     let changed = false;
     let enrichedTx: Transaction | null = null;
 
-    if (action === 'delete') {
+    if (effectiveAction === 'delete') {
       if (existingIdx !== -1) {
         nextTxs.splice(existingIdx, 1);
         changed = true;
       }
-    } else if (action === 'add') {
+    } else if (effectiveAction === 'add') {
       enrichedTx = enrichShareTransaction(tx, spaceAccounts);
       if (existingIdx !== -1) {
         nextTxs[existingIdx] = enrichedTx;
@@ -2991,7 +2997,7 @@ export async function propagateTransactionToLinkedSpaces(
         nextTxs.unshift(enrichedTx);
       }
       changed = true;
-    } else if (action === 'update') {
+    } else if (effectiveAction === 'update') {
       enrichedTx = enrichShareTransaction(tx, spaceAccounts);
       if (existingIdx !== -1) {
         nextTxs[existingIdx] = enrichedTx;
@@ -3018,7 +3024,7 @@ export async function propagateTransactionToLinkedSpaces(
       upsertSpaceInV3Cache(nextSpace);
 
       // Low-bandwidth granular delta push: NEVER re-upload the whole space
-      pushTransactionDeltaToCloud(space.id, action, enrichedTx || tx).catch(() => {});
+      pushTransactionDeltaToCloud(space.id, effectiveAction, enrichedTx || tx).catch(() => {});
 
       updatedSpaces.push(nextSpace);
     } else {

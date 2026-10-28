@@ -3,7 +3,7 @@
  * Provides persistent, quota-exempt device storage that survives browser cache clearings.
  */
 
-import { AppData, Account, Category, Transaction, AppSettings } from '../types';
+import { AppData, Account, Category, Transaction, AppSettings, RecurringTransaction } from '../types';
 
 const DB_NAME = 'PersonalFinanceTrackerDB';
 const DB_VERSION = 1;
@@ -98,24 +98,28 @@ export async function getItemFromIndexedDB<T>(key: string): Promise<T | null> {
 /**
  * Loads entire app data bundle from permanent IndexedDB storage
  */
-export async function loadFullDataFromIndexedDB(): Promise<Partial<AppData> | null> {
+export async function loadFullDataFromIndexedDB(): Promise<(Partial<AppData> & { recurringTransactions?: RecurringTransaction[] }) | null> {
   try {
-    const [accounts, categories, transactions, settings] = await Promise.all([
+    const [accounts, categories, transactions, settings, recurringTransactions] = await Promise.all([
       getItemFromIndexedDB<Account[]>('accounts'),
       getItemFromIndexedDB<Category[]>('categories'),
       getItemFromIndexedDB<Transaction[]>('transactions'),
       getItemFromIndexedDB<AppSettings>('settings'),
+      getItemFromIndexedDB<RecurringTransaction[]>('recurring_transactions'),
     ]);
 
-    if (!accounts && !categories && !transactions && !settings) {
+    if (!accounts && !categories && !transactions && !settings && !recurringTransactions) {
       return null;
     }
 
-    const data: Partial<AppData> = {};
+    const data: Partial<AppData> & { recurringTransactions?: RecurringTransaction[] } = {};
     if (accounts && Array.isArray(accounts)) data.accounts = accounts;
     if (categories && Array.isArray(categories)) data.categories = categories;
     if (transactions && Array.isArray(transactions)) data.transactions = transactions;
     if (settings && typeof settings === 'object') data.settings = settings;
+    if (recurringTransactions && Array.isArray(recurringTransactions)) {
+      data.recurringTransactions = recurringTransactions;
+    }
 
     return data;
   } catch (err) {
@@ -127,7 +131,9 @@ export async function loadFullDataFromIndexedDB(): Promise<Partial<AppData> | nu
 /**
  * Saves all app collections to permanent IndexedDB in a single transaction
  */
-export async function saveFullDataToIndexedDB(data: AppData): Promise<void> {
+export async function saveFullDataToIndexedDB(
+  data: AppData & { recurringTransactions?: RecurringTransaction[] }
+): Promise<void> {
   try {
     const db = await openDatabase();
     return new Promise((resolve, reject) => {
@@ -138,8 +144,11 @@ export async function saveFullDataToIndexedDB(data: AppData): Promise<void> {
       store.put(data.categories, 'categories');
       store.put(data.transactions, 'transactions');
       store.put(data.settings, 'settings');
+      if (data.recurringTransactions) {
+        store.put(data.recurringTransactions, 'recurring_transactions');
+      }
       store.put(new Date().toISOString(), 'last_saved_at');
-      store.put('1.1.57', 'version');
+      store.put('1.1.58', 'version');
 
       transaction.oncomplete = () => {
         db.close();

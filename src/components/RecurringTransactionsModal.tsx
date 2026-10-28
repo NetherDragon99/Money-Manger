@@ -18,6 +18,7 @@ interface RecurringItemRowProps {
   onToggleSelect: (id: string) => void;
   onStartMultiSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  onEdit: (item: RecurringTransaction) => void;
   accountName: string;
   currencySymbol: string;
   isArabic: boolean;
@@ -30,6 +31,7 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
   onToggleSelect,
   onStartMultiSelect,
   onDelete,
+  onEdit,
   accountName,
   currencySymbol,
   isArabic,
@@ -41,6 +43,8 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
     onClick: () => {
       if (isMultiSelect) {
         onToggleSelect(item.id);
+      } else {
+        onEdit(item);
       }
     },
   });
@@ -76,7 +80,7 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
           ? 'bg-blue-950/40 border-blue-500/80 shadow-md shadow-blue-950/40 cursor-pointer'
           : isMultiSelect
           ? 'bg-zinc-900/60 hover:bg-zinc-850 border-zinc-800/80 cursor-pointer'
-          : 'bg-zinc-900/60 hover:border-zinc-700 border-zinc-800/80'
+          : 'bg-zinc-900/60 hover:border-zinc-700 border-zinc-800/80 cursor-pointer'
       }`}
     >
       <div className="flex items-center gap-3 min-w-0">
@@ -153,6 +157,7 @@ export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProp
     processDueRecurring,
     executeManualRecurringRules,
     openAddTxModal,
+    openEditRecurringModal,
     settings,
     accounts,
   } = useApp();
@@ -174,6 +179,14 @@ export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProp
       setIsClosing(false);
       onClose();
     }, 180);
+  };
+
+  const handleEditRule = (item: RecurringTransaction) => {
+    handleAnimatedClose();
+    // Opens the full transaction modal pre-filled with the rule's details & schedule
+    setTimeout(() => {
+      openEditRecurringModal(item);
+    }, 200);
   };
 
   const handleToggleSelect = (id: string) => {
@@ -287,6 +300,7 @@ export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProp
                 onToggleSelect={handleToggleSelect}
                 onStartMultiSelect={handleStartMultiSelect}
                 onDelete={deleteRecurringTransaction}
+                onEdit={handleEditRule}
                 accountName={getAccountName(item.accountId)}
                 currencySymbol={settings.currencySymbol || '£'}
                 isArabic={isArabic}

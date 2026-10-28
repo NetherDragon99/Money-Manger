@@ -821,8 +821,19 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
 
                                             {/* Center: Title & Metadata Subtitle */}
                                             <div className="min-w-0 text-left rtl:text-right">
-                                              <div className="text-sm font-bold text-white truncate max-w-[180px] sm:max-w-xs group-hover:text-blue-300 transition">
-                                                {title}
+                                              <div className="flex items-center gap-1.5 min-w-0">
+                                                <span className="text-sm font-bold text-white truncate max-w-[180px] sm:max-w-xs group-hover:text-blue-300 transition">
+                                                  {title}
+                                                </span>
+                                                {Boolean(tx.isFromRecurring || tx.recurringRuleId) && (
+                                                  <span
+                                                    className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded-full text-[9px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 shrink-0"
+                                                    title={isArabic ? 'معاملة متكررة تلقائياً' : 'Automated Recurring'}
+                                                  >
+                                                    <RefreshCw className="w-2 h-2 shrink-0" />
+                                                    <span className="text-[8px]">{isArabic ? 'دورية' : 'Recurring'}</span>
+                                                  </span>
+                                                )}
                                               </div>
                                               <div className="text-xs text-zinc-400 truncate mt-0.5 flex items-center gap-1.5 flex-wrap">
                                                 {isTransfer && (
@@ -975,6 +986,12 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                     ? isArabic ? 'مصروف' : 'Expense'
                     : isArabic ? 'تحويل مالي' : 'Transfer'}
                 </div>
+                {Boolean(viewingTx.isFromRecurring || viewingTx.recurringRuleId) && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                    <span>{isArabic ? 'معاملة متكررة تلقائياً' : 'Automated Recurring Transaction'}</span>
+                  </div>
+                )}
               </div>
 
               {/* Details List */}

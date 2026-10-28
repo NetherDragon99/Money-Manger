@@ -62,7 +62,7 @@ import {
   CustomImportConfig,
   executeCustomDataImport,
 } from '../utils/storage';
-import { requestPersistentStorage, loadFullDataFromIndexedDB } from '../utils/indexedDB';
+import { requestPersistentStorage, loadFullDataFromIndexedDB, saveItemToIndexedDB } from '../utils/indexedDB';
 import { syncAllAccountBalances, getHistoricalBalance } from '../utils/balanceEngine';
 import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
 import { translations } from '../utils/translations';
@@ -204,6 +204,9 @@ interface AppContextType {
   editingTx: Transaction | null;
   openEditTxModal: (tx: Transaction) => void;
   closeEditTxModal: () => void;
+  editingRecurring: RecurringTransaction | null;
+  openEditRecurringModal: (rule: RecurringTransaction) => void;
+  applyRecurringRuleEdit: (rule: RecurringTransaction, scope: 'future' | 'all') => number;
   viewingTx: Transaction | null;
   openTxDetailsModal: (tx: Transaction) => void;
   closeTxDetailsModal: () => void;
@@ -449,6 +452,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [defaultTxAmount, setDefaultTxAmount] = useState<number | undefined>(undefined);
   const [defaultTxIsRecurring, setDefaultTxIsRecurring] = useState<boolean>(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [editingRecurring, setEditingRecurring] = useState<RecurringTransaction | null>(null);
   const [viewingTx, setViewingTx] = useState<Transaction | null>(null);
 
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -1010,6 +1014,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (idbData.categories && idbData.categories.length > categories.length) {
             setCategories(idbData.categories);
           }
+          if (idbData.recurringTransactions && idbData.recurringTransactions.length > 0 && recurringTransactions.length === 0) {
+            setRecurringTransactions(idbData.recurringTransactions);
+          }
         }
       })
       .catch((err) => console.warn('[Storage] IDB startup check:', err));
@@ -1211,22 +1218,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   useEffect(() => {
     debouncedPersist('recurring_transactions', () => saveRecurringTransactions(recurringTransactions));
+    saveItemToIndexedDB('recurring_transactions', recurringTransactions).catch(() => {});
   }, [recurringTransactions]);
 
-  // App Lock on resume / visibility change
+  // App Lock & Recurring catch-up on resume / visibility change
   useEffect(() => {
     const handleVisibility = () => {
       const sec = loadSecuritySettings();
-      if (!sec.isLockEnabled) return;
-
-      if (document.visibilityState === 'visible' && sec.requireLockOnResume) {
+      if (sec.isLockEnabled && document.visibilityState === 'visible' && sec.requireLockOnResume) {
         setIsAppLocked(true);
         setSessionUnlocked(false);
+      }
+      if (document.visibilityState === 'visible') {
+        processDueRecurring();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+
+  // Periodic catch-up check for due recurring rules while app is active
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        processDueRecurring();
+      }
+    }, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   // Listen for security settings updates live
@@ -1258,7 +1277,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       id: 'temp',
       createdAt: Date.now(),
     };
-    const nextOcc = getNextScheduledOccurrence(tempRule, new Date(`${recData.startDate}T${recData.startTime || '00:00'}`));
+    const [sy, sm, sd] = (recData.startDate || formatDateToYYYYMMDD(new Date())).split('-').map(Number);
+    const [sh, smin] = (recData.startTime || '09:00').split(':').map(Number);
+    const startAnchor = new Date(sy, sm - 1, sd, sh || 0, smin || 0, 0, 0);
+    const nextOcc = getNextScheduledOccurrence(tempRule, new Date(startAnchor.getTime() - 1));
 
     const newRec: RecurringTransaction = {
       ...recData,
@@ -1278,7 +1300,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updateRecurringTransaction = (updated: RecurringTransaction) => {
-    const nextOcc = getNextScheduledOccurrence(updated, new Date(`${updated.startDate}T${updated.startTime || '00:00'}`));
+    const [sy, sm, sd] = (updated.startDate || formatDateToYYYYMMDD(new Date())).split('-').map(Number);
+    const [sh, smin] = (updated.startTime || '09:00').split(':').map(Number);
+    const startAnchor = new Date(sy, sm - 1, sd, sh || 0, smin || 0, 0, 0);
+    const nextOcc = getNextScheduledOccurrence(updated, new Date(startAnchor.getTime() - 1));
     const finalUpdated: RecurringTransaction = {
       ...updated,
       nextRun: nextOcc ? nextOcc.getTime() : updated.nextRun,
@@ -1304,21 +1329,195 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     showToast(t('deletedSuccess'), 'success');
   };
 
+  /**
+   * Applies an edited recurring rule.
+   * - 'future': only the rule template (and its schedule) is updated.
+   * - 'all': the rule AND every previously generated transaction linked to it are updated
+   *   (date/time of past occurrences are kept), balances are recalculated, and all deltas are
+   *   pushed to Cloud Auto-Backup and every linked Shared Space (ID & link shares).
+   * Returns the number of past transactions that were retroactively updated.
+   */
+  const applyRecurringRuleEdit = (edited: RecurringTransaction, scope: 'future' | 'all'): number => {
+    const original = recurringTransactions.find((r) => r.id === edited.id);
+    const nowMs = Date.now();
+    const isTransfer = edited.type === 'transfer';
+
+    const normalized: RecurringTransaction = {
+      ...edited,
+      toAccountId: isTransfer ? edited.toAccountId : undefined,
+      categoryId: isTransfer ? undefined : edited.categoryId,
+      categoryName: isTransfer ? undefined : edited.categoryName,
+      categoryIcon: isTransfer ? undefined : edited.categoryIcon,
+    };
+
+    const scheduleSig = (r: RecurringTransaction) =>
+      JSON.stringify([
+        r.frequency,
+        r.startDate,
+        r.startTime || '',
+        r.advancedSchedule?.isAdvanced ? r.advancedSchedule : null,
+      ]);
+    const scheduleChanged = !original || scheduleSig(original) !== scheduleSig(normalized);
+
+    const [sy, sm, sd] = (normalized.startDate || formatDateToYYYYMMDD(new Date())).split('-').map(Number);
+    const [sh, smin] = (normalized.startTime || '09:00').split(':').map(Number);
+    const startMs = new Date(sy, sm - 1, sd, sh || 0, smin || 0, 0, 0).getTime();
+
+    let lastRun: number | undefined = original?.lastRun;
+    let nextDate: Date;
+    if (scheduleChanged) {
+      // Re-anchor on the new schedule: occurrences up to now are considered already handled,
+      // so only FUTURE occurrences of the new schedule are generated.
+      let cand = getNextScheduledOccurrence(normalized, new Date(startMs - 1));
+      let lastPast: number | undefined;
+      let guard = 0;
+      while (cand.getTime() <= nowMs && guard < 5000) {
+        lastPast = cand.getTime();
+        cand = getNextScheduledOccurrence(normalized, cand);
+        guard++;
+      }
+      lastRun = lastPast;
+      nextDate = cand;
+    } else {
+      nextDate = getNextScheduledOccurrence(normalized, new Date(lastRun && lastRun > 0 ? lastRun : startMs - 1));
+    }
+
+    const finalRule: RecurringTransaction = {
+      ...normalized,
+      lastRun,
+      nextRun: nextDate.getTime(),
+      nextDueDate: formatDateToYYYYMMDD(nextDate),
+      updatedAt: nowMs,
+    };
+
+    setRecurringTransactions((prev) => prev.map((r) => (r.id === finalRule.id ? finalRule : r)));
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'recurring', finalRule, isSyncUnlockedRef.current));
+    }
+
+    let affected = 0;
+
+    if (scope === 'all') {
+      const linkedIds = new Set(
+        transactions.filter((tx) => tx.recurringRuleId === finalRule.id).map((tx) => tx.id)
+      );
+
+      if (linkedIds.size > 0) {
+        const TRANSFER_FIELDS = [
+          'fromBalanceBefore', 'fromBalanceAfter', 'toBalanceBefore', 'toBalanceAfter',
+          'fromAccountName', 'fromAccountIcon', 'toAccountName', 'toAccountIcon',
+        ];
+
+        const retro = (tx: Transaction): Transaction => {
+          const next: any = {
+            ...tx,
+            type: finalRule.type,
+            amount: finalRule.amount,
+            accountId: finalRule.accountId,
+            toAccountId: finalRule.toAccountId,
+            categoryId: finalRule.categoryId,
+            categoryName: finalRule.categoryName,
+            categoryIcon: finalRule.categoryIcon,
+            description: finalRule.description,
+          };
+          for (const k of TRANSFER_FIELDS) delete next[k];
+          return next as Transaction;
+        };
+
+        let list = transactions.map((tx) => (linkedIds.has(tx.id) ? retro(tx) : tx));
+        const updatedLinked: Transaction[] = [];
+        const snapshot = list;
+        list = snapshot.map((tx) => {
+          if (!linkedIds.has(tx.id)) return tx;
+          let nt = tx;
+          if (tx.type === 'transfer' && tx.toAccountId) {
+            const fromAcc = accounts.find((a) => a.id === tx.accountId);
+            const toAcc = accounts.find((a) => a.id === tx.toAccountId);
+            if (fromAcc && toAcc) {
+              const fh = getHistoricalBalance(tx.id, fromAcc, snapshot);
+              const th = getHistoricalBalance(tx.id, toAcc, snapshot);
+              nt = {
+                ...tx,
+                fromBalanceBefore: fh.balanceBefore,
+                fromBalanceAfter: fh.balanceAfter,
+                toBalanceBefore: th.balanceBefore,
+                toBalanceAfter: th.balanceAfter,
+              };
+            }
+          }
+          updatedLinked.push(nt);
+          return nt;
+        });
+
+        const syncedAccounts = syncAllAccountBalances(accounts, list);
+        setTransactions(list);
+        setAccounts(syncedAccounts);
+        affected = updatedLinked.length;
+
+        if (viewingTx && linkedIds.has(viewingTx.id)) {
+          const refreshed = updatedLinked.find((t) => t.id === viewingTx.id);
+          if (refreshed) setViewingTx(refreshed);
+        }
+
+        // Cloud Auto-Backup granular deltas (transactions + changed account balances)
+        if (auth.currentUser && isSyncUnlockedRef.current) {
+          const uid = auth.currentUser.uid;
+          for (const tx of updatedLinked) {
+            triggerGranularPush(() => writeGranularDelta(uid, 'transactions', tx, isSyncUnlockedRef.current));
+          }
+          const oldBal = new Map(accounts.map((a) => [a.id, a.balance]));
+          for (const acc of syncedAccounts) {
+            if (oldBal.get(acc.id) !== acc.balance) {
+              triggerGranularPush(() => writeGranularDelta(uid, 'accounts', acc, isSyncUnlockedRef.current));
+            }
+          }
+        }
+
+        // Shared Spaces (in-app ID shares & external link shares), including accounts moved in/out
+        (async () => {
+          for (const tx of updatedLinked) {
+            try {
+              await propagateTransactionToLinkedSpaces('update', tx, syncedAccounts);
+            } catch {
+              /* keep going so one failing space never blocks the others */
+            }
+          }
+        })();
+      }
+    }
+
+    const isArabic = settings.language === 'ar';
+    showToast(
+      scope === 'all'
+        ? isArabic
+          ? ('تم تحديث القاعدة و' + affected + ' معاملة سابقة')
+          : ('Rule updated, plus ' + affected + ' past transaction(s)')
+        : isArabic
+        ? 'تم تحديث القاعدة للمعاملات القادمة'
+        : 'Rule updated for future occurrences',
+      'success'
+    );
+    return affected;
+  };
+
   const processDueRecurring = (showUserToast = false): number => {
     const tombstones = loadLocalTombstones();
     const tombstoneSet = new Set(Object.keys(tombstones));
-    const res = checkAndProcessRecurring(recurringTransactions, transactions, tombstoneSet, Date.now());
+    const currentRecs = recurringTransactionsRef.current || recurringTransactions;
+    const currentTxs = transactionsRef.current || transactions;
+    const currentAccs = accountsRef.current || accounts;
+    const res = checkAndProcessRecurring(currentRecs, currentTxs, tombstoneSet, Date.now());
 
     if (res.newTransactions.length > 0) {
       setRecurringTransactions(res.updatedRecurring);
 
       // Merge newly generated transactions chronologically
-      const combinedTxs = [...transactions, ...res.newTransactions].sort((a, b) => {
+      const combinedTxs = [...currentTxs, ...res.newTransactions].sort((a, b) => {
         if (a.date !== b.date) return a.date.localeCompare(b.date);
         return (a.time || '').localeCompare(b.time || '');
       });
 
-      const syncedAccounts = syncAllAccountBalances(accounts, combinedTxs);
+      const syncedAccounts = syncAllAccountBalances(currentAccs, combinedTxs);
       setTransactions(combinedTxs);
       setAccounts(syncedAccounts);
 
@@ -1330,6 +1529,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         for (const updRec of res.updatedRecurring) {
           triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'recurring', updRec, isSyncUnlockedRef.current));
         }
+        // Granular push for accounts whose balances changed
+        const affectedAccountIds = new Set<string>();
+        for (const newTx of res.newTransactions) {
+          if (newTx.accountId) affectedAccountIds.add(newTx.accountId);
+          if (newTx.toAccountId) affectedAccountIds.add(newTx.toAccountId);
+        }
+        for (const acc of syncedAccounts) {
+          if (affectedAccountIds.has(acc.id)) {
+            triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'accounts', acc, isSyncUnlockedRef.current));
+          }
+        }
+      }
+
+      // Propagate newly added transactions and updated account balances to any linked Shared Spaces (both ID shares and link shares) in real time
+      for (const newTx of res.newTransactions) {
+        propagateTransactionToLinkedSpaces('add', newTx, syncedAccounts).catch((err) => {
+          console.warn('[Recurring] Failed to propagate recurring transaction to linked space:', err);
+        });
       }
 
       const isArabic = settings.language === 'ar';
@@ -1386,10 +1603,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setTransactions(combinedTxs);
     setAccounts(syncedAccounts);
 
+    const affectedAccountIds = new Set<string>();
+    for (const mTx of manualTxs) {
+      if (mTx.accountId) affectedAccountIds.add(mTx.accountId);
+      if (mTx.toAccountId) affectedAccountIds.add(mTx.toAccountId);
+    }
+
     if (auth.currentUser && isSyncUnlockedRef.current) {
       for (const mTx of manualTxs) {
         triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'transactions', mTx, isSyncUnlockedRef.current));
       }
+      for (const acc of syncedAccounts) {
+        if (affectedAccountIds.has(acc.id)) {
+          triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'accounts', acc, isSyncUnlockedRef.current));
+        }
+      }
+    }
+
+    // Propagate manual transactions to linked shared spaces in real time
+    for (const mTx of manualTxs) {
+      propagateTransactionToLinkedSpaces('add', mTx, syncedAccounts).catch((err) => {
+        console.warn('[Recurring] Failed to propagate manual recurring transaction to linked space:', err);
+      });
     }
 
     const isArabic = settings.language === 'ar';
@@ -2394,26 +2629,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setDefaultTxAmount(initialAmount);
     setDefaultTxIsRecurring(Boolean(initialIsRecurring));
     setEditingTx(null);
+    setEditingRecurring(null);
     setIsAddTxModalOpen(true);
   };
 
   const closeAddTxModal = () => {
     setIsAddTxModalOpen(false);
     setEditingTx(null);
+    setEditingRecurring(null);
     setDefaultTxAccountId(undefined);
     setDefaultTxAmount(undefined);
   };
 
   const openEditTxModal = (tx: Transaction) => {
+    setEditingRecurring(null);
     setEditingTx(tx);
     setIsAddTxModalOpen(true);
   };
 
   const closeEditTxModal = () => {
     setEditingTx(null);
+    setEditingRecurring(null);
     setIsAddTxModalOpen(false);
     setDefaultTxAccountId(undefined);
     setDefaultTxAmount(undefined);
+  };
+
+  const openEditRecurringModal = (rule: RecurringTransaction) => {
+    setEditingTx(null);
+    setEditingRecurring(rule);
+    setDefaultTxIsRecurring(true);
+    setIsAddTxModalOpen(true);
   };
 
   const openTxDetailsModal = (tx: Transaction) => {
@@ -3515,6 +3761,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     executeManualRecurringRules,
     openEditTxModal,
     closeEditTxModal,
+    openEditRecurringModal,
+    applyRecurringRuleEdit,
     openTxDetailsModal,
     closeTxDetailsModal,
     openAddAccountModal,
@@ -3624,6 +3872,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       defaultTxAmount,
       defaultTxIsRecurring,
       editingTx,
+      editingRecurring,
       viewingTx,
       isAccountModalOpen,
       editingAccount,
@@ -3687,6 +3936,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       defaultTxAmount,
       defaultTxIsRecurring,
       editingTx,
+      editingRecurring,
       viewingTx,
       isAccountModalOpen,
       editingAccount,

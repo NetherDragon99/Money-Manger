@@ -4,6 +4,7 @@ import { DEFAULT_ACCOUNTS, INITIAL_CATEGORIES, DEFAULT_SETTINGS } from './consta
 import { syncAllAccountBalances } from './balanceEngine';
 import { saveItemToIndexedDB, saveFullDataToIndexedDB } from './indexedDB';
 import { debouncedPersist } from './persistQueue';
+import { loadRecurringTransactions } from './recurring';
 import {
   loadMyShareFolders,
   saveMyShareFolders,
@@ -105,11 +106,13 @@ export function saveSettings(settings: AppSettings): void {
 /**
  * Exports full app data as a downloadable JSON file
  */
-export function exportAllDataAsJSON(data: AppData): void {
+export function exportAllDataAsJSON(data: AppData & { recurringTransactions?: RecurringTransaction[] }): void {
+  const recurring = data.recurringTransactions || loadRecurringTransactions();
   const exportPayload = {
-    version: '1.1.57',
+    version: '1.1.58',
     exportDate: new Date().toISOString(),
     ...data,
+    recurringTransactions: recurring,
   };
   const jsonStr = JSON.stringify(exportPayload, null, 2);
   const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -131,7 +134,7 @@ export function exportAccountAsJSON(account: Account, allTransactions: Transacti
     (tx) => tx.accountId === account.id || tx.toAccountId === account.id
   );
   const payload = {
-    version: '1.1.57',
+    version: '1.1.58',
     type: 'single_account_backup',
     exportDate: new Date().toISOString(),
     account,
@@ -159,6 +162,7 @@ export interface ParsedBackupPreview {
   accountsCount: number;
   categoriesCount: number;
   transactionsCount: number;
+  recurringCount?: number;
   budgetsCount: number;
   sharedSpacesCount: number;
   rawPayload?: any;
@@ -228,6 +232,12 @@ export function parseBackupFile(jsonString: string): ParsedBackupPreview {
 
     const transactionsCount = Array.isArray(parsed.transactions) ? parsed.transactions.length : 0;
 
+    const recurringCount = Array.isArray(parsed.recurringTransactions)
+      ? parsed.recurringTransactions.length
+      : Array.isArray(parsed.recurring)
+      ? parsed.recurring.length
+      : 0;
+
     let budgetsCount = 0;
     if (Array.isArray(parsed.budgets)) {
       budgetsCount = parsed.budgets.length;
@@ -260,6 +270,7 @@ export function parseBackupFile(jsonString: string): ParsedBackupPreview {
       accountsCount,
       categoriesCount,
       transactionsCount,
+      recurringCount,
       budgetsCount,
       sharedSpacesCount,
       rawPayload: parsed,
