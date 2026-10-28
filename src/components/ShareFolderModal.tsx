@@ -30,6 +30,7 @@ import {
   deduceFolderMetadata,
   enrichShareTransaction,
   generateShareUrl,
+  ensureShareLinkToken,
   publishUserProfileCard,
   ShareFolder,
   UserProfileCard,
@@ -299,14 +300,12 @@ export const ShareFolderModal: React.FC = () => {
     if (!folder) return;
 
     try {
-      // Ensure folder is synced to cloud immediately before copying
-      await syncFolderToCloud(folder);
-      const shareUrl = generateShareUrl(folder);
+      const { shareUrl } = await ensureShareLinkToken(folder);
       await navigator.clipboard.writeText(shareUrl);
       showToast(
         isArabic
-          ? `تم نسخ رابط المشاركة لشير "${folder.name}" بنجاح!`
-          : `Public share link for "${folder.name}" copied to clipboard!`,
+          ? `تم نسخ رابط المشاركة الآمن لشير "${folder.name}" بنجاح!`
+          : `Secure share link for "${folder.name}" copied to clipboard!`,
         'success'
       );
       cleanupAndClose();

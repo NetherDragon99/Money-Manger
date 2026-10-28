@@ -45,6 +45,7 @@ import {
   rejectShareInvitation,
   leaveShareFolder,
   generateShareUrl,
+  ensureShareLinkToken,
   subscribeToMyInbox,
   fetchMyInboxOnce,
   ShareFolder,
@@ -408,11 +409,11 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   const handleCopyLink = async (folder: ShareFolder, e?: React.MouseEvent) => {
     e?.stopPropagation();
     try {
-      await syncFolderToCloud(folder);
-      const url = generateShareUrl(folder);
-      await navigator.clipboard.writeText(url);
+      const { folder: updated, shareUrl } = await ensureShareLinkToken(folder);
+      setMyFolders((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+      await navigator.clipboard.writeText(shareUrl);
       showToast(
-        isArabic ? `تم نسخ رابط المشاركة لشير "${folder.name}"!` : `Share link for "${folder.name}" copied!`,
+        isArabic ? `تم نسخ رابط المشاركة الآمن لشير "${folder.name}"!` : `Secure share link for "${folder.name}" copied!`,
         'success'
       );
     } catch {

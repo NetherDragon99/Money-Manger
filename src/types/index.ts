@@ -39,6 +39,7 @@ export interface Transaction {
   isAdjustment?: boolean; // Tag for manual balance adjustments
   isFromRecurring?: boolean; // Tag for automated recurring transactions
   recurringRuleId?: string; // ID of the generating recurring rule
+  isIndividuallyEdited?: boolean; // Flag when a generated recurring occurrence was individually edited
   createdAt: number;
   updatedAt?: number;
   fromBalanceBefore?: number;
@@ -53,6 +54,8 @@ export interface Transaction {
   balanceBefore?: number;
   balanceAfter?: number;
   sender16Id?: string;
+  shareId?: string;
+  excludedShareIds?: string[]; // IDs of shared spaces where this transaction was deleted by owner and should not be propagated
 }
 
 export type WeekStartDay = 'saturday' | 'sunday' | 'monday';
@@ -100,6 +103,7 @@ export interface AdvancedScheduleConfig {
   scheduleType?: 'multiple_times_daily' | 'weekly_days' | 'monthly_days' | 'advanced' | string;
   useWeekdayFilter?: boolean;
   daysOfWeek?: number[];
+  intervalWeeks?: number; // 1 to 12 (default: 1), anchored to the rule's start week
   useMonthDayFilter?: boolean;
   daysOfMonth?: number[];
   timesOfDay?: string[];

@@ -5,7 +5,7 @@
  */
 
 import { RecurringTransaction, RecurringFrequency, Transaction, AdvancedScheduleConfig } from '../types';
-import { formatDateToYYYYMMDD, formatTimeToHHMM } from './dateCycle';
+import { formatDateToYYYYMMDD, formatTimeToHHMM, formatTime12h } from './dateCycle';
 
 const RECURRING_STORAGE_KEY = 'money_manager_recurring_v1';
 
@@ -154,12 +154,18 @@ export function migrateRecurringRule(rule: RecurringTransaction): RecurringTrans
     }
   }
 
+  const rawInterval = adv?.intervalWeeks;
+  const intervalWeeks = (typeof rawInterval === 'number' && rawInterval >= 1 && rawInterval <= 12)
+    ? Math.round(rawInterval)
+    : 1;
+
   const updatedAdv: AdvancedScheduleConfig = {
     ...adv,
     isAdvanced: Boolean(adv?.isAdvanced),
     scheduleType: 'advanced',
     useWeekdayFilter,
     daysOfWeek: useWeekdayFilter ? daysOfWeek : undefined,
+    intervalWeeks,
     useMonthDayFilter,
     daysOfMonth: useMonthDayFilter ? daysOfMonth : undefined,
     timesOfDay,
@@ -243,6 +249,7 @@ export interface ScheduleSummaryParams {
   isAdvanced?: boolean;
   useWeekdayFilter?: boolean;
   daysOfWeek?: number[];
+  intervalWeeks?: number;
   useMonthDayFilter?: boolean;
   daysOfMonth?: number[];
   timesOfDay?: string[];
@@ -363,10 +370,16 @@ export function getScheduleSummaryText(
     }
   }
 
-  // Advanced Schedule Summary
+  // Advanced Schedule Summary (ignores simple frequency preset)
+  const intervalWeeks = Math.max(1, Math.min(12,
+    (input as ScheduleSummaryParams).intervalWeeks ?? adv?.intervalWeeks ?? 1
+  ));
+
   let prefix = '';
-  if (frequency === 'biweekly') {
+  if (intervalWeeks === 2) {
     prefix = isAr ? 'كل أسبوعين' : 'Every 2 weeks';
+  } else if (intervalWeeks > 2) {
+    prefix = isAr ? `كل ${intervalWeeks} أسابيع` : `Every ${intervalWeeks} weeks`;
   }
 
   let weekdaysStr = '';
@@ -467,13 +480,14 @@ export function doesDateMatchRule(
     return true;
   }
 
-  // Advanced Schedule Evaluation
-  // 1. Bi-Weekly week parity check
-  if (freq === 'biweekly') {
+  // Advanced Schedule Evaluation (ignores simple frequency preset)
+  // 1. Every N weeks check (anchored to start week)
+  const intervalWeeks = Math.max(1, Math.min(12, adv?.intervalWeeks || 1));
+  if (intervalWeeks > 1) {
     const candSunday = new Date(candYear, candMonth, candDateNum - candDayOfWeek, 0, 0, 0, 0);
     const diffWeeks = Math.round((candSunday.getTime() - startSunday.getTime()) / (7 * 86400000));
-    if (diffWeeks < 0 || diffWeeks % 2 !== 0) {
-      return false; // Not in the active 2nd week
+    if (diffWeeks < 0 || diffWeeks % intervalWeeks !== 0) {
+      return false; // Not in the active Nth week
     }
   }
 
@@ -649,6 +663,88 @@ export function getNextScheduledOccurrence(
 
   // Fallback fallback: 30 days from afterDate
   return new Date(afterDate.getTime() + 30 * 86400000);
+}
+
+export interface OccurrencePreviewItem {
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+  timestampMs: number;
+  dayName: string;
+  formattedDate: string;
+  formattedTime: string;
+}
+
+/**
+ * Computes the next N future occurrences for a recurring rule.
+ * Uses the exact same scheduling engine, local time, DST-safe,
+ * respecting effectiveFrom, filters, overrides, and Every-N-weeks.
+ */
+export function getNextNOccurrences(
+  rawRule: RecurringTransaction,
+  count: number = 5,
+  fromTimeMs: number = Date.now(),
+  lang: 'en' | 'ar' = 'en'
+): OccurrencePreviewItem[] {
+  const rule = migrateRecurringRule(rawRule);
+  const isAr = lang === 'ar';
+  const results: OccurrencePreviewItem[] = [];
+
+  // Validation: if rule has invalid schedule settings, return empty list
+  const adv = rule.advancedSchedule;
+  if (adv?.isAdvanced) {
+    if (adv.useWeekdayFilter && (!adv.daysOfWeek || adv.daysOfWeek.length === 0)) {
+      return [];
+    }
+    if (adv.useMonthDayFilter && (!adv.daysOfMonth || adv.daysOfMonth.length === 0)) {
+      return [];
+    }
+    const times = adv.timesOfDay || adv.defaultTimes || [];
+    if (times.length === 0 && !rule.startTime) {
+      return [];
+    }
+  }
+
+  const [sy, sm, sd] = (rule.startDate || formatDateToYYYYMMDD(new Date())).split('-').map(Number);
+  const [sh, smin] = (rule.startTime || '09:00').split(':').map(Number);
+  const startDt = new Date(sy, sm - 1, sd, sh, smin, 0, 0);
+
+  // Baseline start timestamp
+  const basePointer = Math.max(
+    fromTimeMs,
+    (rule.effectiveFrom ? rule.effectiveFrom - 1 : 0),
+    startDt.getTime() - 1
+  );
+
+  let curDate = new Date(basePointer);
+  let guard = 0;
+  const MAX_ITER = 300;
+
+  while (results.length < count && guard < MAX_ITER) {
+    const next = getNextScheduledOccurrence(rule, curDate);
+    const nextMs = next.getTime();
+    if (nextMs <= curDate.getTime()) {
+      break;
+    }
+    if (nextMs >= startDt.getTime() && (!rule.effectiveFrom || nextMs >= rule.effectiveFrom)) {
+      const dStr = formatDateToYYYYMMDD(next);
+      const tStr = formatTimeToHHMM(next);
+      const dayIdx = next.getDay();
+      const dayName = isAr ? WEEKDAY_NAMES_AR[dayIdx] : WEEKDAY_NAMES_EN[dayIdx];
+
+      results.push({
+        date: dStr,
+        time: tStr,
+        timestampMs: nextMs,
+        dayName,
+        formattedDate: dStr,
+        formattedTime: formatTime12h(tStr, lang),
+      });
+    }
+    curDate = next;
+    guard++;
+  }
+
+  return results;
 }
 
 export interface ProcessRecurringResult {

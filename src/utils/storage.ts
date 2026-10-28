@@ -109,7 +109,7 @@ export function saveSettings(settings: AppSettings): void {
 export function exportAllDataAsJSON(data: AppData & { recurringTransactions?: RecurringTransaction[] }): void {
   const recurring = (data.recurringTransactions || loadRecurringTransactions()).map(migrateRecurringRule);
   const exportPayload = {
-    version: '1.1.59',
+    version: '1.1.60',
     exportDate: new Date().toISOString(),
     ...data,
     recurringTransactions: recurring,
@@ -134,7 +134,7 @@ export function exportAccountAsJSON(account: Account, allTransactions: Transacti
     (tx) => tx.accountId === account.id || tx.toAccountId === account.id
   );
   const payload = {
-    version: '1.1.59',
+    version: '1.1.60',
     type: 'single_account_backup',
     exportDate: new Date().toISOString(),
     account,

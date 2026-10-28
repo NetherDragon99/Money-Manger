@@ -1,7 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Settings, Trash2, Check, Smile, Sparkles, AlertTriangle, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { X, Settings, Trash2, Check, Smile, Sparkles, AlertTriangle, Loader2, Copy, RotateCw, ShieldCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { ShareFolder, updateShareFolderSettings, deleteShareFolder } from '../utils/shareFolders';
+import {
+  ShareFolder,
+  updateShareFolderSettings,
+  deleteShareFolder,
+  ensureShareLinkToken,
+  regenerateSecureShareLink,
+  isSpaceOwnedByUser,
+  normalize16DigitId,
+} from '../utils/shareFolders';
 import { EmojiPickerModal } from './EmojiPickerModal';
 
 interface ShareSpaceSettingsModalProps {
@@ -33,6 +41,58 @@ export const ShareSpaceSettingsModal: React.FC<ShareSpaceSettingsModalProps> = (
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+
+  const cleanMyId = useMemo(() => {
+    return normalize16DigitId(settings?.userProfile?.numericId);
+  }, [settings?.userProfile?.numericId]);
+  const isOwner = isSpaceOwnedByUser(folder, cleanMyId);
+
+  const handleCopySecureLink = async () => {
+    try {
+      const { folder: updated, shareUrl } = await ensureShareLinkToken(folder);
+      onUpdated(updated);
+      await navigator.clipboard.writeText(shareUrl);
+      setIsCopied(true);
+      showToast(isArabic ? 'تم نسخ الرابط الآمن بنجاح!' : 'Secure link copied!', 'success');
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch {
+      showToast(isArabic ? 'تعذر نسخ الرابط' : 'Failed to copy link', 'error');
+    }
+  };
+
+  const handleRegenerateSecureLink = async () => {
+    const confirmed = await showConfirm({
+      title: isArabic ? 'إعادة إنشاء رابط آمن' : 'Regenerate Secure Link',
+      message: isArabic
+        ? 'هل ترغب في إعادة إنشاء الرابط الآمن؟\nسيتم إبطال وإلغاء الرابط القديم فوراً، وإنشاء رمز وصول سري جديد ونسخه إلى الحافظة.'
+        : 'Are you sure you want to regenerate the secure link?\nThe previous link will be immediately revoked, and a new 128-bit secret link will be generated and copied to your clipboard.',
+      confirmText: isArabic ? 'إعادة إنشاء ونسخ' : 'Regenerate & Copy',
+      isDanger: false,
+    });
+    if (!confirmed) return;
+
+    setIsRegenerating(true);
+    try {
+      const { folder: updated, shareUrl } = await regenerateSecureShareLink(folder);
+      onUpdated(updated);
+      await navigator.clipboard.writeText(shareUrl);
+      setIsCopied(true);
+      showToast(
+        isArabic
+          ? 'تم إلغاء الرابط القديم وإنشاء رابط آمن جديد ونسخه للحافظة بنجاح!'
+          : 'Old link revoked. New secure link created and copied!',
+        'success'
+      );
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      console.warn('[ShareSpaceSettings] Regenerate error:', err);
+      showToast(isArabic ? 'تعذر إعادة إنشاء الرابط' : 'Failed to regenerate link', 'error');
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
 
   // Initialize local form state strictly ONCE when the modal transitions from closed to open
   const wasOpenRef = useRef(false);
@@ -211,6 +271,48 @@ export const ShareSpaceSettingsModal: React.FC<ShareSpaceSettingsModalProps> = (
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* Secure Share Link Section */}
+            <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span className="text-xs font-bold text-white">
+                    {isArabic ? 'رابط المشاركة الآمن' : 'Secure Share Link'}
+                  </span>
+                </div>
+                <span className="text-[10px] text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded-full font-mono">
+                  {folder.shareLinkToken ? (isArabic ? 'مفعل' : 'Active') : (isArabic ? 'جاهز للتوليد' : 'Ready')}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                {isArabic
+                  ? 'رابط مشفر بـ 128 بت يتيح للمشاهدين الاطلاع على المعاملات والحسابات بدون كشف معرفات أو حسابات الأعضاء.'
+                  : 'A 128-bit secret link allowing viewers to see transactions and accounts without exposing any member identities.'}
+              </p>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleCopySecureLink}
+                  className="flex-1 min-w-[140px] py-2.5 px-3 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
+                >
+                  {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-purple-400" />}
+                  <span>{isCopied ? (isArabic ? 'تم النسخ!' : 'Copied!') : (isArabic ? 'نسخ الرابط الآمن' : 'Copy Secure Link')}</span>
+                </button>
+                {isOwner && (
+                  <button
+                    type="button"
+                    onClick={handleRegenerateSecureLink}
+                    disabled={isRegenerating}
+                    className="flex-1 min-w-[140px] py-2.5 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-750 border border-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer disabled:opacity-50"
+                    title={isArabic ? 'إلغاء الرابط السابق وإنشاء رابط جديد' : 'Revoke previous link and create a new one'}
+                  >
+                    <RotateCw className={`w-3.5 h-3.5 text-blue-400 ${isRegenerating ? 'animate-spin' : ''}`} />
+                    <span>{isArabic ? 'إعادة إنشاء رابط آمن' : 'Regenerate secure link'}</span>
+                  </button>
+                )}
               </div>
             </div>
 

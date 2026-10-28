@@ -7,9 +7,10 @@
       }
     },
     "shared_accounts": {
+      ".read": false,
       "$nodeId": {
-        ".read": "auth != null",
-        ".write": "auth != null"
+        ".read": "$nodeId.beginsWith('link_') || auth != null",
+        ".write": "$nodeId.beginsWith('link_') ? (auth != null && (data.exists() ? data.child('ownerUid').val() === auth.uid : newData.child('ownerUid').val() === auth.uid)) : (auth != null)"
       }
     },
     "numericIds": {

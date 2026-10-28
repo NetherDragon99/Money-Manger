@@ -72,3 +72,6 @@ export const TransferBadge: React.FC<TransferBadgeProps> = ({
     </div>
   );
 };
+
+export { TransferCard } from './TransferCard';
+export type { TransferCardProps } from './TransferCard';

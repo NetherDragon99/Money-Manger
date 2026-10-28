@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { rtdb, auth, getCachedAuthUser } from './firebase';
-import { ref, set, get, remove, onValue, off, update, onChildAdded, onChildChanged, onChildRemoved } from 'firebase/database';
+import { ref, set, get, remove, push, onValue, off, update, onChildAdded, onChildChanged, onChildRemoved } from 'firebase/database';
 import { cleanNumericId, format16DigitId, getOrCreateNumericId } from './userId';
 import { Account, Category, Transaction } from '../types';
 import { getTransferHistoricalBalances } from './balanceEngine';
@@ -87,6 +87,13 @@ export interface ShareFolderPayload {
   transactions: Transaction[];
 }
 
+export interface ShareActivityEntry {
+  actor16Id: string;
+  action: 'add' | 'edit' | 'delete' | 'bulk_delete';
+  count: number;
+  ts: number;
+}
+
 export interface ShareFolder {
   id: string;
   name: string;
@@ -116,6 +123,9 @@ export interface ShareFolder {
   deleted?: boolean;
   v3Schema?: boolean;
   notifiedMembers?: Record<string, boolean>;
+  shareLinkToken?: string;
+  lastMirroredAt?: number;
+  recent_activity?: Record<string, ShareActivityEntry>;
 }
 
 export const MY_OWNED_SPACES_KEY = 'mm_my_owned_spaces';
@@ -154,10 +164,15 @@ export function normalizeShareId(id?: string | null): string {
 
 /**
  * Returns the ONE canonical Firebase RTDB path for a space:
- * shared_accounts/share_${normalizeShareId(spaceId)}
+ * shared_accounts/${spaceId} for link mirrors (starting with 'link_'),
+ * or shared_accounts/share_${normalizeShareId(spaceId)} for share spaces.
  */
 export function getCanonicalSharePath(spaceId: string): string {
-  const cleanId = normalizeShareId(spaceId);
+  const trimmed = String(spaceId || '').trim();
+  if (trimmed.startsWith('link_')) {
+    return `shared_accounts/${trimmed}`;
+  }
+  const cleanId = normalizeShareId(trimmed);
   return `shared_accounts/share_${cleanId}`;
 }
 
@@ -173,6 +188,219 @@ export function deepSanitizeForFirebase<T>(val: T): T {
     console.warn('[ShareFolders] deepSanitizeForFirebase serialization fallback:', err);
     return val;
   }
+}
+
+/**
+ * Generates a cryptographically secure 128-bit random token for external share links.
+ * Uses crypto.getRandomValues (16 random bytes = 128 bits, formatted as 32 hex chars).
+ * Never derived from shareId.
+ */
+export function generateSecureLinkToken(): string {
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  const chars = 'abcdef0123456789';
+  let token = '';
+  for (let i = 0; i < 32; i++) {
+    token += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return token;
+}
+
+export interface SanitizedLinkMirror {
+  ownerUid: string;
+  name: string;
+  accountName: string;
+  icon: string;
+  description?: string;
+  updatedAt: number;
+  ownerName: string;
+  ownerAvatar?: string;
+  ownerPhotoURL?: string;
+  accounts: Account[];
+  categories: Category[];
+  transactions: Transaction[];
+  payload: {
+    accounts: Account[];
+    categories: Category[];
+    transactions: Transaction[];
+  };
+  token: string;
+  isLinkMirror: true;
+}
+
+/**
+ * Builds a strictly sanitized mirror payload for public link sharing.
+ * Stored at flat path: shared_accounts/link_${token}.
+ * Contains ONLY { ownerUid, accountName, updatedAt, ownerName, ownerAvatar/photoURL,
+ * share name/icon, accounts, categories, transactions, payload, token, isLinkMirror }.
+ * Strictly WITHOUT any member IDs, member lists, 16-digit IDs, invite data, or recent_activity.
+ */
+export function buildSanitizedLinkMirror(folder: ShareFolder, token: string): SanitizedLinkMirror {
+  const accounts: Account[] = (folder.payload?.accounts || folder.accounts || []).map((a) => ({
+    id: a.id,
+    name: a.name,
+    icon: a.icon || '🏦',
+    balance: a.balance || 0,
+    isPrivate: false,
+    customMonthStartDay: a.customMonthStartDay || 'default',
+    notes: a.notes || '',
+    color: a.color,
+    updatedAt: a.updatedAt || folder.updatedAt || Date.now(),
+  }));
+
+  const categories: Category[] = (folder.payload?.categories || folder.categories || []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    icon: c.icon || '🏷️',
+    type: c.type,
+    budgetLimit: c.budgetLimit || 0,
+    orderIndex: c.orderIndex,
+    updatedAt: c.updatedAt || folder.updatedAt || Date.now(),
+  }));
+
+  const transactions: Transaction[] = (folder.payload?.transactions || folder.transactions || []).map((t) => ({
+    id: t.id,
+    type: t.type,
+    amount: t.amount,
+    date: t.date,
+    time: t.time || '',
+    accountId: t.accountId,
+    toAccountId: t.toAccountId,
+    categoryId: t.categoryId,
+    categoryName: t.categoryName,
+    categoryIcon: t.categoryIcon,
+    description: t.description || '',
+    isUneditable: t.isUneditable,
+    isAdjustment: t.isAdjustment,
+    isFromRecurring: t.isFromRecurring,
+    recurringRuleId: t.recurringRuleId,
+    createdAt: t.createdAt || Date.now(),
+    updatedAt: t.updatedAt || folder.updatedAt || Date.now(),
+    fromBalanceBefore: t.fromBalanceBefore,
+    fromBalanceAfter: t.fromBalanceAfter,
+    toBalanceBefore: t.toBalanceBefore,
+    toBalanceAfter: t.toBalanceAfter,
+    fromAccountName: t.fromAccountName,
+    fromAccountIcon: t.fromAccountIcon,
+    toAccountName: t.toAccountName,
+    toAccountIcon: t.toAccountIcon,
+    note: t.note,
+    balanceBefore: t.balanceBefore,
+    balanceAfter: t.balanceAfter,
+  }));
+
+  const rawOwnerPhoto = folder.ownerPhotoURL || '';
+  const ownerPhotoURL = isRealPhotoUrl(rawOwnerPhoto) ? rawOwnerPhoto.trim() : '';
+  const ownerAvatar = folder.ownerAvatar || (!isRealPhotoUrl(rawOwnerPhoto) && rawOwnerPhoto ? rawOwnerPhoto : '👤');
+
+  const mirror: SanitizedLinkMirror = {
+    ownerUid: folder.ownerUid || auth.currentUser?.uid || 'authenticated_user',
+    name: folder.name || folder.accountName || 'Shared Space',
+    accountName: folder.accountName || folder.name || 'Shared Space',
+    icon: folder.icon || '📁',
+    description: folder.description || '',
+    updatedAt: folder.updatedAt || Date.now(),
+    ownerName: folder.ownerName || 'User',
+    ownerAvatar,
+    ownerPhotoURL,
+    accounts,
+    categories,
+    transactions,
+    payload: {
+      accounts,
+      categories,
+      transactions,
+    },
+    token,
+    isLinkMirror: true,
+  };
+
+  return JSON.parse(JSON.stringify(mirror));
+}
+
+/**
+ * Pushes the sanitized mirror payload to shared_accounts/link_${token}.
+ * Only the owner can write to this node per security rules.
+ */
+export async function pushSanitizedLinkMirror(folder: ShareFolder, token: string): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const mirror = buildSanitizedLinkMirror(folder, token);
+    if (auth.currentUser?.uid) {
+      mirror.ownerUid = auth.currentUser.uid;
+    }
+    await withTimeout(set(ref(rtdb, `shared_accounts/link_${token}`), mirror), 7000);
+    return true;
+  } catch (err) {
+    console.warn(`[ShareFolders] Failed to push link mirror link_${token}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Deletes the mirror node at shared_accounts/link_${token}, revoking external access.
+ */
+export async function deleteSanitizedLinkMirror(token: string): Promise<void> {
+  if (!token) return;
+  try {
+    await withTimeout(remove(ref(rtdb, `shared_accounts/link_${token}`)), 7000);
+  } catch (err) {
+    console.warn(`[ShareFolders] Failed to delete link mirror link_${token}:`, err);
+  }
+}
+
+/**
+ * Ensures an owned space has an active secure 128-bit link token and pushed mirror.
+ */
+export async function ensureShareLinkToken(folder: ShareFolder): Promise<{
+  folder: ShareFolder;
+  shareUrl: string;
+}> {
+  if (folder.shareLinkToken) {
+    pushSanitizedLinkMirror(folder, folder.shareLinkToken).catch(() => {});
+    return { folder, shareUrl: generateShareUrl(folder) };
+  }
+  const token = generateSecureLinkToken();
+  const updatedFolder: ShareFolder = {
+    ...folder,
+    shareLinkToken: token,
+    lastMirroredAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  upsertSpaceInV3Cache(updatedFolder);
+  await pushSanitizedLinkMirror(updatedFolder, token);
+  await syncFolderToCloud(updatedFolder).catch(() => {});
+  return { folder: updatedFolder, shareUrl: generateShareUrl(updatedFolder) };
+}
+
+/**
+ * Owner-only action: revokes old link token mirror, generates new 128-bit token,
+ * publishes new mirror node, updates local cache and cloud space, and returns the new URL.
+ */
+export async function regenerateSecureShareLink(folder: ShareFolder): Promise<{
+  folder: ShareFolder;
+  token: string;
+  shareUrl: string;
+}> {
+  const oldToken = folder.shareLinkToken;
+  if (oldToken) {
+    await deleteSanitizedLinkMirror(oldToken).catch(() => {});
+  }
+  const newToken = generateSecureLinkToken();
+  const updatedFolder: ShareFolder = {
+    ...folder,
+    shareLinkToken: newToken,
+    lastMirroredAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  upsertSpaceInV3Cache(updatedFolder);
+  await pushSanitizedLinkMirror(updatedFolder, newToken);
+  await syncFolderToCloud(updatedFolder).catch(() => {});
+  const shareUrl = generateShareUrl(updatedFolder);
+  return { folder: updatedFolder, token: newToken, shareUrl };
 }
 
 /**
@@ -1052,16 +1280,12 @@ export async function propagateUserProfileToAllSharedSpaces(profile: {
           members: space.members || [],
           updatedAt: Date.now(),
         })).catch((err) => console.warn(`[ShareFolders] Failed to push owner profile update for share_${spaceId}:`, err));
-      } else {
-        const memberIdx = (space.members || []).findIndex((m) => normalize16DigitId(m.numericId) === clean16Id);
-        if (memberIdx !== -1) {
-          update(ref(rtdb, `shared_accounts/share_${spaceId}/members/${memberIdx}`), deepSanitizeForFirebase({
-            name: userName,
-            avatar: avatarEmoji,
-            photoURL: photoURL,
-          })).catch((err) => console.warn(`[ShareFolders] Failed to update member profile in share_${spaceId}:`, err));
+        if (space.shareLinkToken) {
+          pushSanitizedLinkMirror(space, space.shareLinkToken).catch(() => {});
         }
       }
+      // Note: Never write to other users' nodes (e.g. shared_accounts/share_${spaceId}/members/${idx}).
+      // Joined members' profiles broadcast live to all members via their shared_accounts/profile_${clean16Id} onValue listeners.
     }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('spaces_v3_updated', { detail: updatedSpaces }));
@@ -2428,6 +2652,9 @@ export function normalizeParsedShareFolder(val: any, fallbackId?: string): Share
     itemCount,
     payload,
     recipientNumericId: val.recipientNumericId,
+    ...(val.shareLinkToken ? { shareLinkToken: val.shareLinkToken } : {}),
+    ...(val.lastMirroredAt ? { lastMirroredAt: val.lastMirroredAt } : {}),
+    ...(val.recent_activity && typeof val.recent_activity === 'object' ? { recent_activity: val.recent_activity } : {}),
     ...(val.notifiedMembers && typeof val.notifiedMembers === 'object' ? { notifiedMembers: val.notifiedMembers } : {}),
     isCreatedByMe: isOwned,
     isReceivedShare: !isOwned,
@@ -2793,6 +3020,11 @@ export async function syncFolderToCloud(folder: ShareFolder, forceWrite = false)
     queueOfflineShareUpdate(fullSanitizedSpace);
   }
 
+  // 1b. If space has an active link mirror token, keep mirror node current
+  if (isMeOwner && savedLocal.shareLinkToken) {
+    pushSanitizedLinkMirror(savedLocal, savedLocal.shareLinkToken).catch(() => {});
+  }
+
   // 2. Also write alias shared_accounts/${folder.id} if different
   if (folder.id !== `share_${rawShareId}`) {
     try {
@@ -2895,6 +3127,168 @@ export const syncShareFolderToCloud = syncFolderToCloud;
  * into any linked Shared Space in real time (updating only the changed item path).
  */
 /**
+ * Write a lightweight audit entry for an action in a shared space.
+ * Uses atomic multi-path update at recent_activity/${pushKey} without array read-modify-write races.
+ * Payload schema: { actor16Id, action, count, ts } - strictly WITHOUT amounts or notes.
+ * Best-effort trims oldest entries beyond the latest 30.
+ * Wrapped in try/catch so it never throws or blocks caller operations.
+ */
+export async function logSharedSpaceActivity(
+  spaceId: string,
+  entry: {
+    actor16Id: string;
+    action: 'add' | 'edit' | 'delete' | 'bulk_delete';
+    count: number;
+    ts?: number;
+  }
+): Promise<void> {
+  const cleanId = normalizeShareId(spaceId);
+  if (!cleanId) return;
+
+  const cleanActor16Id = normalize16DigitId(entry.actor16Id);
+  const now = entry.ts || Date.now();
+  const canonicalPath = getCanonicalSharePath(cleanId);
+
+  const sanitizedEntry: ShareActivityEntry = {
+    actor16Id: cleanActor16Id,
+    action: entry.action,
+    count: Math.max(1, entry.count || 1),
+    ts: now,
+  };
+
+  try {
+    const activityRef = ref(rtdb, `${canonicalPath}/recent_activity`);
+    const newKey = push(activityRef).key;
+    if (!newKey) return;
+
+    const updates: Record<string, any> = {
+      [`recent_activity/${newKey}`]: deepSanitizeForFirebase(sanitizedEntry),
+      updatedAt: now,
+    };
+
+    // Best-effort trim of entries beyond latest 30
+    try {
+      const snap = await withTimeout(get(activityRef), 3000);
+      if (snap.exists()) {
+        const val = snap.val() || {};
+        const entries = Object.entries(val) as [string, any][];
+        if (entries.length >= 30) {
+          entries.sort((a, b) => (Number(a[1]?.ts) || 0) - (Number(b[1]?.ts) || 0));
+          const excessCount = entries.length + 1 - 30;
+          for (let i = 0; i < excessCount && i < entries.length; i++) {
+            const oldKey = entries[i][0];
+            if (oldKey !== newKey) {
+              updates[`recent_activity/${oldKey}`] = null;
+            }
+          }
+        }
+      }
+    } catch {
+      // Best-effort trim failed or timed out: proceed to write the new entry
+    }
+
+    await update(ref(rtdb, canonicalPath), updates);
+
+    // Also update local cache optimistically
+    const allSpaces = loadAllSpacesV3();
+    const targetIdx = allSpaces.findIndex((s) => normalizeShareId(s.id) === cleanId);
+    if (targetIdx !== -1) {
+      const current = allSpaces[targetIdx];
+      const nextRecent = { ...(current.recent_activity || {}), [newKey]: sanitizedEntry };
+      const updatedSpace: ShareFolder = {
+        ...current,
+        updatedAt: now,
+        recent_activity: nextRecent,
+      };
+      upsertSpaceInV3Cache(updatedSpace);
+    }
+  } catch (err) {
+    console.warn(`[ShareFolders] Failed to log shared space activity in ${cleanId}:`, err);
+  }
+}
+
+/**
+ * Format activity action text in the active language with correct grammar & plural rules
+ */
+export function formatActivityAction(action: string, count: number, isArabic: boolean): string {
+  const c = Math.max(1, count || 1);
+  if (isArabic) {
+    const txLabel =
+      c === 1 ? 'معاملة واحدة' : c === 2 ? 'معاملتين' : c <= 10 ? `${c} معاملات` : `${c} معاملة`;
+    switch (action) {
+      case 'add':
+        return `أضاف ${txLabel}`;
+      case 'edit':
+        return `عدّل ${txLabel}`;
+      case 'delete':
+        return `حذف ${txLabel}`;
+      case 'bulk_delete':
+        return `حذف ${txLabel} دفعة واحدة`;
+      default:
+        return `حدّث ${txLabel}`;
+    }
+  } else {
+    const txLabel = c === 1 ? '1 transaction' : `${c} transactions`;
+    switch (action) {
+      case 'add':
+        return `Added ${txLabel}`;
+      case 'edit':
+        return `Edited ${txLabel}`;
+      case 'delete':
+        return `Deleted ${txLabel}`;
+      case 'bulk_delete':
+        return `Bulk deleted ${txLabel}`;
+      default:
+        return `Updated ${txLabel}`;
+    }
+  }
+}
+
+/**
+ * Format relative timestamp strictly in the active language
+ */
+export function formatRelativeActivityTime(timestamp: number, isArabic: boolean): string {
+  if (!timestamp) return isArabic ? 'الآن' : 'Just now';
+  const diffMs = Math.max(0, Date.now() - timestamp);
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+
+  if (diffSec < 45) {
+    return isArabic ? 'الآن' : 'Just now';
+  }
+  if (diffMin < 60) {
+    return isArabic ? `منذ ${diffMin} د` : `${diffMin}m ago`;
+  }
+  if (diffHour < 24) {
+    if (isArabic) {
+      if (diffHour === 1) return 'منذ ساعة';
+      if (diffHour === 2) return 'منذ ساعتين';
+      if (diffHour <= 10) return `منذ ${diffHour} ساعات`;
+      return `منذ ${diffHour} ساعة`;
+    }
+    return diffHour === 1 ? '1h ago' : `${diffHour}h ago`;
+  }
+  if (diffDay === 1) {
+    return isArabic ? 'أمس' : 'Yesterday';
+  }
+  if (diffDay < 7) {
+    if (isArabic) {
+      if (diffDay === 2) return 'منذ يومين';
+      if (diffDay <= 10) return `منذ ${diffDay} أيام`;
+      return `منذ ${diffDay} يوماً`;
+    }
+    return `${diffDay}d ago`;
+  }
+  const date = new Date(timestamp);
+  return date.toLocaleDateString(isArabic ? 'ar-EG' : 'en-GB', {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+/**
  * Push ONLY a single transaction delta to the shared space's cloud node
  * without re-uploading the entire shared space or the entire transaction array.
  * Uses lightweight RTDB multi-path update so child listeners fire with minimal bandwidth.
@@ -2957,6 +3351,10 @@ export async function propagateTransactionToLinkedSpaces(
   for (const space of allSpaces) {
     if (!space || !space.id) continue;
     const cleanSpaceId = normalizeShareId(space.id);
+    if (tx.excludedShareIds && tx.excludedShareIds.includes(cleanSpaceId)) {
+      updatedSpaces.push(space);
+      continue;
+    }
     const spaceAccounts = space.payload?.accounts || space.accounts || [];
     const spaceAccountIds = new Set(spaceAccounts.map((a) => a.id));
 
@@ -3025,6 +3423,14 @@ export async function propagateTransactionToLinkedSpaces(
 
       // Low-bandwidth granular delta push: NEVER re-upload the whole space
       pushTransactionDeltaToCloud(space.id, effectiveAction, enrichedTx || tx).catch(() => {});
+      const my16 = cleanNumericId(getOrCreateNumericId());
+      if (my16) {
+        logSharedSpaceActivity(space.id, {
+          actor16Id: my16,
+          action: effectiveAction === 'update' ? 'edit' : effectiveAction === 'add' ? 'add' : 'delete',
+          count: 1,
+        }).catch(() => {});
+      }
 
       updatedSpaces.push(nextSpace);
     } else {
@@ -3565,6 +3971,9 @@ export async function deleteShareFolder(folderId: string, folderData?: ShareFold
   await dismissShareId(cleanShareId);
   purgeDeletedShareSpace(cleanShareId);
   lastSyncedFolderSignatures.delete(cleanShareId);
+  if (existingSpace?.shareLinkToken) {
+    deleteSanitizedLinkMirror(existingSpace.shareLinkToken).catch(() => {});
+  }
 
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     queueOfflineShareDelete(cleanShareId);
@@ -4299,6 +4708,19 @@ export function subscribeToShareFolder(
     }
   });
 
+  const unsubRecentActivity = onValue(ref(rtdb, `${canonicalPath}/recent_activity`), (snap) => {
+    if (!snap.exists()) {
+      currentFolder.recent_activity = {};
+      emitUpdate();
+      return;
+    }
+    const val = snap.val();
+    if (val && typeof val === 'object') {
+      currentFolder.recent_activity = val;
+      emitUpdate();
+    }
+  });
+
   // 3. Initial load: if not locally cached or missing accounts, fetch baseline metadata once
   if (!localMatch || !localMatch.payload?.accounts?.length) {
     get(ref(rtdb, canonicalPath))
@@ -4334,6 +4756,7 @@ export function subscribeToShareFolder(
     unsubCategories();
     unsubName();
     unsubDeleted();
+    unsubRecentActivity();
   };
 }
 
@@ -4871,7 +5294,14 @@ export function subscribeToMyInbox(
         if (parsed && isSpaceOwnedByUser(parsed, cleanId)) {
           const localOwned = loadMyShareFolders().find((f) => normalizeShareId(f.id) === rawOwnedId);
           if (!localOwned || (parsed.updatedAt || 0) > (localOwned.updatedAt || 0)) {
-            upsertSpaceInV3Cache({ ...parsed, isCreatedByMe: true, isReceivedShare: false });
+            const updated = { ...parsed, isCreatedByMe: true, isReceivedShare: false };
+            if (localOwned?.shareLinkToken && !updated.shareLinkToken) {
+              updated.shareLinkToken = localOwned.shareLinkToken;
+            }
+            upsertSpaceInV3Cache(updated);
+            if (updated.shareLinkToken) {
+              pushSanitizedLinkMirror(updated, updated.shareLinkToken).catch(() => {});
+            }
           }
         }
       }
@@ -4974,6 +5404,9 @@ export const listenToMyNumericIdInbox = subscribeToMyInbox;
 export function generateShareUrl(folder: ShareFolder): string {
   if (typeof window === 'undefined') return '';
   const base = `${window.location.origin}${window.location.pathname}`;
+  if (folder.shareLinkToken) {
+    return `${base}?share=link_${encodeURIComponent(folder.shareLinkToken)}`;
+  }
   const cleanId = normalizeShareId(folder.id);
   const snapshotB64 = encodeShareSnapshot(folder);
   if (snapshotB64) {

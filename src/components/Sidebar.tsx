@@ -30,6 +30,7 @@ import {
   Trash2,
   Loader2,
   LogOut,
+  LogIn,
   ChevronRight,
 } from 'lucide-react';
 import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from '../utils/security';
@@ -46,7 +47,7 @@ import {
   isAutoUpdateEnabled,
   setAutoUpdateEnabled,
 } from '../utils/versionChecker';
-import { auth } from '../utils/firebase';
+import { auth, loginWithGoogle } from '../utils/firebase';
 import { signOut, type User as FirebaseUser } from 'firebase/auth';
 import { WeekStartDay } from '../types';
 import { WORLD_CURRENCIES, CurrencyOption } from '../utils/currencies';
@@ -93,6 +94,28 @@ export const Sidebar: React.FC = () => {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateStep, setUpdateStep] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(auth.currentUser);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+
+  const handleOuterSignIn = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isSigningIn) return;
+    setIsSigningIn(true);
+    loginWithGoogle()
+      .then(() => {
+        showToast(
+          isArabic ? 'تم تسجيل الدخول بنجاح!' : 'Signed in with Google successfully!',
+          'success'
+        );
+      })
+      .catch((err: any) => {
+        if (err?.code !== 'auth/popup-closed-by-user' && err?.code !== 'auth/cancelled-popup-request') {
+          showToast(err?.message || (isArabic ? 'فشل تسجيل الدخول' : 'Sign in failed'), 'error');
+        }
+      })
+      .finally(() => {
+        setIsSigningIn(false);
+      });
+  };
 
   // Capture PWA beforeinstallprompt event immediately in Sidebar React state
   const [deferredPwaPrompt, setDeferredPwaPrompt] = useState<any>(() => {
@@ -524,7 +547,29 @@ export const Sidebar: React.FC = () => {
                   </span>
                 )}
               </div>
-              <div className="mt-1 flex items-center gap-2 flex-wrap">
+              <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                {!currentUser && (
+                  <button
+                    type="button"
+                    onClick={handleOuterSignIn}
+                    disabled={isSigningIn}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:via-indigo-500 hover:to-blue-400 text-white text-xs font-bold shadow-md shadow-blue-600/30 active:scale-95 transition cursor-pointer disabled:opacity-60 min-h-[36px]"
+                    title={isArabic ? 'تسجيل الدخول بحساب Google' : 'Sign in with Google'}
+                  >
+                    {isSigningIn ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>{isArabic ? 'جاري الدخول...' : 'Signing in...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <LogIn className="w-3.5 h-3.5" />
+                        <span>{isArabic ? 'تسجيل الدخول' : 'Sign In'}</span>
+                      </>
+                    )}
+                  </button>
+                )}
+
                 {currentUser && settings.userProfile?.numericId ? (
                   <button
                     type="button"
@@ -809,22 +854,6 @@ export const Sidebar: React.FC = () => {
 
           {/* Features, Guides, and Scheduled Recurring */}
           <div className="space-y-2.5">
-            {/* User Profile & Cloud Account Button */}
-            <button
-              type="button"
-              onClick={() => {
-                setIsSidebarOpen(false);
-                setIsUserProfileModalOpen(true);
-              }}
-              className="w-full flex items-center justify-between p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xs font-bold text-zinc-200 transition cursor-pointer shadow-md active:scale-98"
-            >
-              <div className="flex items-center gap-2.5">
-                <User className="w-4 h-4 text-blue-400" />
-                <span>{isArabic ? 'الملف الشخصي والحساب السحابي' : 'User Profile & Cloud Account'}</span>
-              </div>
-              <ChevronRight className={`w-4 h-4 text-zinc-500 group-hover:text-white transition ${isArabic ? 'rotate-180' : ''}`} />
-            </button>
-
             {/* Recurring Transactions Manager Button */}
             <button
               type="button"
@@ -833,17 +862,29 @@ export const Sidebar: React.FC = () => {
                 setIsRecurringModalOpen(true);
                 processDueRecurring(false);
               }}
-              className="w-full flex items-center justify-between p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xs font-bold text-zinc-200 transition cursor-pointer shadow-md active:scale-98"
+              className="w-full group min-h-[48px] p-3 rounded-2xl bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-800/90 hover:border-emerald-500/40 text-xs font-bold text-zinc-100 transition-all cursor-pointer shadow-md shadow-black/20 active:scale-[0.99] flex items-center justify-between gap-3"
             >
-              <div className="flex items-center gap-2.5">
-                <RefreshCw className="w-4 h-4 text-emerald-400" />
-                <span>{isArabic ? 'المعاملات المتكررة المجدولة' : 'Recurring Transactions'}</span>
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:bg-emerald-500/25 transition-all">
+                  <RefreshCw className="w-4.5 h-4.5" />
+                </div>
+                <div className="text-start min-w-0">
+                  <span className="block truncate text-zinc-100 group-hover:text-emerald-300 transition-colors">
+                    {isArabic ? 'المعاملات المتكررة المجدولة' : 'Recurring Transactions'}
+                  </span>
+                  <span className="block text-[10px] text-zinc-400 font-normal truncate mt-0.5">
+                    {isArabic ? 'إدارة الجدولة والتكرار التلقائي' : 'Manage automated schedules'}
+                  </span>
+                </div>
               </div>
-              {recurringTransactions.length > 0 && (
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  {recurringTransactions.length}
-                </span>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                {recurringTransactions.length > 0 && (
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm">
+                    {recurringTransactions.length}
+                  </span>
+                )}
+                <ChevronRight className={`w-4 h-4 text-zinc-400 group-hover:text-emerald-300 group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5 transition-transform ${isArabic ? 'rotate-180' : ''}`} />
+              </div>
             </button>
 
             {/* Single Independent How to Use & Feature Directory Button */}
@@ -853,10 +894,27 @@ export const Sidebar: React.FC = () => {
                 setIsSidebarOpen(false);
                 setIsFeaturesModalOpen(true);
               }}
-              className="w-full flex items-center justify-center gap-2.5 py-3 rounded-2xl bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/40 text-xs font-bold text-blue-400 transition cursor-pointer shadow-lg shadow-blue-950/20 active:scale-98"
+              className="w-full group min-h-[48px] p-3 rounded-2xl bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-800/90 hover:border-blue-500/40 text-xs font-bold text-zinc-100 transition-all cursor-pointer shadow-md shadow-black/20 active:scale-[0.99] flex items-center justify-between gap-3"
             >
-              <BookOpen className="w-4 h-4 text-blue-400" />
-              <span>{isArabic ? 'دليل الاستخدام ومميزات التطبيق' : 'How to Use & Feature Directory'}</span>
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:bg-blue-500/25 transition-all">
+                  <BookOpen className="w-4.5 h-4.5" />
+                </div>
+                <div className="text-start min-w-0">
+                  <span className="block truncate text-zinc-100 group-hover:text-blue-300 transition-colors">
+                    {isArabic ? 'دليل الاستخدام ومميزات التطبيق' : 'App Guide & Features'}
+                  </span>
+                  <span className="block text-[10px] text-zinc-400 font-normal truncate mt-0.5">
+                    {isArabic ? 'شرح الخصائص وسجل التحديثات' : 'Feature directory & release notes'}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                  {isArabic ? 'دليل' : 'Guide'}
+                </span>
+                <ChevronRight className={`w-4 h-4 text-zinc-400 group-hover:text-blue-300 group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5 transition-transform ${isArabic ? 'rotate-180' : ''}`} />
+              </div>
             </button>
 
             {/* Prominent Shared Accounts / Spaces Hub Button */}
@@ -866,34 +924,33 @@ export const Sidebar: React.FC = () => {
                 setIsSidebarOpen(false);
                 setIsSharedHubModalOpen(true);
               }}
-              className="w-full relative overflow-hidden group flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-blue-900/40 via-purple-900/30 to-blue-950/50 hover:from-blue-900/60 hover:via-purple-900/40 hover:to-blue-950/70 border-2 border-blue-500/50 hover:border-blue-400 text-white transition-all duration-200 cursor-pointer shadow-xl shadow-blue-950/40 hover:shadow-blue-900/50 active:scale-[0.98] my-1"
+              className="w-full relative overflow-hidden group min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-blue-900/40 via-purple-900/30 to-blue-950/50 hover:from-blue-900/60 hover:via-purple-900/40 hover:to-blue-950/70 border-2 border-blue-500/50 hover:border-blue-400 text-white transition-all duration-200 cursor-pointer shadow-xl shadow-blue-950/40 hover:shadow-blue-900/50 active:scale-[0.99] my-0.5"
             >
               {/* Subtle Ambient Glow Effect */}
               <div className="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
 
               <div className="flex items-center gap-3 relative z-10 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-blue-600/30 group-hover:scale-105 transition-transform">
-                  <Share2 className="w-5 h-5 stroke-[2.5]" />
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-blue-600/30 group-hover:scale-105 transition-transform">
+                  <Share2 className="w-4.5 h-4.5 stroke-[2.5]" />
                 </div>
                 <div className="text-start min-w-0">
-                  <h4 className="text-xs sm:text-sm font-extrabold text-white tracking-tight flex items-center gap-1.5 truncate">
+                  <h4 className="text-xs font-bold text-white tracking-tight flex items-center gap-1.5 truncate">
                     <span>{isArabic ? 'مساحات الحسابات المشتركة' : 'Shared Accounts & Spaces'}</span>
                   </h4>
-                  <p className="text-[10px] text-blue-200/80 font-medium truncate mt-0.5">
+                  <p className="text-[10px] text-blue-200/80 font-normal truncate mt-0.5">
                     {isArabic ? 'تعاون ومزامنة حية بالمعرف الرقمي' : 'Live collaboration & 16-digit sync'}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5 relative z-10 shrink-0 rtl:mr-2 ltr:ml-2">
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-500/25 border border-blue-400/50 text-blue-200 shadow-sm">
+              <div className="flex items-center gap-2 relative z-10 shrink-0 rtl:mr-2 ltr:ml-2">
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/25 border border-blue-400/50 text-blue-200 shadow-sm">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   <span>{isArabic ? 'مباشر' : 'Live'}</span>
                 </span>
+                <ChevronRight className={`w-4 h-4 text-blue-300 group-hover:text-white group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5 transition-transform ${isArabic ? 'rotate-180' : ''}`} />
               </div>
             </button>
-
-
           </div>
 
           {/* App Security & Biometric Lock Section */}
@@ -1192,7 +1249,7 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar Footer: Version (v1.1.59) & Refresh Button */}
+        {/* Sidebar Footer: Version (v1.1.60) & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-zinc-300">Version: Beta v{CURRENT_APP_VERSION}</span>

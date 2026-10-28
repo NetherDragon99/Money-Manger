@@ -1,4 +1,4 @@
-import { TransferBadge } from './TransferBadge';
+import { TransferBadge, TransferCard } from './TransferBadge';
 import { formatDisplayNumber, parseFormattedNumber, handleNumericInputChange } from '../utils/formatters';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
@@ -19,6 +19,7 @@ import {
   Check,
   Minus,
   Clock,
+  History,
   Sparkles,
   X,
   Shield,
@@ -33,16 +34,20 @@ import {
   FolderDown,
   Search,
   RefreshCw,
+  Edit3,
 } from 'lucide-react';
 import { matchesTransactionSearch } from '../utils/searchUtils';
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
 import { Account, Category, Transaction } from '../types';
 import { auth, rtdb } from '../utils/firebase';
-import { ref, onValue, off } from 'firebase/database';
+import { ref, onValue, off, update } from 'firebase/database';
 import { format16DigitId, cleanNumericId, format16DigitInput, getOrCreateNumericId } from '../utils/userId';
 import { UserSearchPicker } from './UserSearchPicker';
 import { ShareSpaceSettingsModal } from './ShareSpaceSettingsModal';
+import { TransactionModal } from './TransactionModal';
+import { removeLocalTombstone } from '../utils/autoBackup';
+import { syncAllAccountBalances } from '../utils/balanceEngine';
 import {
   ShareFolder,
   ShareMember,
@@ -71,6 +76,16 @@ import {
   normalizeShareId,
   useLiveMemberProfiles,
   isRealPhotoUrl,
+  upsertSpaceInV3Cache,
+  getCanonicalSharePath,
+  deepSanitizeForFirebase,
+  pushTransactionDeltaToCloud,
+  ensureShareLinkToken,
+  regenerateSecureShareLink,
+  ShareActivityEntry,
+  logSharedSpaceActivity,
+  formatActivityAction,
+  formatRelativeActivityTime,
 } from '../utils/shareFolders';
 import {
   formatCurrency,
@@ -327,6 +342,7 @@ interface ShareTxRowProps {
   onToggleSelect: (id: string) => void;
   onStartMultiSelect: (id: string) => void;
   onDeleteClick: (tx: Transaction, title: string, icon?: string) => void;
+  onEditClick?: (tx: Transaction) => void;
 }
 
 const ShareTxRow: React.FC<ShareTxRowProps> = ({
@@ -341,6 +357,7 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
   onToggleSelect,
   onStartMultiSelect,
   onDeleteClick,
+  onEditClick,
 }) => {
   const isTransfer = tx.type === 'transfer';
 
@@ -353,12 +370,25 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
   const toIcon = tx.toAccountIcon || toAcc?.icon || '🏦';
 
   let title = '';
-  if (isTransfer) {
-    title = isArabic ? `من ${fromName} إلى ${toName}` : `From ${fromName} → To ${toName}`;
-  } else if (tx.description && tx.description.trim() !== '') {
+  if (tx.description && tx.description.trim() !== '') {
     title = tx.description;
   } else {
     title = tx.categoryName || (isArabic ? 'معاملة مالية' : 'Transaction');
+  }
+
+  let authorBadge: React.ReactNode = null;
+  if (tx.sender16Id && liveProfiles?.[tx.sender16Id]) {
+    const profile = liveProfiles[tx.sender16Id];
+    authorBadge = (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-zinc-800 border border-zinc-700/80 text-[10px] text-zinc-300">
+        {isRealPhotoUrl(profile.photoURL) ? (
+          <img src={profile.photoURL} alt="" className="w-3 h-3 rounded-full object-cover" />
+        ) : (
+          <span>{profile.avatar || '👤'}</span>
+        )}
+        <span className="truncate max-w-[65px] font-medium">{profile.name}</span>
+      </span>
+    );
   }
 
   const { handlers } = useLongPress({
@@ -372,9 +402,44 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
     onClick: () => {
       if (isTxMultiSelect) {
         onToggleSelect(tx.id);
+      } else if (canEdit && onEditClick) {
+        onEditClick(tx);
       }
     },
   });
+
+  if (isTransfer) {
+    return (
+      <TransferCard
+        transaction={tx}
+        fromAccount={fromAcc}
+        toAccount={toAcc}
+        fromName={fromName}
+        toName={toName}
+        fromIcon={fromIcon}
+        toIcon={toIcon}
+        fromColor={fromAcc?.color}
+        toColor={toAcc?.color}
+        currencySymbol={currencySymbol}
+        language={isArabic ? 'ar' : 'en'}
+        isSelected={isSelected}
+        isMultiSelect={isTxMultiSelect}
+        timeFormatted={tx.time ? formatTime12h(tx.time, isArabic ? 'ar' : 'en') : ''}
+        authorBadge={authorBadge}
+        canEdit={canEdit}
+        onDeleteClick={onDeleteClick}
+        handlers={handlers}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (isTxMultiSelect) {
+            onToggleSelect(tx.id);
+          } else {
+            onStartMultiSelect(tx.id);
+          }
+        }}
+      />
+    );
+  }
 
   return (
     <div
@@ -391,6 +456,8 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
         isSelected
           ? 'bg-blue-950/40 border-blue-500/80 shadow-md shadow-blue-950/50 cursor-pointer'
           : isTxMultiSelect
+          ? 'bg-zinc-900/80 hover:bg-zinc-850 border-zinc-800/60 cursor-pointer'
+          : canEdit
           ? 'bg-zinc-900/80 hover:bg-zinc-850 border-zinc-800/60 cursor-pointer'
           : 'bg-zinc-900/80 hover:bg-zinc-850 border-zinc-800/60'
       }`}
@@ -409,29 +476,16 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
             </div>
           )}
 
-          {isTransfer ? (
-            <TransferBadge
-              fromIcon={fromIcon}
-              fromName={fromName}
-              fromColor={fromAcc?.color}
-              toIcon={toIcon}
-              toName={toName}
-              toColor={toAcc?.color}
-              size="sm"
-            />
-          ) : (
-            <div
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center text-sm shrink-0 ${
-                tx.type === 'income'
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                  : tx.type === 'expense'
-                  ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                  : 'bg-zinc-950 border-zinc-800'
-              }`}
-            >
-              {tx.categoryIcon || '💸'}
-            </div>
-          )}
+          <div
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center text-sm shrink-0 ${
+              tx.type === 'income'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                : 'bg-red-500/10 border-red-500/30 text-red-400'
+            }`}
+          >
+            {tx.categoryIcon || '💸'}
+          </div>
+
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="text-xs font-semibold text-white truncate max-w-[140px] sm:max-w-xs block">
@@ -448,30 +502,11 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
               )}
             </div>
             <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-              {isTransfer ? (
-                <>
-                  <span className="text-blue-400 font-medium">{isArabic ? 'تحويل بين الحسابات' : 'Account Transfer'}</span>
-                  {tx.description && tx.description.trim() !== '' && (
-                    <>
-                      <span>·</span>
-                      <span className="text-zinc-300 truncate">{tx.description}</span>
-                    </>
-                  )}
-                </>
-              ) : (
-                <span className="truncate">{tx.categoryName}</span>
-              )}
-              {tx.sender16Id && liveProfiles?.[tx.sender16Id] && (
+              <span className="truncate">{tx.categoryName}</span>
+              {authorBadge && (
                 <>
                   <span>·</span>
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-zinc-800 border border-zinc-700/80 text-[10px] text-zinc-300">
-                    {isRealPhotoUrl(liveProfiles[tx.sender16Id].photoURL) ? (
-                      <img src={liveProfiles[tx.sender16Id].photoURL} alt="" className="w-3 h-3 rounded-full object-cover" />
-                    ) : (
-                      <span>{liveProfiles[tx.sender16Id].avatar || '👤'}</span>
-                    )}
-                    <span className="truncate max-w-[65px] font-medium">{liveProfiles[tx.sender16Id].name}</span>
-                  </span>
+                  {authorBadge}
                 </>
               )}
               {tx.time && (
@@ -491,12 +526,10 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
             className={`font-mono text-xs font-bold ${
               tx.type === 'income'
                 ? 'text-emerald-400'
-                : tx.type === 'expense'
-                ? 'text-red-400'
-                : 'text-blue-400'
+                : 'text-red-400'
             }`}
           >
-            {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
+            {tx.type === 'income' ? '+' : '-'}
             {formatCurrency(tx.amount, currencySymbol, isArabic ? 'ar' : 'en')}
           </span>
 
@@ -507,7 +540,7 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                onDeleteClick(tx, title, isTransfer ? '⇄' : tx.categoryIcon);
+                onDeleteClick(tx, title, tx.categoryIcon);
               }}
               className="p-1 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer"
               title={isArabic ? 'حذف المعاملة' : 'Delete Transaction'}
@@ -517,35 +550,6 @@ const ShareTxRow: React.FC<ShareTxRowProps> = ({
           )}
         </div>
       </div>
-
-      {/* Transfer: Before & After Balances for BOTH accounts */}
-      {isTransfer && (tx.fromBalanceBefore !== undefined || tx.toBalanceBefore !== undefined) && (
-        <div className="mt-2 pt-2 border-t border-zinc-800/60 flex flex-wrap items-center gap-1.5 sm:gap-2.5 text-[10px] font-mono">
-          {tx.fromBalanceBefore !== undefined && tx.fromBalanceAfter !== undefined && (
-            <div className="flex items-center gap-1 bg-zinc-950/90 border border-zinc-800/80 px-2 py-0.5 rounded-lg max-w-full">
-              <span className="text-xs shrink-0">{fromIcon}</span>
-              <span className="font-semibold text-zinc-300 truncate max-w-[85px] sm:max-w-[110px]">
-                {fromName}:
-              </span>
-              <span className="text-zinc-400">{formatCurrency(tx.fromBalanceBefore, currencySymbol, isArabic ? 'ar' : 'en')}</span>
-              <span className="text-red-400 font-bold">→</span>
-              <span className="font-bold text-red-400">{formatCurrency(tx.fromBalanceAfter, currencySymbol, isArabic ? 'ar' : 'en')}</span>
-            </div>
-          )}
-
-          {tx.toBalanceBefore !== undefined && tx.toBalanceAfter !== undefined && (
-            <div className="flex items-center gap-1 bg-zinc-950/90 border border-zinc-800/80 px-2 py-0.5 rounded-lg max-w-full">
-              <span className="text-xs shrink-0">{toIcon}</span>
-              <span className="font-semibold text-zinc-300 truncate max-w-[85px] sm:max-w-[110px]">
-                {toName}:
-              </span>
-              <span className="text-zinc-400">{formatCurrency(tx.toBalanceBefore, currencySymbol, isArabic ? 'ar' : 'en')}</span>
-              <span className="text-emerald-400 font-bold">→</span>
-              <span className="font-bold text-emerald-400">{formatCurrency(tx.toBalanceAfter, currencySymbol, isArabic ? 'ar' : 'en')}</span>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 };
@@ -561,10 +565,12 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     transactions: personalTransactions,
     accounts: myPersonalAccounts,
     addTransaction,
+    updateTransaction,
     deleteTransaction,
     importSharedItems,
     showToast,
     showConfirm,
+    t,
     setIsEditingSpace: setGlobalIsEditingSpace,
     setEditingShareId: setGlobalEditingShareId,
     selectedTxIds,
@@ -600,11 +606,15 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     icon: string;
   } | null>(null);
 
-  // Quick Add Transaction Modal inside Share View
-  const [isAddTxOpen, setIsAddTxOpen] = useState(false);
-  const [txDescription, setTxDescription] = useState('');
-  const [txAmount, setTxAmount] = useState('');
-  const [txType, setTxType] = useState<'expense' | 'income'>('expense');
+  // Full TransactionModal integration state for Share Space
+  const [isShareTxModalOpen, setIsShareTxModalOpen] = useState(false);
+  const [editingShareTx, setEditingShareTx] = useState<Transaction | null>(null);
+
+  // Delete Confirmation State with Owner Scope / Editor Confirmation Dialog
+  const [deleteDialog, setDeleteDialog] = useState<{
+    txIds: string[];
+    scope: 'share_only' | 'both';
+  } | null>(null);
 
   // Add Member State
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
@@ -653,6 +663,17 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
   const [isVerifyingMember, setIsVerifyingMember] = useState(false);
   const [isSubmittingMember, setIsSubmittingMember] = useState(false);
 
+  // Recent Changes (أحدث التغييرات) Collapsible Activity Strip State
+  const [isRecentActivityOpen, setIsRecentActivityOpen] = useState(false);
+
+  const recentActivities: ShareActivityEntry[] = useMemo(() => {
+    if (!folder.recent_activity || typeof folder.recent_activity !== 'object') return [];
+    const list = Object.values(folder.recent_activity).filter(
+      (entry): entry is ShareActivityEntry => Boolean(entry && entry.actor16Id && entry.action && entry.ts)
+    );
+    return list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  }, [folder.recent_activity]);
+
   // Pre-Delete Review Modal State (with overlap warning & smart cleanup)
   const [preDeleteState, setPreDeleteState] = useState<{
     targetType: 'account' | 'category' | 'transaction';
@@ -689,6 +710,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             return {
               ...prev,
               transactions: mergedTxs,
+              recent_activity: liveFolder.recent_activity || prev.recent_activity,
               payload: {
                 ...prev.payload,
                 transactions: mergedTxs,
@@ -791,8 +813,22 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       const sid = cleanNumericId(tx.sender16Id);
       if (sid) set.add(sid);
     });
+    if (folder.recent_activity && typeof folder.recent_activity === 'object') {
+      Object.values(folder.recent_activity).forEach((act) => {
+        const aid = cleanNumericId(act?.actor16Id);
+        if (aid) set.add(aid);
+      });
+    }
     return Array.from(set);
-  }, [folder.owner16DigitId, folder.ownerNumericId, folder.members, folder.member16Ids, folder.payload?.transactions, folder.transactions]);
+  }, [
+    folder.owner16DigitId,
+    folder.ownerNumericId,
+    folder.members,
+    folder.member16Ids,
+    folder.payload?.transactions,
+    folder.transactions,
+    folder.recent_activity,
+  ]);
 
   const liveProfiles = useLiveMemberProfiles(allMember16Ids);
 
@@ -1019,11 +1055,11 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
 
   const handleCopyLink = async () => {
     try {
-      await syncFolderToCloud(folder);
-      const url = generateShareUrl(folder);
-      await navigator.clipboard.writeText(url);
+      const { folder: updated, shareUrl } = await ensureShareLinkToken(folder);
+      setFolder(updated);
+      await navigator.clipboard.writeText(shareUrl);
       setIsCopied(true);
-      showToast(isArabic ? 'تم نسخ رابط المشاركة!' : 'Share link copied!', 'success');
+      showToast(isArabic ? 'تم نسخ رابط المشاركة الآمن!' : 'Secure share link copied!', 'success');
       setTimeout(() => setIsCopied(false), 2000);
     } catch {
       showToast(isArabic ? 'تعذر نسخ الرابط' : 'Failed to copy link', 'error');
@@ -1151,6 +1187,14 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       setFolder(updated);
     }
 
+    if (deletedTxIds.length > 0) {
+      logSharedSpaceActivity(folder.id, {
+        actor16Id: myCleanNumericId,
+        action: deletedTxIds.length > 1 ? 'bulk_delete' : 'delete',
+        count: deletedTxIds.length,
+      }).catch(() => {});
+    }
+
     if (activeEntityFilter?.id === targetId) {
       setActiveEntityFilter(null);
     }
@@ -1165,8 +1209,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     );
   };
 
-  const handleAddTransaction = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleOpenAddTx = () => {
     if (!canCurrentUserEdit) {
       showToast(
         isArabic
@@ -1176,43 +1219,287 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       );
       return;
     }
-    const amountVal = parseFormattedNumber(txAmount);
-    if (!amountVal || amountVal <= 0) {
-      showToast(isArabic ? 'يرجى إدخال مبلغ صحيح' : 'Please enter a valid amount', 'error');
-      return;
+    setEditingShareTx(null);
+    setIsShareTxModalOpen(true);
+  };
+
+  const handleOpenEditTx = (tx: Transaction) => {
+    if (!canCurrentUserEdit) return;
+    setEditingShareTx(tx);
+    setIsShareTxModalOpen(true);
+  };
+
+  const handleSaveSharedTransaction = (savedTx: Transaction, isEdit: boolean) => {
+    if (!canCurrentUserEdit) return;
+
+    const currentTxs = [...(folder.payload?.transactions || [])];
+    let nextTxs: Transaction[];
+    if (isEdit) {
+      nextTxs = currentTxs.map((t) => (t.id === savedTx.id ? savedTx : t));
+    } else {
+      nextTxs = [savedTx, ...currentTxs];
     }
 
-    const now = new Date();
-    const newTx: Transaction = {
-      id: `tx_shared_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      description: txDescription.trim() || (isArabic ? 'معاملة مشاركة' : 'Shared Transaction'),
-      amount: amountVal,
-      type: txType,
-      date: formatDateToYYYYMMDD(now),
-      time: formatTimeToHHMM(now),
-      accountId: accounts[0]?.id || 'acc_default',
-      categoryName: categories[0]?.name || (txType === 'expense' ? 'General Expense' : 'General Income'),
-      categoryIcon: categories[0]?.icon || (txType === 'expense' ? '💸' : '💰'),
-      createdAt: Date.now(),
-      shareId: folder.id,
-    } as any;
+    const nextAccounts = syncAllAccountBalances(folder.payload?.accounts || [], nextTxs);
 
-    // 1. Sync to Shared Folder
-    const updated = addTransactionToShareFolder(folder.id, newTx);
-    if (updated) setFolder(updated);
+    const updatedFolder: ShareFolder = {
+      ...folder,
+      updatedAt: Date.now(),
+      itemCount: nextAccounts.length + (folder.payload?.categories?.length || 0) + nextTxs.length,
+      accounts: nextAccounts,
+      transactions: nextTxs,
+      payload: {
+        ...folder.payload,
+        accounts: nextAccounts,
+        transactions: nextTxs,
+      },
+    };
 
-    // 2. Sync to Personal Home feed (as clarified by user in Phase 1)
-    addTransaction(newTx);
+    upsertSpaceInV3Cache(updatedFolder);
+    setFolder(updatedFolder);
 
-    setTxAmount('');
-    setTxDescription('');
-    setIsAddTxOpen(false);
+    pushTransactionDeltaToCloud(folder.id, isEdit ? 'update' : 'add', savedTx).catch(() => {});
+    logSharedSpaceActivity(folder.id, {
+      actor16Id: myCleanNumericId,
+      action: isEdit ? 'edit' : 'add',
+      count: 1,
+    }).catch(() => {});
+
+    // Writes only to the shared space node unless the shared item is linked to a personal item (which updates personal item and balance too)
+    const isLinkedToPersonal = (personalTransactions || []).some((p) => p.id === savedTx.id);
+    if (isLinkedToPersonal) {
+      updateTransaction(savedTx);
+    }
+
+    setIsShareTxModalOpen(false);
+    setEditingShareTx(null);
+
     showToast(
-      isArabic
-        ? 'تمت إضافة المعاملة ومزامنتها مع الشير وحسابك الشخصي!'
-        : 'Transaction added and synced with both Share and Personal feed!',
+      isEdit
+        ? (isArabic ? 'تم تحديث المعاملة في المساحة المشتركة' : 'Transaction updated in shared space')
+        : (isArabic ? 'تمت إضافة المعاملة للمساحة المشتركة' : 'Transaction added to shared space'),
       'success'
     );
+  };
+
+  const handleInitiateDeleteTxs = (txIds: string[]) => {
+    if (!canCurrentUserEdit) {
+      showToast(
+        isArabic
+          ? 'ليس لديك صلاحية لحذف المعاملات (وضع المشاهدة فقط)'
+          : 'You do not have permission to delete transactions (Viewer mode only)',
+        'error'
+      );
+      return;
+    }
+    if (!txIds || txIds.length === 0) return;
+    setDeleteDialog({
+      txIds,
+      scope: 'share_only',
+    });
+  };
+
+  const handleConfirmScopeDelete = async () => {
+    if (!deleteDialog || deleteDialog.txIds.length === 0) return;
+    const { txIds, scope } = deleteDialog;
+    setDeleteDialog(null);
+
+    const allTxs = folder.payload?.transactions || [];
+    const txsToDelete = allTxs.filter((t) => txIds.includes(t.id));
+    if (txsToDelete.length === 0) return;
+
+    const cleanFolderId = normalizeShareId(folder.id);
+    const now = Date.now();
+
+    // Track undo data
+    const deletedPersonalTxIds: string[] = [];
+    const modifiedPersonalTxs: Array<{ id: string; prevExcluded?: string[] }> = [];
+
+    // 1. If scope === 'both', delete matching personal transactions using tombstone-first rule
+    if (scope === 'both') {
+      for (const tx of txsToDelete) {
+        const personalMatch = (personalTransactions || []).find((p) => p.id === tx.id);
+        if (personalMatch) {
+          deletedPersonalTxIds.push(personalMatch.id);
+          deleteTransaction(personalMatch.id);
+        }
+      }
+    }
+
+    // 2. If scope === 'share_only', add exclusion marker (excludedShareIds) on matching personal transactions
+    if (scope === 'share_only') {
+      for (const tx of txsToDelete) {
+        const personalMatch = (personalTransactions || []).find((p) => p.id === tx.id);
+        if (personalMatch) {
+          const currentExcluded = personalMatch.excludedShareIds || [];
+          if (!currentExcluded.includes(cleanFolderId)) {
+            modifiedPersonalTxs.push({ id: personalMatch.id, prevExcluded: personalMatch.excludedShareIds });
+            const nextExcluded = [...currentExcluded, cleanFolderId];
+            updateTransaction({
+              ...personalMatch,
+              excludedShareIds: nextExcluded,
+              updatedAt: now,
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Remove transactions from shared space locally & recalculate balances
+    const remainingTxs = allTxs.filter((t) => !txIds.includes(t.id));
+    const remainingAccounts = syncAllAccountBalances(folder.payload?.accounts || [], remainingTxs);
+
+    const updatedFolder: ShareFolder = {
+      ...folder,
+      updatedAt: now,
+      itemCount: remainingAccounts.length + (folder.payload?.categories?.length || 0) + remainingTxs.length,
+      accounts: remainingAccounts,
+      transactions: remainingTxs,
+      payload: {
+        ...folder.payload,
+        accounts: remainingAccounts,
+        transactions: remainingTxs,
+      },
+    };
+
+    upsertSpaceInV3Cache(updatedFolder);
+    setFolder(updatedFolder);
+
+    // 4. Update cloud RTDB via single-item path updates keeping root rule fields (ownerUid, accountName, updatedAt)
+    // sanitized via JSON.parse(JSON.stringify())
+    const updates: Record<string, any> = {
+      updatedAt: now,
+      ownerUid: folder.ownerUid || auth.currentUser?.uid || 'authenticated_user',
+      accountName: folder.name || 'Share',
+    };
+    for (const id of txIds) {
+      updates[`transactions/${id}`] = null;
+      updates[`payload/transactions/${id}`] = null;
+    }
+    const sanitizedUpdates = JSON.parse(JSON.stringify(updates));
+    try {
+      await update(ref(rtdb, getCanonicalSharePath(folder.id)), sanitizedUpdates);
+    } catch (err) {
+      console.warn('[ShareDetailView] Error pushing delete updates to RTDB:', err);
+    }
+
+    logSharedSpaceActivity(folder.id, {
+      actor16Id: myCleanNumericId,
+      action: txIds.length > 1 ? 'bulk_delete' : 'delete',
+      count: txIds.length,
+    }).catch(() => {});
+
+    // Clear selection if multi-select was active
+    clearGlobalSelection();
+
+    // 5. Show 6-second Undo Toast
+    showToast(
+      t('deleteSuccess'),
+      'success',
+      {
+        label: t('undo'),
+        onClick: () => {
+          handleUndoDelete({
+            scope,
+            deletedTransactions: txsToDelete,
+            deletedPersonalTxIds,
+            modifiedPersonalTxs,
+            folderId: folder.id,
+          });
+        },
+      },
+      6000
+    );
+  };
+
+  const handleUndoDelete = async (undoData: {
+    scope: 'share_only' | 'both';
+    deletedTransactions: Transaction[];
+    deletedPersonalTxIds: string[];
+    modifiedPersonalTxs: Array<{ id: string; prevExcluded?: string[] }>;
+    folderId: string;
+  }) => {
+    const { scope, deletedTransactions, deletedPersonalTxIds, modifiedPersonalTxs, folderId } = undoData;
+    const now = Date.now();
+
+    // 1. Restore personal transactions if deleted
+    if (scope === 'both') {
+      for (const txId of deletedPersonalTxIds) {
+        removeLocalTombstone(txId);
+        const originalTx = deletedTransactions.find((t) => t.id === txId);
+        if (originalTx) {
+          addTransaction({
+            ...originalTx,
+            updatedAt: now,
+          });
+        }
+      }
+    }
+
+    // 2. Revert exclusion marker if scope was share_only
+    if (scope === 'share_only' && modifiedPersonalTxs.length > 0) {
+      for (const mod of modifiedPersonalTxs) {
+        const pTx = (personalTransactions || []).find((p) => p.id === mod.id);
+        if (pTx) {
+          updateTransaction({
+            ...pTx,
+            excludedShareIds: mod.prevExcluded || undefined,
+            updatedAt: now,
+          });
+        }
+      }
+    }
+
+    // 3. Restore in shared space
+    const currentFolder = loadAllSpacesV3().find((s) => normalizeShareId(s.id) === normalizeShareId(folderId)) || folder;
+    const restoredTxs = [
+      ...deletedTransactions.map((t) => ({ ...t, updatedAt: now })),
+      ...(currentFolder.payload?.transactions || []),
+    ];
+    const seenIds = new Set<string>();
+    const uniqueTxs: Transaction[] = [];
+    for (const t of restoredTxs) {
+      if (!seenIds.has(t.id)) {
+        seenIds.add(t.id);
+        uniqueTxs.push(t);
+      }
+    }
+
+    const restoredAccounts = syncAllAccountBalances(currentFolder.payload?.accounts || [], uniqueTxs);
+    const updatedFolder: ShareFolder = {
+      ...currentFolder,
+      updatedAt: now,
+      itemCount: restoredAccounts.length + (currentFolder.payload?.categories?.length || 0) + uniqueTxs.length,
+      accounts: restoredAccounts,
+      transactions: uniqueTxs,
+      payload: {
+        ...currentFolder.payload,
+        accounts: restoredAccounts,
+        transactions: uniqueTxs,
+      },
+    };
+
+    upsertSpaceInV3Cache(updatedFolder);
+    setFolder(updatedFolder);
+
+    // RTDB cloud update for restored transactions
+    try {
+      const updates: Record<string, any> = {
+        updatedAt: now,
+        ownerUid: currentFolder.ownerUid || auth.currentUser?.uid || 'authenticated_user',
+        accountName: currentFolder.name || 'Share',
+      };
+      for (const tx of deletedTransactions) {
+        const sanitized = deepSanitizeForFirebase({ ...tx, updatedAt: now });
+        updates[`transactions/${tx.id}`] = sanitized;
+        updates[`payload/transactions/${tx.id}`] = sanitized;
+      }
+      await update(ref(rtdb, getCanonicalSharePath(folderId)), updates);
+    } catch (err) {
+      console.warn('[ShareDetailView] Error restoring transactions to RTDB:', err);
+    }
+
+    showToast(t('undoSuccess'), 'success');
   };
 
 
@@ -1358,129 +1645,160 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       dir={isArabic ? 'rtl' : 'ltr'}
     >
       <div className="w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto min-h-screen flex flex-col bg-black pb-20">
-        {/* Top Header Bar: Styled Identically to HomeView Header */}
-        <header className="sticky top-0 z-20 h-16 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={() => {
-                clearGlobalSelection();
-                onExit();
-              }}
-              aria-label="Go Back"
-              className="w-10 h-10 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white flex items-center justify-center transition cursor-pointer active:scale-95 shrink-0 border border-zinc-800"
-            >
-              <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
-            </button>
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span className="text-2xl shrink-0">{folder.icon || '📁'}</span>
-              <div className="min-w-0">
-                <h1 className="text-base font-bold text-white truncate leading-tight">
+        {/* Top Header Bar: Responsive 2-Row Layout with Min 44px Touch Targets */}
+        <header className="sticky top-0 z-20 px-3 sm:px-4 py-2.5 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex flex-col gap-2 shrink-0">
+          {/* Row 1: Back + Title + Action Buttons */}
+          <div className="flex items-center justify-between gap-2 w-full min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => {
+                  clearGlobalSelection();
+                  onExit();
+                }}
+                aria-label={isArabic ? 'رجوع' : 'Go Back'}
+                className="min-w-[44px] min-h-[44px] w-11 h-11 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white flex items-center justify-center transition cursor-pointer active:scale-95 shrink-0 border border-zinc-800"
+              >
+                <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
+              </button>
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="text-xl sm:text-2xl shrink-0 select-none">{folder.icon || '📁'}</span>
+                <h1 className="text-sm sm:text-base font-bold text-white truncate leading-tight min-w-0">
                   {folder.name}
                 </h1>
-                <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
-                  <span className="inline-flex items-center gap-1.5 truncate">
-                    {ownerPhoto && isRealPhotoUrl(ownerPhoto) ? (
-                      <img
-                        src={ownerPhoto}
-                        alt={effectiveOwnerName}
-                        className="w-3.5 h-3.5 rounded-full object-cover border border-purple-500/40 inline-block shrink-0"
-                      />
-                    ) : effectiveOwnerAvatar && effectiveOwnerAvatar !== '👤' ? (
-                      <span className="text-[10px] shrink-0">{effectiveOwnerAvatar}</span>
-                    ) : (
-                      <span
-                        className={`w-3.5 h-3.5 rounded-full inline-flex items-center justify-center text-[8px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
-                          folder.owner16DigitId || folder.ownerNumericId || folder.ownerName
-                        )} shrink-0`}
-                      >
-                        {getMemberInitials(folder.ownerName, folder.owner16DigitId || folder.ownerNumericId).slice(0, 1)}
-                      </span>
-                    )}
-                    <span className="truncate">
-                      {isOwner ? (isArabic ? 'أنت المالك' : 'Owned by You') : `${isArabic ? 'المالك:' : 'Owner:'} ${effectiveOwnerName}`}
-                    </span>
-                  </span>
-                  <span>·</span>
-                  <span className="flex items-center gap-1 text-emerald-400 font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span>Live</span>
-                  </span>
-                </div>
               </div>
+            </div>
+
+            {/* Compact Grouped Action Buttons with 44px min touch target */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="min-w-[44px] min-h-[44px] px-2.5 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
+                title={isCopied ? (isArabic ? 'تم النسخ' : 'Copied') : (isArabic ? 'نسخ الرابط' : 'Copy Link')}
+              >
+                {isCopied ? <Check className="w-4 h-4 text-emerald-400 shrink-0" /> : <Copy className="w-4 h-4 shrink-0" />}
+                <span className="hidden sm:inline">{isCopied ? (isArabic ? 'تم النسخ' : 'Copied') : (isArabic ? 'رابط' : 'Link')}</span>
+              </button>
+
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenEditSpace(e);
+                  }}
+                  className="min-w-[44px] min-h-[44px] px-2.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 text-xs font-semibold"
+                  title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
+                  aria-label={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
+                >
+                  <Settings className="w-4 h-4 text-zinc-400 shrink-0" />
+                  <span className="hidden sm:inline">{isArabic ? 'الإعدادات' : 'Settings'}</span>
+                </button>
+              )}
+
+              {!isOwner && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openImportConfirmationSheet(selectedTxIds.length > 0 ? 'selected' : 'all')}
+                    className="min-w-[44px] min-h-[44px] px-2.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
+                    title={
+                      selectedTxIds.length > 0
+                        ? (isArabic ? 'إضافة المعاملات المحددة لحسابي' : 'Add Selected to My Account')
+                        : (isArabic ? 'إضافة كافة المعاملات لحسابي' : 'Add All to My Account')
+                    }
+                  >
+                    <Download className="w-4 h-4 shrink-0" />
+                    <span className="hidden sm:inline">
+                      {selectedTxIds.length > 0
+                        ? (isArabic ? `إضافة (${selectedTxIds.length})` : `Add (${selectedTxIds.length})`)
+                        : (isArabic ? 'إضافة لحسابي' : 'Add to My Account')}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLeaveShare}
+                    className="min-w-[44px] min-h-[44px] px-2.5 py-2 rounded-xl bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
+                    title={isArabic ? 'مغادرة المشاركة' : 'Leave Share'}
+                  >
+                    <LogOut className="w-4 h-4 text-red-400 shrink-0" />
+                    <span className="hidden sm:inline">{isArabic ? 'مغادرة' : 'Leave'}</span>
+                  </button>
+                </>
+              )}
+
+              {isOwner && selectedTxIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => openImportConfirmationSheet('selected')}
+                  className="min-w-[44px] min-h-[44px] px-2.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md animate-in fade-in"
+                  title={isArabic ? 'إضافة المعاملات المحددة لحسابي' : 'Add Selected to My Account'}
+                >
+                  <Download className="w-4 h-4 shrink-0" />
+                  <span className="hidden sm:inline">
+                    {isArabic ? `إضافة (${selectedTxIds.length})` : `Add (${selectedTxIds.length})`}
+                  </span>
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={handleCopyLink}
-              className="px-3 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
-            >
-              {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{isCopied ? (isArabic ? 'تم النسخ' : 'Copied') : (isArabic ? 'رابط' : 'Link')}</span>
-            </button>
-
-            {isOwner && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenEditSpace(e);
-                }}
-                className="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition active:scale-95 cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
-                title={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
-                aria-label={isArabic ? 'إعدادات المساحة' : 'Space Settings'}
-              >
-                <Settings className="w-3.5 h-3.5 text-zinc-400" />
-                <span className="hidden sm:inline">{isArabic ? 'الإعدادات' : 'Settings'}</span>
-              </button>
-            )}
-
-            {!isOwner && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => openImportConfirmationSheet(selectedTxIds.length > 0 ? 'selected' : 'all')}
-                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
-                  title={
-                    selectedTxIds.length > 0
-                      ? (isArabic ? 'إضافة المعاملات المحددة لحسابي' : 'Add Selected to My Account')
-                      : (isArabic ? 'إضافة كافة المعاملات لحسابي' : 'Add All to My Account')
-                  }
+          {/* Row 2: Badges row (Owner with photo/avatar, Live, Role badge, Total items count) */}
+          <div className="flex items-center flex-wrap gap-2 text-[11px] text-zinc-400 min-w-0">
+            {/* Owner Badge */}
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-zinc-900/80 border border-zinc-800 text-zinc-300 text-[10px] font-medium shrink-0 max-w-[200px] truncate">
+              {ownerPhoto && isRealPhotoUrl(ownerPhoto) ? (
+                <img
+                  src={ownerPhoto}
+                  alt={effectiveOwnerName}
+                  className="w-3.5 h-3.5 rounded-full object-cover border border-purple-500/40 inline-block shrink-0"
+                />
+              ) : effectiveOwnerAvatar && effectiveOwnerAvatar !== '👤' ? (
+                <span className="text-[10px] shrink-0">{effectiveOwnerAvatar}</span>
+              ) : (
+                <span
+                  className={`w-3.5 h-3.5 rounded-full inline-flex items-center justify-center text-[8px] font-bold text-white bg-gradient-to-tr ${getAvatarColorGradient(
+                    folder.owner16DigitId || folder.ownerNumericId || folder.ownerName
+                  )} shrink-0`}
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>
-                    {selectedTxIds.length > 0
-                      ? (isArabic ? `إضافة المحدد (${selectedTxIds.length})` : `Add Selected (${selectedTxIds.length})`)
-                      : (isArabic ? 'إضافة لحسابي' : 'Add to My Account')}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLeaveShare}
-                  className="px-2.5 py-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-300 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
-                  title={isArabic ? 'مغادرة المشاركة' : 'Leave Share'}
-                >
-                  <LogOut className="w-3.5 h-3.5 text-red-400" />
-                  <span>{isArabic ? 'مغادرة' : 'Leave'}</span>
-                </button>
-              </>
-            )}
-
-            {isOwner && selectedTxIds.length > 0 && (
-              <button
-                type="button"
-                onClick={() => openImportConfirmationSheet('selected')}
-                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md animate-in fade-in"
-                title={isArabic ? 'إضافة المعاملات المحددة لحسابي' : 'Add Selected to My Account'}
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>
-                  {isArabic ? `إضافة المحدد (${selectedTxIds.length})` : `Add Selected (${selectedTxIds.length})`}
+                  {getMemberInitials(folder.ownerName, folder.owner16DigitId || folder.ownerNumericId).slice(0, 1)}
                 </span>
-              </button>
-            )}
+              )}
+              <span className="truncate">
+                {isOwner ? (isArabic ? 'أنت المالك' : 'Owned by You') : `${isArabic ? 'المالك:' : 'Owner:'} ${effectiveOwnerName}`}
+              </span>
+            </span>
+
+            {/* Live Pulse Badge */}
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 font-medium text-[10px] shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Live</span>
+            </span>
+
+            {/* Role Badge (Owner, Editor, Viewer) */}
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium shrink-0 ${
+              isOwner
+                ? 'bg-purple-950/40 border-purple-500/30 text-purple-300'
+                : canEdit
+                ? 'bg-blue-950/40 border-blue-500/30 text-blue-300'
+                : 'bg-zinc-850 border-zinc-700 text-zinc-400'
+            }`}>
+              <Shield className="w-3 h-3" />
+              <span>
+                {isOwner
+                  ? (isArabic ? 'مالك' : 'Owner')
+                  : canEdit
+                  ? (isArabic ? 'محرر' : 'Editor')
+                  : (isArabic ? 'مشاهد' : 'Viewer')}
+              </span>
+            </span>
+
+            {/* Total Transactions Count Badge */}
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-900/80 border border-zinc-800 text-zinc-400 text-[10px] shrink-0">
+              <span>{folder.payload?.transactions?.length || 0}</span>
+              <span>{isArabic ? 'معاملة' : 'txs'}</span>
+            </span>
           </div>
         </header>
 
@@ -1640,7 +1958,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setIsAddTxOpen(true)}
+                onClick={handleOpenAddTx}
                 className="flex-1 py-2.5 px-3 rounded-2xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 text-xs font-bold flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
@@ -1648,6 +1966,125 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
               </button>
             </div>
           )}
+
+          {/* Recent Changes (أحدث التغييرات) Activity Strip - Collapsible */}
+          <div className="rounded-2xl bg-zinc-900/60 border border-zinc-800 overflow-hidden transition-all">
+            <button
+              type="button"
+              onClick={() => setIsRecentActivityOpen((prev) => !prev)}
+              className="w-full p-3.5 flex items-center justify-between text-start hover:bg-zinc-850/60 transition cursor-pointer select-none"
+              aria-expanded={isRecentActivityOpen}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+                  <History className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs font-bold text-zinc-200 truncate">
+                    {isArabic ? 'أحدث التغييرات' : 'Recent Changes'}
+                  </span>
+                  {recentActivities.length > 0 && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700/60">
+                      {recentActivities.length}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 text-zinc-400 shrink-0">
+                <span className="text-[11px] text-zinc-500 hidden sm:inline">
+                  {isRecentActivityOpen
+                    ? (isArabic ? 'إخفاء' : 'Hide')
+                    : (isArabic ? 'عرض' : 'Show')}
+                </span>
+                {isRecentActivityOpen ? (
+                  <ChevronUp className="w-4 h-4 text-zinc-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-zinc-400" />
+                )}
+              </div>
+            </button>
+
+            {isRecentActivityOpen && (
+              <div className="p-3 pt-0 border-t border-zinc-800/60 space-y-2 animate-in fade-in">
+                {recentActivities.length === 0 ? (
+                  <div className="py-4 text-center text-xs text-zinc-500">
+                    {isArabic ? 'لا توجد تغييرات حديثة مسجلة بعد' : 'No recent activity recorded yet'}
+                  </div>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto space-y-2 pr-1 rtl:pr-0 rtl:pl-1">
+                    {recentActivities.map((act, idx) => {
+                      const actor16 = cleanNumericId(act.actor16Id);
+                      const prof = actor16 ? liveProfiles[actor16] : undefined;
+                      const isMe = actor16 === myCleanNumericId;
+                      const actorName = prof?.name || (isMe ? (isArabic ? 'أنت' : 'You') : (actor16 ? `User ${actor16.slice(0, 4)}` : 'User'));
+                      const rawPhoto = prof?.photoURL || '';
+                      const hasRealPhoto = isRealPhotoUrl(rawPhoto);
+                      const avatar = prof?.avatar || (!hasRealPhoto && rawPhoto ? rawPhoto : '👤');
+
+                      const isAdd = act.action === 'add';
+                      const isEdit = act.action === 'edit';
+                      const isDelete = act.action === 'delete' || act.action === 'bulk_delete';
+
+                      return (
+                        <div
+                          key={`${act.ts}_${idx}`}
+                          className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-zinc-950/70 border border-zinc-850 hover:border-zinc-800 transition"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {/* Actor Avatar */}
+                            <div
+                              className={`w-7 h-7 rounded-full border border-purple-500/40 flex items-center justify-center text-[10px] font-bold text-white shrink-0 overflow-hidden bg-gradient-to-tr ${getAvatarColorGradient(
+                                actor16 || actorName
+                              )}`}
+                            >
+                              {hasRealPhoto ? (
+                                <img src={rawPhoto} alt="" className="w-full h-full object-cover" />
+                              ) : avatar !== '👤' ? (
+                                <span className="text-xs">{avatar}</span>
+                              ) : (
+                                <span>{getMemberInitials(actorName, actor16).slice(0, 2)}</span>
+                              )}
+                            </div>
+
+                            <div className="min-w-0 flex flex-col">
+                              <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-200 truncate">
+                                <span className="truncate">{actorName}</span>
+                                {isMe && (
+                                  <span className="text-[9px] px-1 py-0.2 rounded bg-purple-500/20 text-purple-300 font-bold shrink-0">
+                                    {isArabic ? 'أنت' : 'You'}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mt-0.5">
+                                <span
+                                  className={`inline-flex items-center gap-1 font-medium ${
+                                    isAdd
+                                      ? 'text-emerald-400'
+                                      : isEdit
+                                      ? 'text-blue-400'
+                                      : 'text-red-400'
+                                  }`}
+                                >
+                                  {isAdd && <Plus className="w-3 h-3" />}
+                                  {isEdit && <Edit3 className="w-3 h-3" />}
+                                  {isDelete && <Trash2 className="w-3 h-3" />}
+                                  <span>{formatActivityAction(act.action, act.count, isArabic)}</span>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-[10px] text-zinc-500 font-mono shrink-0 whitespace-nowrap">
+                            {formatRelativeActivityTime(act.ts, isArabic)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* CONTROL SECTION: Included Accounts & Categories */}
           {(accounts.length > 0 || categories.length > 0) && (
@@ -1954,9 +2391,10 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
                                         isArabic={isArabic}
                                         onToggleSelect={toggleTxSelection}
                                         onStartMultiSelect={startTxMultiSelect}
-                                        onDeleteClick={(t, title, icon) =>
-                                          initiatePreDeleteReview('transaction', t.id, title, icon)
+                                        onDeleteClick={(t) =>
+                                          handleInitiateDeleteTxs([t.id])
                                         }
+                                        onEditClick={handleOpenEditTx}
                                       />
                                     ))}
                                   </div>
@@ -1993,10 +2431,22 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => handleInitiateDeleteTxs(selectedTxIds)}
+                className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 active:scale-95 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-lg shadow-red-600/30 cursor-pointer min-h-[40px]"
+                title={isArabic ? `حذف (${selectedTxIds.length})` : `Delete (${selectedTxIds.length})`}
+              >
+                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                <span>{isArabic ? `حذف (${selectedTxIds.length})` : `Delete (${selectedTxIds.length})`}</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => openImportConfirmationSheet('selected')}
-              className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-lg shadow-blue-600/30 cursor-pointer"
+              className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-lg shadow-blue-600/30 cursor-pointer min-h-[40px]"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{isArabic ? 'إضافة لحسابي' : 'Add to My Account'}</span>
@@ -2005,7 +2455,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
             <button
               type="button"
               onClick={() => clearGlobalSelection()}
-              className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition active:scale-95 cursor-pointer"
+              className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition active:scale-95 cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center"
               title={isArabic ? 'إلغاء التحديد' : 'Cancel Selection'}
             >
               <X className="w-4 h-4" />
@@ -2176,94 +2626,124 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
         </div>
       )}
 
-      {/* Modal: Quick Add Transaction */}
-      {isAddTxOpen && (
+      {/* Full TransactionModal Integration pre-bound to this Share Space */}
+      <TransactionModal
+        isOpen={isShareTxModalOpen}
+        onClose={() => {
+          setIsShareTxModalOpen(false);
+          setEditingShareTx(null);
+        }}
+        sharedSpace={folder}
+        editingTransaction={editingShareTx}
+        onSaveSharedTransaction={handleSaveSharedTransaction}
+      />
+
+      {/* Delete Confirmation Modal: Owner Scope Dialog vs Editor Plain Confirmation */}
+      {deleteDialog && (
         <div
           role="dialog"
-          className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 backdrop-blur-sm animate-in fade-in overscroll-contain"
-          onClick={() => setIsAddTxOpen(false)}
+          aria-modal="true"
+          className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setDeleteDialog(null)}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md max-h-[92dvh] overflow-y-auto my-auto bg-zinc-950 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4"
+            className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 animate-in zoom-in-95"
           >
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Plus className="w-5 h-5 text-blue-400" />
-              <span>{isArabic ? 'إضافة معاملة للشير' : 'Add Transaction to Share'}</span>
-            </h3>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-white leading-tight">
+                  {isOwner ? t('deleteSharedScopeTitle') : t('deleteEditorConfirmTitle')}
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  {isArabic
+                    ? `${deleteDialog.txIds.length} معاملة محددة`
+                    : `${deleteDialog.txIds.length} transaction(s) selected`}
+                </p>
+              </div>
+            </div>
 
-            <form onSubmit={handleAddTransaction} className="space-y-3.5">
-              {/* Type Switcher */}
-              <div className="grid grid-cols-2 gap-2 p-1 bg-zinc-900 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setTxType('expense')}
-                  className={`py-1.5 text-xs font-bold rounded-lg transition ${
-                    txType === 'expense' ? 'bg-red-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
+            <p className="text-xs text-zinc-300 leading-relaxed">
+              {isOwner ? t('deleteSharedScopeDesc') : t('deleteEditorConfirmDesc')}
+            </p>
+
+            {/* Scope Selection Options (Owner only) */}
+            {isOwner && (
+              <div className="space-y-2.5 pt-1">
+                {/* Option (a): Shared Space Only */}
+                <label
+                  onClick={() => setDeleteDialog((prev) => prev ? { ...prev, scope: 'share_only' } : null)}
+                  className={`w-full p-3.5 rounded-2xl border flex items-start gap-3 transition cursor-pointer select-none text-start ${
+                    deleteDialog.scope === 'share_only'
+                      ? 'bg-blue-600/15 border-blue-500/50 shadow-sm'
+                      : 'bg-zinc-900/60 border-zinc-800/80 hover:bg-zinc-900'
                   }`}
                 >
-                  {isArabic ? 'مصروف' : 'Expense'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTxType('income')}
-                  className={`py-1.5 text-xs font-bold rounded-lg transition ${
-                    txType === 'income' ? 'bg-emerald-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
+                  <input
+                    type="radio"
+                    name="deleteScope"
+                    checked={deleteDialog.scope === 'share_only'}
+                    onChange={() => setDeleteDialog((prev) => prev ? { ...prev, scope: 'share_only' } : null)}
+                    className="mt-1 w-4 h-4 text-blue-600 border-zinc-700 bg-zinc-950 focus:ring-0 shrink-0 cursor-pointer"
+                  />
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-white block">
+                      {t('deleteSharedSpaceOnly')}
+                    </span>
+                    <span className="text-[11px] text-zinc-400 block mt-0.5 leading-snug">
+                      {t('deleteSharedSpaceOnlyDesc')}
+                    </span>
+                  </div>
+                </label>
+
+                {/* Option (b): Both Personal Account & Shared Space */}
+                <label
+                  onClick={() => setDeleteDialog((prev) => prev ? { ...prev, scope: 'both' } : null)}
+                  className={`w-full p-3.5 rounded-2xl border flex items-start gap-3 transition cursor-pointer select-none text-start ${
+                    deleteDialog.scope === 'both'
+                      ? 'bg-red-600/15 border-red-500/50 shadow-sm'
+                      : 'bg-zinc-900/60 border-zinc-800/80 hover:bg-zinc-900'
                   }`}
                 >
-                  {isArabic ? 'دخل' : 'Income'}
-                </button>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-zinc-400 block mb-1">
-                  {isArabic ? 'المبلغ' : 'Amount'}
+                  <input
+                    type="radio"
+                    name="deleteScope"
+                    checked={deleteDialog.scope === 'both'}
+                    onChange={() => setDeleteDialog((prev) => prev ? { ...prev, scope: 'both' } : null)}
+                    className="mt-1 w-4 h-4 text-red-600 border-zinc-700 bg-zinc-950 focus:ring-0 shrink-0 cursor-pointer"
+                  />
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-white block">
+                      {t('deleteBothPersonalAndShared')}
+                    </span>
+                    <span className="text-[11px] text-zinc-400 block mt-0.5 leading-snug">
+                      {t('deleteBothPersonalAndSharedDesc')}
+                    </span>
+                  </div>
                 </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  autoFocus
-                  required
-                  placeholder="0.00"
-                  value={formatDisplayNumber(txAmount)}
-                  onChange={(e) => {
-                    handleNumericInputChange(e, (cleaned) => {
-                      setTxAmount(cleaned);
-                    });
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-lg focus:outline-none focus:border-blue-500"
-                />
               </div>
+            )}
 
-              <div>
-                <label className="text-xs font-semibold text-zinc-400 block mb-1">
-                  {isArabic ? 'الوصف' : 'Description'}
-                </label>
-                <input
-                  type="text"
-                  placeholder={isArabic ? 'مثال: مشتريات السوبرماركت' : 'e.g., Grocery Shopping'}
-                  value={txDescription}
-                  onChange={(e) => setTxDescription(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-sm focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddTxOpen(false)}
-                  className="flex-1 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-zinc-400 text-xs font-bold transition"
-                >
-                  {isArabic ? 'إلغاء' : 'Cancel'}
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition"
-                >
-                  {isArabic ? 'حفظ المعاملة' : 'Save Transaction'}
-                </button>
-              </div>
-            </form>
+            {/* Modal Action Buttons */}
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteDialog(null)}
+                className="flex-1 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-zinc-400 hover:text-white text-xs font-bold transition cursor-pointer min-h-[44px]"
+              >
+                {t('cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmScopeDelete}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 active:scale-95 text-white text-xs font-bold shadow-lg shadow-red-600/30 transition cursor-pointer min-h-[44px]"
+              >
+                {isOwner ? t('confirmDelete') : t('deleteFromShare')}
+              </button>
+            </div>
           </div>
         </div>
       )}

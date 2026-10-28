@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, RefreshCw, Plus, Trash2, CheckCircle2, Clock, Check } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { RecurringTransaction } from '../types';
 import { formatNumberWithCommas } from '../utils/formatters';
 import { useLongPress } from '../hooks/useLongPress';
-import { getScheduleSummaryText } from '../utils/recurring';
+import { getScheduleSummaryText, getNextNOccurrences } from '../utils/recurring';
 
 interface RecurringTransactionsModalProps {
   isOpen: boolean;
@@ -37,6 +37,12 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
   currencySymbol,
   isArabic,
 }) => {
+  const [showNext5, setShowNext5] = useState<boolean>(false);
+  const next5 = useMemo(() => {
+    if (!showNext5) return [];
+    return getNextNOccurrences(item, 5, Date.now(), isArabic ? 'ar' : 'en');
+  }, [showNext5, item, isArabic]);
+
   const { handlers } = useLongPress({
     onLongPress: () => {
       onStartMultiSelect(item.id);
@@ -61,7 +67,7 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
         e.preventDefault();
         onStartMultiSelect(item.id);
       }}
-      className={`p-3.5 rounded-2xl border transition select-none flex items-center justify-between gap-3 ${
+      className={`p-3.5 rounded-2xl border transition select-none flex flex-col gap-2 ${
         isSelected
           ? 'bg-blue-950/40 border-blue-500/80 shadow-md shadow-blue-950/40 cursor-pointer'
           : isMultiSelect
@@ -69,68 +75,113 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
           : 'bg-zinc-900/60 hover:border-zinc-700 border-zinc-800/80 cursor-pointer'
       }`}
     >
-      <div className="flex items-center gap-3 min-w-0">
-        {isMultiSelect && (
-          <div
-            className={`w-5 h-5 rounded-lg flex items-center justify-center transition border shrink-0 ${
-              isSelected
-                ? 'bg-blue-600 border-blue-500 text-white'
-                : 'bg-zinc-950 border-zinc-700 text-transparent'
+      <div className="flex items-center justify-between gap-3 w-full">
+        <div className="flex items-center gap-3 min-w-0">
+          {isMultiSelect && (
+            <div
+              className={`w-5 h-5 rounded-lg flex items-center justify-center transition border shrink-0 ${
+                isSelected
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-zinc-950 border-zinc-700 text-transparent'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5 stroke-[3]" />
+            </div>
+          )}
+
+          <div className="w-10 h-10 rounded-xl bg-zinc-800/90 border border-zinc-700/60 flex items-center justify-center text-xl shrink-0">
+            {item.categoryIcon || '🔄'}
+          </div>
+
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-white truncate">
+                {item.description || item.categoryName || 'Recurring'}
+              </span>
+              <span
+                className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 shrink-0 truncate max-w-[150px] sm:max-w-[220px]"
+                title={getFrequencyDisplay()}
+              >
+                {getFrequencyDisplay()}
+              </span>
+            </div>
+            <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5 truncate flex-wrap">
+              <span className="truncate">{accountName}</span>
+              <span>•</span>
+              <span className="flex items-center gap-1 text-zinc-400 font-mono shrink-0">
+                <Clock className="w-3 h-3 text-amber-400" />
+                {isArabic ? 'الاستحقاق:' : 'Due:'} {item.nextDueDate}
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowNext5((prev) => !prev);
+                }}
+                className="px-1.5 py-0.2 rounded text-[10px] bg-zinc-800 hover:bg-zinc-700 text-blue-400 font-semibold transition cursor-pointer"
+                title={isArabic ? 'عرض الـ5 مرات القادمة' : 'Preview next 5 occurrences'}
+              >
+                {showNext5 ? (isArabic ? 'إخفاء' : 'Hide') : (isArabic ? 'الـ5 القادمة' : 'Next 5')}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <span
+            className={`font-mono text-sm font-bold ${
+              item.type === 'income' ? 'text-emerald-400' : 'text-red-400'
             }`}
           >
-            <Check className="w-3.5 h-3.5 stroke-[3]" />
-          </div>
-        )}
-
-        <div className="w-10 h-10 rounded-xl bg-zinc-800/90 border border-zinc-700/60 flex items-center justify-center text-xl shrink-0">
-          {item.categoryIcon || '🔄'}
-        </div>
-
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-white truncate">
-              {item.description || item.categoryName || 'Recurring'}
-            </span>
-            <span
-              className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 shrink-0 truncate max-w-[150px] sm:max-w-[220px]"
-              title={getFrequencyDisplay()}
-            >
-              {getFrequencyDisplay()}
-            </span>
-          </div>
-          <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5 truncate">
-            <span className="truncate">{accountName}</span>
-            <span>•</span>
-            <span className="flex items-center gap-1 text-zinc-400 font-mono shrink-0">
-              <Clock className="w-3 h-3 text-amber-400" />
-              {isArabic ? 'الاستحقاق:' : 'Due:'} {item.nextDueDate}
-            </span>
-          </div>
+            {item.type === 'income' ? '+' : '-'}
+            {currencySymbol}
+            {formatNumberWithCommas(item.amount, 2)}
+          </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(item.id);
+            }}
+            className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition cursor-pointer"
+            title="Delete"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-3 shrink-0">
-        <span
-          className={`font-mono text-sm font-bold ${
-            item.type === 'income' ? 'text-emerald-400' : 'text-red-400'
-          }`}
-        >
-          {item.type === 'income' ? '+' : '-'}
-          {currencySymbol}
-          {formatNumberWithCommas(item.amount, 2)}
-        </span>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(item.id);
-          }}
-          className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition cursor-pointer"
-          title="Delete"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-      </div>
+      {showNext5 && (
+        <div className="w-full mt-1 pt-2 border-t border-zinc-800/80 space-y-1">
+          <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+            <span>{isArabic ? 'الـ5 مرات القادمة للتنفيذ' : 'Next 5 Occurrences'}</span>
+            <span className="text-[9px] text-zinc-500 font-mono">{next5.length} / 5</span>
+          </div>
+          {next5.length === 0 ? (
+            <div className="text-[10.5px] text-zinc-500 italic py-1 text-center">
+              {isArabic ? 'لا توجد معاملات مجدولة قادمة' : 'No upcoming occurrences scheduled'}
+            </div>
+          ) : (
+            next5.map((occ, idx) => (
+              <div
+                key={`${occ.date}_${occ.time}_${idx}`}
+                className="flex items-center justify-between px-2 py-1 rounded-lg bg-zinc-950/80 border border-zinc-800/50 text-xs font-mono"
+              >
+                <div className="flex items-center gap-1.5 text-zinc-300">
+                  <span className="w-3.5 h-3.5 rounded-full bg-blue-500/20 text-blue-400 text-[8.5px] font-bold flex items-center justify-center shrink-0">
+                    {idx + 1}
+                  </span>
+                  <span className="font-semibold text-zinc-200">{occ.dayName}</span>
+                  <span className="text-zinc-500 text-[10.5px]">{occ.formattedDate}</span>
+                </div>
+                <span className="px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-700/60 text-[10px] font-bold text-blue-300">
+                  {occ.formattedTime}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 };

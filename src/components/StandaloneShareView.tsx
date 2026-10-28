@@ -1,5 +1,5 @@
-import { TransferBadge } from './TransferBadge';
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { TransferBadge, TransferCard } from './TransferBadge';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Share2,
   Copy,
@@ -21,14 +21,15 @@ import {
   Folder,
   User,
 } from 'lucide-react';
+import { ref, onValue, off, get } from 'firebase/database';
+import { rtdb, ensureFirebaseAuth } from '../utils/firebase';
 import {
-  fetchShareFolderFromCloud,
   ShareFolder,
-  subscribeToShareFolder,
-  registerReceivedShareFolder,
   useLiveMemberProfiles,
   isRealPhotoUrl,
   resolveOwnerPhoto,
+  normalizeParsedShareFolder,
+  getCanonicalSharePath,
 } from '../utils/shareFolders';
 import { cleanNumericId } from '../utils/userId';
 import {
@@ -40,7 +41,6 @@ import {
 import { Account, Category, Transaction } from '../types';
 import { format16DigitId } from '../utils/userId';
 import { useApp } from '../context/AppContext';
-import { ensureFirebaseAuth } from '../utils/firebase';
 
 interface StandaloneShareViewProps {
   shareId?: string | null;
@@ -91,40 +91,40 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
     setCollapsedDays((prev) => ({ ...prev, [dayKey]: !prev[dayKey] }));
   };
 
-  // Manual Refresh Handler - fetches live data directly from Firebase cloud
+  // Manual Refresh Handler - fetches live data directly from the mirror / canonical node
   const handleManualRefresh = useCallback(async () => {
     if (!shareId) return;
     setIsRefreshing(true);
     try {
       ensureFirebaseAuth().catch(() => {});
-      const freshData = await fetchShareFolderFromCloud(shareId);
-      if (freshData) {
-        setFolder(freshData);
-        setIsLiveConnected(true);
-        setIsUsingOfflineFallback(false);
-        setLastUpdated(Date.now());
-        setError(null);
-        registerReceivedShareFolder(
-          freshData,
-          settings?.userProfile?.numericId,
-          settings?.userProfile?.name,
-          settings?.userProfile?.avatarEmoji,
-          settings?.userProfile?.customAvatarUrl
-        );
-        showToast?.(isArabic ? 'تم تحديث البيانات لحظياً من السحابة!' : 'Updated with latest live data!', 'success');
+      const targetPath = shareId.startsWith('link_')
+        ? `shared_accounts/${shareId}`
+        : getCanonicalSharePath(shareId);
+      const snap = await get(ref(rtdb, targetPath));
+      if (snap.exists() && snap.val() && snap.val().deleted !== true) {
+        const parsed = normalizeParsedShareFolder(snap.val(), shareId);
+        if (parsed) {
+          setFolder(parsed);
+          setIsLiveConnected(true);
+          setIsUsingOfflineFallback(false);
+          setLastUpdated(parsed.updatedAt || Date.now());
+          setError(null);
+          showToast?.(isArabic ? 'تم تحديث البيانات لحظياً من السحابة!' : 'Updated with latest live data!', 'success');
+        }
       } else {
-        showToast?.(isArabic ? 'أنت تشاهد أحدث نسخة متوفرة حالياً' : 'You are viewing the latest data', 'info');
+        setFolder(null);
+        setError(isArabic ? 'هذا الرابط لم يعد متاحاً.' : 'This link is no longer available.');
       }
     } catch (err) {
       console.warn('[StandaloneShareView] Manual refresh error:', err);
     } finally {
       setIsRefreshing(false);
     }
-  }, [shareId, isArabic, showToast, settings]);
+  }, [shareId, isArabic, showToast]);
 
   useEffect(() => {
     if (!shareId && !offlineFallbackSnapshot) {
-      setError(isArabic ? 'رابط المشاركة غير صالح أو انتهت صلاحيته.' : 'Invalid or expired share link.');
+      setError(isArabic ? 'هذا الرابط لم يعد متاحاً.' : 'This link is no longer available.');
       setIsLoading(false);
       return;
     }
@@ -151,6 +151,14 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
     // Trigger non-blocking anonymous/authenticated Firebase session
     ensureFirebaseAuth().catch(() => {});
 
+    // Target mirror node: flat path shared_accounts/link_${token} (or legacy canonical path)
+    const targetPath = shareId.startsWith('link_')
+      ? `shared_accounts/${shareId}`
+      : getCanonicalSharePath(shareId);
+
+    const targetRef = ref(rtdb, targetPath);
+    const connectedRef = ref(rtdb, '.info/connected');
+
     // Helper to safely apply live streaming data from Firebase RTDB
     const applyLiveData = (liveData: ShareFolder) => {
       if (!isMounted) return;
@@ -159,7 +167,7 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
       setIsUsingOfflineFallback(false);
       setIsLoading(false);
       setError(null);
-      setLastUpdated(Date.now());
+      setLastUpdated(liveData.updatedAt || Date.now());
 
       setFolder((prev) => {
         if (!prev) return liveData;
@@ -170,70 +178,62 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
         }
         return prev;
       });
-
-      // Register or update received folder in local storage
-      registerReceivedShareFolder(
-        liveData,
-        settings?.userProfile?.numericId,
-        settings?.userProfile?.name,
-        settings?.userProfile?.avatarEmoji,
-        settings?.userProfile?.customAvatarUrl
-      );
     };
 
-    // 1. Immediate cloud fetch priority
-    fetchShareFolderFromCloud(shareId)
-      .then((data) => {
-        if (!isMounted) return;
-        if (data) {
-          applyLiveData(data);
-        } else if (!hasReceivedLiveCloudData) {
-          // If cloud has no record yet, strictly fallback to offline snapshot if available
-          if (offlineFallbackSnapshot) {
-            setFolder(offlineFallbackSnapshot);
-            setIsUsingOfflineFallback(true);
-            setIsLoading(false);
-          } else {
-            setError(
-              isArabic
-                ? 'لم يتم العثور على صفحة المشاركة المطلوبة، أو ربما قام المالك بإلغائها.'
-                : 'Shared space not found or was removed by owner.'
-            );
-            setIsLoading(false);
-          }
-        }
-      })
-      .catch((err) => {
-        if (!isMounted) return;
-        console.warn('[StandaloneShareView] Immediate fetch error:', err);
-        if (!hasReceivedLiveCloudData) {
-          if (offlineFallbackSnapshot) {
-            setFolder(offlineFallbackSnapshot);
-            setIsUsingOfflineFallback(true);
-            setIsLoading(false);
-          } else {
-            setError(
-              isArabic
-                ? 'تعذر تحميل بيانات المشاركة. يرجى التحقق من اتصالك بالإنترنت.'
-                : 'Could not load share data. Check your connection.'
-            );
-            setIsLoading(false);
-          }
-        }
-      });
+    const handleSnapshot = (snap: any) => {
+      if (!isMounted) return;
+      if (!snap.exists() || !snap.val() || snap.val().deleted === true) {
+        setFolder(null);
+        setIsLiveConnected(false);
+        setIsLoading(false);
+        setError(isArabic ? 'هذا الرابط لم يعد متاحاً.' : 'This link is no longer available.');
+        return;
+      }
+      const val = snap.val();
+      const parsed = normalizeParsedShareFolder(val, shareId);
+      if (parsed) {
+        applyLiveData(parsed);
+      } else {
+        setFolder(null);
+        setIsLoading(false);
+        setError(isArabic ? 'هذا الرابط لم يعد متاحاً.' : 'This link is no longer available.');
+      }
+    };
 
-    // 2. Continuous Real-time Streaming Subscription on Firebase RTDB via onValue()
-    const unsub = subscribeToShareFolder(shareId, (liveData) => {
-      if (liveData) {
-        applyLiveData(liveData);
+    const handleConnected = (snap: any) => {
+      if (!isMounted) return;
+      const isConn = Boolean(snap.val());
+      setIsLiveConnected(isConn);
+      if (isConn) {
+        get(targetRef).then(handleSnapshot).catch(() => {});
+      }
+    };
+
+    // Continuous Real-time Streaming Subscription ONLY on the target mirror node
+    onValue(targetRef, handleSnapshot, (err) => {
+      if (!isMounted) return;
+      console.warn('[StandaloneShareView] onValue error:', err);
+      if (!hasReceivedLiveCloudData) {
+        if (offlineFallbackSnapshot) {
+          setFolder(offlineFallbackSnapshot);
+          setIsUsingOfflineFallback(true);
+          setIsLoading(false);
+        } else {
+          setError(isArabic ? 'هذا الرابط لم يعد متاحاً.' : 'This link is no longer available.');
+          setIsLoading(false);
+        }
       }
     });
 
+    // Re-attach / re-verify when connection status toggles back to online
+    onValue(connectedRef, handleConnected);
+
     return () => {
       isMounted = false;
-      unsub();
+      off(targetRef, 'value', handleSnapshot);
+      off(connectedRef, 'value', handleConnected);
     };
-  }, [shareId, offlineFallbackSnapshot, isArabic, settings]);
+  }, [shareId, offlineFallbackSnapshot, isArabic]);
 
   const handleCopyLink = () => {
     try {
@@ -251,29 +251,10 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
   const categories: Category[] = folder?.payload?.categories || [];
   const transactions: Transaction[] = folder?.payload?.transactions || [];
 
-  const allMember16Ids = useMemo(() => {
-    const set = new Set<string>();
-    const o16 = cleanNumericId(folder?.owner16DigitId || folder?.ownerNumericId);
-    if (o16) set.add(o16);
-    (folder?.members || []).forEach((m) => {
-      const mid = cleanNumericId(m.numericId);
-      if (mid) set.add(mid);
-    });
-    (folder?.member16Ids || []).forEach((id) => {
-      const mid = cleanNumericId(id);
-      if (mid) set.add(mid);
-    });
-    (folder?.payload?.transactions || []).forEach((tx: any) => {
-      const sid = cleanNumericId(tx.sender16Id);
-      if (sid) set.add(sid);
-    });
-    return Array.from(set);
-  }, [folder?.owner16DigitId, folder?.ownerNumericId, folder?.members, folder?.member16Ids, folder?.payload?.transactions]);
-
-  const liveProfiles = useLiveMemberProfiles(allMember16Ids);
-
+  // Exclusively track the Share Owner's profile (never any members or 16-digit IDs)
   const folderOwner16 = cleanNumericId(folder?.owner16DigitId || folder?.ownerNumericId);
-  const ownerLiveProf = folderOwner16 ? liveProfiles[folderOwner16] : undefined;
+  const ownerLiveMap = useLiveMemberProfiles(folderOwner16 ? [folderOwner16] : []);
+  const ownerLiveProf = folderOwner16 ? ownerLiveMap[folderOwner16] : undefined;
   const effectiveOwnerName = ownerLiveProf?.name || folder?.ownerName || 'User';
   const rawOwnerPhoto = (ownerLiveProf?.photoURL && ownerLiveProf.photoURL.trim()) || folder?.ownerPhotoURL || resolveOwnerPhoto(folder || {}, settings?.userProfile);
   const effectiveOwnerPhoto = isRealPhotoUrl(rawOwnerPhoto) ? rawOwnerPhoto.trim() : '';
@@ -398,14 +379,16 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
   if (error || !folder) {
     return (
       <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center" dir={isArabic ? 'rtl' : 'ltr'}>
-        <div className="w-16 h-16 rounded-3xl bg-red-950/40 border border-red-500/30 flex items-center justify-center text-3xl mb-4">
-          <AlertCircle className="w-8 h-8 text-red-400" />
+        <div className="w-16 h-16 rounded-3xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-3xl mb-4 shadow-xl">
+          🔒
         </div>
         <h2 className="text-lg font-bold text-white mb-2">
-          {isArabic ? 'تعذر فتح صفحة المشاركة' : 'Unable to Open Share Space'}
+          {isArabic ? 'هذا الرابط لم يعد متاحاً' : 'This link is no longer available'}
         </h2>
         <p className="text-xs text-zinc-400 max-w-sm mb-6 leading-relaxed">
-          {error || (isArabic ? 'لم يتم العثور على البيانات المطلوبة.' : 'The requested data was not found.')}
+          {error || (isArabic
+            ? 'قد يكون صاحب الرابط قام بإعادة إنشاء رابط جديد أو حذف مساحة المشاركة.'
+            : 'The owner may have regenerated a new link or removed the shared space.')}
         </p>
         <div className="flex items-center justify-center gap-2">
           {shareId && (
@@ -495,11 +478,11 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                 </span>
               </span>
               <span className="text-zinc-600">•</span>
-              <span className="text-zinc-500 font-mono text-[10px]">
+              <span className="text-zinc-400 font-mono text-[10px] bg-zinc-900 px-2 py-0.5 rounded-md border border-zinc-800">
+                {isArabic ? 'آخر تحديث:' : 'Last updated:'}{' '}
                 {new Date(lastUpdated).toLocaleTimeString(isArabic ? 'ar-EG' : 'en-US', {
                   hour: '2-digit',
                   minute: '2-digit',
-                  second: '2-digit',
                 })}
               </span>
             </div>
@@ -534,76 +517,6 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
 
         {/* Content Body */}
         <main className="flex-1 p-4 sm:p-6 space-y-4 pb-24">
-          {/* Automatic Saved-To-App Notice */}
-          <div className="p-3 rounded-2xl bg-purple-950/30 border border-purple-500/30 flex items-center justify-between gap-3 text-xs shadow-md">
-            <div className="flex items-center gap-2 text-purple-300">
-              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>
-                {isArabic
-                  ? 'تمت إضافة هذه الصفحة تلقائياً إلى تبويب "المشارَك معي" في تطبيقك!'
-                  : 'Automatically saved to your "Shared with Me" spaces in your app!'}
-              </span>
-            </div>
-            {onExploreApp && (
-              <button
-                type="button"
-                onClick={() => {
-                  onExploreApp();
-                  window.dispatchEvent(
-                    new CustomEvent('open_shared_accounts_hub', {
-                      detail: { tab: 'shared_with_me', folderId: folder?.id },
-                    })
-                  );
-                }}
-                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold shrink-0 transition active:scale-95 cursor-pointer text-xs"
-              >
-                {isArabic ? 'عرض في التطبيق' : 'View in App'}
-              </button>
-            )}
-          </div>
-
-          {/* Active Members Live Strip */}
-          {((folder?.members && folder.members.length > 0) || folderOwner16) && (
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar text-xs">
-              {/* Owner Chip */}
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900/90 border border-blue-500/30 shrink-0 shadow-sm">
-                <div className="w-5 h-5 rounded-full overflow-hidden bg-blue-600/30 border border-blue-500/40 flex items-center justify-center text-[11px] shrink-0">
-                  {effectiveOwnerPhoto ? (
-                    <img src={effectiveOwnerPhoto} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <span>{effectiveOwnerAvatar}</span>
-                  )}
-                </div>
-                <span className="font-semibold text-white max-w-[100px] truncate">{effectiveOwnerName}</span>
-                <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  {isArabic ? 'المالك' : 'Owner'}
-                </span>
-              </div>
-
-              {/* Members */}
-              {(folder?.members || []).map((m, idx) => {
-                const mid = cleanNumericId(m.numericId);
-                const prof = mid ? liveProfiles[mid] : undefined;
-                const mName = prof?.name || m.name || (mid ? `User ${mid.slice(0, 4)}` : 'Member');
-                const mRawPhoto = (prof?.photoURL && prof.photoURL.trim()) || m.photoURL || '';
-                const mPhoto = isRealPhotoUrl(mRawPhoto) ? mRawPhoto.trim() : '';
-                const mAvatar = prof?.avatar || (!isRealPhotoUrl(mRawPhoto) && mRawPhoto ? mRawPhoto : (m.avatar || '👤'));
-
-                return (
-                  <div key={m.numericId || idx} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800 shrink-0 shadow-sm">
-                    <div className="w-5 h-5 rounded-full overflow-hidden bg-purple-600/30 border border-purple-500/40 flex items-center justify-center text-[11px] shrink-0">
-                      {mPhoto ? (
-                        <img src={mPhoto} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <span>{mAvatar}</span>
-                      )}
-                    </div>
-                    <span className="font-semibold text-zinc-300 max-w-[100px] truncate">{mName}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
           {/* 1. Global Financial Net Metrics Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="p-4 rounded-3xl bg-zinc-900 border border-zinc-800 shadow-md">
@@ -753,7 +666,6 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                                   {dayGroup.txs.map((tx) => {
                                     const isTransfer = tx.type === 'transfer';
                                     const isIncome = tx.type === 'income';
-                                    const isExpense = tx.type === 'expense';
 
                                     const fromAcc = tx.accountId ? accountMap.get(tx.accountId) : undefined;
                                     const toAcc = tx.toAccountId ? accountMap.get(tx.toAccountId) : undefined;
@@ -763,28 +675,38 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                                     const fromIcon = tx.fromAccountIcon || fromAcc?.icon || '🏦';
                                     const toIcon = tx.toAccountIcon || toAcc?.icon || '🏦';
 
-                                    let title = '';
+                                    const timeFormatted = tx.time ? formatTime12h(tx.time, isArabic ? 'ar' : 'en') : '';
+
                                     if (isTransfer) {
-                                      title = isArabic ? `من ${fromName} إلى ${toName}` : `From ${fromName} → To ${toName}`;
-                                    } else if (tx.description && tx.description.trim() !== '') {
+                                      return (
+                                        <TransferCard
+                                          key={tx.id}
+                                          transaction={tx}
+                                          fromAccount={fromAcc}
+                                          toAccount={toAcc}
+                                          fromName={fromName}
+                                          toName={toName}
+                                          fromIcon={fromIcon}
+                                          toIcon={toIcon}
+                                          fromColor={fromAcc?.color}
+                                          toColor={toAcc?.color}
+                                          currencySymbol={currencySymbol}
+                                          language={isArabic ? 'ar' : 'en'}
+                                          timeFormatted={timeFormatted}
+                                          onClick={() => setViewingTx(tx)}
+                                        />
+                                      );
+                                    }
+
+                                    let title = '';
+                                    if (tx.description && tx.description.trim() !== '') {
                                       title = tx.description;
                                     } else {
                                       title = tx.categoryName || (isArabic ? 'معاملة مالية' : 'Transaction');
                                     }
 
-                                    const timeFormatted = tx.time ? formatTime12h(tx.time, isArabic ? 'ar' : 'en') : '';
-
-                                    let amountColorClass = 'text-blue-400';
-                                    let amountSign = '';
-                                    if (isIncome) {
-                                      amountColorClass = 'text-emerald-500';
-                                      amountSign = '+';
-                                    } else if (isExpense) {
-                                      amountColorClass = 'text-red-500';
-                                      amountSign = '-';
-                                    } else {
-                                      amountColorClass = 'text-blue-400';
-                                    }
+                                    const amountColorClass = isIncome ? 'text-emerald-500' : 'text-red-500';
+                                    const amountSign = isIncome ? '+' : '-';
 
                                     return (
                                       <div
@@ -797,27 +719,15 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                                         <div className="flex items-center justify-between w-full">
                                           {/* Left: Category Icon */}
                                           <div className="flex items-center gap-3 min-w-0">
-                                            {isTransfer ? (
-                                              <TransferBadge
-                                                fromIcon={fromIcon}
-                                                fromName={fromName}
-                                                fromColor={fromAcc?.color}
-                                                toIcon={toIcon}
-                                                toName={toName}
-                                                toColor={toAcc?.color}
-                                                size="md"
-                                              />
-                                            ) : (
-                                              <div
-                                                className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
-                                                  isIncome
-                                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                                }`}
-                                              >
-                                                {tx.categoryIcon || '💵'}
-                                              </div>
-                                            )}
+                                            <div
+                                              className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
+                                                isIncome
+                                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                                  : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                              }`}
+                                            >
+                                              {tx.categoryIcon || '💵'}
+                                            </div>
 
                                             {/* Center: Title & Metadata Subtitle */}
                                             <div className="min-w-0 text-left rtl:text-right">
@@ -836,9 +746,6 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                                                 )}
                                               </div>
                                               <div className="text-xs text-zinc-400 truncate mt-0.5 flex items-center gap-1.5 flex-wrap">
-                                                {isTransfer && (
-                                                  <span className="text-blue-400 font-semibold">{isArabic ? 'تحويل' : 'Transfer'}</span>
-                                                )}
                                                 {timeFormatted && <span>{timeFormatted}</span>}
                                                 {tx.categoryName && (
                                                   <>
@@ -854,31 +761,6 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                                                     </span>
                                                   </>
                                                 )}
-                                                {/* Live Transaction Author Badge */}
-                                                {((tx as any).sender16Id || (tx as any).senderName) && (() => {
-                                                  const s16 = cleanNumericId((tx as any).sender16Id);
-                                                  const sProf = s16 ? liveProfiles[s16] : undefined;
-                                                  const authorName = sProf?.name || (tx as any).senderName || (s16 ? `User ${s16.slice(0, 4)}` : '');
-                                                  const authorRawPhoto = (sProf?.photoURL && sProf.photoURL.trim()) || '';
-                                                  const authorPhoto = isRealPhotoUrl(authorRawPhoto) ? authorRawPhoto : '';
-                                                  const authorAvatar = sProf?.avatar || (!isRealPhotoUrl(authorRawPhoto) && authorRawPhoto ? authorRawPhoto : ((tx as any).senderAvatar || '👤'));
-
-                                                  if (!authorName) return null;
-
-                                                  return (
-                                                    <>
-                                                      <span className="text-zinc-600">•</span>
-                                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-zinc-800 border border-zinc-700/80 text-[10px] text-zinc-300 max-w-[130px] truncate">
-                                                        {authorPhoto ? (
-                                                          <img src={authorPhoto} alt="" className="w-3 h-3 rounded-full object-cover shrink-0" />
-                                                        ) : (
-                                                          <span className="text-[9px] shrink-0">{authorAvatar}</span>
-                                                        )}
-                                                        <span className="truncate">{authorName}</span>
-                                                      </span>
-                                                    </>
-                                                  );
-                                                })()}
                                               </div>
                                             </div>
                                           </div>
@@ -890,35 +772,6 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                                             </div>
                                           </div>
                                         </div>
-
-                                        {/* Transfer: Before & After Balances for BOTH accounts */}
-                                        {isTransfer && (tx.fromBalanceBefore !== undefined || tx.toBalanceBefore !== undefined) && (
-                                          <div className="mt-2.5 pt-2 border-t border-zinc-800/60 flex flex-wrap items-center gap-1.5 sm:gap-2.5 text-[10px] font-mono">
-                                            {tx.fromBalanceBefore !== undefined && tx.fromBalanceAfter !== undefined && (
-                                              <div className="flex items-center gap-1 bg-zinc-950/90 border border-zinc-800/80 px-2 py-0.5 rounded-lg max-w-full">
-                                                <span className="text-xs shrink-0">{fromIcon}</span>
-                                                <span className="font-semibold text-zinc-300 truncate max-w-[85px] sm:max-w-[110px]">
-                                                  {fromName}:
-                                                </span>
-                                                <span className="text-zinc-400">{formatCurrency(tx.fromBalanceBefore, currencySymbol, isArabic ? 'ar' : 'en')}</span>
-                                                <span className="text-red-400 font-bold">→</span>
-                                                <span className="font-bold text-red-400">{formatCurrency(tx.fromBalanceAfter, currencySymbol, isArabic ? 'ar' : 'en')}</span>
-                                              </div>
-                                            )}
-
-                                            {tx.toBalanceBefore !== undefined && tx.toBalanceAfter !== undefined && (
-                                              <div className="flex items-center gap-1 bg-zinc-950/90 border border-zinc-800/80 px-2 py-0.5 rounded-lg max-w-full">
-                                                <span className="text-xs shrink-0">{toIcon}</span>
-                                                <span className="font-semibold text-zinc-300 truncate max-w-[85px] sm:max-w-[110px]">
-                                                  {toName}:
-                                                </span>
-                                                <span className="text-zinc-400">{formatCurrency(tx.toBalanceBefore, currencySymbol, isArabic ? 'ar' : 'en')}</span>
-                                                <span className="text-emerald-400 font-bold">→</span>
-                                                <span className="font-bold text-emerald-400">{formatCurrency(tx.toBalanceAfter, currencySymbol, isArabic ? 'ar' : 'en')}</span>
-                                              </div>
-                                            )}
-                                          </div>
-                                        )}
                                       </div>
                                     );
                                   })}
@@ -1098,35 +951,6 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
                     {viewingTx.time && ` • ${formatTime12h(viewingTx.time, isArabic ? 'ar' : 'en')}`}
                   </span>
                 </div>
-
-                {/* Transaction Author in Modal */}
-                {((viewingTx as any).sender16Id || (viewingTx as any).senderName) && (() => {
-                  const s16 = cleanNumericId((viewingTx as any).sender16Id);
-                  const sProf = s16 ? liveProfiles[s16] : undefined;
-                  const authorName = sProf?.name || (viewingTx as any).senderName || (s16 ? `User ${s16.slice(0, 4)}` : '');
-                  const authorRawPhoto = (sProf?.photoURL && sProf.photoURL.trim()) || '';
-                  const authorPhoto = isRealPhotoUrl(authorRawPhoto) ? authorRawPhoto : '';
-                  const authorAvatar = sProf?.avatar || (!isRealPhotoUrl(authorRawPhoto) && authorRawPhoto ? authorRawPhoto : ((viewingTx as any).senderAvatar || '👤'));
-
-                  if (!authorName) return null;
-
-                  return (
-                    <div className="flex items-center justify-between py-1 border-b border-zinc-800/40">
-                      <span className="text-zinc-400 flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5 text-purple-400" />
-                        <span>{isArabic ? 'بواسطة:' : 'Added by:'}</span>
-                      </span>
-                      <span className="font-semibold text-white flex items-center gap-1.5">
-                        {authorPhoto ? (
-                          <img src={authorPhoto} alt="" className="w-4 h-4 rounded-full object-cover" />
-                        ) : (
-                          <span>{authorAvatar}</span>
-                        )}
-                        <span>{authorName}</span>
-                      </span>
-                    </div>
-                  );
-                })()}
 
                 {/* Description / Notes */}
                 {viewingTx.description && viewingTx.description.trim() !== '' && (

@@ -1408,7 +1408,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     if (scope === 'all') {
       const linkedIds = new Set(
-        transactions.filter((tx) => tx.recurringRuleId === finalRule.id).map((tx) => tx.id)
+        transactions
+          .filter((tx) => tx.recurringRuleId === finalRule.id && !tx.isIndividuallyEdited)
+          .map((tx) => tx.id)
       );
 
       if (linkedIds.size > 0) {
@@ -1428,14 +1430,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             categoryName: finalRule.categoryName,
             categoryIcon: finalRule.categoryIcon,
             description: finalRule.description,
+            updatedAt: nowMs,
           };
           for (const k of TRANSFER_FIELDS) delete next[k];
           return next as Transaction;
         };
 
+        // Recalculate affected balances strictly in chronological order
         let list = transactions.map((tx) => (linkedIds.has(tx.id) ? retro(tx) : tx));
+        list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
         const updatedLinked: Transaction[] = [];
-        const snapshot = list;
+        const snapshot = [...list];
         list = snapshot.map((tx) => {
           if (!linkedIds.has(tx.id)) return tx;
           let nt = tx;
@@ -2786,6 +2791,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const updateTransaction = (updatedTx: Transaction) => {
     let finalTx = updatedTx;
+    if (finalTx.recurringRuleId) {
+      finalTx = {
+        ...finalTx,
+        isIndividuallyEdited: true,
+      };
+    }
     let updatedList = transactions.map((t) => (t.id === finalTx.id ? finalTx : t));
 
     // If transfer transaction, recalculate and record before & after balances for BOTH accounts
@@ -3695,7 +3706,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [activeSharedId, setActiveSharedId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       const search = new URLSearchParams(window.location.search);
-      const share = search.get('share') || search.get('sharedAccountId');
+      const share = search.get('share') || search.get('sharedAccountId') || (search.get('link') ? `link_${search.get('link')}` : null);
       return share && share.trim() ? share.trim() : null;
     }
     return null;
@@ -3734,12 +3745,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     u.searchParams.delete('sharedAccountId');
     u.searchParams.delete('sharedData');
     u.searchParams.delete('share');
+    u.searchParams.delete('link');
     window.history.replaceState({}, '', u.pathname + (u.search ? u.search : ''));
   };
 
   // When an invitation link is opened (?share=...), automatically register it into "Shared with Me"
   useEffect(() => {
     if (!activeSharedId) return;
+    if (activeSharedId.startsWith('link_')) return; // Do not auto-register public link mirrors into member slots
     fetchShareFolderFromCloud(activeSharedId).then((folder) => {
       if (folder) {
         registerReceivedShareFolder(

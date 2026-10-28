@@ -91,16 +91,24 @@ export const UserSearchPicker: React.FC<UserSearchPickerProps> = ({
   const loadContacts = useCallback(() => {
     try {
       const list = loadDeduplicatedContacts(cleanMyId);
-      setKnownContactsList(list.slice(0, 10));
+      setKnownContactsList(list.slice(0, 20));
 
       // Asynchronously verify against Firebase and prune stale accounts in background
-      pruneStaleContacts(list.slice(0, 10), (prunedId) => {
+      pruneStaleContacts(list.slice(0, 20), (prunedId) => {
         setKnownContactsList((prev) => prev.filter((c) => c.numericId !== prunedId));
       }).catch(() => {});
     } catch {
       setKnownContactsList([]);
     }
   }, [cleanMyId]);
+
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     loadContacts();

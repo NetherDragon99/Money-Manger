@@ -2,23 +2,38 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
 import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw, Trash2 } from 'lucide-react';
-import { TransactionType, RecurringFrequency, RecurringTransaction, AdvancedScheduleConfig } from '../types';
+import { TransactionType, RecurringFrequency, RecurringTransaction, AdvancedScheduleConfig, Transaction } from '../types';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatDisplayNumber } from '../utils/dateCycle';
-import { calculateNextDueDate, getScheduleSummaryText, migrateRecurringRule, normalizeHHMM, normalizeTimesList } from '../utils/recurring';
+import { calculateNextDueDate, getScheduleSummaryText, migrateRecurringRule, normalizeHHMM, normalizeTimesList, getNextNOccurrences, OccurrencePreviewItem } from '../utils/recurring';
 import { Numpad } from './Numpad';
 import { MiniDateTimePicker } from './MiniDateTimePicker';
 import { CategoryDirectoryModal } from './CategoryDirectoryModal';
 import { getLocalizedCurrencySymbol } from '../utils/currencies';
+import { ShareFolder } from '../utils/shareFolders';
 
 const TYPES: TransactionType[] = ['income', 'expense', 'transfer'];
 
-export const TransactionModal: React.FC = () => {
+export interface TransactionModalProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+  sharedSpace?: ShareFolder | null;
+  editingTransaction?: Transaction | null;
+  onSaveSharedTransaction?: (tx: Transaction, isEdit: boolean) => void;
+}
+
+export const TransactionModal: React.FC<TransactionModalProps> = ({
+  isOpen: propIsOpen,
+  onClose: propOnClose,
+  sharedSpace = null,
+  editingTransaction = null,
+  onSaveSharedTransaction,
+}) => {
   const {
     isAddTxModalOpen,
     editingTx,
     closeAddTxModal,
-    accounts,
-    categories,
+    accounts: appAccounts,
+    categories: appCategories,
     addTransaction,
     updateTransaction,
     addRecurringTransaction,
@@ -33,6 +48,22 @@ export const TransactionModal: React.FC = () => {
     applyRecurringRuleEdit,
     transactions,
   } = useApp();
+
+  const isSharedMode = Boolean(sharedSpace);
+  const effectiveIsOpen = propIsOpen !== undefined ? propIsOpen : isAddTxModalOpen;
+  const activeEditingTx = isSharedMode ? editingTransaction : editingTx;
+
+  const accounts = useMemo(() => {
+    return isSharedMode && sharedSpace?.payload?.accounts && sharedSpace.payload.accounts.length > 0
+      ? sharedSpace.payload.accounts
+      : appAccounts;
+  }, [isSharedMode, sharedSpace, appAccounts]);
+
+  const categories = useMemo(() => {
+    return isSharedMode && sharedSpace?.payload?.categories && sharedSpace.payload.categories.length > 0
+      ? sharedSpace.payload.categories
+      : appCategories;
+  }, [isSharedMode, sharedSpace, appCategories]);
 
   const isArabic = settings.language === 'ar';
 
@@ -53,6 +84,7 @@ export const TransactionModal: React.FC = () => {
   const [isClosing, setIsClosing] = useState<boolean>(false);
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
   const [recurringFrequency, setRecurringFrequency] = useState<RecurringFrequency>('monthly');
+  const [savedSimpleFrequency, setSavedSimpleFrequency] = useState<RecurringFrequency>('monthly');
   const [pendingRecurringEdit, setPendingRecurringEdit] = useState<RecurringTransaction | null>(null);
 
   // Advanced Recurring Schedule State
@@ -60,6 +92,7 @@ export const TransactionModal: React.FC = () => {
   const [advancedTab, setAdvancedTab] = useState<'weekdays' | 'month_days' | 'times_daily'>('weekdays');
   const [useWeekdayFilter, setUseWeekdayFilter] = useState<boolean>(false);
   const [selectedDaysOfWeek, setSelectedDaysOfWeek] = useState<number[]>([1]); // default Mon
+  const [intervalWeeks, setIntervalWeeks] = useState<number>(1); // range 1-12, anchored to rule's start week
   const [useMonthDayFilter, setUseMonthDayFilter] = useState<boolean>(false);
   const [selectedDaysOfMonth, setSelectedDaysOfMonth] = useState<number[]>([1]);
   const [timesOfDay, setTimesOfDay] = useState<string[]>(['09:00']);
@@ -258,7 +291,11 @@ export const TransactionModal: React.FC = () => {
     setAccountDropdownOpen(null);
     setTimeout(() => {
       setIsClosing(false);
-      closeAddTxModal();
+      if (propOnClose) {
+        propOnClose();
+      } else {
+        closeAddTxModal();
+      }
     }, 180);
   };
 
@@ -286,7 +323,7 @@ export const TransactionModal: React.FC = () => {
   const prevEditingTxIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isAddTxModalOpen) {
+    if (!effectiveIsOpen) {
       prevIsOpenRef.current = false;
       prevEditingTxIdRef.current = null;
       setAccountDropdownOpen(null);
@@ -296,7 +333,7 @@ export const TransactionModal: React.FC = () => {
     }
 
     const isNewlyOpened = !prevIsOpenRef.current;
-    const currentTxId = editingTx ? editingTx.id : editingRecurring ? 'rec:' + editingRecurring.id : null;
+    const currentTxId = activeEditingTx ? activeEditingTx.id : (!isSharedMode && editingRecurring) ? 'rec:' + editingRecurring.id : null;
     const isDifferentTx = currentTxId !== prevEditingTxIdRef.current;
 
     if (!isNewlyOpened && !isDifferentTx) {
@@ -306,20 +343,20 @@ export const TransactionModal: React.FC = () => {
     prevIsOpenRef.current = true;
     prevEditingTxIdRef.current = currentTxId;
 
-    if (editingTx) {
-      setType(editingTx.type);
-      setAmountStr(editingTx.amount.toString());
-      setDate(editingTx.date);
-      setHasTime(Boolean(editingTx.time));
-      setTime(editingTx.time || formatTimeToHHMM(new Date()));
-      setAccountId(editingTx.accountId);
-      setToAccountId(editingTx.toAccountId || '');
-      setCategoryId(editingTx.categoryId || '');
-      setDescription(editingTx.description || '');
+    if (activeEditingTx) {
+      setType(activeEditingTx.type);
+      setAmountStr(activeEditingTx.amount.toString());
+      setDate(activeEditingTx.date);
+      setHasTime(Boolean(activeEditingTx.time));
+      setTime(activeEditingTx.time || formatTimeToHHMM(new Date()));
+      setAccountId(activeEditingTx.accountId);
+      setToAccountId(activeEditingTx.toAccountId || '');
+      setCategoryId(activeEditingTx.categoryId || '');
+      setDescription(activeEditingTx.description || '');
       setIsRecurring(false);
       setRecurringFrequency('monthly');
       setIsAdvancedSchedule(false);
-    } else if (editingRecurring) {
+    } else if (!isSharedMode && editingRecurring) {
       const r = migrateRecurringRule(editingRecurring);
       setType(r.type);
       setAmountStr(r.amount.toString());
@@ -333,11 +370,13 @@ export const TransactionModal: React.FC = () => {
       setDescription(r.description || '');
       setIsRecurring(true);
       setRecurringFrequency(r.frequency);
+      setSavedSimpleFrequency(r.frequency || 'monthly');
       const adv = r.advancedSchedule;
       if (adv && adv.isAdvanced) {
         setIsAdvancedSchedule(true);
         setUseWeekdayFilter(Boolean(adv.useWeekdayFilter ?? r.useWeekdayFilter));
         setSelectedDaysOfWeek(adv.daysOfWeek && adv.daysOfWeek.length > 0 ? adv.daysOfWeek : [1]);
+        setIntervalWeeks(adv.intervalWeeks && adv.intervalWeeks >= 1 && adv.intervalWeeks <= 12 ? adv.intervalWeeks : 1);
         setUseMonthDayFilter(Boolean(adv.useMonthDayFilter ?? r.useMonthDayFilter));
         setSelectedDaysOfMonth(adv.daysOfMonth && adv.daysOfMonth.length > 0 ? adv.daysOfMonth : [1]);
         const times = adv.timesOfDay && adv.timesOfDay.length > 0
@@ -359,6 +398,7 @@ export const TransactionModal: React.FC = () => {
         setIsAdvancedSchedule(false);
         setUseWeekdayFilter(false);
         setSelectedDaysOfWeek([1]);
+        setIntervalWeeks(1);
         setUseMonthDayFilter(false);
         setSelectedDaysOfMonth([1]);
         setTimesOfDay([r.startTime || '09:00']);
@@ -370,14 +410,14 @@ export const TransactionModal: React.FC = () => {
       }
     } else {
       setType('expense');
-      setAmountStr(defaultTxAmount && defaultTxAmount > 0 ? defaultTxAmount.toString() : '0');
+      setAmountStr(defaultTxAmount && defaultTxAmount > 0 && !isSharedMode ? defaultTxAmount.toString() : '0');
       const now = new Date();
       setDate(formatDateToYYYYMMDD(now));
       setHasTime(true);
       const nowTime = formatTimeToHHMM(now);
       setTime(nowTime);
       setDescription('');
-      const defaultAcc = defaultTxAccountId || selectedAccountId || (accounts[0] ? accounts[0].id : '');
+      const defaultAcc = (!isSharedMode && (defaultTxAccountId || selectedAccountId)) || (accounts[0] ? accounts[0].id : '');
       setAccountId(defaultAcc);
       const otherAcc = accounts.find((a) => a.id !== defaultAcc);
       setToAccountId(otherAcc ? otherAcc.id : '');
@@ -393,11 +433,13 @@ export const TransactionModal: React.FC = () => {
         if (sorted[0]) defaultCat = sorted[0];
       }
       setCategoryId(defaultCat ? defaultCat.id : '');
-      setIsRecurring(Boolean(defaultTxIsRecurring));
+      setIsRecurring(Boolean(!isSharedMode && defaultTxIsRecurring));
       setRecurringFrequency('monthly');
+      setSavedSimpleFrequency('monthly');
       setIsAdvancedSchedule(false);
       setUseWeekdayFilter(false);
       setSelectedDaysOfWeek([1]);
+      setIntervalWeeks(1);
       setUseMonthDayFilter(false);
       setSelectedDaysOfMonth([1]);
       setTimesOfDay([nowTime || '09:00']);
@@ -407,7 +449,7 @@ export const TransactionModal: React.FC = () => {
       setSelectedDayOverrideToAdd('');
       setAdvancedTab('weekdays');
     }
-  }, [isAddTxModalOpen, editingTx?.id, editingRecurring?.id, defaultTxIsRecurring, settings.categoryOrder]);
+  }, [effectiveIsOpen, activeEditingTx?.id, editingRecurring?.id, defaultTxIsRecurring, settings.categoryOrder, isSharedMode, accounts, categories]);
 
   // When type changes, ensure valid category selection & Transfer destination
   const prevTypeRef = useRef(type);
@@ -637,6 +679,7 @@ export const TransactionModal: React.FC = () => {
       scheduleType: 'advanced',
       useWeekdayFilter,
       daysOfWeek: useWeekdayFilter ? selectedDaysOfWeek : undefined,
+      intervalWeeks: Math.max(1, Math.min(12, intervalWeeks || 1)),
       useMonthDayFilter,
       daysOfMonth: useMonthDayFilter ? selectedDaysOfMonth : undefined,
       timesOfDay: safeDefaultTimes,
@@ -656,6 +699,7 @@ export const TransactionModal: React.FC = () => {
         isAdvanced: isAdvancedSchedule,
         useWeekdayFilter,
         daysOfWeek: selectedDaysOfWeek,
+        intervalWeeks: isAdvancedSchedule ? intervalWeeks : 1,
         useMonthDayFilter,
         daysOfMonth: selectedDaysOfMonth,
         timesOfDay: timesOfDay.length > 0 ? timesOfDay : [hasTime && time ? time : '09:00'],
@@ -672,6 +716,7 @@ export const TransactionModal: React.FC = () => {
     isAdvancedSchedule,
     useWeekdayFilter,
     selectedDaysOfWeek,
+    intervalWeeks,
     useMonthDayFilter,
     selectedDaysOfMonth,
     timesOfDay,
@@ -711,6 +756,59 @@ export const TransactionModal: React.FC = () => {
     return '';
   }, [isRecurring, isAdvancedSchedule, useWeekdayFilter, selectedDaysOfWeek, useMonthDayFilter, selectedDaysOfMonth, timesOfDay, isArabic]);
 
+  const draftRecurringRule = useMemo<RecurringTransaction | null>(() => {
+    if (!isRecurring) return null;
+    const advConfig = buildAdvConfig();
+    const cleanAmount = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
+    return {
+      id: editingRecurring?.id || 'draft',
+      type,
+      amount: cleanAmount,
+      description: description.trim(),
+      accountId: accountId,
+      toAccountId: toAccountId,
+      categoryId: categoryId,
+      frequency: recurringFrequency,
+      startDate: date,
+      startTime: hasTime ? time : '09:00',
+      nextDueDate: date,
+      autoProcess: true,
+      createdAt: Date.now(),
+      effectiveFrom: editingRecurring?.effectiveFrom,
+      advancedSchedule: advConfig,
+      useWeekdayFilter: advConfig?.useWeekdayFilter,
+      useMonthDayFilter: advConfig?.useMonthDayFilter,
+    };
+  }, [
+    isRecurring,
+    editingRecurring,
+    type,
+    amountStr,
+    description,
+    accountId,
+    toAccountId,
+    categoryId,
+    recurringFrequency,
+    date,
+    hasTime,
+    time,
+    isAdvancedSchedule,
+    useWeekdayFilter,
+    selectedDaysOfWeek,
+    intervalWeeks,
+    useMonthDayFilter,
+    selectedDaysOfMonth,
+    timesOfDay,
+    hasCustomTimes,
+    weekdayTimes,
+    monthDayTimes,
+  ]);
+
+  const next5Occurrences = useMemo<OccurrencePreviewItem[]>(() => {
+    if (!draftRecurringRule) return [];
+    return getNextNOccurrences(draftRecurringRule, 5, Date.now(), isArabic ? 'ar' : 'en');
+  }, [draftRecurringRule, isArabic]);
+
   // Smart Update Rule: In Edit mode, keep Update button disabled until at least one field is modified
   const isModified = useMemo(() => {
     if (editingRecurring) {
@@ -730,20 +828,20 @@ export const TransactionModal: React.FC = () => {
       ]);
       return curSig !== origSig;
     }
-    if (!editingTx) return true;
+    if (!activeEditingTx) return true;
     const numAmt = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
-    if (editingTx.type !== type) return true;
-    if (Math.abs(editingTx.amount - numAmt) > 0.0001) return true;
-    if (editingTx.date !== date) return true;
-    if ((editingTx.time || '') !== (hasTime ? time : '')) return true;
-    if (editingTx.accountId !== accountId) return true;
-    if ((editingTx.toAccountId || '') !== (type === 'transfer' ? toAccountId : '')) return true;
-    if ((editingTx.categoryId || '') !== (type === 'transfer' ? '' : categoryId)) return true;
-    if ((editingTx.description || '') !== description.trim()) return true;
+    if (activeEditingTx.type !== type) return true;
+    if (Math.abs(activeEditingTx.amount - numAmt) > 0.0001) return true;
+    if (activeEditingTx.date !== date) return true;
+    if ((activeEditingTx.time || '') !== (hasTime ? time : '')) return true;
+    if (activeEditingTx.accountId !== accountId) return true;
+    if ((activeEditingTx.toAccountId || '') !== (type === 'transfer' ? toAccountId : '')) return true;
+    if ((activeEditingTx.categoryId || '') !== (type === 'transfer' ? '' : categoryId)) return true;
+    if ((activeEditingTx.description || '') !== description.trim()) return true;
     return false;
   }, [
-    editingTx, editingRecurring, type, amountStr, date, hasTime, time, accountId, toAccountId, categoryId, description,
-    recurringFrequency, isAdvancedSchedule, useWeekdayFilter, selectedDaysOfWeek, useMonthDayFilter,
+    activeEditingTx, editingRecurring, type, amountStr, date, hasTime, time, accountId, toAccountId, categoryId, description,
+    recurringFrequency, isAdvancedSchedule, useWeekdayFilter, selectedDaysOfWeek, intervalWeeks, useMonthDayFilter,
     selectedDaysOfMonth, timesOfDay, hasCustomTimes, weekdayTimes, monthDayTimes,
   ]);
 
@@ -751,13 +849,40 @@ export const TransactionModal: React.FC = () => {
   const isTransferSameAccount = type === 'transfer' && accountId === toAccountId;
   const canSave = numericAmount > 0 && !isTransferSameAccount && isModified && !isFilterEmpty;
 
-  if (!isAddTxModalOpen) return null;
+  if (!effectiveIsOpen) return null;
 
   const handleSave = () => {
     if (!canSave) return;
 
     const finalAccountId = accountId || selectedAccount?.id || '';
     const finalToAccountId = type === 'transfer' ? (toAccountId || selectedToAccount?.id || '') : undefined;
+
+    if (isSharedMode && onSaveSharedTransaction && sharedSpace) {
+      const finalTx: Transaction = {
+        id: activeEditingTx ? activeEditingTx.id : `tx_shared_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type,
+        amount: numericAmount,
+        date,
+        time: hasTime ? time : '',
+        accountId: finalAccountId,
+        toAccountId: finalToAccountId,
+        fromAccountName: selectedAccount?.name,
+        fromAccountIcon: selectedAccount?.icon,
+        toAccountName: selectedToAccount?.name,
+        toAccountIcon: selectedToAccount?.icon,
+        categoryId: type === 'transfer' ? undefined : selectedCategory?.id,
+        categoryName: type === 'transfer' ? undefined : selectedCategory?.name,
+        categoryIcon: type === 'transfer' ? undefined : selectedCategory?.icon,
+        description: description.trim(),
+        createdAt: activeEditingTx?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+        shareId: sharedSpace.id,
+        sender16Id: activeEditingTx?.sender16Id,
+      };
+      onSaveSharedTransaction(finalTx, Boolean(activeEditingTx));
+      handleAnimatedClose();
+      return;
+    }
 
     const payload = {
       type,
@@ -1073,18 +1198,20 @@ export const TransactionModal: React.FC = () => {
                       </span>
                     </button>
                   ))}
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setAccountDropdownOpen(null);
-                      openAddAccountModal();
-                    }}
-                    className="w-full flex items-center gap-2 p-2.5 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/10 border-t border-zinc-800 mt-1 transition cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>{t('addNewAccount')}</span>
-                  </button>
+                  {!isSharedMode && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setAccountDropdownOpen(null);
+                        openAddAccountModal();
+                      }}
+                      className="w-full flex items-center gap-2 p-2.5 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/10 border-t border-zinc-800 mt-1 transition cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>{t('addNewAccount')}</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1224,7 +1351,7 @@ export const TransactionModal: React.FC = () => {
           )}
 
           {/* Modern Responsive Recurring Transaction Toggle (Directly ABOVE Description) */}
-          {!editingTx && (
+          {!editingTx && !isSharedMode && (
             <div className="rounded-2xl bg-zinc-900/70 border border-zinc-800/80 p-2.5 transition-all shadow-sm">
               <div
                 role="button"
@@ -1287,20 +1414,30 @@ export const TransactionModal: React.FC = () => {
                       <button
                         key={freq}
                         type="button"
+                        disabled={isAdvancedSchedule}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (isAdvancedSchedule) return;
                           setRecurringFrequency(freq);
                         }}
-                        className={`py-1.5 px-1 text-[10px] font-bold rounded-lg capitalize transition cursor-pointer text-center truncate ${
-                          recurringFrequency === freq
-                            ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 ring-1 ring-blue-400/50'
-                            : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800/80 hover:bg-zinc-900'
+                        className={`py-1.5 px-1 text-[10px] font-bold rounded-lg capitalize transition text-center truncate ${
+                          isAdvancedSchedule
+                            ? 'opacity-40 cursor-not-allowed bg-zinc-950 text-zinc-500 border border-zinc-850'
+                            : recurringFrequency === freq
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 ring-1 ring-blue-400/50 cursor-pointer'
+                            : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800/80 hover:bg-zinc-900 cursor-pointer'
                         }`}
                       >
                         {getFrequencyLabel(freq)}
                       </button>
                     ))}
                   </div>
+                  {isAdvancedSchedule && (
+                    <div className="mt-1 flex items-center justify-center gap-1 text-[10px] text-zinc-500 font-medium">
+                      <span>🔒</span>
+                      <span>{isArabic ? 'مقفلة: الجدول المتقدم هو المصدر المعتمد للتكرار' : 'Locked: Advanced schedule controls the repeat pattern'}</span>
+                    </div>
+                  )}
 
                   {/* Live Human-Readable Summary Banner */}
                   <div className="mt-2.5 p-2.5 rounded-xl bg-blue-950/40 border border-blue-500/30 flex items-start gap-2 text-blue-200">
@@ -1315,13 +1452,70 @@ export const TransactionModal: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Next 5 Occurrences Preview Banner */}
+                  <div className="mt-2 p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-blue-400" />
+                        <span>{isArabic ? 'الـ5 مرات القادمة للتنفيذ' : 'Next 5 Occurrences'}</span>
+                      </div>
+                      {next5Occurrences.length > 0 && (
+                        <span className="text-[10px] text-zinc-500 font-mono">
+                          {next5Occurrences.length} / 5
+                        </span>
+                      )}
+                    </div>
+
+                    {isFilterEmpty ? (
+                      <div className="py-1 px-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10.5px] text-amber-400 font-medium text-center">
+                        {filterEmptyHint}
+                      </div>
+                    ) : next5Occurrences.length === 0 ? (
+                      <div className="py-2 text-center text-[11px] text-zinc-500 italic">
+                        {isArabic ? 'لا توجد معاملات مجدولة قادمة ضمن الإعدادات الحالية' : 'No upcoming occurrences scheduled with current settings'}
+                      </div>
+                    ) : (
+                      <div className="space-y-1 pt-0.5">
+                        {next5Occurrences.map((occ, idx) => (
+                          <div
+                            key={`${occ.date}_${occ.time}_${idx}`}
+                            className="flex items-center justify-between px-2 py-1 rounded-lg bg-zinc-950/70 border border-zinc-800/60 text-xs font-mono"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="w-4 h-4 rounded-full bg-blue-500/20 text-blue-400 text-[9px] font-bold flex items-center justify-center shrink-0">
+                                {idx + 1}
+                              </span>
+                              <span className="font-semibold text-zinc-200 truncate">
+                                {occ.dayName}
+                              </span>
+                              <span className="text-zinc-500 text-[11px]">
+                                {occ.formattedDate}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/80 text-[10.5px] font-bold text-blue-300">
+                                {occ.formattedTime}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Advanced custom schedule */}
                   <div className="mt-2.5 pt-2.5 border-t border-zinc-800/60">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setIsAdvancedSchedule(!isAdvancedSchedule);
+                        const nextVal = !isAdvancedSchedule;
+                        if (nextVal) {
+                          setSavedSimpleFrequency(recurringFrequency);
+                        } else {
+                          setRecurringFrequency(savedSimpleFrequency);
+                        }
+                        setIsAdvancedSchedule(nextVal);
                       }}
                       className={'w-full flex items-center justify-between px-3 py-2 rounded-xl text-[11px] font-bold transition cursor-pointer border ' + (isAdvancedSchedule ? 'bg-blue-600/15 border-blue-500/40 text-blue-300' : 'bg-zinc-950 border-zinc-800/80 text-zinc-400 hover:text-white')}
                     >
@@ -1474,6 +1668,43 @@ export const TransactionModal: React.FC = () => {
                                   : 'All 7 weekdays are included (no weekday restriction).'}
                               </div>
                             )}
+
+                            {/* Stepper: Every N weeks (default 1, range 1-12, anchored to the rule's start week) */}
+                            <div className="pt-2.5 border-t border-zinc-800/60 flex items-center justify-between gap-2">
+                              <div>
+                                <div className="text-xs font-semibold text-zinc-200">
+                                  {isArabic ? 'تكرار كل (بالأسابيع)' : 'Repeat Every (Weeks)'}
+                                </div>
+                                <div className="text-[10px] text-zinc-500">
+                                  {isArabic
+                                    ? `مرتبط ببداية الأسبوع المحدد (${date})`
+                                    : `Anchored to start week (${date})`}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl p-1 shrink-0">
+                                <button
+                                  type="button"
+                                  disabled={intervalWeeks <= 1}
+                                  onClick={() => setIntervalWeeks((prev) => Math.max(1, prev - 1))}
+                                  className="w-7 h-7 rounded-lg bg-zinc-950 text-zinc-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center font-bold text-sm transition cursor-pointer"
+                                  title={isArabic ? 'تقليل الأسابيع' : 'Decrease weeks'}
+                                >
+                                  -
+                                </button>
+                                <span className="font-mono text-xs font-bold text-blue-400 min-w-[55px] text-center">
+                                  {intervalWeeks} {isArabic ? (intervalWeeks === 1 ? 'أسبوع' : intervalWeeks === 2 ? 'أسبوعين' : 'أسابيع') : (intervalWeeks === 1 ? 'week' : 'weeks')}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={intervalWeeks >= 12}
+                                  onClick={() => setIntervalWeeks((prev) => Math.min(12, prev + 1))}
+                                  className="w-7 h-7 rounded-lg bg-zinc-950 text-zinc-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center font-bold text-sm transition cursor-pointer"
+                                  title={isArabic ? 'زيادة الأسابيع' : 'Increase weeks'}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         )}
 
@@ -1886,14 +2117,16 @@ export const TransactionModal: React.FC = () => {
                 <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
                   {settings.language === 'ar' ? 'التصنيف' : 'Category'}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setShowCategoryDirectory(true)}
-                  className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-blue-600/20 border border-blue-500/40 text-[11px] font-bold text-blue-400 hover:text-blue-300 hover:bg-blue-600/30 transition shrink-0 active:scale-95 cursor-pointer"
-                >
-                  <LayoutGrid className="w-3 h-3" />
-                  <span>{settings.language === 'ar' ? 'عرض الكل' : 'Show All'}</span>
-                </button>
+                {!isSharedMode && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCategoryDirectory(true)}
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-blue-600/20 border border-blue-500/40 text-[11px] font-bold text-blue-400 hover:text-blue-300 hover:bg-blue-600/30 transition shrink-0 active:scale-95 cursor-pointer"
+                  >
+                    <LayoutGrid className="w-3 h-3" />
+                    <span>{settings.language === 'ar' ? 'عرض الكل' : 'Show All'}</span>
+                  </button>
+                )}
               </div>
 
               {/* Horizontally scrollable row of Category pills */}

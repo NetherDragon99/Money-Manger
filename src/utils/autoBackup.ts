@@ -170,7 +170,7 @@ export async function executeAutoBackup(data: AppData): Promise<{ success: boole
   const fileName = `auto_backup_${timestamp}.json`;
 
   const backupPayload = {
-    version: '1.1.59',
+    version: '1.1.60',
     type: 'automated_backup',
     backupDate: new Date().toISOString(),
     ...data,
@@ -733,6 +733,17 @@ export function saveLocalTombstone(tomb: Tombstone): void {
     const current = loadLocalTombstones();
     current[tomb.id] = tomb;
     localStorage.setItem(LOCAL_TOMBSTONES_KEY, JSON.stringify(current));
+  } catch {}
+}
+
+export function removeLocalTombstone(id: string): void {
+  if (typeof localStorage === 'undefined' || !id) return;
+  try {
+    const current = loadLocalTombstones();
+    if (current[id]) {
+      delete current[id];
+      localStorage.setItem(LOCAL_TOMBSTONES_KEY, JSON.stringify(current));
+    }
   } catch {}
 }
 

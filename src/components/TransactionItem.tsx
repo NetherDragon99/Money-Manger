@@ -1,5 +1,5 @@
-import { TransferBadge } from './TransferBadge';
 import React, { useMemo } from 'react';
+import { TransferCard } from './TransferCard';
 import { Transaction } from '../types';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatTime12h } from '../utils/dateCycle';
@@ -57,41 +57,57 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({
   const toName = toAccount?.name || transaction.toAccountName || (settings.language === 'ar' ? 'حساب' : 'Account');
   const fromIcon = fromAccount?.icon || transaction.fromAccountIcon;
   const toIcon = toAccount?.icon || transaction.toAccountIcon;
+  const currencySymbol = settings.currencySymbol || '£';
+  const timeFormatted = transaction.time ? formatTime12h(transaction.time, settings.language) : '';
+
+  // Render unified responsive TransferCard for all transfer transactions
+  if (isTransfer) {
+    return (
+      <TransferCard
+        transaction={transaction}
+        fromAccount={fromAccount}
+        toAccount={toAccount}
+        fromName={fromName}
+        toName={toName}
+        fromIcon={fromIcon}
+        toIcon={toIcon}
+        fromColor={fromAccount?.color}
+        toColor={toAccount?.color}
+        currencySymbol={currencySymbol}
+        language={settings.language}
+        isSelected={isSelected}
+        isMultiSelect={isTxMultiSelect}
+        timeFormatted={timeFormatted}
+        historicalBalances={transferBalances}
+        handlers={handlers}
+        onClick={onClick}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          startTxMultiSelect(transaction.id);
+        }}
+      />
+    );
+  }
 
   let title = '';
-  if (isTransfer) {
-    title = settings.language === 'ar' ? `من ${fromName} إلى ${toName}` : `From ${fromName} → To ${toName}`;
-  } else if (transaction.description && transaction.description.trim() !== '') {
+  if (transaction.description && transaction.description.trim() !== '') {
     title = transaction.description;
   } else {
     title = transaction.categoryName || 'Transaction';
   }
 
-  const timeFormatted = transaction.time ? formatTime12h(transaction.time, settings.language) : '';
   let subtitle = '';
-
-  if (isTransfer) {
-    const transferLabel = settings.language === 'ar' ? 'تحويل' : 'Transfer';
-    const hasCustomDescription = Boolean(transaction.description && transaction.description.trim() !== '');
-    if (hasCustomDescription) {
-      subtitle = `${transaction.description} • ${timeFormatted ? `${timeFormatted} • ` : ''}${transaction.date}`;
-    } else {
-      subtitle = timeFormatted ? `${timeFormatted} • ${transferLabel}` : `${transferLabel} • ${transaction.date}`;
-    }
+  const hasCustomDescription = Boolean(transaction.description && transaction.description.trim() !== '');
+  if (hasCustomDescription) {
+    subtitle = hideAccountBadge
+      ? `${timeFormatted ? `${timeFormatted} • ` : ''}${transaction.categoryName || ''} • ${transaction.date}`
+      : (timeFormatted ? `${timeFormatted} • ${transaction.categoryName || ''}` : transaction.categoryName || '');
   } else {
-    const hasCustomDescription = Boolean(transaction.description && transaction.description.trim() !== '');
-    if (hasCustomDescription) {
-      subtitle = hideAccountBadge
-        ? `${timeFormatted ? `${timeFormatted} • ` : ''}${transaction.categoryName || ''} • ${transaction.date}`
-        : (timeFormatted ? `${timeFormatted} • ${transaction.categoryName || ''}` : transaction.categoryName || '');
-    } else {
-      subtitle = hideAccountBadge
-        ? (timeFormatted ? `${timeFormatted} • ${transaction.date}` : transaction.date)
-        : (timeFormatted || transaction.date);
-    }
+    subtitle = hideAccountBadge
+      ? (timeFormatted ? `${timeFormatted} • ${transaction.date}` : transaction.date)
+      : (timeFormatted || transaction.date);
   }
 
-  const currencySymbol = settings.currencySymbol || '£';
   let amountColorClass = 'text-blue-400';
   let amountSign = '';
   if (transaction.type === 'income') {
@@ -134,27 +150,15 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({
             </div>
           )}
 
-          {isTransfer ? (
-            <TransferBadge
-              fromIcon={fromIcon}
-              fromName={fromName}
-              fromColor={fromAccount?.color}
-              toIcon={toIcon}
-              toName={toName}
-              toColor={toAccount?.color}
-              size="md"
-            />
-          ) : (
-            <div
-              className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
-                transaction.type === 'income'
-                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                  : 'bg-red-500/10 text-red-400 border border-red-500/20'
-              }`}
-            >
-              {transaction.categoryIcon || '💵'}
-            </div>
-          )}
+          <div
+            className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
+              transaction.type === 'income'
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                : 'bg-red-500/10 text-red-400 border border-red-500/20'
+            }`}
+          >
+            {transaction.categoryIcon || '💵'}
+          </div>
 
           {/* Center: Title & Subtitle */}
           <div className="min-w-0 text-left rtl:text-right">
@@ -185,31 +189,6 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Transfer: Before & After Balances for BOTH accounts */}
-      {isTransfer && transferBalances && (
-        <div className="mt-2.5 pt-2 border-t border-zinc-800/60 flex flex-wrap items-center gap-1.5 sm:gap-2.5 text-[10px] font-mono">
-          <div className="flex items-center gap-1 bg-zinc-950/90 border border-zinc-800/80 px-2 py-0.5 rounded-lg max-w-full">
-            <span className="text-xs shrink-0">{transferBalances.fromAccountIcon}</span>
-            <span className="font-semibold text-zinc-300 truncate max-w-[85px] sm:max-w-[110px]">
-              {transferBalances.fromAccountName}:
-            </span>
-            <span className="text-zinc-400">{formatCurrency(transferBalances.fromBalanceBefore, currencySymbol, settings.language)}</span>
-            <span className="text-red-400 font-bold">→</span>
-            <span className="font-bold text-red-400">{formatCurrency(transferBalances.fromBalanceAfter, currencySymbol, settings.language)}</span>
-          </div>
-
-          <div className="flex items-center gap-1 bg-zinc-950/90 border border-zinc-800/80 px-2 py-0.5 rounded-lg max-w-full">
-            <span className="text-xs shrink-0">{transferBalances.toAccountIcon}</span>
-            <span className="font-semibold text-zinc-300 truncate max-w-[85px] sm:max-w-[110px]">
-              {transferBalances.toAccountName}:
-            </span>
-            <span className="text-zinc-400">{formatCurrency(transferBalances.toBalanceBefore, currencySymbol, settings.language)}</span>
-            <span className="text-emerald-400 font-bold">→</span>
-            <span className="font-bold text-emerald-400">{formatCurrency(transferBalances.toBalanceAfter, currencySymbol, settings.language)}</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -4,6 +4,30 @@ export type { FeatureItem, ReleaseNote };
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.60',
+    releaseDate: 'October 28, 2026',
+    title: {
+      en: 'Shared Space Security & Audit Log, Responsive Transfer Cards & Next Occurrences Preview',
+      ar: 'أمان وتدقيق المساحات المشتركة، بطاقات تحويل متجاوبة ومعاينة المواعيد القادمة',
+    },
+    highlights: {
+      en: [
+        'Sanitized Link Mirror: External share links sync instantly via isolated mirror nodes (shared_accounts/link_${token}) without leaking member data or invite history.',
+        'Bulk Delete Scope & Audit Log: Dedicated scope dialog for owners and editors, coupled with a real-time recent changes audit strip with live profile avatars.',
+        'Responsive Mobile Transfer Cards: Unified two-row layout with clear direction indicators, zero text truncation, and full RTL mirror support.',
+        'Next 5 Occurrences Preview: Real-time preview of upcoming execution dates under schedule summaries with preset locking during advanced scheduling.',
+        'Sidebar Polish & Outer Sign In: Streamlined drawer menu with prominent outer sign-in button for guests and elevated interactive feature cards.',
+      ],
+      ar: [
+        'مرآة آمنة للروابط الخارجية: مزامنة فورية لروابط المشاركة عبر مسار مخصص وآمن دون تسريب بيانات الأعضاء أو سجل الدعوات.',
+        'نطاق الحذف الجماعي وسجل التدقيق: نافذة تأكيد ذكية لمالك ومحرري المساحة، مع شريط مدمج لأحدث التغييرات يوضح صور وأسماء الأعضاء الحية.',
+        'بطاقات تحويل متجاوبة: تصميم موحد ومحسن لعمليات التحويل بتنسيق ثنائي السطور يوضح اتجاه التحويل بدقة دون اقتطاع للنصوص في الشاشات الصغيرة.',
+        'معاينة الـ5 مرات القادمة: استعراض حي وتفاعلي لمواعيد التنفيذ القادمة للقواعد المتكررة مع قفل التضارب عند تفعيل الجدولة المتقدمة.',
+        'تحسين القائمة الجانبية: إزالة الأزرار المكررة، إضافة زر تسجيل دخول مباشر بحساب Google للضيوف، وتطوير أزرار الميزات بأسطح بطاقات حديثة.',
+      ],
+    },
+  },
+  {
     version: '1.1.59',
     releaseDate: 'October 28, 2026',
     title: {

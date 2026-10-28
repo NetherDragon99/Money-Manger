@@ -1,4 +1,4 @@
-import { TransferBadge } from './TransferBadge';
+import { TransferBadge, TransferCard } from './TransferBadge';
 import { formatNumberWithCommas } from '../utils/formatters';
 import React, { useState, useEffect } from 'react';
 import {
@@ -363,6 +363,31 @@ export const SharedAccountLiveView: React.FC<SharedAccountLiveViewProps> = ({
             <div className="space-y-2">
               {transactions.map((tx) => {
                 const isChecked = selectedTxIds.includes(tx.id);
+
+                if (tx.type === 'transfer') {
+                  return (
+                    <TransferCard
+                      key={tx.id}
+                      transaction={tx}
+                      fromName={tx.fromAccountName}
+                      toName={tx.toAccountName}
+                      fromIcon={tx.fromAccountIcon}
+                      toIcon={tx.toAccountIcon}
+                      currencySymbol=""
+                      language={isArabic ? 'ar' : 'en'}
+                      isSelected={isChecked && isSelectiveMode}
+                      isMultiSelect={isSelectiveMode}
+                      onClick={() => {
+                        if (isSelectiveMode) {
+                          setSelectedTxIds((prev) =>
+                            prev.includes(tx.id) ? prev.filter((id) => id !== tx.id) : [...prev, tx.id]
+                          );
+                        }
+                      }}
+                    />
+                  );
+                }
+
                 return (
                   <div
                     key={tx.id}
@@ -391,29 +416,15 @@ export const SharedAccountLiveView: React.FC<SharedAccountLiveViewProps> = ({
                           {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
                         </div>
                       )}
-                      {tx.type === 'transfer' ? (
-                        <TransferBadge
-                          fromIcon={tx.fromAccountIcon}
-                          fromName={tx.fromAccountName}
-                          toIcon={tx.toAccountIcon}
-                          toName={tx.toAccountName}
-                          size="sm"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-lg">
-                          {tx.type === 'income' ? '💵' : '💳'}
-                        </div>
-                      )}
+                      <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-lg shrink-0">
+                        {tx.type === 'income' ? '💵' : '💳'}
+                      </div>
                       <div>
                         <div className="text-xs sm:text-sm font-bold text-white truncate max-w-[180px] sm:max-w-xs">
-                          {tx.type === 'transfer'
-                            ? (isArabic
-                                ? `من ${tx.fromAccountName || 'حساب'} إلى ${tx.toAccountName || 'حساب'}`
-                                : `From ${tx.fromAccountName || 'Account'} → To ${tx.toAccountName || 'Account'}`)
-                            : tx.description || tx.categoryName || 'Transaction'}
+                          {tx.description || tx.categoryName || 'Transaction'}
                         </div>
                         <div className="text-[11px] text-zinc-500">
-                          {tx.type === 'transfer' && tx.description ? `${tx.description} • ${tx.date}` : tx.date}
+                          {tx.date}
                         </div>
                       </div>
                     </div>
