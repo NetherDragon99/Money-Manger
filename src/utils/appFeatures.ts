@@ -4,6 +4,28 @@ export type { FeatureItem, ReleaseNote };
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.57',
+    releaseDate: 'October 28, 2026',
+    title: {
+      en: 'Real-Time Shared Spaces Overhaul: Instant Sync, Live Profiles & Member Cleanup',
+      ar: 'تحديث شامل للمساحات المشتركة: مزامنة فورية، هويات حية وتنظيم الأعضاء',
+    },
+    highlights: {
+      en: [
+        'Instant Real-Time Invites & Smart Reset: Shared spaces appear instantly upon invitation without app reload, with one-time notifications that cleanly reset on re-invite.',
+        'Low-Bandwidth Transaction Sync: Creating, editing, or deleting transactions from inside or outside share views immediately syncs delta updates across both in-app ID shares and link shares.',
+        'Live Profile Broadcast & Avatars: Profile display names, custom photos, and chosen icon avatars sync in real time across member badges and transaction author chips.',
+        'Deduplicated Member Directory: Saved contacts are strictly deduplicated by unique ID, stale accounts are automatically pruned from the server, and manual removal is supported.',
+      ],
+      ar: [
+        'دعوات فورية لحظية وإشعارات ذكية: تظهر المساحات المشتركة فور إرسال الدعوة دون الحاجة لتحديث التطبيق، مع إشعار لمرة واحدة يتجدد بذكاء عند إعادة الدعوة.',
+        'مزامنة فورية خفيفة للمعاملات: إضافة أو تعديل أو حذف المعاملات من أي مكان داخل التطبيق أو خارجه يرسل التحديث فوراً لجميع الأعضاء وروابط المشاركة.',
+        'مزامنة الهوية والصور الحية: تحديث فوري لاسم المستخدم وصورته والرموز التعبيرية المختارة عبر شارات الأعضاء وبطاقات كاتب المعاملة.',
+        'تنظيم جهات الاتصال وحذف المكررات: دمج وتنظيم جهات الاتصال السابقة بدقة حسب المعرّف الفريد، مع حذف الحسابات غير الموجودة وإتاحة خيار الإزالة اليدوية.',
+      ],
+    },
+  },
+  {
     version: '1.1.56',
     releaseDate: 'October 27, 2026',
     title: {
