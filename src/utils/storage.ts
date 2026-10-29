@@ -5,6 +5,8 @@ import { syncAllAccountBalances } from './balanceEngine';
 import { saveItemToIndexedDB, saveFullDataToIndexedDB } from './indexedDB';
 import { debouncedPersist } from './persistQueue';
 import { loadRecurringTransactions, migrateRecurringRule } from './recurring';
+import { writeCurrentSchemaVersion } from './schemaGuard';
+import { formatVersionLabel } from './versionChecker';
 import {
   loadMyShareFolders,
   saveMyShareFolders,
@@ -79,6 +81,7 @@ export function loadInitialData(): AppData {
 function writeNow(key: string, storeName: 'accounts' | 'categories' | 'transactions' | 'settings', value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    writeCurrentSchemaVersion();
   } catch (err) {
     console.error(`Failed to save ${storeName} to localStorage:`, err);
   }
@@ -109,7 +112,8 @@ export function saveSettings(settings: AppSettings): void {
 export function exportAllDataAsJSON(data: AppData & { recurringTransactions?: RecurringTransaction[] }): void {
   const recurring = (data.recurringTransactions || loadRecurringTransactions()).map(migrateRecurringRule);
   const exportPayload = {
-    version: '1.1.60',
+    version: '1.1.61',
+    versionLabel: formatVersionLabel('1.1.61'),
     exportDate: new Date().toISOString(),
     ...data,
     recurringTransactions: recurring,
@@ -134,7 +138,8 @@ export function exportAccountAsJSON(account: Account, allTransactions: Transacti
     (tx) => tx.accountId === account.id || tx.toAccountId === account.id
   );
   const payload = {
-    version: '1.1.60',
+    version: '1.1.61',
+    versionLabel: formatVersionLabel('1.1.61'),
     type: 'single_account_backup',
     exportDate: new Date().toISOString(),
     account,

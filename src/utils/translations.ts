@@ -1,3 +1,5 @@
+import { formatVersionLabel, CURRENT_APP_VERSION } from './versionChecker';
+
 export const translations = {
   en: {
     // Navigation
@@ -136,7 +138,11 @@ export const translations = {
     installedPWA: 'PWA is installed and running',
     exportAllData: 'Export All Data (JSON)',
     importData: 'Import Data (JSON)',
-    version: 'Version: Beta v1.1.60',
+    version: `Version: ${formatVersionLabel(CURRENT_APP_VERSION)}`,
+    newerOfficialReleaseAvailable: 'A newer official release is available',
+    switchToStable: 'Switch to Stable',
+    confirmSwitchToStable:
+      'Switch to official stable release? You will be redirected to the stable version of the app.',
     biometricLock: 'Biometric & PIN Lock',
     securityLock: 'Security & App Lock',
     requireLock: 'Require authentication on startup & background return',
@@ -207,6 +213,30 @@ export const translations = {
     exportedSuccess: 'Data downloaded!',
     invalidFileError: 'Invalid backup file format.',
     errorOccurred: 'An error occurred. Please try again.',
+    // Schema Safety Guard
+    newerSchemaTitle: 'Newer Data Version Detected',
+    newerSchemaDesc:
+      'Your stored data was created or updated by a newer version of the application (Beta). To prevent data loss or corruption, this stable build cannot open, migrate, or overwrite this data. Please continue using the Beta version.',
+    openBetaApp: 'Open Beta Version',
+    schemaVersionMismatch: 'Data Schema v{0} (Supported: v{1})',
+
+    // Channel Management & Join Beta Warning Modal
+    joinBeta: 'Join Beta',
+    leaveBeta: 'Leave Beta',
+    betaNotAvailable: 'No beta available right now',
+    betaModalTitle: 'Experimental Beta Channel Warning',
+    betaModalSubtitle: 'High-Severity Stability Caution',
+    betaModalWarning1:
+      'Beta builds are experimental developer releases intended for early feature testing. They may be unstable, contain critical bugs, or experience unexpected data schema changes.',
+    betaModalWarning2:
+      'This build is not recommended for everyday financial tracking. Are you sure you want to proceed?',
+    betaBackupCheckbox: 'Download safety backup file (.json) before switching',
+    stayOnStable: 'Stay on Stable Version',
+    confirmJoinBeta: 'I Understand the Risks, Join Beta',
+    confirmLeaveBeta: 'Are you sure you want to leave the Beta channel and return to the Stable version?',
+    leavingBetaToast: 'Returning to Stable version...',
+    betaUnreachableToast: 'Beta version is currently unreachable. Staying on Stable.',
+    switchingToBetaToast: 'Safety snapshot saved. Switching to Beta...',
   },
   ar: {
     // Navigation
@@ -345,7 +375,11 @@ export const translations = {
     installedPWA: 'التطبيق مثبت ويعمل كـ PWA',
     exportAllData: 'تصدير كافة البيانات (JSON)',
     importData: 'استيراد البيانات (JSON)',
-    version: 'الإصدار: Beta v1.1.60',
+    version: `الإصدار: ${formatVersionLabel(CURRENT_APP_VERSION)}`,
+    newerOfficialReleaseAvailable: 'يتوفر إصدار رسمي أحدث',
+    switchToStable: 'الانتقال إلى الإصدار المستقر',
+    confirmSwitchToStable:
+      'الانتقال إلى الإصدار المستقر الرسمي؟ سيتم تحويلك إلى النسخة المستقرة من التطبيق.',
     biometricLock: 'قفل التطبيق بالبصمة ورمز PIN',
     securityLock: 'الأمان وقفل التطبيق',
     requireLock: 'طلب المصادقة عند فتح التطبيق والعودة من الخلفية',
@@ -416,6 +450,31 @@ export const translations = {
     exportedSuccess: 'تم تحميل ملف البيانات!',
     invalidFileError: 'صيغة ملف النسخة الاحتياطية غير صالحة.',
     errorOccurred: 'حدث خطأ، يرجى المحاولة مرة أخرى.',
+
+    // Schema Safety Guard
+    newerSchemaTitle: 'تم اكتشاف إصدار بيانات أحدث',
+    newerSchemaDesc:
+      'تم إنشاء بياناتك المخزنة أو تحديثها بواسطة إصدار أحدث من التطبيق (النسخة التجريبية). لمنع فقدان البيانات أو تلفها، لا يمكن لهذا الإصدار المستقر فتح هذه البيانات أو ترحيلها أو استبدالها. يرجى المتابعة باستخدام النسخة التجريبية.',
+    openBetaApp: 'فتح النسخة التجريبية',
+    schemaVersionMismatch: 'مخطط البيانات v{0} (المدعوم: v{1})',
+
+    // Channel Management & Join Beta Warning Modal
+    joinBeta: 'الانضمام للنسخة التجريبية (Beta)',
+    leaveBeta: 'مغادرة البيتا',
+    betaNotAvailable: 'لا توجد نسخة تجريبية حالياً',
+    betaModalTitle: 'تحذير: القناة التجريبية (Beta)',
+    betaModalSubtitle: 'تنبيه عالي الأهمية بشأن عدم الاستقرار',
+    betaModalWarning1:
+      'إصدارات البيتا هي نسخ تجريبية مخصصة للمطورين لاختبار الميزات الجديدة مبكراً. قد تكون غير مستقرة أو تحتوي على أخطاء برمجية حرجة أو تعديلات في بنية البيانات.',
+    betaModalWarning2:
+      'لا يُنصح بهذه النسخة للاستخدام اليومي المستمر. هل أنت متأكد من رغبتك في المتابعة؟',
+    betaBackupCheckbox: 'تحميل ملف نسخة احتياطية للأمان (.json) قبل التبديل',
+    stayOnStable: 'البقاء على النسخة المستقرة',
+    confirmJoinBeta: 'أفهم المخاطر، انضم للبيتا',
+    confirmLeaveBeta: 'هل أنت متأكد من مغادرة القناة التجريبية والعودة إلى النسخة المستقرة؟',
+    leavingBetaToast: 'جاري العودة إلى النسخة المستقرة...',
+    betaUnreachableToast: 'تعذر الوصول إلى النسخة التجريبية حالياً. تم البقاء على النسخة المستقرة.',
+    switchingToBetaToast: 'تم حفظ نسخة الأمان. جاري الانتقال للبيتا...',
   },
 };
 

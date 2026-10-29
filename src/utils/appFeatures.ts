@@ -4,6 +4,28 @@ export type { FeatureItem, ReleaseNote };
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.61',
+    releaseDate: 'October 29, 2026',
+    title: {
+      en: 'Two-Channel Deployment (Stable & Beta), "Join Beta" Opt-In & Channel Switching Safeguards',
+      ar: 'نظام القناتين (المستقرة والتجريبية)، خيار الانضمام للبيتا وضمانات تبديل القنوات',
+    },
+    highlights: {
+      en: [
+        'Two-Channel Builds: Independent Stable and Beta deployment channels with isolated service workers and cache scopes so experimental builds never disrupt stable users.',
+        'Join Beta Toggle: Direct opt-in control in Sidebar with dynamic reachability checks and real-time availability status.',
+        'High-Severity Caution Modal: Comprehensive safety warning with pre-beta IndexedDB safety snapshots and optional JSON backup export before entering the Beta channel.',
+        'Safe Channel Switching: Bidirectional switching between Stable and Beta with confirmation prompts and smooth base-path transitions.',
+      ],
+      ar: [
+        'نظام الإصدار المزدوج: فصل تام بين القناة المستقرة والقناة التجريبية بنطاقات تخزين مؤقت وعمال خدمة مستقلين لمنع أي تعارض.',
+        'زر الانضمام للبيتا: مفتاح تبديل في القائمة الجانبية مع فحص تلقائي لتوفر النسخة التجريبية وحالتها المباشرة.',
+        'تحذير عالي الأهمية ونسخ احتياطي: تنبيه أمان شامل مع حفظ تلقائي لقطة أمان في قاعدة البيانات وتنزيل ملف اختياري قبل التبديل للبيتا.',
+        'تبديل آمن بين القنوات: إمكانية التبديل والعودة بين المستقرة والتجريبية بكل سلاسة مع نوافذ تأكيد وانتقال آمن بين المسارات.',
+      ],
+    },
+  },
+  {
     version: '1.1.60',
     releaseDate: 'October 28, 2026',
     title: {

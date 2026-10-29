@@ -32,7 +32,14 @@ import {
   LogOut,
   LogIn,
   ChevronRight,
+  ExternalLink,
 } from 'lucide-react';
+import {
+  IS_BETA_BUILD,
+  checkBetaAvailability,
+  getBetaAppUrl,
+  getStableAppUrl,
+} from '../utils/channel';
 import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from '../utils/security';
 import { format16DigitId } from '../utils/userId';
 import { isRealPhotoUrl } from '../utils/shareFolders';
@@ -40,10 +47,16 @@ import { PWAInstallButton } from './PWAInstallButton';
 import { installPwa } from '../utils/pwaInstall';
 import { ExportCustomizeModal } from './ExportCustomizeModal';
 import { ImportCustomizeModal } from './ImportCustomizeModal';
+import { JoinBetaWarningModal } from './JoinBetaWarningModal';
+import { saveItemToIndexedDB } from '../utils/indexedDB';
+import { exportAllDataAsJSON } from '../utils/storage';
 import {
   checkForAppUpdates,
   applyLatestAppUpdate,
   CURRENT_APP_VERSION,
+  formatVersionLabel,
+  checkForNewerOfficialRelease,
+  type StableReleaseCheckResult,
   isAutoUpdateEnabled,
   setAutoUpdateEnabled,
 } from '../utils/versionChecker';
@@ -95,6 +108,150 @@ export const Sidebar: React.FC = () => {
   const [updateStep, setUpdateStep] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(auth.currentUser);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [newerStableInfo, setNewerStableInfo] = useState<StableReleaseCheckResult | null>(null);
+  const [isStableNoticeDismissed, setIsStableNoticeDismissed] = useState(false);
+
+  useEffect(() => {
+    if (!IS_BETA_BUILD) return;
+    let active = true;
+    checkForNewerOfficialRelease()
+      .then((res) => {
+        if (!active || !res?.hasNewerStable) return;
+        try {
+          const dismissed = sessionStorage.getItem('mm_dismiss_stable_notice');
+          if (dismissed === res.stableVersion) return;
+        } catch {}
+        setNewerStableInfo(res);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleDismissStableNotice = () => {
+    setIsStableNoticeDismissed(true);
+    try {
+      if (newerStableInfo?.stableVersion) {
+        sessionStorage.setItem('mm_dismiss_stable_notice', newerStableInfo.stableVersion);
+      }
+    } catch {}
+  };
+
+  const handleSwitchToStable = () => {
+    const message = t('confirmSwitchToStable');
+    const confirmed = window.confirm(message);
+    if (confirmed) {
+      try {
+        localStorage.removeItem('mm_join_beta');
+      } catch {}
+      if (newerStableInfo?.stableBaseUrl) {
+        window.location.href = newerStableInfo.stableBaseUrl;
+      }
+    }
+  };
+
+  const [isJoinBetaModalOpen, setIsJoinBetaModalOpen] = useState(false);
+  const [isBetaAvailable, setIsBetaAvailable] = useState<boolean | null>(() => {
+    if (IS_BETA_BUILD) return null;
+    try {
+      const cached = sessionStorage.getItem('mm_beta_reachable');
+      return cached !== null ? cached === 'true' : null;
+    } catch {
+      return null;
+    }
+  });
+  const [joinBetaActive, setJoinBetaActive] = useState(() => {
+    if (IS_BETA_BUILD) return true;
+    try {
+      return localStorage.getItem('mm_join_beta') === 'true' || Boolean(settings?.joinBeta);
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (IS_BETA_BUILD) return;
+    checkBetaAvailability().then((reachable) => {
+      setIsBetaAvailable(reachable);
+    });
+  }, []);
+
+  const handleToggleJoinBeta = () => {
+    if (isBetaAvailable === false) {
+      showToast(t('betaNotAvailable'), 'info');
+      return;
+    }
+    // Block activation and open prominent warning modal
+    setIsJoinBetaModalOpen(true);
+  };
+
+  const handleConfirmJoinBeta = async (downloadBackup: boolean) => {
+    try {
+      // 1. Create local backup snapshot in IndexedDB
+      const snapshotPayload = {
+        version: CURRENT_APP_VERSION,
+        versionLabel: formatVersionLabel(CURRENT_APP_VERSION),
+        type: 'pre_beta_safety_backup',
+        backupDate: new Date().toISOString(),
+        timestamp: Date.now(),
+        accounts,
+        categories,
+        transactions,
+        settings,
+        recurringTransactions,
+      };
+      await saveItemToIndexedDB('mm_pre_beta_backup', snapshotPayload);
+
+      // 2. Download file if chosen
+      if (downloadBackup) {
+        exportAllDataAsJSON({ accounts, categories, transactions, settings, recurringTransactions });
+      }
+
+      // 3. Verify reachability at that exact moment
+      const isReachable = await checkBetaAvailability(true);
+      if (!isReachable) {
+        showToast(t('betaUnreachableToast'), 'error');
+        setIsJoinBetaModalOpen(false);
+        return;
+      }
+
+      // 4. Set mm_join_beta in localStorage and settings
+      try {
+        localStorage.setItem('mm_join_beta', 'true');
+      } catch {}
+      updateSettings({ joinBeta: true });
+      setJoinBetaActive(true);
+
+      showToast(t('switchingToBetaToast'), 'info');
+      setIsJoinBetaModalOpen(false);
+
+      // 5. Navigate to beta site safely
+      setTimeout(() => {
+        window.location.href = getBetaAppUrl();
+      }, 350);
+    } catch (err) {
+      console.error('Error switching to beta channel:', err);
+      showToast(isArabic ? 'حدث خطأ أثناء الانتقال للبيتا' : 'Error switching to Beta', 'error');
+      setIsJoinBetaModalOpen(false);
+    }
+  };
+
+  const handleLeaveBeta = () => {
+    const message = t('confirmLeaveBeta');
+    const confirmed = window.confirm(message);
+    if (confirmed) {
+      try {
+        localStorage.removeItem('mm_join_beta');
+      } catch {}
+      updateSettings({ joinBeta: false });
+      setJoinBetaActive(false);
+      showToast(t('leavingBetaToast'), 'info');
+      setTimeout(() => {
+        window.location.href = getStableAppUrl();
+      }, 350);
+    }
+  };
 
   const handleOuterSignIn = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1077,6 +1234,41 @@ export const Sidebar: React.FC = () => {
             </button>
           </div>
 
+          {/* Official Stable Release Notice for Beta Channel Users */}
+          {IS_BETA_BUILD && newerStableInfo && !isStableNoticeDismissed && (
+            <div className="p-3 rounded-2xl bg-gradient-to-r from-blue-950/70 to-indigo-950/70 border border-blue-500/40 text-white relative shadow-sm">
+              <button
+                type="button"
+                onClick={handleDismissStableNotice}
+                className="absolute top-2 right-2 rtl:right-auto rtl:left-2 p-1 text-zinc-400 hover:text-white rounded-lg transition cursor-pointer"
+                title={isArabic ? 'إغلاق' : 'Dismiss'}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+              <div className="flex items-start gap-2.5 pr-6 rtl:pr-0 rtl:pl-6">
+                <div className="w-7 h-7 rounded-lg bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-400 shrink-0 mt-0.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-blue-200 leading-snug">
+                    {t('newerOfficialReleaseAvailable')}
+                  </p>
+                  <p className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                    v{newerStableInfo.stableVersion}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleSwitchToStable}
+                className="mt-2.5 w-full py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-md shadow-blue-600/20 transition cursor-pointer"
+              >
+                <span>{t('switchToStable')}</span>
+                <ExternalLink className={`w-3.5 h-3.5 ${isArabic ? 'rotate-180' : ''}`} />
+              </button>
+            </div>
+          )}
+
           {/* App Updates & Version Controls (Auto-Update Switch & Check & Update Now) */}
           <div className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3 shadow-sm">
             <div className="flex items-center justify-between">
@@ -1089,36 +1281,122 @@ export const Sidebar: React.FC = () => {
                     {isArabic ? 'تحديثات التطبيق' : 'App Updates'}
                   </h4>
                   <p className="text-[10px] text-zinc-400 truncate mt-0.5 font-mono">
-                    {isArabic ? `الإصدار الحالي: Beta v${CURRENT_APP_VERSION}` : `Current: Beta v${CURRENT_APP_VERSION}`}
+                    {isArabic
+                      ? `الإصدار الحالي: ${formatVersionLabel(CURRENT_APP_VERSION)}`
+                      : `Current: ${formatVersionLabel(CURRENT_APP_VERSION)}`}
                   </p>
                 </div>
               </div>
 
-              {/* Auto-Update Toggle Switch */}
+              {/* Channel & Auto-Update Controls */}
               <div className="flex items-center gap-2 shrink-0">
-                <span className="text-[10px] font-semibold text-zinc-300">
-                  {isArabic ? 'تلقائي' : 'Auto'}
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoUpdateEnabled}
-                  onClick={handleToggleAutoUpdate}
-                  className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
-                    autoUpdateEnabled ? 'bg-emerald-600' : 'bg-zinc-750 border border-zinc-700'
-                  }`}
-                  title={isArabic ? 'تفعيل/تعطيل التحديث التلقائي' : 'Toggle background auto-update'}
-                >
-                  <span
-                    className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform absolute top-0.75 ${
-                      autoUpdateEnabled
-                        ? (isArabic ? 'right-1' : 'left-4.5')
-                        : (isArabic ? 'right-4.5' : 'left-1')
+                {/* Auto-Update Toggle Switch */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[10px] font-semibold text-zinc-300">
+                    {isArabic ? 'تلقائي' : 'Auto'}
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={autoUpdateEnabled}
+                    onClick={handleToggleAutoUpdate}
+                    className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
+                      autoUpdateEnabled ? 'bg-emerald-600' : 'bg-zinc-750 border border-zinc-700'
                     }`}
-                  />
-                </button>
+                    title={isArabic ? 'تفعيل/تعطيل التحديث التلقائي' : 'Toggle background auto-update'}
+                  >
+                    <span
+                      className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform absolute top-0.75 ${
+                        autoUpdateEnabled
+                          ? (isArabic ? 'right-1' : 'left-4.5')
+                          : (isArabic ? 'right-4.5' : 'left-1')
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="h-4 w-[1px] bg-zinc-800" />
+
+                {/* Join / Leave Beta Control */}
+                {IS_BETA_BUILD ? (
+                  <div className="flex items-center gap-1.5 shrink-0" title={t('leaveBeta')}>
+                    <span className="text-[10px] font-semibold text-amber-400">
+                      {isArabic ? 'بيتا' : 'Beta'}
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={true}
+                      onClick={handleLeaveBeta}
+                      className="w-9 h-5 rounded-full transition-colors relative cursor-pointer bg-amber-600"
+                      title={t('leaveBeta')}
+                    >
+                      <span
+                        className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform absolute top-0.75 ${
+                          isArabic ? 'right-1' : 'left-4.5'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    className="flex items-center gap-1.5 shrink-0"
+                    title={
+                      isBetaAvailable === false
+                        ? t('betaNotAvailable')
+                        : (isArabic ? 'الانضمام للنسخة التجريبية (Beta)' : 'Join Beta')
+                    }
+                  >
+                    <span className="text-[10px] font-semibold text-zinc-300">
+                      {isArabic ? 'بيتا' : 'Beta'}
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      disabled={isBetaAvailable === false}
+                      aria-checked={joinBetaActive}
+                      onClick={handleToggleJoinBeta}
+                      className={`w-9 h-5 rounded-full transition-colors relative ${
+                        isBetaAvailable === false
+                          ? 'opacity-40 cursor-not-allowed bg-zinc-800 border border-zinc-700'
+                          : joinBetaActive
+                          ? 'bg-amber-600 cursor-pointer'
+                          : 'bg-zinc-750 border border-zinc-700 cursor-pointer'
+                      }`}
+                    >
+                      <span
+                        className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform absolute top-0.75 ${
+                          joinBetaActive
+                            ? (isArabic ? 'right-1' : 'left-4.5')
+                            : (isArabic ? 'right-4.5' : 'left-1')
+                        }`}
+                      />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Subtle notice when beta is unavailable */}
+            {!IS_BETA_BUILD && isBetaAvailable === false && (
+              <p className="text-[10px] text-zinc-500 italic px-0.5">
+                {t('betaNotAvailable')}
+              </p>
+            )}
+
+            {/* In Beta channel banner */}
+            {IS_BETA_BUILD && (
+              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300">
+                <span className="truncate font-medium">{t('leaveBeta')}</span>
+                <button
+                  type="button"
+                  onClick={handleLeaveBeta}
+                  className="shrink-0 font-bold underline hover:text-white ms-2 text-[10px] cursor-pointer"
+                >
+                  {isArabic ? 'العودة للمستقرة' : 'Switch to Stable'}
+                </button>
+              </div>
+            )}
 
             {/* In-App Progress Indicator during Update Checking & Applying */}
             {updateStep && (
@@ -1249,10 +1527,12 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar Footer: Version (v1.1.60) & Refresh Button */}
+        {/* Sidebar Footer: Version (v1.1.61) & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-zinc-300">Version: Beta v{CURRENT_APP_VERSION}</span>
+            <span className="font-bold text-zinc-300">
+              Version: {formatVersionLabel(CURRENT_APP_VERSION)}
+            </span>
           </div>
 
           {/* Refresh App Button */}
@@ -1278,6 +1558,13 @@ export const Sidebar: React.FC = () => {
       <ImportCustomizeModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
+      />
+
+      {/* High-Severity Join Beta Warning Modal */}
+      <JoinBetaWarningModal
+        isOpen={isJoinBetaModalOpen}
+        onClose={() => setIsJoinBetaModalOpen(false)}
+        onConfirm={handleConfirmJoinBeta}
       />
     </div>
   );

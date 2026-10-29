@@ -19,7 +19,7 @@ import {
   ArrowLeft,
   ArrowRight,
 } from 'lucide-react';
-import { CURRENT_APP_VERSION } from '../utils/versionChecker';
+import { CURRENT_APP_VERSION, formatVersionLabel } from '../utils/versionChecker';
 import { FeatureItem, ReleaseNote } from '../types';
 
 interface AppFeaturesModalProps {
@@ -165,7 +165,9 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                 {isArabic ? 'دليل الاستخدام ومميزات التطبيق' : 'User Guide & Feature Directory'}
               </h3>
               <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
-                {isArabic ? `الإصدار الحالي: Beta v${CURRENT_APP_VERSION}` : `Current Release: Beta v${CURRENT_APP_VERSION}`}
+                {isArabic
+                  ? `الإصدار الحالي: ${formatVersionLabel(CURRENT_APP_VERSION)}`
+                  : `Current Release: ${formatVersionLabel(CURRENT_APP_VERSION)}`}
               </p>
             </div>
           </div>
@@ -283,7 +285,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                                 {isArabic ? 'سجل التحديثات والإصدارات' : 'Release Notes & Updates'}
                               </h4>
                               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                                Beta v{CURRENT_APP_VERSION}
+                                {formatVersionLabel(CURRENT_APP_VERSION)}
                               </span>
                             </div>
                             <p className="text-xs text-zinc-400 mt-1">

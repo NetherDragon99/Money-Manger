@@ -164,6 +164,7 @@ export interface AppSettings {
   budgetAlertsEnabled?: boolean;
   budgetAlertThreshold?: number; // default 80
   security?: SecuritySettings;
+  joinBeta?: boolean;
   updatedAt?: number;
 }
 

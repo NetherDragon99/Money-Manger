@@ -53,6 +53,8 @@ import { flushOfflineQueue } from './utils/persistQueue';
 import { ShareFolderModal } from './components/ShareFolderModal';
 import { RemainingBalanceModal } from './components/RemainingBalanceModal';
 import { installPwa } from './utils/pwaInstall';
+import { isStoredSchemaNewer } from './utils/schemaGuard';
+import { SchemaGuardNotice } from './components/SchemaGuardNotice';
 
 const TABS: TabType[] = ['home', 'budget', 'insights', 'accounts', 'calculator'];
 
@@ -922,6 +924,12 @@ const MainAppContent: React.FC = () => {
 };
 
 export default function App() {
+  const [newerSchemaDetected] = useState(() => isStoredSchemaNewer());
+
+  if (newerSchemaDetected) {
+    return <SchemaGuardNotice />;
+  }
+
   return (
     <AppProvider>
       <NavigationProvider>

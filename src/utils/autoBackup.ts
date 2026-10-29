@@ -18,9 +18,11 @@ import { ShareFolder, loadMyShareFolders, loadReceivedShareFolders } from './sha
 import { queueOfflineCloudBackup } from './persistQueue';
 import { INITIAL_CATEGORIES } from './constants';
 import { migrateRecurringRule } from './recurring';
+import { formatVersionLabel } from './versionChecker';
 
 export interface FullAppBackupPayload {
   version: string;
+  versionLabel?: string;
   backupDate: string;
   timestamp: number;
   updatedAt?: number;
@@ -170,7 +172,8 @@ export async function executeAutoBackup(data: AppData): Promise<{ success: boole
   const fileName = `auto_backup_${timestamp}.json`;
 
   const backupPayload = {
-    version: '1.1.60',
+    version: '1.1.61',
+    versionLabel: formatVersionLabel('1.1.61'),
     type: 'automated_backup',
     backupDate: new Date().toISOString(),
     ...data,

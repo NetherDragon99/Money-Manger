@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - master
+      - beta
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -36,8 +38,29 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Build Vite project
-        run: npm run build
+      - name: Build Stable Channel
+        run: |
+          echo "Building Stable channel from main branch..."
+          git checkout origin/main || git checkout main
+          npm run build
+
+      - name: Build Beta Channel (if beta branch exists)
+        run: |
+          if git ls-remote --exit-code --heads origin beta > /dev/null 2>&1; then
+            echo "Remote 'beta' branch detected. Building Beta channel into dist/beta..."
+            git fetch origin beta:beta
+            BETA_DIR=$(mktemp -d)
+            git worktree add "$BETA_DIR" beta
+            cd "$BETA_DIR"
+            npm install --legacy-peer-deps
+            npx vite build --mode beta --outDir "$GITHUB_WORKSPACE/dist/beta"
+            cd "$GITHUB_WORKSPACE"
+            git worktree remove "$BETA_DIR" --force
+            echo "Beta build completed successfully."
+          else
+            echo "No remote 'beta' branch exists yet. Skipping beta build."
+            rm -rf dist/beta
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

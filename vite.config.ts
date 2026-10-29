@@ -5,23 +5,73 @@ import path from 'path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(({ command }) => {
+export default defineConfig(({ command, mode }) => {
   const isDev = command === 'serve';
-  const base = isDev ? '/' : './';
+  const isBeta = mode === 'beta' || process.env.VITE_APP_CHANNEL === 'beta';
+  const channel = isBeta ? 'beta' : 'stable';
+
+  // Base URL configuration:
+  // Stable keeps the exact existing base: isDev ? '/' : './'
+  // When process.env.BASE_URL is provided (e.g. on GitHub Pages /Money-Manger/), normalize and append beta/ for beta
+  const rawBase = process.env.BASE_URL || (isDev ? '/' : './');
+  const existingBase = rawBase.endsWith('/') ? rawBase : `${rawBase}/`;
+  const betaBase = existingBase === './' ? './' : `${existingBase}beta/`;
+  const base = isBeta ? betaBase : rawBase;
+
+  // Channel scope for service worker and manifest
+  const channelScope = isBeta
+    ? (existingBase === './' ? './' : `${existingBase}beta/`)
+    : base;
+
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
+  const versionString = packageJson.version || '1.1.61';
 
   return {
     base,
+    define: {
+      'import.meta.env.VITE_APP_CHANNEL': JSON.stringify(channel),
+    },
+    build: {
+      outDir: isBeta ? 'dist/beta' : 'dist',
+      emptyOutDir: !isBeta,
+    },
     plugins: [
       react(),
       tailwindcss(),
       {
         name: 'html-version-transform',
         transformIndexHtml(html: string) {
-          return html.replace(/%APP_VERSION%/g, packageJson.version || '1.1.60');
+          const appName = isBeta ? 'Personal Finance Tracker (Beta)' : 'Personal Finance Tracker';
+          const shortName = isBeta ? 'FinanceApp Beta' : 'FinanceApp';
+          const versionLabel = isBeta ? `Beta v${versionString}` : `v${versionString}`;
+          let res = html.replace(/%APP_VERSION%/g, versionString);
+          res = res.replace(/%BOOT_VERSION_LABEL%/g, versionLabel);
+          res = res.replace(/Beta v%APP_VERSION%/g, versionLabel);
+          if (isBeta) {
+            res = res.replace(/<title>Personal Finance Tracker<\/title>/g, `<title>${appName}</title>`);
+            res = res.replace(/content="FinanceApp"/g, `content="${shortName}"`);
+          }
+          return res;
+        },
+      },
+      {
+        name: 'channel-version-json',
+        generateBundle() {
+          const versionData = {
+            version: versionString,
+            channel,
+            isBeta,
+            stableVersion: versionString,
+          };
+          this.emitFile({
+            type: 'asset',
+            fileName: 'version.json',
+            source: JSON.stringify(versionData, null, 2),
+          });
         },
       },
       VitePWA({
+        scope: channelScope,
         registerType: 'autoUpdate',
         injectRegister: 'auto',
         includeAssets: [
@@ -33,9 +83,9 @@ export default defineConfig(({ command }) => {
           'pwa-512x512.png',
         ],
         manifest: {
-          id: base,
-          name: 'Personal Finance Tracker',
-          short_name: 'FinanceApp',
+          id: isBeta ? 'mm-beta' : base,
+          name: isBeta ? 'Personal Finance Tracker (Beta)' : 'Personal Finance Tracker',
+          short_name: isBeta ? 'FinanceApp Beta' : 'FinanceApp',
           description:
             'An offline-first, OLED dark-themed personal finance tracker PWA with running balances, multi-account management, custom cycles, and budgeting.',
           theme_color: '#000000',
@@ -43,8 +93,8 @@ export default defineConfig(({ command }) => {
           display: 'standalone',
           display_override: ['standalone'],
           orientation: 'any',
-          start_url: base,
-          scope: base,
+          start_url: channelScope,
+          scope: channelScope,
           categories: ['finance', 'productivity', 'utilities'],
           prefer_related_applications: false,
           icons: [
@@ -69,23 +119,31 @@ export default defineConfig(({ command }) => {
           ],
         },
         workbox: {
+          cacheId: isBeta ? 'mm-beta' : undefined,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,json,woff2}'],
+          globIgnores: isBeta ? [] : ['beta/**', '**/beta/**'],
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
           navigateFallback: isDev ? '/index.html' : 'index.html',
-          navigateFallbackDenylist: [/^\/api/],
+          navigateFallbackDenylist: isBeta ? [/^\/api/] : [/^\/api/, /\/beta\//],
           runtimeCaching: [
             {
-              urlPattern: ({ request }) =>
-                request.destination === 'document' ||
-                request.destination === 'script' ||
-                request.destination === 'style' ||
-                request.destination === 'image' ||
-                request.destination === 'font',
+              urlPattern: ({ request, url }) => {
+                if (!isBeta && /\/beta\//.test(url.pathname)) {
+                  return false;
+                }
+                return (
+                  request.destination === 'document' ||
+                  request.destination === 'script' ||
+                  request.destination === 'style' ||
+                  request.destination === 'image' ||
+                  request.destination === 'font'
+                );
+              },
               handler: 'NetworkFirst',
               options: {
-                cacheName: 'app-offline-cache',
+                cacheName: isBeta ? 'app-offline-cache-beta' : 'app-offline-cache',
                 expiration: {
                   maxEntries: 100,
                   maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
