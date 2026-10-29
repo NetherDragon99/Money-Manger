@@ -3,6 +3,20 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import { getActiveLanguage, resetAppCacheSafely } from './utils/activeLanguage';
+import {
+  reconcileBetaChannelStartup,
+  initPwaAutoUpdate,
+  checkAndApplyColdStartUpdate,
+} from './utils/autoUpdateService';
+
+// Reconcile beta channel flag at startup
+reconcileBetaChannelStartup();
+
+// Initialize PWA Service Worker in prompt mode with safe auto-update
+initPwaAutoUpdate();
+
+// Apply any deferred update on cold start
+checkAndApplyColdStartUpdate();
 
 declare global {
   interface BeforeInstallPromptEvent extends Event {

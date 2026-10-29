@@ -154,6 +154,12 @@ export interface SecuritySettings {
   requireLockOnResume: boolean;
 }
 
+export interface PoolAllocationConfig {
+  minorUnits: number;
+  percent: number;
+  mode: 'percent' | 'amount';
+}
+
 export interface SmartBudgetBaselineConfig {
   startDay?: number | 'auto';
   plannedIncome?: number;
@@ -167,6 +173,11 @@ export interface SmartBudgetBaselineConfig {
   includedAccountIds?: string[];
   includePrivateAccounts?: boolean;
   minorPerMajor?: number;
+  poolsConfig?: {
+    savings: PoolAllocationConfig;
+    fixed: PoolAllocationConfig;
+    outings: PoolAllocationConfig;
+  };
 }
 
 export interface SmartBudgetCycleOverride extends Partial<SmartBudgetBaselineConfig> {

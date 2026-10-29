@@ -720,6 +720,7 @@ const MainAppContent: React.FC = () => {
 
   // Background Scroll Lock (Safe Hotfix): Locks scrolling without position:fixed or touch-target freezing
   useEffect(() => {
+    (window as any).__isAnyModalOpen = isAnyModalOpen;
     if (isAnyModalOpen) {
       document.body.style.overflow = 'hidden';
 

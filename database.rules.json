@@ -1,5 +1,9 @@
 {
   "rules": {
+    "app_config": {
+      ".read": "auth != null",
+      ".write": false
+    },
     "users": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",

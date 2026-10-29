@@ -51,6 +51,11 @@ import {
   loadSecuritySettings,
   isSessionUnlocked,
   setSessionUnlocked,
+  isAppLockActive,
+  recordAppBackground,
+  shouldAppLockOnForeground,
+  resetSessionLockState,
+  recordSuccessfulUnlock,
 } from '../utils/security';
 import { evaluateBudgetAlerts, BudgetAlert } from '../utils/budgetAlerts';
 import {
@@ -484,8 +489,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // App Lock & Biometrics state
   const [isAppLocked, setIsAppLocked] = useState<boolean>(() => {
-    const sec = loadSecuritySettings();
-    return sec.isLockEnabled && !isSessionUnlocked();
+    return isAppLockActive();
   });
 
   // Cloud Sync & Dual-Layer Hydration Engine
@@ -529,6 +533,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const inFlightSyncCountRef = useRef(0);
   const [inFlightSyncCount, setInFlightSyncCount] = useState(0);
   const syncSafetyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    (window as any).__isSyncFlushRunning = isSyncing || inFlightSyncCount > 0;
+  }, [isSyncing, inFlightSyncCount]);
 
   const triggerGranularPush = useCallback(async (fn: () => Promise<void>) => {
     inFlightSyncCountRef.current++;
@@ -991,6 +999,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // Listen for decoupled app_toast events from background utilities
+  useEffect(() => {
+    const handleAppToast = (e: any) => {
+      if (e?.detail?.message) {
+        showToast(e.detail.message, e.detail.type || 'info', e.detail.action, e.detail.duration);
+      }
+    };
+    window.addEventListener('app_toast', handleAppToast);
+    return () => window.removeEventListener('app_toast', handleAppToast);
+  }, [showToast]);
+
   // Translation helper
   const t = useCallback(
     (key: keyof typeof translations.en): string => {
@@ -1225,21 +1244,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     saveItemToIndexedDB('recurring_transactions', recurringTransactions).catch(() => {});
   }, [recurringTransactions]);
 
-  // App Lock & Recurring catch-up on resume / visibility change
+  // App Lock & Recurring catch-up on resume / visibility change / pagehide / pageshow
   useEffect(() => {
     const handleVisibility = () => {
-      const sec = loadSecuritySettings();
-      if (sec.isLockEnabled && document.visibilityState === 'visible' && sec.requireLockOnResume) {
-        setIsAppLocked(true);
-        setSessionUnlocked(false);
-      }
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'hidden') {
+        recordAppBackground();
+      } else if (document.visibilityState === 'visible') {
+        if (shouldAppLockOnForeground()) {
+          setIsAppLocked(true);
+        }
         processDueRecurring();
       }
     };
 
+    const handlePageHide = () => {
+      recordAppBackground();
+    };
+
+    const handlePageShow = () => {
+      if (shouldAppLockOnForeground()) {
+        setIsAppLocked(true);
+      }
+    };
+
     document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
+    };
   }, []);
 
   // Periodic catch-up check for due recurring rules while app is active
@@ -1254,9 +1289,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Listen for security settings updates live
   useEffect(() => {
-    const handleSecUpdate = (e: any) => {
-      const sec = e?.detail || loadSecuritySettings();
-      if (!sec.isLockEnabled) {
+    const handleSecUpdate = () => {
+      if (!isAppLockActive()) {
         setIsAppLocked(false);
       }
     };
@@ -1265,12 +1299,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
 
   const unlockApp = () => {
-    setSessionUnlocked(true);
+    recordSuccessfulUnlock();
     setIsAppLocked(false);
   };
 
   const lockApp = () => {
-    setSessionUnlocked(false);
+    resetSessionLockState();
     setIsAppLocked(true);
   };
 

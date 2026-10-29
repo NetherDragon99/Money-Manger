@@ -19,6 +19,29 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.64',
+    isBeta: true,
+    releaseDate: 'October 30, 2026',
+    title: {
+      en: 'Faster App Lock, Unified Budget Controls and Safe Updates',
+      ar: 'قفل أسرع للتطبيق، تحكم مرن في الميزانية وتحديثات آمنة',
+    },
+    highlights: {
+      en: [
+        'Instant passcode response: Enter your passcode smoothly with quick responsive feedback and a short return window',
+        'Coordinated budget sliders: Change your budget by dragging sliders or typing exact amounts side by side with zero math errors',
+        'Automatic safety backup: Updates install safely while saving a fresh safety copy of your data before applying improvements',
+        'Smart spending assistant: Helpful budgeting tips with simple sharing options to keep your numbers balanced',
+      ],
+      ar: [
+        'قفل فوري وسريع: اكتب رمز الدخول بسهولة وسرعة وبدون أي تأخير مع مهلة مريحة عند الرجوع للتطبيق',
+        'تحكم متكامل في الميزانية: عدل ميزانيتك بالشرائح أو اكتب المبالغ يدوياً جنباً إلى جنب مع توزيع دقيق وتلقائي',
+        'نسخة أمان تلقائية: التحديثات بتنزل بأمان بعد حفظ نسخة احتياطية فورية لبياناتك تلقائياً قبل أي ترقية',
+        'مساعد ذكي للميزانية: نصائح واقتراحات سهلة ومتوازنة لمصاريفك مع خيارات مرنة لحماية أموالك',
+      ],
+    },
+  },
+  {
     version: '1.1.63',
     isBeta: true,
     releaseDate: 'October 29, 2026',

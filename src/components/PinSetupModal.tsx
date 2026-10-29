@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { X, Fingerprint, Lock, Check, Delete, ArrowLeft, Shield } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import {
-  hashPin,
+  hashPinPBKDF2,
   loadSecuritySettings,
   saveSecuritySettings,
   isBiometricAvailable,
   registerBiometrics,
   setSessionUnlocked,
+  setAppLockEnabledLocally,
+  recordSuccessfulUnlock,
 } from '../utils/security';
 
 interface PinSetupModalProps {
@@ -49,9 +51,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
         const next = pin + num;
         setPin(next);
         if (next.length === 4) {
-          setTimeout(() => {
-            setStep('confirm');
-          }, 180);
+          setStep('confirm');
         }
       }
     } else {
@@ -99,8 +99,8 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
 
     setIsSaving(true);
     try {
-      // 1. Hash PIN
-      const hashed = await hashPin(pin);
+      // 1. Hash PIN with salted PBKDF2
+      const hashed = await hashPinPBKDF2(pin);
 
       // 2. Try registering WebAuthn platform passkey if selected
       let biometricRegistered = false;
@@ -123,7 +123,8 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
       };
 
       saveSecuritySettings(updated);
-      setSessionUnlocked(true);
+      setAppLockEnabledLocally(true);
+      recordSuccessfulUnlock();
 
       // 4. Instant UI Feedback
       showToast(
@@ -208,7 +209,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
               return (
                 <div
                   key={idx}
-                  className={`w-4 h-4 rounded-full transition-all duration-200 ${
+                  className={`w-4 h-4 rounded-full transition-all duration-75 ${
                     filled
                       ? 'bg-blue-500 scale-110 shadow-[0_0_10px_rgba(59,130,246,0.6)]'
                       : 'bg-zinc-800 border border-zinc-700'

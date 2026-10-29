@@ -11,7 +11,7 @@
  * - 3 non-destructive rebalance scenarios (Protect Savings, Trim Outings, Emergency Savings Absorption)
  */
 
-import type { Transaction, Account, Category, RecurringTransaction } from '../types/index.ts';
+import type { Transaction, Account, Category, RecurringTransaction, PoolAllocationConfig } from '../types/index.ts';
 
 // ============================================================================
 // NAMED CONSTANTS FOR ANOMALY DETECTION
@@ -59,6 +59,12 @@ export interface SmartBudgetConfig {
   includePrivateAccounts?: boolean;
   /** Minor units per major unit (default: 100 for cents/piastres) */
   minorPerMajor?: number;
+  /** Dual-input bidirectional pool configurations */
+  poolsConfig?: {
+    savings: PoolAllocationConfig;
+    fixed: PoolAllocationConfig;
+    outings: PoolAllocationConfig;
+  };
 }
 
 export interface CycleInfo {
@@ -361,24 +367,54 @@ export function evaluateSmartBudget(
   }
 
   // 4. Split Income Into 4 Pools (Minor Units Integer Math)
-  // Pool 1: Savings (locked first)
   let savingsMinor = 0;
-  if (config.savings) {
-    if (config.savings.type === 'percent') {
-      savingsMinor = roundHalfUp(cycleIncomeMinor * (Math.max(0, config.savings.value) / 100));
-    } else {
-      savingsMinor = toMinorUnits(Math.max(0, config.savings.value), minorFactor);
+  let fixedMinor = 0;
+  let outingsMinor = 0;
+
+  if (config.poolsConfig) {
+    if (config.poolsConfig.savings) {
+      if (config.poolsConfig.savings.mode === 'percent') {
+        savingsMinor = roundHalfUp(cycleIncomeMinor * (config.poolsConfig.savings.percent / 100));
+      } else {
+        savingsMinor = config.poolsConfig.savings.minorUnits;
+      }
     }
-    savingsMinor = Math.min(cycleIncomeMinor, savingsMinor);
+    savingsMinor = Math.min(cycleIncomeMinor, Math.max(0, savingsMinor));
+
+    if (config.poolsConfig.fixed) {
+      if (config.poolsConfig.fixed.mode === 'percent') {
+        fixedMinor = roundHalfUp(cycleIncomeMinor * (config.poolsConfig.fixed.percent / 100));
+      } else {
+        fixedMinor = config.poolsConfig.fixed.minorUnits;
+      }
+    }
+    fixedMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor), Math.max(0, fixedMinor));
+
+    if (config.poolsConfig.outings) {
+      if (config.poolsConfig.outings.mode === 'percent') {
+        outingsMinor = roundHalfUp(cycleIncomeMinor * (config.poolsConfig.outings.percent / 100));
+      } else {
+        outingsMinor = config.poolsConfig.outings.minorUnits;
+      }
+    }
+    outingsMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor - fixedMinor), Math.max(0, outingsMinor));
+  } else {
+    // Legacy calculation fallback
+    if (config.savings) {
+      if (config.savings.type === 'percent') {
+        savingsMinor = roundHalfUp(cycleIncomeMinor * (Math.max(0, config.savings.value) / 100));
+      } else {
+        savingsMinor = toMinorUnits(Math.max(0, config.savings.value), minorFactor);
+      }
+      savingsMinor = Math.min(cycleIncomeMinor, savingsMinor);
+    }
+
+    const plannedFixedMinor = toMinorUnits(Math.max(0, config.plannedFixedObligations || 0), minorFactor);
+    fixedMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor), plannedFixedMinor);
+
+    const plannedOutingsMinor = toMinorUnits(Math.max(0, config.outingsBudget || 0), minorFactor);
+    outingsMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor - fixedMinor), plannedOutingsMinor);
   }
-
-  // Pool 2: Fixed Obligations (planned recurring rules + fixed categories)
-  const plannedFixedMinor = toMinorUnits(Math.max(0, config.plannedFixedObligations || 0), minorFactor);
-  const fixedMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor), plannedFixedMinor);
-
-  // Pool 3: Outings & Special Days
-  const plannedOutingsMinor = toMinorUnits(Math.max(0, config.outingsBudget || 0), minorFactor);
-  const outingsMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor - fixedMinor), plannedOutingsMinor);
 
   // Pool 4: Daily Safe-to-Spend (absorbs remainder so sum === cycleIncomeMinor exactly)
   const dailyMinor = Math.max(0, cycleIncomeMinor - savingsMinor - fixedMinor - outingsMinor);

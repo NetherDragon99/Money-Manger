@@ -40,7 +40,16 @@ import {
   getBetaAppUrl,
   getStableAppUrl,
 } from '../utils/channel';
-import { loadSecuritySettings, saveSecuritySettings, isBiometricAvailable } from '../utils/security';
+import {
+  loadSecuritySettings,
+  saveSecuritySettings,
+  isBiometricAvailable,
+  isAppLockEnabledLocally,
+  setAppLockEnabledLocally,
+  getAppLockGracePeriod,
+  setAppLockGracePeriod,
+} from '../utils/security';
+import { PasscodeVerificationModal } from './PasscodeVerificationModal';
 import { format16DigitId } from '../utils/userId';
 import { isRealPhotoUrl } from '../utils/shareFolders';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -60,6 +69,12 @@ import {
   isAutoUpdateEnabled,
   setAutoUpdateEnabled,
 } from '../utils/versionChecker';
+import {
+  applyUpdateSafely,
+  getIsUpdateReady,
+  getLatestPreUpdateSnapshot,
+  restoreFromPreUpdateSnapshot,
+} from '../utils/autoUpdateService';
 import { auth, loginWithGoogle } from '../utils/firebase';
 import { signOut, type User as FirebaseUser } from 'firebase/auth';
 import { WeekStartDay } from '../types';
@@ -105,6 +120,15 @@ export const Sidebar: React.FC = () => {
   const [currencySearch, setCurrencySearch] = useState('');
   const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false);
   const [securitySettings, setSecuritySettings] = useState(() => loadSecuritySettings());
+  const [localLockEnabled, setLocalLockEnabled] = useState(() => isAppLockEnabledLocally());
+  const [gracePeriod, setGracePeriod] = useState(() => getAppLockGracePeriod());
+  const [passcodeModal, setPasscodeModal] = useState<{
+    isOpen: boolean;
+    mode: 'disable_lock' | 'change_grace';
+    targetGrace?: number;
+  }>({ isOpen: false, mode: 'disable_lock' });
+
+  const isAppLockOn = Boolean(securitySettings.isLockEnabled && localLockEnabled && securitySettings.pinHash);
   const [autoUpdateEnabled, setAutoUpdateState] = useState(() => isAutoUpdateEnabled());
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateStep, setUpdateStep] = useState<string | null>(null);
@@ -189,14 +213,13 @@ export const Sidebar: React.FC = () => {
       return null;
     }
   });
-  const [joinBetaActive, setJoinBetaActive] = useState(() => {
-    if (IS_BETA_BUILD) return true;
-    try {
-      return localStorage.getItem('mm_join_beta') === 'true' || Boolean(settings?.joinBeta);
-    } catch {
-      return false;
-    }
-  });
+  const [isUpdateReady, setIsUpdateReady] = useState(() => getIsUpdateReady());
+
+  useEffect(() => {
+    const onUpdateReady = () => setIsUpdateReady(true);
+    window.addEventListener('mm_update_ready', onUpdateReady);
+    return () => window.removeEventListener('mm_update_ready', onUpdateReady);
+  }, []);
 
   useEffect(() => {
     if (IS_BETA_BUILD) return;
@@ -249,7 +272,6 @@ export const Sidebar: React.FC = () => {
         localStorage.setItem('mm_join_beta', 'true');
       } catch {}
       updateSettings({ joinBeta: true });
-      setJoinBetaActive(true);
 
       showToast(t('switchingToBetaToast'), 'info');
       setIsJoinBetaModalOpen(false);
@@ -273,11 +295,50 @@ export const Sidebar: React.FC = () => {
         localStorage.removeItem('mm_join_beta');
       } catch {}
       updateSettings({ joinBeta: false });
-      setJoinBetaActive(false);
       showToast(t('leavingBetaToast'), 'info');
       setTimeout(() => {
         window.location.href = getStableAppUrl();
       }, 350);
+    }
+  };
+
+  const handleApplyUpdateNow = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateStep(isArabic ? 'جاري تطبيق التحديث بأمان...' : 'Applying update safely...');
+    try {
+      await applyUpdateSafely({ force: true });
+    } catch (err: any) {
+      setIsCheckingUpdate(false);
+      setUpdateStep(null);
+      showToast(err?.message || 'Failed to apply update', 'error');
+    }
+  };
+
+  const handleRestorePreUpdateSnapshot = async () => {
+    try {
+      const snapshot = await getLatestPreUpdateSnapshot();
+      if (!snapshot) {
+        showToast(t('noPreUpdateSnapshotFound'), 'info');
+        return;
+      }
+
+      const dateStr = new Date(snapshot.timestamp).toLocaleString(isArabic ? 'ar-EG' : 'en-US');
+      const confirmPrompt = `${t('confirmRestorePreUpdateSnapshot')}\n\n${t('snapshotDate')}: ${dateStr}\n${t('snapshotVersion')}: ${snapshot.versionLabel || snapshot.version}`;
+
+      if (window.confirm(confirmPrompt)) {
+        const ok = await restoreFromPreUpdateSnapshot(snapshot.id);
+        if (ok) {
+          showToast(t('preUpdateSnapshotRestored'), 'success');
+          setTimeout(() => {
+            window.location.reload();
+          }, 600);
+        } else {
+          showToast(isArabic ? 'فشلت الاستعادة من النسخة' : 'Failed to restore snapshot', 'error');
+        }
+      }
+    } catch (err) {
+      console.error('[Sidebar] Error restoring pre-update snapshot:', err);
+      showToast(isArabic ? 'حدث خطأ أثناء الاستعادة' : 'Error during restoration', 'error');
     }
   };
 
@@ -492,6 +553,8 @@ export const Sidebar: React.FC = () => {
     const handleSecUpdate = (e: any) => {
       if (e?.detail) setSecuritySettings(e.detail);
       else setSecuritySettings(loadSecuritySettings());
+      setLocalLockEnabled(isAppLockEnabledLocally());
+      setGracePeriod(getAppLockGracePeriod());
     };
     window.addEventListener('app_security_updated', handleSecUpdate);
     return () => window.removeEventListener('app_security_updated', handleSecUpdate);
@@ -500,6 +563,8 @@ export const Sidebar: React.FC = () => {
   useEffect(() => {
     if (isSidebarOpen) {
       setSecuritySettings(loadSecuritySettings());
+      setLocalLockEnabled(isAppLockEnabledLocally());
+      setGracePeriod(getAppLockGracePeriod());
     }
   }, [isSidebarOpen]);
 
@@ -1182,20 +1247,30 @@ export const Sidebar: React.FC = () => {
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
                 <Shield className="w-4 h-4 text-blue-400" />
-                <span>{isArabic ? 'قفل التطبيق والأمان' : 'App Lock & Security'}</span>
+                <span>{t('securityLock')}</span>
               </h4>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={securitySettings.isLockEnabled}
+                  checked={isAppLockOn}
                   onChange={(e) => {
                     if (e.target.checked) {
-                      setIsPinModalOpen(true);
+                      if (!securitySettings.pinHash) {
+                        setIsPinModalOpen(true);
+                      } else {
+                        setAppLockEnabledLocally(true);
+                        setLocalLockEnabled(true);
+                        const updated = { ...securitySettings, isLockEnabled: true };
+                        saveSecuritySettings(updated);
+                        setSecuritySettings(updated);
+                        showToast(t('appLockEnabledSuccess'), 'success');
+                      }
                     } else {
-                      const updated = { ...securitySettings, isLockEnabled: false };
-                      saveSecuritySettings(updated);
-                      setSecuritySettings(updated);
-                      showToast(isArabic ? 'تم تعطيل قفل التطبيق' : 'App Lock disabled', 'info');
+                      // Disabling App Lock requires entering passcode first
+                      setPasscodeModal({
+                        isOpen: true,
+                        mode: 'disable_lock',
+                      });
                     }
                   }}
                   className="sr-only peer"
@@ -1204,8 +1279,8 @@ export const Sidebar: React.FC = () => {
               </label>
             </div>
 
-            <div className={`accordion-wrapper ${securitySettings.isLockEnabled ? 'open' : 'closed'}`}>
-              <div className="accordion-inner space-y-2 pt-1 text-xs">
+            <div className={`accordion-wrapper ${isAppLockOn ? 'open' : 'closed'}`}>
+              <div className="accordion-inner space-y-2.5 pt-1 text-xs">
                 <button
                   type="button"
                   onClick={() => setIsPinModalOpen(true)}
@@ -1217,6 +1292,56 @@ export const Sidebar: React.FC = () => {
                   </span>
                   <span className="text-[10px] text-blue-400 font-bold">{isArabic ? 'تعديل' : 'Edit'}</span>
                 </button>
+
+                {/* Grace Period Selection */}
+                <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-zinc-300 font-medium flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-blue-400" />
+                      <span>{t('gracePeriod')}</span>
+                    </span>
+                    <span className="text-[10px] text-zinc-400 font-mono">
+                      {gracePeriod === 0
+                        ? t('graceImmediately')
+                        : gracePeriod === 1
+                        ? t('grace1Min')
+                        : gracePeriod === 5
+                        ? t('grace5Min')
+                        : t('grace15Min')}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1 pt-0.5">
+                    {[
+                      { value: 0, label: t('graceImmediately') },
+                      { value: 1, label: '1m' },
+                      { value: 5, label: '5m' },
+                      { value: 15, label: '15m' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          if (gracePeriod === opt.value) return;
+                          setPasscodeModal({
+                            isOpen: true,
+                            mode: 'change_grace',
+                            targetGrace: opt.value,
+                          });
+                        }}
+                        className={`py-1 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer border text-center ${
+                          gracePeriod === opt.value
+                            ? 'bg-blue-600/30 border-blue-500 text-blue-300 shadow-sm'
+                            : 'bg-zinc-900 border-zinc-800/80 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-zinc-500 leading-tight">
+                    {t('gracePeriodDesc')}
+                  </p>
+                </div>
 
                 {/* Biometric Hardware Status (Item 17) */}
                 <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px]">
@@ -1384,11 +1509,11 @@ export const Sidebar: React.FC = () => {
 
                 <div className="h-4 w-[1px] bg-zinc-800" />
 
-                {/* Join / Leave Beta Control */}
+                {/* Join / Leave Beta Control (Derives state ONLY from build channel IS_BETA_BUILD) */}
                 {IS_BETA_BUILD ? (
                   <div className="flex items-center gap-1.5 shrink-0" title={t('leaveBeta')}>
                     <span className="text-[10px] font-semibold text-amber-400">
-                      {isArabic ? 'بيتا' : 'Beta'}
+                      {isArabic ? 'بيتا مفعل' : 'Beta Active'}
                     </span>
                     <button
                       type="button"
@@ -1421,21 +1546,17 @@ export const Sidebar: React.FC = () => {
                       type="button"
                       role="switch"
                       disabled={isBetaAvailable === false}
-                      aria-checked={joinBetaActive}
+                      aria-checked={false}
                       onClick={handleToggleJoinBeta}
                       className={`w-9 h-5 rounded-full transition-colors relative ${
                         isBetaAvailable === false
                           ? 'opacity-40 cursor-not-allowed bg-zinc-800 border border-zinc-700'
-                          : joinBetaActive
-                          ? 'bg-amber-600 cursor-pointer'
                           : 'bg-zinc-750 border border-zinc-700 cursor-pointer'
                       }`}
                     >
                       <span
                         className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform absolute top-0.75 ${
-                          joinBetaActive
-                            ? (isArabic ? 'right-1' : 'left-4.5')
-                            : (isArabic ? 'right-4.5' : 'left-1')
+                          isArabic ? 'right-4.5' : 'left-1'
                         }`}
                       />
                     </button>
@@ -1461,6 +1582,32 @@ export const Sidebar: React.FC = () => {
                   className="shrink-0 font-bold underline hover:text-white ms-2 text-[10px] cursor-pointer"
                 >
                   {isArabic ? 'العودة للمستقرة' : 'Switch to Stable'}
+                </button>
+              </div>
+            )}
+
+            {/* Small Sidebar-style Update Ready Notice (Applies on Tap) */}
+            {isUpdateReady && (
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-950/80 to-teal-950/80 border border-emerald-500/40 text-white flex items-center justify-between gap-2 shadow-sm animate-in fade-in">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400 shrink-0">
+                    <Sparkles className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-emerald-200 truncate">
+                      {t('updateReadyTitle')}
+                    </p>
+                    <p className="text-[10px] text-zinc-400 truncate">
+                      {t('updateReadyTapToApply')}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleApplyUpdateNow}
+                  className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-[11px] font-bold shrink-0 transition cursor-pointer shadow-md shadow-emerald-600/20"
+                >
+                  {t('updateNow')}
                 </button>
               </div>
             )}
@@ -1491,6 +1638,16 @@ export const Sidebar: React.FC = () => {
                   <span>{isArabic ? 'فحص وتحديث الآن' : 'Check & Update Now'}</span>
                 </>
               )}
+            </button>
+
+            {/* Settings Action: Restore from Pre-Update Snapshot */}
+            <button
+              type="button"
+              onClick={handleRestorePreUpdateSnapshot}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-zinc-950 hover:bg-zinc-900 active:scale-98 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold transition cursor-pointer shadow-sm"
+            >
+              <Folder className="w-3.5 h-3.5 text-blue-400" />
+              <span>{t('restorePreUpdateSnapshot')}</span>
             </button>
           </div>
 
@@ -1594,7 +1751,7 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar Footer: Version (v1.1.63) & Refresh Button */}
+        {/* Sidebar Footer: Version (v1.1.64) & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-zinc-300">
@@ -1632,6 +1789,41 @@ export const Sidebar: React.FC = () => {
         isOpen={isJoinBetaModalOpen}
         onClose={() => setIsJoinBetaModalOpen(false)}
         onConfirm={handleConfirmJoinBeta}
+      />
+
+      {/* Passcode Verification Modal for Disabling Lock or Changing Grace Period */}
+      <PasscodeVerificationModal
+        isOpen={passcodeModal.isOpen}
+        title={
+          passcodeModal.mode === 'disable_lock'
+            ? t('confirmPinToDisable')
+            : t('confirmPinToChangeGrace')
+        }
+        description={
+          passcodeModal.mode === 'disable_lock'
+            ? t('confirmPinToDisable')
+            : t('confirmPinToChangeGrace')
+        }
+        onSuccess={() => {
+          if (passcodeModal.mode === 'disable_lock') {
+            setAppLockEnabledLocally(false);
+            setLocalLockEnabled(false);
+            const updated = { ...securitySettings, isLockEnabled: false };
+            saveSecuritySettings(updated);
+            setSecuritySettings(updated);
+            setPasscodeModal({ isOpen: false, mode: 'disable_lock' });
+            showToast(t('appLockDisabled'), 'info');
+          } else if (passcodeModal.mode === 'change_grace' && passcodeModal.targetGrace !== undefined) {
+            const newGrace = passcodeModal.targetGrace;
+            setAppLockGracePeriod(newGrace);
+            setGracePeriod(newGrace);
+            setPasscodeModal({ isOpen: false, mode: 'disable_lock' });
+            showToast(t('gracePeriodUpdated'), 'success');
+          }
+        }}
+        onCancel={() => {
+          setPasscodeModal({ isOpen: false, mode: 'disable_lock' });
+        }}
       />
     </div>
   );

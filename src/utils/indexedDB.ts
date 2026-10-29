@@ -149,7 +149,7 @@ export async function saveFullDataToIndexedDB(
         store.put(data.recurringTransactions.map(migrateRecurringRule), 'recurring_transactions');
       }
       store.put(new Date().toISOString(), 'last_saved_at');
-      store.put('1.1.63', 'version');
+      store.put('1.1.64', 'version');
 
       transaction.oncomplete = () => {
         db.close();

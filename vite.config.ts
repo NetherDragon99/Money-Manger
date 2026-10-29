@@ -24,7 +24,7 @@ export default defineConfig(({ command, mode }) => {
     : base;
 
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
-  const versionString = packageJson.version || '1.1.63';
+  const versionString = packageJson.version || '1.1.64';
 
   // The last official stable version this build is based on (beta builds keep their own version).
   let stableVersionString = versionString;
@@ -83,8 +83,8 @@ export default defineConfig(({ command, mode }) => {
       },
       VitePWA({
         scope: channelScope,
-        registerType: 'autoUpdate',
-        injectRegister: 'auto',
+        registerType: 'prompt',
+        injectRegister: null,
         includeAssets: [
           'favicon.png',
           'apple-touch-icon.png',
@@ -133,7 +133,7 @@ export default defineConfig(({ command, mode }) => {
           cacheId: isBeta ? 'mm-beta' : undefined,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,json,woff2}'],
           globIgnores: isBeta ? [] : ['beta/**', '**/beta/**'],
-          skipWaiting: true,
+          skipWaiting: false,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
           navigateFallback: isDev ? '/index.html' : 'index.html',
