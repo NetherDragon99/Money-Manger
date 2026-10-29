@@ -100,6 +100,7 @@ import {
   flushGranularDirtyQueue,
   pullLatestRemoteState,
 } from '../utils/autoBackup';
+import { fetchGeminiApiKeyFromCloud, removeLocalGeminiApiKeyOnSignOut } from '../utils/geminiApiKey';
 
 export type SyncStatus = 'syncing' | 'online' | 'offline' | 'awaiting_choice' | 'local_only';
 
@@ -235,6 +236,8 @@ interface AppContextType {
   setIsRecurringModalOpen: (open: boolean) => void;
   isPinModalOpen: boolean;
   setIsPinModalOpen: (open: boolean) => void;
+  isSmartBudgetModalOpen: boolean;
+  setIsSmartBudgetModalOpen: (open: boolean) => void;
 
   // Security & Biometric Lock
   isAppLocked: boolean;
@@ -469,6 +472,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isWhatsNewOpen, setIsWhatsNewOpen] = useState(false);
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [isSmartBudgetModalOpen, setIsSmartBudgetModalOpen] = useState(false);
   const [isSharedHubModalOpen, setIsSharedHubModalOpen] = useState(false);
   const [isEditingSpace, setIsEditingSpace] = useState(false);
   const [editingShareId, setEditingShareId] = useState<string | null>(null);
@@ -1758,6 +1762,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         userProfile: d.settings.userProfile
           ? { ...prev.userProfile, ...d.settings.userProfile }
           : prev.userProfile,
+        smartBudget: d.smartBudget || d.settings.smartBudget || prev.smartBudget,
+      }));
+    } else if (d.smartBudget) {
+      setSettings((prev) => ({
+        ...prev,
+        smartBudget: d.smartBudget,
       }));
     }
     if (d.sharedSpaces) {
@@ -1960,15 +1970,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
       },
 
-      onManifest: (remoteSettings, remoteProfile) => {
+      onManifest: (remoteSettings, remoteProfile, remoteSmartBudget) => {
         if (!isSyncUnlockedRef.current || isApplyingRemoteSyncRef.current) return;
-        if (remoteSettings && Number(remoteSettings.updatedAt || 0) > Number(settingsRef.current.updatedAt || 0)) {
+        const effRemoteSmartBudget = remoteSmartBudget || remoteSettings?.smartBudget;
+        const curSettingsUpdated = Number(settingsRef.current.updatedAt || 0);
+        const remSettingsUpdated = Number(remoteSettings?.updatedAt || 0);
+        const curSmartUpdated = Number(settingsRef.current.smartBudget?.updatedAt || 0);
+        const remSmartUpdated = Number(effRemoteSmartBudget?.updatedAt || 0);
+
+        if (remSettingsUpdated > curSettingsUpdated || remSmartUpdated > curSmartUpdated) {
           isApplyingRemoteSyncRef.current = true;
-          setSettings((prev) => ({
-            ...prev,
-            ...remoteSettings,
-            userProfile: remoteProfile ? { ...prev.userProfile, ...remoteProfile } : prev.userProfile,
-          }));
+          setSettings((prev) => {
+            const next = { ...prev };
+            if (remoteSettings && remSettingsUpdated > Number(prev.updatedAt || 0)) {
+              Object.assign(next, remoteSettings);
+            }
+            if (remoteProfile) {
+              next.userProfile = { ...prev.userProfile, ...remoteProfile };
+            }
+            if (effRemoteSmartBudget && remSmartUpdated > Number(prev.smartBudget?.updatedAt || 0)) {
+              next.smartBudget = effRemoteSmartBudget;
+            }
+            return next;
+          });
           setTimeout(() => {
             isApplyingRemoteSyncRef.current = false;
           }, 100);
@@ -2122,16 +2146,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setRecurringTransactions(Array.from(recMap.values()));
       }
 
-      // Reconcile manifest (settings / profile)
+      // Reconcile manifest (settings / profile / smartBudget)
       if (remote.manifest) {
         const remoteSettings = remote.manifest.settings;
         const remoteProfile = remote.manifest.profile;
-        if (remoteSettings && Number(remoteSettings.updatedAt || 0) > Number(settingsRef.current.updatedAt || 0)) {
-          setSettings((prev) => ({
-            ...prev,
-            ...remoteSettings,
-            userProfile: remoteProfile ? { ...prev.userProfile, ...remoteProfile } : prev.userProfile,
-          }));
+        const remoteSmartBudget = remote.manifest.smartBudget || remoteSettings?.smartBudget;
+        const curSettingsUpdated = Number(settingsRef.current.updatedAt || 0);
+        const remSettingsUpdated = Number(remoteSettings?.updatedAt || 0);
+        const curSmartUpdated = Number(settingsRef.current.smartBudget?.updatedAt || 0);
+        const remSmartUpdated = Number(remoteSmartBudget?.updatedAt || 0);
+
+        if (remSettingsUpdated > curSettingsUpdated || remSmartUpdated > curSmartUpdated) {
+          setSettings((prev) => {
+            const next = { ...prev };
+            if (remoteSettings && remSettingsUpdated > Number(prev.updatedAt || 0)) {
+              Object.assign(next, remoteSettings);
+            }
+            if (remoteProfile) {
+              next.userProfile = { ...prev.userProfile, ...remoteProfile };
+            }
+            if (remoteSmartBudget && remSmartUpdated > Number(prev.smartBudget?.updatedAt || 0)) {
+              next.smartBudget = remoteSmartBudget;
+            }
+            return next;
+          });
         }
       }
 
@@ -2437,6 +2475,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           displayName: user.displayName || null,
           photoURL: user.photoURL || null,
           phoneNumber: user.phoneNumber || null,
+        });
+
+        // Fetch user's private Gemini API key from secure secrets path if available
+        fetchGeminiApiKeyFromCloud(user.uid).catch((err) => {
+          console.warn('[AppContext] fetchGeminiApiKeyFromCloud error:', err);
         });
 
         const boundUid = localStorage.getItem('mm_bound_account_uid');
@@ -3109,6 +3152,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // 2. Perform low-level auth & storage cleanup
       await logoutUser();
       clearUserIdentityState();
+      removeLocalGeminiApiKeyOnSignOut();
 
       // 3. Reset internal cloud hydration and conflict refs
       lastRestoredUidRef.current = null;
@@ -3641,14 +3685,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setPendingSyncConflict(null);
       setPendingCloudBackup(null);
 
+      // 5. Merge settings & smartBudget
+      const cloudSettings = d.settings;
+      const cloudSmartBudget = d.smartBudget || cloudSettings?.smartBudget;
+      const curSettingsUpdated = Number(settingsRef.current.updatedAt || 0);
+      const cloudSettingsUpdated = Number(cloudSettings?.updatedAt || 0);
+      const curSmartUpdated = Number(settingsRef.current.smartBudget?.updatedAt || 0);
+      const cloudSmartUpdated = Number(cloudSmartBudget?.updatedAt || 0);
+
+      let mergedSettings = { ...settingsRef.current };
+      if (cloudSettings && cloudSettingsUpdated > curSettingsUpdated) {
+        mergedSettings = { ...mergedSettings, ...cloudSettings };
+      }
+      if (cloudSmartBudget && cloudSmartUpdated > curSmartUpdated) {
+        mergedSettings.smartBudget = cloudSmartBudget;
+      }
+      setSettings(mergedSettings);
+
       // STAGE 3: write merged state into v4 flat nodes & purge obsolete legacy server nodes
       await writeV4ResolvedState(uid, {
         transactions: mergedTransactions,
         recurringTransactions: mergedRecurring,
         accounts: mergedAccounts,
         categories: mergedCategories,
-        settings: settingsRef.current,
-        userProfile: settingsRef.current.userProfile,
+        settings: mergedSettings,
+        userProfile: mergedSettings.userProfile || settingsRef.current.userProfile,
         tombstones: allTombstones,
       });
       // STAGE 4: Attach live listeners
@@ -3800,6 +3861,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsWhatsNewOpen,
     setIsRecurringModalOpen,
     setIsPinModalOpen,
+    setIsSmartBudgetModalOpen,
     setIsSharedHubModalOpen,
     setIsEditingSpace,
     setEditingShareId,
@@ -3908,6 +3970,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isWhatsNewOpen,
       isRecurringModalOpen,
       isPinModalOpen,
+      isSmartBudgetModalOpen,
       isSharedHubModalOpen,
       isEditingSpace,
       editingShareId,
@@ -3972,6 +4035,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isWhatsNewOpen,
       isRecurringModalOpen,
       isPinModalOpen,
+      isSmartBudgetModalOpen,
       isSharedHubModalOpen,
       isEditingSpace,
       editingShareId,

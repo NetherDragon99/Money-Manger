@@ -99,6 +99,9 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (s.isRecurringModalOpen) {
       stack.push('modal:recurring');
     }
+    if (s.isSmartBudgetModalOpen) {
+      stack.push('modal:smart_budget');
+    }
     if (s.isUserProfileModalOpen) {
       stack.push('modal:user_profile');
     }
@@ -184,6 +187,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     app.remainingBalanceModalState?.isOpen,
     app.isPinModalOpen,
     app.isRecurringModalOpen,
+    app.isSmartBudgetModalOpen,
     app.isUserProfileModalOpen,
     app.isFeaturesModalOpen,
     app.selectedFeatureId,
@@ -297,6 +301,10 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       if (s.isRecurringModalOpen) {
         s.setIsRecurringModalOpen(false);
+        return;
+      }
+      if (s.isSmartBudgetModalOpen) {
+        s.setIsSmartBudgetModalOpen(false);
         return;
       }
       if (s.isPinModalOpen) {

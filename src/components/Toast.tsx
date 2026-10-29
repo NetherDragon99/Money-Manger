@@ -18,7 +18,15 @@ const ToastCard: React.FC<ToastCardProps> = ({ toast, onDismiss }) => {
 
   return (
     <div
-      className="pointer-events-auto flex items-start justify-between gap-2.5 px-4 py-3 rounded-2xl bg-zinc-900/98 border border-zinc-700/80 text-sm font-medium text-white shadow-2xl backdrop-blur-xl animate-in slide-in-from-top-4 fade-in duration-200 w-full min-w-0"
+      onClick={() => {
+        if (toast.action) {
+          onDismiss(toast.id);
+          toast.action.onClick();
+        }
+      }}
+      className={`pointer-events-auto flex items-start justify-between gap-2.5 px-4 py-3 rounded-2xl bg-zinc-900/98 border border-zinc-700/80 text-sm font-medium text-white shadow-2xl backdrop-blur-xl animate-in slide-in-from-top-4 fade-in duration-200 w-full min-w-0 ${
+        toast.action ? 'cursor-pointer hover:border-zinc-500' : ''
+      }`}
     >
       <div className="flex items-start gap-2.5 min-w-0 flex-1">
         {toast.type === 'success' && <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />}

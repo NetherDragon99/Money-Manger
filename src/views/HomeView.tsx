@@ -28,6 +28,7 @@ import {
 import { GroupedTransactionList } from '../components/GroupedTransactionList';
 import { MiniDateTimePicker } from '../components/MiniDateTimePicker';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
+import { evaluateSmartBudget } from '../utils/smartBudgetEngine';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
 import { useLongPress } from '../hooks/useLongPress';
 import { matchesTransactionSearch } from '../utils/searchUtils';
@@ -54,6 +55,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
     isTxMultiSelect,
     toggleBatchTxs,
     setCurrentTab,
+    setIsSmartBudgetModalOpen,
     t,
   } = useApp();
 
@@ -242,6 +244,17 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
 
   const currencySymbol = settings.currencySymbol || '£';
 
+  const smartBudgetConfig = useMemo(() => ({
+    ...settings.smartBudget?.baseline,
+    baseCurrency: currencySymbol,
+  }), [settings.smartBudget?.baseline, currencySymbol]);
+
+  const smartBudgetEvaluation = useMemo(() => {
+    return evaluateSmartBudget(transactions, accounts, smartBudgetConfig, new Date());
+  }, [transactions, accounts, smartBudgetConfig]);
+
+  const todayRemaining = smartBudgetEvaluation.dailyStatus.todayRemaining;
+
   // Week header day names
   const weekDayLabels = useMemo(() => {
     if (settings.weekStartDay === 'saturday') {
@@ -305,15 +318,41 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
-        {/* Left: Hamburger Menu Button (☰) */}
-        <button
-          type="button"
-          onClick={() => setIsSidebarOpen(true)}
-          aria-label="Open Menu"
-          className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
-        >
-          <Menu className="w-5 h-5" />
-        </button>
+        {/* Left: Hamburger Menu Button (☰) & Safe-to-Spend Pill */}
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(true)}
+            aria-label="Open Menu"
+            className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+
+          {/* Compact clickable Safe-to-Spend Today pill */}
+          <button
+            type="button"
+            onClick={() => setIsSmartBudgetModalOpen(true)}
+            title={isArabic ? 'المتبقي من مصروف اليوم (الميزانية الذكية)' : 'Safe-to-Spend Today (Smart Budget)'}
+            className={`flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full border text-[11px] sm:text-xs font-bold transition active:scale-95 cursor-pointer shrink-0 max-w-[130px] sm:max-w-none truncate ${
+              todayRemaining > 0
+                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+                : 'bg-red-500/10 hover:bg-red-500/20 border-red-500/30 text-red-400'
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                todayRemaining > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'
+              }`}
+            />
+            <span className="hidden sm:inline">
+              {isArabic ? 'مصروف اليوم:' : 'Safe Today:'}
+            </span>
+            <span className="font-mono">
+              {formatCurrency(todayRemaining, currencySymbol)}
+            </span>
+          </button>
+        </div>
 
         {/* Center: Period Filter Dropdown (< All Time ▾ > or < This Month ▾ >) */}
         <div className="flex items-center gap-1">

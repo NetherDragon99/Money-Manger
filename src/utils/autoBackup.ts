@@ -172,8 +172,8 @@ export async function executeAutoBackup(data: AppData): Promise<{ success: boole
   const fileName = `auto_backup_${timestamp}.json`;
 
   const backupPayload = {
-    version: '1.1.62',
-    versionLabel: formatVersionLabel('1.1.62'),
+    version: '1.1.63',
+    versionLabel: formatVersionLabel('1.1.63'),
     type: 'automated_backup',
     backupDate: new Date().toISOString(),
     ...data,
@@ -893,13 +893,25 @@ export async function writeV4ResolvedState(
     // 1. Write Manifest Node: shared_accounts/g_manifest_${uid}
     const manifestRef = ref(rtdb, `shared_accounts/g_manifest_${uid}`);
     const effProfile = state.userProfile || state.settings?.userProfile || {};
-    const manifestPayload = {
+    const effSmartBudget = state.settings?.smartBudget;
+    const stampedSmartBudget = effSmartBudget
+      ? { ...effSmartBudget, updatedAt: now }
+      : undefined;
+    const stampedSettings = {
+      ...state.settings,
+      updatedAt: now,
+      ...(stampedSmartBudget ? { smartBudget: stampedSmartBudget } : {}),
+    };
+    const manifestPayload: Record<string, any> = {
       ownerUid: uid,
       accountName: 'manifest',
       updatedAt: now,
-      settings: { ...state.settings, updatedAt: now },
+      settings: stampedSettings,
       profile: { ...effProfile, updatedAt: now },
     };
+    if (stampedSmartBudget) {
+      manifestPayload.smartBudget = stampedSmartBudget;
+    }
     await set(manifestRef, JSON.parse(JSON.stringify(manifestPayload)));
 
     // 2. Write Six Flat Collection Nodes
@@ -1081,7 +1093,14 @@ export async function writeGranularManifest(
 
   const now = syncNow();
   const effProfile = profile || settings.userProfile || {};
-  const stampedSettings = { ...settings, updatedAt: now };
+  const effSmartBudget = settings.smartBudget
+    ? { ...settings.smartBudget, updatedAt: settings.smartBudget.updatedAt || now }
+    : undefined;
+  const stampedSettings = {
+    ...settings,
+    updatedAt: now,
+    ...(effSmartBudget ? { smartBudget: effSmartBudget } : {}),
+  };
   const stampedProfile = { ...effProfile, updatedAt: now };
 
   if (!navigator.onLine || !rtdb) {
@@ -1095,21 +1114,34 @@ export async function writeGranularManifest(
       uid,
       isSyncUnlocked
     );
+    if (effSmartBudget) {
+      enqueueGranularDirtyItem(
+        { collection: 'smartBudget', id: 'smartBudget', action: 'upsert', data: effSmartBudget, updatedAt: effSmartBudget.updatedAt || now },
+        uid,
+        isSyncUnlocked
+      );
+    }
     return;
   }
 
   const manifestRef = ref(rtdb, `shared_accounts/g_manifest_${uid}`);
-  const payload = {
+  const payload: Record<string, any> = {
     ownerUid: uid,
     accountName: 'manifest',
     updatedAt: now,
     settings: stampedSettings,
     profile: stampedProfile,
   };
+  if (effSmartBudget) {
+    payload.smartBudget = effSmartBudget;
+  }
   try {
     await update(manifestRef, JSON.parse(JSON.stringify(payload)));
     removeGranularDirtyItem('settings', 'settings');
     removeGranularDirtyItem('profile', 'profile');
+    if (effSmartBudget) {
+      removeGranularDirtyItem('smartBudget', 'smartBudget');
+    }
   } catch (err) {
     console.warn('[AutoBackup] writeGranularManifest failed, enqueuing offline:', err);
     enqueueGranularDirtyItem(
@@ -1122,6 +1154,13 @@ export async function writeGranularManifest(
       uid,
       isSyncUnlocked
     );
+    if (effSmartBudget) {
+      enqueueGranularDirtyItem(
+        { collection: 'smartBudget', id: 'smartBudget', action: 'upsert', data: effSmartBudget, updatedAt: effSmartBudget.updatedAt || now },
+        uid,
+        isSyncUnlocked
+      );
+    }
   }
 }
 
@@ -1221,6 +1260,24 @@ export async function flushGranularDirtyQueue(uid: string): Promise<number> {
             accountName: 'manifest',
             updatedAt: item.updatedAt,
             profile: item.data,
+          };
+          await update(ref(rtdb, `shared_accounts/g_manifest_${uid}`), JSON.parse(JSON.stringify(payload)));
+        }
+        removeGranularDirtyItem(item.collection, item.id);
+        flushedCount++;
+        continue;
+      }
+
+      if (item.collection === 'smartBudget') {
+        const snap = await get(ref(rtdb, `shared_accounts/g_manifest_${uid}/smartBudget`));
+        const remoteUpdated = Number(snap.val()?.updatedAt || 0);
+        if (item.updatedAt > remoteUpdated) {
+          const payload = {
+            ownerUid: uid,
+            accountName: 'manifest',
+            updatedAt: item.updatedAt,
+            smartBudget: item.data,
+            'settings/smartBudget': item.data,
           };
           await update(ref(rtdb, `shared_accounts/g_manifest_${uid}`), JSON.parse(JSON.stringify(payload)));
         }
@@ -1346,7 +1403,7 @@ export function attachV4LiveListeners(
     onCategories?: (items: Category[], rawItems: Record<string, any>) => void;
     onBudgets?: (items: any[], rawItems: Record<string, any>) => void;
     onTombstones?: (items: Tombstone[], rawItems: Record<string, any>) => void;
-    onManifest?: (settings: any, profile: any) => void;
+    onManifest?: (settings: any, profile: any, smartBudget?: any) => void;
   }
 ): () => void {
   if (!uid || !rtdb) return () => {};
@@ -1382,7 +1439,9 @@ export function attachV4LiveListeners(
   };
 
   if (callbacks.onManifest) {
-    attachListener(manRef, (val) => callbacks.onManifest!(val.settings, val.profile));
+    attachListener(manRef, (val) =>
+      callbacks.onManifest!(val.settings, val.profile, val.smartBudget || val.settings?.smartBudget)
+    );
   }
   if (callbacks.onTransactions) {
     attachListener(txRef, (val) => {

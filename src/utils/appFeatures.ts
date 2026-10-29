@@ -19,6 +19,29 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.63',
+    isBeta: true,
+    releaseDate: 'October 29, 2026',
+    title: {
+      en: 'Smart Budget Hub, Daily Safe-to-Spend Meter and Rebalance Assistant',
+      ar: 'الميزانية الذكية، مصروف اليوم الآمن ومساعد إعادة التوازن',
+    },
+    highlights: {
+      en: [
+        'Daily safe spending: Clear meter on the main screen that tells you exactly how much is safe to spend today',
+        'Balanced spending pools: Keep your savings and essential bills separated from your outings and daily pocket money',
+        'One-tap rebalancing: Instant friendly fixes whenever spending runs high to protect your monthly peace of mind',
+        'Smart spending advisor: Optional on-device assistant that helps classify expenses and optimize your spending plan',
+      ],
+      ar: [
+        'مصروف اليوم الآمن: عداد واضح ومباشر في الشاشة الرئيسية يعرفك تصرف كام في اليوم بأمان ومن غير قلق',
+        'أحواض ميزانية متوازنة: افصل فلوس تحويشتك وفواتيرك الأساسية عن مصاريفك اليومية وفسحك وخروجاتك',
+        'إعادة توازن سريعة: حلول فورية وسهلة بضغطة واحدة لما تزيد مصاريفك عشان تحافظ على خطتك لآخر الشهر',
+        'مستشار مالي ذكي: مساعد اختياري يساعدك تفهم مصاريفك ويقترح عليك أنسب تقسيم لفلوسك',
+      ],
+    },
+  },
+  {
     version: '1.1.62',
     isBeta: true,
     releaseDate: 'October 29, 2026',

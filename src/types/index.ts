@@ -10,6 +10,7 @@ export interface Account {
   customMonthStartDay: number | 'default'; // 1-31 or 'default'
   notes: string;
   color?: string;
+  currency?: string; // Optional account currency (defaults to app base currency)
   updatedAt?: number;
 }
 
@@ -40,6 +41,8 @@ export interface Transaction {
   isFromRecurring?: boolean; // Tag for automated recurring transactions
   recurringRuleId?: string; // ID of the generating recurring rule
   isIndividuallyEdited?: boolean; // Flag when a generated recurring occurrence was individually edited
+  budgetPool?: 'daily' | 'outings' | 'emergency'; // Optional explicit smart budget pool attribution
+  isSalary?: boolean; // Tag for income transactions representing regular salary
   createdAt: number;
   updatedAt?: number;
   fromBalanceBefore?: number;
@@ -151,6 +154,32 @@ export interface SecuritySettings {
   requireLockOnResume: boolean;
 }
 
+export interface SmartBudgetBaselineConfig {
+  startDay?: number | 'auto';
+  plannedIncome?: number;
+  savings?: { type: 'percent'; value: number } | { type: 'fixed'; value: number };
+  plannedFixedObligations?: number;
+  fixedCategoryIds?: string[];
+  outingsBudget?: number;
+  weekdayWeights?: Partial<Record<number, number>>;
+  rolloverSetting?: 'spread' | 'sweep_to_savings';
+  baseCurrency?: string;
+  includedAccountIds?: string[];
+  includePrivateAccounts?: boolean;
+  minorPerMajor?: number;
+}
+
+export interface SmartBudgetCycleOverride extends Partial<SmartBudgetBaselineConfig> {
+  appliedScenario?: 'A' | 'B' | 'C';
+  appliedAt?: number;
+}
+
+export interface SmartBudgetSettings {
+  baseline: SmartBudgetBaselineConfig;
+  overrides?: Record<string, SmartBudgetCycleOverride>; // Keyed by cycleKey 'YYYY-MM'
+  updatedAt: number;
+}
+
 export interface AppSettings {
   weekStartDay: WeekStartDay;
   defaultMonthStartDay: number; // 1 to 31 (default: 1)
@@ -165,6 +194,7 @@ export interface AppSettings {
   budgetAlertThreshold?: number; // default 80
   security?: SecuritySettings;
   joinBeta?: boolean;
+  smartBudget?: SmartBudgetSettings;
   updatedAt?: number;
 }
 

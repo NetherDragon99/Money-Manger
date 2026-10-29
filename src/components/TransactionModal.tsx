@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
-import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw, Trash2 } from 'lucide-react';
+import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw, Trash2, Sparkles, CheckCircle2, AlertTriangle, AlertCircle, Check } from 'lucide-react';
 import { TransactionType, RecurringFrequency, RecurringTransaction, AdvancedScheduleConfig, Transaction } from '../types';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatDisplayNumber } from '../utils/dateCycle';
 import { calculateNextDueDate, getScheduleSummaryText, migrateRecurringRule, normalizeHHMM, normalizeTimesList, getNextNOccurrences, OccurrencePreviewItem } from '../utils/recurring';
+import { evaluateSmartBudget, SmartBudgetEvaluation, parseLocalDate } from '../utils/smartBudgetEngine';
+import { classifyExpenseContext } from '../utils/smartBudgetAI';
 import { Numpad } from './Numpad';
 import { MiniDateTimePicker } from './MiniDateTimePicker';
 import { CategoryDirectoryModal } from './CategoryDirectoryModal';
@@ -12,6 +14,122 @@ import { getLocalizedCurrencySymbol } from '../utils/currencies';
 import { ShareFolder } from '../utils/shareFolders';
 
 const TYPES: TransactionType[] = ['income', 'expense', 'transfer'];
+
+function notifyBudgetAlertIfNeeded(
+  evaluation: SmartBudgetEvaluation,
+  showToast: (
+    message: string,
+    type?: 'success' | 'error' | 'info',
+    action?: { label: string; onClick: () => void },
+    duration?: number
+  ) => void,
+  openSmartBudget: () => void,
+  isArabic: boolean
+) {
+  try {
+    const todayStr = evaluation.dailyStatus.asOfDate;
+    const cycleKey = evaluation.cycle.startDate.slice(0, 7);
+
+    // 1. Daily pool depleted
+    if (evaluation.pools.daily.remaining <= 0) {
+      const dedupKey = `mm_alert_dedup_${cycleKey}_${todayStr}_daily_depleted`;
+      if (!localStorage.getItem(dedupKey)) {
+        localStorage.setItem(dedupKey, Date.now().toString());
+        showToast(
+          isArabic
+            ? 'تنبيه الميزانية: نفد رصيد المعيشة اليومية. انقر لإعادة التوازن.'
+            : 'Budget alert: Daily pool depleted. Tap to rebalance.',
+          'error',
+          {
+            label: isArabic ? 'إعادة التوازن' : 'Rebalance',
+            onClick: openSmartBudget,
+          },
+          8000
+        );
+        return;
+      }
+    }
+
+    // 2. Outings pool depleted
+    if (evaluation.pools.outings.allocated > 0 && evaluation.pools.outings.remaining <= 0) {
+      const dedupKey = `mm_alert_dedup_${cycleKey}_${todayStr}_outings_depleted`;
+      if (!localStorage.getItem(dedupKey)) {
+        localStorage.setItem(dedupKey, Date.now().toString());
+        showToast(
+          isArabic
+            ? 'تنبيه الميزانية: نفد رصيد حوض الخروجات. انقر لإعادة التوازن.'
+            : 'Budget alert: Outings pool depleted. Tap to rebalance.',
+          'error',
+          {
+            label: isArabic ? 'إعادة التوازن' : 'Rebalance',
+            onClick: openSmartBudget,
+          },
+          8000
+        );
+        return;
+      }
+    }
+
+    // 3. Anomalies
+    if (evaluation.anomalies.length > 0) {
+      const topAnomaly = evaluation.anomalies[0];
+      const dedupKey = `mm_alert_dedup_${cycleKey}_${todayStr}_anomaly_${topAnomaly.type}`;
+      if (!localStorage.getItem(dedupKey)) {
+        localStorage.setItem(dedupKey, Date.now().toString());
+        const msg = isArabic ? topAnomaly.message.ar : topAnomaly.message.en;
+        showToast(
+          `${isArabic ? 'تنبيه إنفاق: ' : 'Spending Alert: '}${msg}`,
+          'error',
+          {
+            label: isArabic ? 'مراجعة' : 'Review',
+            onClick: openSmartBudget,
+          },
+          8000
+        );
+      }
+    }
+  } catch (err) {
+    console.error('Failed to notify budget alert:', err);
+  }
+}
+
+function promptSalaryReviewIfNeeded(
+  dateStr: string,
+  showConfirm: (options: {
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDanger?: boolean;
+  }) => Promise<boolean>,
+  openSmartBudget: () => void,
+  isArabic: boolean
+) {
+  try {
+    const cycleKey = dateStr.slice(0, 7);
+    const dedupKey = `mm_salary_prompted_${cycleKey}`;
+    if (localStorage.getItem(dedupKey) || sessionStorage.getItem(dedupKey)) {
+      return;
+    }
+    localStorage.setItem(dedupKey, Date.now().toString());
+    sessionStorage.setItem(dedupKey, 'true');
+
+    showConfirm({
+      title: isArabic ? 'تم استلام الراتب' : 'Salary Received',
+      message: isArabic
+        ? 'تم رصد استلام راتب! هل ترغب في مراجعة وتطبيق توزيع الميزانية الذكية (4 أحواض) للدورة الجديدة الآن؟'
+        : 'Salary received: Would you like to review or apply the Smart Budget 4-pool allocation for this cycle?',
+      confirmText: isArabic ? 'مراجعة الميزانية' : 'Review Budget',
+      cancelText: isArabic ? 'لاحقاً' : 'Later',
+    }).then((confirmed) => {
+      if (confirmed) {
+        openSmartBudget();
+      }
+    });
+  } catch (err) {
+    console.error('Failed to prompt salary review:', err);
+  }
+}
 
 export interface TransactionModalProps {
   isOpen?: boolean;
@@ -47,6 +165,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     editingRecurring,
     applyRecurringRuleEdit,
     transactions,
+    setIsSmartBudgetModalOpen,
+    showToast,
+    showConfirm,
   } = useApp();
 
   const isSharedMode = Boolean(sharedSpace);
@@ -76,6 +197,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [toAccountId, setToAccountId] = useState<string>('');
   const [categoryId, setCategoryId] = useState<string>('');
   const [description, setDescription] = useState<string>('');
+  const [budgetPool, setBudgetPool] = useState<'daily' | 'outings' | 'emergency'>('daily');
+  const [isSalary, setIsSalary] = useState<boolean>(false);
+  const [isClassifyingPool, setIsClassifyingPool] = useState<boolean>(false);
   const [showDateTimePicker, setShowDateTimePicker] = useState<boolean>(false);
   const [pickerTab, setPickerTab] = useState<'date' | 'time'>('date');
   const [accountDropdownOpen, setAccountDropdownOpen] = useState<'single' | 'from' | 'to' | null>(null);
@@ -353,6 +477,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setToAccountId(activeEditingTx.toAccountId || '');
       setCategoryId(activeEditingTx.categoryId || '');
       setDescription(activeEditingTx.description || '');
+      setBudgetPool(activeEditingTx.budgetPool || 'daily');
+      setIsSalary(Boolean(activeEditingTx.isSalary));
       setIsRecurring(false);
       setRecurringFrequency('monthly');
       setIsAdvancedSchedule(false);
@@ -417,6 +543,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       const nowTime = formatTimeToHHMM(now);
       setTime(nowTime);
       setDescription('');
+      setBudgetPool('daily');
+      setIsSalary(false);
       const defaultAcc = (!isSharedMode && (defaultTxAccountId || selectedAccountId)) || (accounts[0] ? accounts[0].id : '');
       setAccountId(defaultAcc);
       const otherAcc = accounts.find((a) => a.id !== defaultAcc);
@@ -838,14 +966,110 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     if ((activeEditingTx.toAccountId || '') !== (type === 'transfer' ? toAccountId : '')) return true;
     if ((activeEditingTx.categoryId || '') !== (type === 'transfer' ? '' : categoryId)) return true;
     if ((activeEditingTx.description || '') !== description.trim()) return true;
+    if (type === 'expense' && (activeEditingTx.budgetPool || 'daily') !== budgetPool) return true;
+    if (type === 'income' && Boolean(activeEditingTx.isSalary) !== isSalary) return true;
     return false;
   }, [
     activeEditingTx, editingRecurring, type, amountStr, date, hasTime, time, accountId, toAccountId, categoryId, description,
     recurringFrequency, isAdvancedSchedule, useWeekdayFilter, selectedDaysOfWeek, intervalWeeks, useMonthDayFilter,
-    selectedDaysOfMonth, timesOfDay, hasCustomTimes, weekdayTimes, monthDayTimes,
+    selectedDaysOfMonth, timesOfDay, hasCustomTimes, weekdayTimes, monthDayTimes, budgetPool, isSalary,
   ]);
 
   const numericAmount = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
+  const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
+
+  // Filter out the transaction currently being edited so its previous amount isn't double-counted
+  const evalTransactions = useMemo(() => {
+    if (!activeEditingTx) return transactions;
+    return transactions.filter((t) => t.id !== activeEditingTx.id);
+  }, [transactions, activeEditingTx]);
+
+  const smartBudgetEval = useMemo(() => {
+    if (type !== 'expense') return null;
+    const cfg = {
+      ...settings.smartBudget?.baseline,
+      baseCurrency: currencySymbol,
+    };
+    return evaluateSmartBudget(evalTransactions, accounts, cfg, new Date());
+  }, [type, evalTransactions, accounts, settings.smartBudget?.baseline, currencySymbol]);
+
+  const isDateInCycle = useMemo(() => {
+    if (!smartBudgetEval) return false;
+    return date >= smartBudgetEval.cycle.startDate && date <= smartBudgetEval.cycle.endDate;
+  }, [smartBudgetEval, date]);
+
+  const impactEstimate = useMemo(() => {
+    if (type !== 'expense' || !smartBudgetEval || !isDateInCycle || numericAmount <= 0) {
+      return null;
+    }
+
+    const todayAllowance = smartBudgetEval.dailyStatus.todayAllowance;
+    const projectedAllowance = smartBudgetEval.projectedDailyAllowanceAfterSpend(
+      numericAmount,
+      budgetPool,
+      date
+    );
+
+    let status: 'safe' | 'warning' | 'danger' = 'safe';
+    if (budgetPool === 'daily') {
+      if (numericAmount > todayAllowance) {
+        status = 'danger';
+      } else if (numericAmount > todayAllowance * 0.8) {
+        status = 'warning';
+      } else {
+        status = 'safe';
+      }
+    } else if (budgetPool === 'outings') {
+      const outingsRem = smartBudgetEval.pools.outings.remaining;
+      if (numericAmount > outingsRem) {
+        status = 'danger';
+      } else if (numericAmount > outingsRem * 0.8) {
+        status = 'warning';
+      } else {
+        status = 'safe';
+      }
+    } else {
+      status = 'warning';
+    }
+
+    return {
+      status,
+      todayAllowance,
+      projectedAllowance,
+      budgetPool,
+    };
+  }, [type, smartBudgetEval, isDateInCycle, numericAmount, budgetPool, date]);
+
+  const handleClassifyWithAI = async () => {
+    if (isClassifyingPool) return;
+    setIsClassifyingPool(true);
+    try {
+      const selectedCat = categories.find((c) => c.id === categoryId);
+      const res = await classifyExpenseContext({
+        note: description,
+        categoryName: selectedCat?.name,
+        amount: numericAmount,
+        language: isArabic ? 'ar' : 'en',
+      });
+      if (res.context === 'outings') {
+        setBudgetPool('outings');
+      } else if (res.context === 'emergency') {
+        setBudgetPool('emergency');
+      } else {
+        setBudgetPool('daily');
+      }
+      showToast(
+        isArabic
+          ? `تم التصنيف ذكياً: ${res.context === 'outings' ? 'خروجات' : res.context === 'emergency' ? 'طوارئ' : 'معيشة يومية'}`
+          : `Classified as ${res.context === 'outings' ? 'Outings' : res.context === 'emergency' ? 'Emergency' : 'Daily Living'}`,
+        'info'
+      );
+    } catch (err) {
+      console.warn('AI classification error:', err);
+    } finally {
+      setIsClassifyingPool(false);
+    }
+  };
   const isTransferSameAccount = type === 'transfer' && accountId === toAccountId;
   const canSave = numericAmount > 0 && !isTransferSameAccount && isModified && !isFilterEmpty;
 
@@ -874,6 +1098,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         categoryName: type === 'transfer' ? undefined : selectedCategory?.name,
         categoryIcon: type === 'transfer' ? undefined : selectedCategory?.icon,
         description: description.trim(),
+        budgetPool: type === 'expense' ? budgetPool : undefined,
+        isSalary: type === 'income' ? isSalary : undefined,
         createdAt: activeEditingTx?.createdAt || Date.now(),
         updatedAt: Date.now(),
         shareId: sharedSpace.id,
@@ -895,6 +1121,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       categoryName: type === 'transfer' ? undefined : selectedCategory?.name,
       categoryIcon: type === 'transfer' ? undefined : selectedCategory?.icon,
       description: description.trim(),
+      budgetPool: type === 'expense' ? budgetPool : undefined,
+      isSalary: type === 'income' ? isSalary : undefined,
     };
 
     if (editingRecurring) {
@@ -950,6 +1178,47 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         });
       }
     }
+
+    // 1. Post-transaction deduplicated deficit/pool-drain/anomaly alert
+    if (type === 'expense') {
+      const updatedTxs = editingTx
+        ? transactions.map((tx) => (tx.id === editingTx.id ? { ...tx, ...payload } : tx))
+        : [...transactions, { ...payload, id: 'temp_eval', createdAt: Date.now() }];
+
+      const postEval = evaluateSmartBudget(
+        updatedTxs,
+        accounts,
+        { ...settings.smartBudget?.baseline, baseCurrency: currencySymbol },
+        new Date()
+      );
+
+      notifyBudgetAlertIfNeeded(
+        postEval,
+        showToast,
+        () => setIsSmartBudgetModalOpen(true),
+        isArabic
+      );
+    }
+
+    // 2. Post-transaction deduplicated salary received confirmation prompt
+    if (
+      type === 'income' &&
+      (isSalary ||
+        payload.categoryName?.toLowerCase().includes('salary') ||
+        payload.categoryName?.includes('راتب') ||
+        payload.categoryName?.includes('مرتب') ||
+        payload.description?.toLowerCase().includes('salary') ||
+        payload.description?.includes('راتب') ||
+        payload.description?.includes('مرتب'))
+    ) {
+      promptSalaryReviewIfNeeded(
+        date,
+        showConfirm,
+        () => setIsSmartBudgetModalOpen(true),
+        isArabic
+      );
+    }
+
     closeAddTxModal();
   };
 
@@ -963,8 +1232,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const linkedPastCount = pendingRecurringEdit
     ? transactions.filter((tx) => tx.recurringRuleId === pendingRecurringEdit.id).length
     : 0;
-
-  const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
 
   return (
     <div
@@ -1095,6 +1362,41 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Live Non-Blocking Impact Estimate for Expense Transactions */}
+            {type === 'expense' && impactEstimate && (
+              <div
+                className={`mt-1.5 mx-auto max-w-sm px-3.5 py-2 rounded-xl text-xs flex items-center justify-between gap-2 border transition ${
+                  impactEstimate.status === 'safe'
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                    : impactEstimate.status === 'warning'
+                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                    : 'bg-red-500/10 border-red-500/30 text-red-300'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {impactEstimate.status === 'safe' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : impactEstimate.status === 'warning' ? (
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 animate-pulse" />
+                  )}
+                  <span className="leading-snug break-words">
+                    {impactEstimate.status === 'safe' &&
+                      (isArabic ? 'ضمن مصروف اليوم الآمن' : "Within today's safe allowance")}
+                    {impactEstimate.status === 'warning' &&
+                      (isArabic
+                        ? 'يقترب من حد مصروف اليوم (أكثر من 80% من المسموح)'
+                        : "Approaching today's limit (>80% of daily allowance)")}
+                    {impactEstimate.status === 'danger' &&
+                      (isArabic
+                        ? `هذا المصروف سيتجاوز مصروف اليوم الآمن ويخفض الميزانية اليومية للأيام المتبقية من ${formatCurrency(impactEstimate.todayAllowance, currencySymbol)} إلى ${formatCurrency(impactEstimate.projectedAllowance, currencySymbol)}`
+                        : `This expense will exceed today's safe-to-spend and reduce remaining days' daily budget from ${formatCurrency(impactEstimate.todayAllowance, currencySymbol)} to ${formatCurrency(impactEstimate.projectedAllowance, currencySymbol)}`)}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Date & Time Separate Pill Buttons for Instant Access */}
             <div className="flex items-center justify-center gap-2 mt-2">
@@ -2094,15 +2396,129 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           )}
 
           {/* Notes / Description Input (Directly BELOW Recurring Toggle) */}
-          <div>
+          <div className="relative">
             <input
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={t('addNotes')}
-              className="w-full px-4 py-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
+              className={`w-full ${type === 'expense' ? 'pl-4 pr-11 rtl:pl-11 rtl:pr-4' : 'px-4'} py-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition`}
             />
+            {type === 'expense' && (
+              <button
+                type="button"
+                disabled={isClassifyingPool}
+                onClick={handleClassifyWithAI}
+                title={isArabic ? 'تصنيف بحوض الميزانية المناسب بالذكاء الاصطناعي' : 'Classify into budget pool with AI'}
+                className="absolute right-2.5 rtl:right-auto rtl:left-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-xl text-indigo-400 hover:text-indigo-300 hover:bg-zinc-800 transition cursor-pointer disabled:opacity-50"
+              >
+                <Sparkles className={`w-4 h-4 ${isClassifyingPool ? 'animate-spin' : ''}`} />
+              </button>
+            )}
           </div>
+
+          {/* Budget Pool Selector for Expense Transactions */}
+          {type === 'expense' && (
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between px-0.5">
+                <span className="text-xs font-semibold text-zinc-400">
+                  {isArabic ? 'حوض الميزانية الذكية' : 'Smart Budget Pool'}
+                </span>
+                <button
+                  type="button"
+                  disabled={isClassifyingPool}
+                  onClick={handleClassifyWithAI}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 disabled:opacity-50 transition cursor-pointer"
+                >
+                  <Sparkles className={`w-3.5 h-3.5 ${isClassifyingPool ? 'animate-spin' : ''}`} />
+                  <span>
+                    {isClassifyingPool
+                      ? (isArabic ? 'جاري التصنيف...' : 'Classifying...')
+                      : (isArabic ? 'تصنيف بالذكاء الاصطناعي' : 'Classify with AI')}
+                  </span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBudgetPool('daily')}
+                  className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                    budgetPool === 'daily'
+                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <span>🛒</span>
+                  <span>{isArabic ? 'معيشة يومية' : 'Daily'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBudgetPool('outings')}
+                  className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                    budgetPool === 'outings'
+                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 shadow'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <span>☕</span>
+                  <span>{isArabic ? 'خروجات' : 'Outings'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBudgetPool('emergency')}
+                  className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                    budgetPool === 'emergency'
+                      ? 'bg-red-500/20 border-red-500/50 text-red-300 shadow'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <span>🛡️</span>
+                  <span>{isArabic ? 'طوارئ' : 'Emergency'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Salary Confirmation Toggle for Income Transactions */}
+          {type === 'income' && (
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setIsSalary(!isSalary)}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs font-medium transition cursor-pointer ${
+                  isSalary
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                    : 'bg-zinc-900/80 border-zinc-800 text-zinc-400 hover:text-zinc-300'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base">💼</span>
+                  <div className="text-left rtl:text-right">
+                    <div className="font-semibold text-white">
+                      {isArabic ? 'هل هذا راتبك الشهري؟' : 'Is this your regular salary?'}
+                    </div>
+                    <div className="text-[10px] text-zinc-400">
+                      {isArabic
+                        ? 'يساعد في ضبط بداية دورة الميزانية الذكية وتوزيع الأحواض'
+                        : 'Helps auto-align the Smart Budget cycle & 4-pool allocation'}
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className={`w-5 h-5 rounded-md flex items-center justify-center border transition ${
+                    isSalary
+                      ? 'bg-emerald-600 border-emerald-500 text-white'
+                      : 'border-zinc-700 bg-zinc-800 text-transparent'
+                  }`}
+                >
+                  <Check className="w-3.5 h-3.5" />
+                </div>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Fixed Bottom Dock Container (Category Bar Pinned Above Keypad, with safe-area & visualViewport) */}
@@ -2140,7 +2556,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     <button
                       key={cat.id}
                       type="button"
-                      onClick={() => setCategoryId(cat.id)}
+                      onClick={() => {
+                        setCategoryId(cat.id);
+                        if (type === 'income' && (cat.name.toLowerCase().includes('salary') || cat.name.includes('راتب') || cat.name.includes('مرتب'))) {
+                          setIsSalary(true);
+                        }
+                      }}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition cursor-pointer ${
                         isSelected
                           ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 ring-1 ring-blue-400/40'
@@ -2265,6 +2686,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         initialType={type === 'income' ? 'income' : 'expense'}
         onSelectCategory={(cat) => {
           setCategoryId(cat.id);
+          if (type === 'income' && (cat.name.toLowerCase().includes('salary') || cat.name.includes('راتب') || cat.name.includes('مرتب'))) {
+            setIsSalary(true);
+          }
           setShowCategoryDirectory(false);
         }}
       />

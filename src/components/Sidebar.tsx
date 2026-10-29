@@ -64,6 +64,7 @@ import { auth, loginWithGoogle } from '../utils/firebase';
 import { signOut, type User as FirebaseUser } from 'firebase/auth';
 import { WeekStartDay } from '../types';
 import { WORLD_CURRENCIES, CurrencyOption } from '../utils/currencies';
+import { evaluateSmartBudget } from '../utils/smartBudgetEngine';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -72,6 +73,7 @@ export const Sidebar: React.FC = () => {
     setIsUserProfileModalOpen,
     setIsFeaturesModalOpen,
     setIsRecurringModalOpen,
+    setIsSmartBudgetModalOpen,
     recurringTransactions,
     processDueRecurring,
     setIsPinModalOpen,
@@ -110,6 +112,32 @@ export const Sidebar: React.FC = () => {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [newerStableInfo, setNewerStableInfo] = useState<StableReleaseCheckResult | null>(null);
   const [isStableNoticeDismissed, setIsStableNoticeDismissed] = useState(false);
+
+  const hasSmartBudgetAlert = useMemo(() => {
+    try {
+      const evaluation = evaluateSmartBudget(
+        transactions,
+        accounts,
+        {
+          startDay: settings.smartBudget?.baseline?.startDay ?? 1,
+          baseCurrency: settings.currencySymbol || 'EGP',
+          plannedIncome: settings.smartBudget?.baseline?.plannedIncome,
+          savings: settings.smartBudget?.baseline?.savings,
+          fixedCategoryIds: settings.smartBudget?.baseline?.fixedCategoryIds,
+          includedAccountIds: settings.smartBudget?.baseline?.includedAccountIds,
+        },
+        new Date()
+      );
+      return (
+        evaluation.anomalies.length > 0 ||
+        evaluation.rebalanceScenarios.scenarioA.deficitMinor > 0 ||
+        evaluation.dailyStatus.overBudgetByMinor > 0 ||
+        evaluation.dailyStatus.todayRemainingMinor < 0
+      );
+    } catch {
+      return false;
+    }
+  }, [transactions, accounts, settings.currencySymbol, settings.smartBudget]);
 
   useEffect(() => {
     if (!IS_BETA_BUILD) return;
@@ -1011,6 +1039,45 @@ export const Sidebar: React.FC = () => {
 
           {/* Features, Guides, and Scheduled Recurring */}
           <div className="space-y-2.5">
+            {/* Prominent Smart Budget Hub Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsSidebarOpen(false);
+                setIsSmartBudgetModalOpen(true);
+              }}
+              className="w-full relative overflow-hidden group min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950/70 via-teal-950/50 to-zinc-900/90 hover:from-emerald-900/80 hover:via-teal-900/60 hover:to-zinc-850 border border-emerald-500/40 hover:border-emerald-400 text-white transition-all duration-200 cursor-pointer shadow-lg shadow-emerald-950/30 active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-3 relative z-10 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/30 group-hover:scale-105 transition-transform">
+                  <Sparkles className="w-4.5 h-4.5 stroke-[2.5]" />
+                </div>
+                <div className="text-start min-w-0">
+                  <h4 className="text-xs font-bold text-white tracking-tight flex items-center gap-1.5 truncate">
+                    <span>{isArabic ? 'الميزانية الذكية' : 'Smart Budget'}</span>
+                  </h4>
+                  <p className="text-[10px] text-emerald-300/80 font-normal truncate mt-0.5">
+                    {isArabic ? 'المصروف الآمن والمستشار المالي' : 'Safe-to-spend & adaptive advisor'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 relative z-10 shrink-0 rtl:mr-2 ltr:ml-2">
+                {hasSmartBudgetAlert ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/50 text-amber-200 shadow-sm animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span>{isArabic ? 'تنبيه' : 'Alert'}</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    <span>{isArabic ? 'نشط' : 'Active'}</span>
+                  </span>
+                )}
+                <ChevronRight className={`w-4 h-4 text-emerald-300 group-hover:text-white group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5 transition-transform ${isArabic ? 'rotate-180' : ''}`} />
+              </div>
+            </button>
+
             {/* Recurring Transactions Manager Button */}
             <button
               type="button"
@@ -1527,7 +1594,7 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar Footer: Version (v1.1.62) & Refresh Button */}
+        {/* Sidebar Footer: Version (v1.1.63) & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-zinc-300">

@@ -11,3 +11,5 @@ coverage/
 *.zip
 firebase-service-account.json
 *firebase-adminsdk*.json
+.env
+.env*.local
