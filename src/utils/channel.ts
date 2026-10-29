@@ -43,16 +43,19 @@ export async function checkBetaAvailability(forceRefresh = false): Promise<boole
       cache: 'no-store',
       headers: { Accept: 'application/json' },
     });
-    if (!res.ok) {
+    // GitHub Pages can answer 200 with an HTML fallback for missing files:
+    // reachable ONLY when HTTP 200 AND the body is JSON with channel === 'beta'.
+    if (res.status !== 200) {
       cachedBetaAvailability = false;
     } else {
       const text = await res.text();
-      if (text && !text.trim().startsWith('<')) {
-        const json = JSON.parse(text);
-        cachedBetaAvailability = Boolean(json && (json.isBeta || json.version));
-      } else {
-        cachedBetaAvailability = false;
+      let json: any = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
       }
+      cachedBetaAvailability = Boolean(json && json.channel === 'beta');
     }
   } catch {
     cachedBetaAvailability = false;

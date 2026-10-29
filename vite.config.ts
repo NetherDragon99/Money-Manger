@@ -24,7 +24,18 @@ export default defineConfig(({ command, mode }) => {
     : base;
 
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
-  const versionString = packageJson.version || '1.1.61';
+  const versionString = packageJson.version || '1.1.62';
+
+  // The last official stable version this build is based on (beta builds keep their own version).
+  let stableVersionString = versionString;
+  if (isBeta) {
+    try {
+      const rootVersion = JSON.parse(fs.readFileSync(path.resolve('version.json'), 'utf-8'));
+      if (rootVersion?.stableVersion) stableVersionString = String(rootVersion.stableVersion);
+    } catch {
+      // keep fallback
+    }
+  }
 
   return {
     base,
@@ -61,7 +72,7 @@ export default defineConfig(({ command, mode }) => {
             version: versionString,
             channel,
             isBeta,
-            stableVersion: versionString,
+            stableVersion: stableVersionString,
           };
           this.emitFile({
             type: 'asset',

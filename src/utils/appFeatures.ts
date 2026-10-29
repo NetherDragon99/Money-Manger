@@ -1,10 +1,47 @@
 import { FeatureItem, ReleaseNote } from '../types';
+import { IS_BETA_BUILD } from './channel';
 
 export type { FeatureItem, ReleaseNote };
 
+/**
+ * Returns the release notes visible for the running build channel.
+ * Driven ONLY by IS_BETA_BUILD (never by the mm_join_beta flag):
+ * - Stable build: official entries only (isBeta !== true) and never entries merged via rolledUpInto.
+ * - Beta build: the full chronological timeline.
+ */
+export function getReleaseNotesForChannel(
+  notes: ReleaseNote[] = APP_RELEASE_NOTES,
+  isBetaBuild: boolean = IS_BETA_BUILD
+): ReleaseNote[] {
+  if (isBetaBuild) return notes;
+  return notes.filter((n) => n.isBeta !== true && !n.rolledUpInto);
+}
+
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.62',
+    isBeta: true,
+    releaseDate: 'October 29, 2026',
+    title: {
+      en: 'Channel-Aware Release Updates and Early Testing Tools',
+      ar: 'تحديثات سجل التغييرات وأدوات التجربة المبكرة',
+    },
+    highlights: {
+      en: [
+        'Easier early testing: Preview upcoming features before official releases with one tap',
+        'Clear update tags: See which improvements are early previews and which are official',
+        'Safer channel switching: Try new features with full backup protection whenever you want',
+      ],
+      ar: [
+        'تجربة أسهل وأسرع: جرب الميزات الجديدة قبل نزولها للكل بضغطة واحدة',
+        'علامات واضحة للتحديثات: اعرف بسهولة إيه الميزات التجريبية وإيه التحديثات الرسمية',
+        'تنقل آمن وسلس: جرب الجديد براحتك مع حماية كاملة لبياناتك ونسخ احتياطي فوري',
+      ],
+    },
+  },
+  {
     version: '1.1.61',
+    isBeta: false,
     releaseDate: 'October 29, 2026',
     title: {
       en: 'Two-Channel Deployment (Stable & Beta), "Join Beta" Opt-In & Channel Switching Safeguards',
@@ -27,6 +64,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.60',
+    isBeta: false,
     releaseDate: 'October 28, 2026',
     title: {
       en: 'Shared Space Security & Audit Log, Responsive Transfer Cards & Next Occurrences Preview',
@@ -51,6 +89,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.59',
+    isBeta: false,
     releaseDate: 'October 28, 2026',
     title: {
       en: 'Unified Recurring Schedules: Connected Weekday & Month-Day Filters, Multi-Time Overrides & Cloud Sync',
@@ -73,6 +112,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.58',
+    isBeta: false,
     releaseDate: 'October 28, 2026',
     title: {
       en: 'Interactive Recurring Rule Editing, Scheduled Catch-Up & Advanced Timing',
@@ -95,6 +135,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.57',
+    isBeta: false,
     releaseDate: 'October 28, 2026',
     title: {
       en: 'Real-Time Shared Spaces Overhaul: Instant Sync, Live Profiles & Member Cleanup',
@@ -117,6 +158,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.56',
+    isBeta: false,
     releaseDate: 'October 27, 2026',
     title: {
       en: 'User Profile Navigation Fix & Dedicated Cloud Account Menu Access',
@@ -135,6 +177,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.55',
+    isBeta: false,
     releaseDate: 'October 27, 2026',
     title: {
       en: 'Streamlined 2-Page Feature Guide & Instant Swipe Return',
@@ -153,6 +196,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.54',
+    isBeta: false,
     releaseDate: 'October 27, 2026',
     title: {
       en: 'Feature Directory 3-State Motion Layout, Thin Sidebar & Swipe Gestures',
@@ -175,6 +219,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.53',
+    isBeta: false,
     releaseDate: 'October 27, 2026',
     title: {
       en: 'Real-Time Bottom Navigation Sync on Hand Swipe & Fast Gesture Coordination',
@@ -193,6 +238,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.52',
+    isBeta: false,
     releaseDate: 'October 27, 2026',
     title: {
       en: 'Insights Swipe Unlock, Reliable Bottom Nav Navigation, Home Sidebar Pull & Category Sync',
@@ -215,6 +261,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.51',
+    isBeta: false,
     releaseDate: 'October 27, 2026',
     title: {
       en: 'Native Vertical Scrolling Fix & Pure CSS Horizontal Page Swiping Engine',
@@ -235,6 +282,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.50',
+    isBeta: false,
     releaseDate: 'October 27, 2026',
     title: {
       en: 'Vertical Scroll Restoration, Gesture Direction Locking & Navigation Hierarchy Fix',
@@ -255,6 +303,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.49',
+    isBeta: false,
     releaseDate: 'October 27, 2026',
     title: {
       en: 'UI/UX Overhaul, 1:1 Gesture Carousels, Recurring Engine & Deep Navigation Stack',
@@ -279,6 +328,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.48',
+    isBeta: false,
     releaseDate: 'October 27, 2026',
     title: {
       en: 'App Reliability, Gesture Navigation & Multi-Level History Stack',
@@ -297,6 +347,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.47',
+    isBeta: false,
     releaseDate: 'October 26, 2026',
     title: {
       en: 'Live Cloud Sync, Instant Change Catch-Up & Sidebar Status',
@@ -317,6 +368,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   },
   {
     version: '1.1.46',
+    isBeta: false,
     releaseDate: 'October 25, 2026',
     title: {
       en: 'Shared Spaces, Scheduled Recurring Rules & Transaction Numpad Overhaul',

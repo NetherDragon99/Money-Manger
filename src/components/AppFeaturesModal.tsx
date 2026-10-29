@@ -20,6 +20,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { CURRENT_APP_VERSION, formatVersionLabel } from '../utils/versionChecker';
+import { IS_BETA_BUILD } from '../utils/channel';
 import { FeatureItem, ReleaseNote } from '../types';
 
 interface AppFeaturesModalProps {
@@ -34,6 +35,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
     setSelectedFeatureId: setSelectedId,
     featureGuideLayout,
     setFeatureGuideLayout,
+    t,
   } = useApp();
 
   const isArabic = settings.language === 'ar';
@@ -53,7 +55,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
       .then((mod) => {
         setFeaturesData({
           features: mod.APP_CORE_FEATURES || [],
-          releaseNotes: mod.APP_RELEASE_NOTES || [],
+          releaseNotes: mod.getReleaseNotesForChannel(mod.APP_RELEASE_NOTES || []),
         });
         setIsLoading(false);
       })
@@ -483,6 +485,17 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                                       <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white">
                                         v{note.version}
                                       </span>
+                                      {IS_BETA_BUILD && (
+                                        <span
+                                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                            note.isBeta
+                                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                              : 'bg-sky-500/20 text-sky-300 border-sky-500/30'
+                                          }`}
+                                        >
+                                          {note.isBeta ? t('betaBadge') : t('officialBadge')}
+                                        </span>
+                                      )}
                                       {isLatest && (
                                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                                           {isArabic ? 'الإصدار الأخير' : 'Latest Release'}

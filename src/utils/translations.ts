@@ -237,6 +237,8 @@ export const translations = {
     leavingBetaToast: 'Returning to Stable version...',
     betaUnreachableToast: 'Beta version is currently unreachable. Staying on Stable.',
     switchingToBetaToast: 'Safety snapshot saved. Switching to Beta...',
+    betaBadge: 'Beta',
+    officialBadge: 'Official',
   },
   ar: {
     // Navigation
@@ -475,6 +477,8 @@ export const translations = {
     leavingBetaToast: 'جاري العودة إلى النسخة المستقرة...',
     betaUnreachableToast: 'تعذر الوصول إلى النسخة التجريبية حالياً. تم البقاء على النسخة المستقرة.',
     switchingToBetaToast: 'تم حفظ نسخة الأمان. جاري الانتقال للبيتا...',
+    betaBadge: 'تجريبي',
+    officialBadge: 'رسمي',
   },
 };
 

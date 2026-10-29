@@ -237,7 +237,12 @@ export interface ReleaseNote {
   version: string;
   releaseDate: string;
   title: { en: string; ar: string };
+  /** Short, plain-language user-benefit lines (English and friendly Egyptian Arabic). */
   highlights: { en: string[]; ar: string[] };
+  /** True for entries that only exist in the Beta channel (not yet an official release). */
+  isBeta?: boolean;
+  /** Set on a beta entry once it was merged into this official stable version. */
+  rolledUpInto?: string;
 }
 
 export interface FeatureItem {

@@ -34,8 +34,9 @@ export const WhatsNewModal: React.FC = () => {
     if (isWhatsNewOpen && !latestNote) {
       import('../utils/appFeatures')
         .then((mod) => {
-          if (mod.APP_RELEASE_NOTES && mod.APP_RELEASE_NOTES.length > 0) {
-            setLatestNote(mod.APP_RELEASE_NOTES[0]);
+          const visible = mod.getReleaseNotesForChannel(mod.APP_RELEASE_NOTES || []);
+          if (visible.length > 0) {
+            setLatestNote(visible[0]);
           }
         })
         .catch((err) => console.warn('Failed to lazy load release notes:', err));
