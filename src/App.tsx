@@ -23,56 +23,10 @@ import { SyncConflictModal } from './components/SyncConflictModal';
 import { ResetPeriodModal } from './components/ResetPeriodModal';
 import { AdvancedFilterModal } from './components/AdvancedFilterModal';
 import { EmojiPickerModal } from './components/EmojiPickerModal';
+import { SmartBudgetModal } from './components/SmartBudgetModal';
 const AppFeaturesModal = React.lazy(() =>
   import('./components/AppFeaturesModal').then((m) => ({ default: m.AppFeaturesModal }))
 );
-const SmartBudgetModal = React.lazy(() =>
-  import('./components/SmartBudgetModal').then((m) => ({ default: m.SmartBudgetModal }))
-);
-
-interface ChunkErrorBoundaryProps {
-  onClose: () => void;
-  children: React.ReactNode;
-}
-
-class ChunkErrorBoundary extends React.Component<ChunkErrorBoundaryProps, { hasError: boolean }> {
-  constructor(props: ChunkErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
-            <h3 className="text-base font-bold text-white mb-2">Failed to load Smart Budget module</h3>
-            <p className="text-xs text-zinc-400 mb-6">Network or offline interruption prevented loading the component.</p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => this.setState({ hasError: false })}
-                className="flex-1 min-h-[44px] px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl"
-              >
-                Retry
-              </button>
-              <button
-                type="button"
-                onClick={this.props.onClose}
-                className="min-h-[44px] px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold rounded-xl"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 import { WhatsNewModal } from './components/WhatsNewModal';
 import { ExitConfirmModal } from './components/ExitConfirmModal';
 import { AppLockScreen } from './components/AppLockScreen';
@@ -177,7 +131,7 @@ const MainAppContent: React.FC = () => {
 
   const [isBarsVisible, setIsBarsVisible] = useState<boolean>(true);
   const [updating, setUpdating] = useState(false);
-  const { isExitModalOpen, cancelExit, confirmExit } = useNavigation();
+  const { isExitModalOpen, cancelExit, confirmExit, exitHint } = useNavigation();
 
   // Capture PWA beforeinstallprompt event immediately in React state and window.deferredPwaPrompt
   const [deferredPwaPrompt, setDeferredPwaPrompt] = useState<any>(() => {
@@ -944,16 +898,12 @@ const MainAppContent: React.FC = () => {
           />
         </React.Suspense>
 
-        {/* Smart Budget Hub Modal (Lazy Loaded with Chunk Error Retry) */}
+        {/* Smart Budget Hub Modal */}
         {isSmartBudgetModalOpen && (
-          <ChunkErrorBoundary onClose={navigateBack}>
-            <React.Suspense fallback={null}>
-              <SmartBudgetModal
-                isOpen={isSmartBudgetModalOpen}
-                onClose={navigateBack}
-              />
-            </React.Suspense>
-          </ChunkErrorBoundary>
+          <SmartBudgetModal
+            isOpen={isSmartBudgetModalOpen}
+            onClose={navigateBack}
+          />
         )}
 
         {/* Automatic What's New on First Launch of each version */}
@@ -965,6 +915,7 @@ const MainAppContent: React.FC = () => {
           isOpen={isExitModalOpen}
           onClose={cancelExit}
           onConfirmExit={confirmExit}
+          exitHint={exitHint}
         />
 
         {/* Global Emoji Picker */}

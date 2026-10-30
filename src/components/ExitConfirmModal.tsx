@@ -1,19 +1,21 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { LogOut } from 'lucide-react';
+import { LogOut, Home } from 'lucide-react';
 
 interface ExitConfirmModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirmExit: () => void;
+  exitHint?: string | null;
 }
 
 export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
   isOpen,
   onClose,
   onConfirmExit,
+  exitHint,
 }) => {
-  const { settings } = useApp();
+  const { settings, t } = useApp();
   const isArabic = settings.language === 'ar';
 
   if (!isOpen) return null;
@@ -39,42 +41,56 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
           </div>
           <div>
             <h3 className="text-base font-bold text-white">
-              {isArabic ? 'هل تريد الخروج من التطبيق؟' : 'Exit App?'}
+              {t('exitAppTitle')}
             </h3>
             <p className="text-xs text-zinc-400 mt-0.5">
-              {isArabic ? 'هل أنت متأكد من رغبتك بالخروج؟' : 'Are you sure you want to exit?'}
+              {t('exitAppSubtitle')}
             </p>
           </div>
         </div>
 
         <p className="text-xs text-zinc-300 leading-relaxed">
-          {isArabic
-            ? 'كافة بياناتك ومعاملاتك محفوظة بأمان محلياً في ذاكرة جهازك الدائمة.'
-            : 'All your accounts and transactions are safely stored on your local device.'}
+          {t('exitAppSafeguard')}
         </p>
 
-        <div className="grid grid-cols-2 gap-2 pt-2">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose();
-            }}
-            className="py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 transition cursor-pointer active:scale-95 pointer-events-auto"
-          >
-            {isArabic ? 'البقاء' : 'Stay'}
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onConfirmExit();
-            }}
-            className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow-lg shadow-rose-900/40 transition cursor-pointer active:scale-95 pointer-events-auto"
-          >
-            {isArabic ? 'خروج' : 'Exit'}
-          </button>
-        </div>
+        {exitHint ? (
+          <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center animate-in fade-in space-y-2">
+            <div className="flex items-center justify-center gap-2 text-amber-400 text-xs font-semibold">
+              <Home className="w-4 h-4 shrink-0" />
+              <span>{exitHint}</span>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-300 font-semibold border border-zinc-800 transition active:scale-95"
+            >
+              {t('exitAppStay')}
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 pt-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              className="py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 transition cursor-pointer active:scale-95 pointer-events-auto"
+            >
+              {t('exitAppStay')}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onConfirmExit();
+              }}
+              className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow-lg shadow-rose-900/40 transition cursor-pointer active:scale-95 pointer-events-auto"
+            >
+              {t('exitAppConfirm')}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

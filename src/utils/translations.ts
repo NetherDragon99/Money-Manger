@@ -264,6 +264,14 @@ export const translations = {
     betaBadge: 'Beta',
     officialBadge: 'Official',
 
+    // Exit Application Dialog
+    exitAppTitle: 'Exit App?',
+    exitAppSubtitle: 'Are you sure you want to exit?',
+    exitAppSafeguard: 'All your accounts and transactions are safely stored on your local device.',
+    exitAppStay: 'Stay',
+    exitAppConfirm: 'Exit',
+    exitAppHint: 'Press Home or swipe the app away to close',
+
     // Smart Budget AI Advisor & Key Management
     aiAdvisorTitle: 'Smart Financial Advisor (AI)',
     aiAdvisorDesc: 'Personalized budget allocation and health suggestions powered by Google Gemini.',
@@ -648,6 +656,14 @@ export const translations = {
     switchingToBetaToast: 'تم حفظ نسخة الأمان. جاري الانتقال للبيتا...',
     betaBadge: 'تجريبي',
     officialBadge: 'رسمي',
+
+    // Exit Application Dialog
+    exitAppTitle: 'هل تريد الخروج من التطبيق؟',
+    exitAppSubtitle: 'هل أنت متأكد من رغبتك بالخروج؟',
+    exitAppSafeguard: 'كافة بياناتك ومعاملاتك محفوظة بأمان محلياً في ذاكرة جهازك الدائمة.',
+    exitAppStay: 'البقاء',
+    exitAppConfirm: 'خروج',
+    exitAppHint: 'اضغط زر الشاشة الرئيسية أو اسحب التطبيق للإغلاق',
 
     // Smart Budget AI Advisor & Key Management
     aiAdvisorTitle: 'المستشار المالي الذكي (AI)',

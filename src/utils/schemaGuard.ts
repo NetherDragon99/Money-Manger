@@ -45,20 +45,11 @@ export function isStoredSchemaNewer(): boolean {
   return stored !== null && stored > CURRENT_SCHEMA_VERSION;
 }
 
+import { BETA_BASE_URL } from './channel';
+
 /**
  * Calculates the target URL to navigate the user back to the Beta app.
  */
 export function getBetaAppUrl(): string {
-  try {
-    if (typeof window === 'undefined') return './beta/';
-    const { origin, pathname } = window.location;
-    if (pathname.includes('/beta/')) return window.location.href;
-    if (pathname.startsWith('/Money-Manger')) {
-      return `${origin}/Money-Manger/beta/`;
-    }
-    const cleanPath = pathname.endsWith('/') ? pathname : `${pathname}/`;
-    return `${origin}${cleanPath}beta/`;
-  } catch {
-    return './beta/';
-  }
+  return BETA_BASE_URL;
 }

@@ -24,7 +24,7 @@ export default defineConfig(({ command, mode }) => {
     : base;
 
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
-  const versionString = packageJson.version || '1.1.64';
+  const versionString = packageJson.version || '1.1.65';
 
   // The last official stable version this build is based on (beta builds keep their own version).
   let stableVersionString = versionString;
@@ -133,6 +133,7 @@ export default defineConfig(({ command, mode }) => {
           cacheId: isBeta ? 'mm-beta' : undefined,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,json,woff2}'],
           globIgnores: isBeta ? [] : ['beta/**', '**/beta/**'],
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           skipWaiting: false,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
@@ -140,18 +141,25 @@ export default defineConfig(({ command, mode }) => {
           navigateFallbackDenylist: isBeta ? [/^\/api/] : [/^\/api/, /\/beta\//],
           runtimeCaching: [
             {
-              urlPattern: ({ request, url }) => {
-                if (!isBeta && /\/beta\//.test(url.pathname)) {
-                  return false;
-                }
-                return (
-                  request.destination === 'document' ||
-                  request.destination === 'script' ||
-                  request.destination === 'style' ||
-                  request.destination === 'image' ||
-                  request.destination === 'font'
-                );
-              },
+              urlPattern: isBeta
+                ? ({ request }) =>
+                    request.destination === 'document' ||
+                    request.destination === 'script' ||
+                    request.destination === 'style' ||
+                    request.destination === 'image' ||
+                    request.destination === 'font'
+                : ({ request, url }) => {
+                    if (/\/beta\//.test(url.pathname)) {
+                      return false;
+                    }
+                    return (
+                      request.destination === 'document' ||
+                      request.destination === 'script' ||
+                      request.destination === 'style' ||
+                      request.destination === 'image' ||
+                      request.destination === 'font'
+                    );
+                  },
               handler: 'NetworkFirst',
               options: {
                 cacheName: isBeta ? 'app-offline-cache-beta' : 'app-offline-cache',

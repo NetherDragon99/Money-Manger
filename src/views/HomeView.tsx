@@ -318,41 +318,15 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
           isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
-        {/* Left: Hamburger Menu Button (☰) & Safe-to-Spend Pill */}
-        <div className="flex items-center gap-2 min-w-0">
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen(true)}
-            aria-label="Open Menu"
-            className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-
-          {/* Compact clickable Safe-to-Spend Today pill */}
-          <button
-            type="button"
-            onClick={() => setIsSmartBudgetModalOpen(true)}
-            title={isArabic ? 'المتبقي من مصروف اليوم (الميزانية الذكية)' : 'Safe-to-Spend Today (Smart Budget)'}
-            className={`flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full border text-[11px] sm:text-xs font-bold transition active:scale-95 cursor-pointer shrink-0 max-w-[130px] sm:max-w-none truncate ${
-              todayRemaining > 0
-                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
-                : 'bg-red-500/10 hover:bg-red-500/20 border-red-500/30 text-red-400'
-            }`}
-          >
-            <span
-              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                todayRemaining > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'
-              }`}
-            />
-            <span className="hidden sm:inline">
-              {isArabic ? 'مصروف اليوم:' : 'Safe Today:'}
-            </span>
-            <span className="font-mono">
-              {formatCurrency(todayRemaining, currencySymbol)}
-            </span>
-          </button>
-        </div>
+        {/* Left: Hamburger Menu Button (☰) */}
+        <button
+          type="button"
+          onClick={() => setIsSidebarOpen(true)}
+          aria-label="Open Menu"
+          className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0 cursor-pointer active:scale-95"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
 
         {/* Center: Period Filter Dropdown (< All Time ▾ > or < This Month ▾ >) */}
         <div className="flex items-center gap-1">
@@ -362,7 +336,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
             aria-label="Previous Period"
             className="p-1.5 rounded-full hover:bg-zinc-900 text-zinc-400 hover:text-white transition"
           >
-            <ChevronLeft className="w-4 h-4" />
+            <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
           </button>
 
           <div className="relative">
@@ -408,7 +382,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
                         setPeriodFilter(pKey);
                       }
                     }}
-                    className={`w-full text-left px-4 py-2 hover:bg-zinc-800 transition ${
+                    className={`w-full text-left rtl:text-right px-4 py-2 hover:bg-zinc-800 transition ${
                       periodFilter === pKey ? 'text-blue-400 font-bold bg-zinc-800/50' : 'text-zinc-300'
                     }`}
                   >
@@ -431,7 +405,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
             aria-label="Next Period"
             className="p-1.5 rounded-full hover:bg-zinc-900 text-zinc-400 hover:text-white transition"
           >
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="w-4 h-4 rtl:rotate-180" />
           </button>
         </div>
 
@@ -533,6 +507,32 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
 
       {/* View Content: Responsive Tablet & Desktop Container (Item 2) */}
       <div className="flex-1 px-4 py-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto space-y-4">
+        {/* Safe-to-Spend Today Pill (Neatly on its own row under header) */}
+        <div className="flex items-center justify-between sm:justify-start gap-2">
+          <button
+            type="button"
+            onClick={() => setIsSmartBudgetModalOpen(true)}
+            title={isArabic ? 'المتبقي من مصروف اليوم (الميزانية الذكية)' : 'Safe-to-Spend Today (Smart Budget)'}
+            className={`min-h-[44px] flex items-center gap-2 px-3.5 py-2 rounded-2xl border text-xs sm:text-sm font-bold transition active:scale-95 cursor-pointer shadow-sm ${
+              todayRemaining > 0
+                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+                : 'bg-red-500/10 hover:bg-red-500/20 border-red-500/30 text-red-400'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                todayRemaining > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'
+              }`}
+            />
+            <span>
+              {isArabic ? 'مصروف اليوم الآمن:' : 'Safe Today:'}
+            </span>
+            <span className="font-mono font-black">
+              {formatCurrency(todayRemaining, currencySymbol)}
+            </span>
+          </button>
+        </div>
+
         {/* Smart Budget Alert Banner */}
         <SmartBudgetAlertBanner />
 

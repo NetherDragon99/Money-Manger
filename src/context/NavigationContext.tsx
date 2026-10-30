@@ -9,6 +9,8 @@ export interface NavigationContextType {
   setIsExitModalOpen: (open: boolean) => void;
   confirmExit: () => void;
   cancelExit: () => void;
+  exitHint: string | null;
+  getPushedFramesCount: () => number;
 }
 
 export const NavigationContext = createContext<NavigationContextType | null>(null);
@@ -27,7 +29,9 @@ export const navigateBack = () => {
 export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const app = useApp();
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+  const [exitHint, setExitHint] = useState<string | null>(null);
   const isExitingAppRef = useRef(false);
+  const appPushedFramesRef = useRef<number>(1);
 
   // Keep live references to app mutators to avoid stale closures inside popstate
   const appRef = useRef(app);
@@ -57,6 +61,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // Base-path safe: preserves current pathname, search, and hash
         window.history.replaceState({ __mm_root: true, depth: 0 }, '', window.location.href);
         window.history.pushState({ __mm_frame: true, token: 'root:home', depth: 1 }, '', window.location.href);
+        appPushedFramesRef.current = 1;
       }
     } catch {}
   }, []);
@@ -167,6 +172,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           '',
           window.location.href
         );
+        appPushedFramesRef.current++;
       } catch {}
     } else {
       // Stack shrunk (e.g. state updated after pop), update tracking without pushing
@@ -207,7 +213,11 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // 4. Popstate handler: Step-by-step hardware/browser Back resolution & Root Exit Sentinel
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
-      if (isExitingAppRef.current) return;
+      if (isExitingAppRef.current || (window as any).__mm_switching_channel || (window as any).__mm_allow_exit) {
+        return;
+      }
+
+      appPushedFramesRef.current = Math.max(1, appPushedFramesRef.current - 1);
 
       const s = appRef.current;
 
@@ -373,6 +383,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Intercept popstate by re-pushing sentinel and show bilingual Exit Confirmation Dialog
       try {
         window.history.pushState({ __mm_root: false, depth: 1, token: 'root:home' }, '', window.location.href);
+        appPushedFramesRef.current++;
       } catch {}
       setIsExitModalOpen(true);
     };
@@ -383,17 +394,29 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const confirmExit = () => {
     isExitingAppRef.current = true;
+    (window as any).__mm_allow_exit = true;
+
+    // Go back past ALL frames the app pushed in memory in a single history.go(-(frames + 1))
+    const frames = Math.max(1, appPushedFramesRef.current || 1);
     try {
-      window.close();
+      window.history.go(-(frames + 1));
     } catch {}
+
     setTimeout(() => {
-      // Navigate back past sentinel frames to exit
-      window.history.go(-2);
-    }, 50);
+      try {
+        window.close();
+      } catch {}
+
+      // If page is still alive after 400ms, display the exit hint instead of looping
+      setExitHint(appRef.current.t('exitAppHint'));
+    }, 400);
   };
 
   const cancelExit = () => {
     setIsExitModalOpen(false);
+    setExitHint(null);
+    isExitingAppRef.current = false;
+    (window as any).__mm_allow_exit = false;
   };
 
   return (
@@ -404,6 +427,8 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setIsExitModalOpen,
         confirmExit,
         cancelExit,
+        exitHint,
+        getPushedFramesCount: () => appPushedFramesRef.current,
       }}
     >
       {children}
@@ -420,6 +445,8 @@ export const useNavigation = () => {
       setIsExitModalOpen: () => {},
       confirmExit: () => {},
       cancelExit: () => {},
+      exitHint: null,
+      getPushedFramesCount: () => 1,
     };
   }
   return context;

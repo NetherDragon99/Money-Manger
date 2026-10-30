@@ -37,9 +37,11 @@ import {
 import {
   IS_BETA_BUILD,
   checkBetaAvailability,
-  getBetaAppUrl,
-  getStableAppUrl,
+  STABLE_BASE_URL,
+  BETA_BASE_URL,
+  switchChannelWithHistoryUnwind,
 } from '../utils/channel';
+import { useNavigation } from '../context/NavigationContext';
 import {
   loadSecuritySettings,
   saveSecuritySettings,
@@ -106,6 +108,8 @@ export const Sidebar: React.FC = () => {
     lastSyncedAt,
     t,
   } = useApp();
+
+  const { getPushedFramesCount } = useNavigation();
 
   const [isBioSupported, setIsBioSupported] = useState<boolean>(true);
 
@@ -276,9 +280,10 @@ export const Sidebar: React.FC = () => {
       showToast(t('switchingToBetaToast'), 'info');
       setIsJoinBetaModalOpen(false);
 
-      // 5. Navigate to beta site safely
+      // 5. Navigate to beta site safely with history frames unwound
+      const frames = typeof getPushedFramesCount === 'function' ? getPushedFramesCount() : 1;
       setTimeout(() => {
-        window.location.href = getBetaAppUrl();
+        switchChannelWithHistoryUnwind(BETA_BASE_URL, frames);
       }, 350);
     } catch (err) {
       console.error('Error switching to beta channel:', err);
@@ -296,8 +301,9 @@ export const Sidebar: React.FC = () => {
       } catch {}
       updateSettings({ joinBeta: false });
       showToast(t('leavingBetaToast'), 'info');
+      const frames = typeof getPushedFramesCount === 'function' ? getPushedFramesCount() : 1;
       setTimeout(() => {
-        window.location.href = getStableAppUrl();
+        switchChannelWithHistoryUnwind(STABLE_BASE_URL, frames);
       }, 350);
     }
   };
@@ -1751,7 +1757,7 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar Footer: Version (v1.1.64) & Refresh Button */}
+        {/* Sidebar Footer: Version (v1.1.65) & Refresh Button */}
         <div className="p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-zinc-300">

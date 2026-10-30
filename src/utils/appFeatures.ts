@@ -19,6 +19,29 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.1.65',
+    isBeta: true,
+    releaseDate: 'October 30, 2026',
+    title: {
+      en: 'Reliable Smart Budget, Restored Header Controls and Smooth Exit',
+      ar: 'ميزانية ذكية موثوقة، استعادة عناصر التحكم العلوية وخروج سلس',
+    },
+    highlights: {
+      en: [
+        'Smart Budget opens reliably: Instant access to your daily allowance and spending pools with zero loading interruptions',
+        'Restored header controls: The time period selector and filters are back at the top with clear arrow directions',
+        'Contextual action button: The main plus button adapts to your active screen to add transactions, accounts, or categories',
+        'Smooth version switching and exit: Leaving the app and switching versions works cleanly without history loops',
+      ],
+      ar: [
+        'الميزانية الذكية بتفتح بسرعة: وصول فوري لمصروفك اليومي وأقسام الميزانية بدون أي تأخير أو انقطاع',
+        'استعادة شريط التحكم العلوي: اختيار الفترة وفلاتر المعاملات رجعت في أعلى الشاشة مع اتجاهات واضحة للأسهم',
+        'زر إضافة ذكي وسريع: الزر الرئيسي بيتغير تلقائياً حسب الشاشة لإضافة المعاملات أو الحسابات أو الفئات بكل سهولة',
+        'خروج وتبديل سلس: إغلاق التطبيق والتنقل بين الإصدارات أصبح أسهل وبدون أي تكرار لصفحات سابقة',
+      ],
+    },
+  },
+  {
     version: '1.1.64',
     isBeta: true,
     releaseDate: 'October 30, 2026',

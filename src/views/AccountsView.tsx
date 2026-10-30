@@ -320,16 +320,6 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
             </div>
           </div>
         </div>
-
-        {/* Right Header Action: Add Account Button */}
-        <button
-          type="button"
-          onClick={openAddAccountModal}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-900/30 transition cursor-pointer active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>{t('addAccount')}</span>
-        </button>
       </header>
 
       {/* Scrollable View Content Container */}

@@ -51,6 +51,31 @@ if (typeof window !== 'undefined') {
     window.deferredPwaPrompt = null;
     window.deferredPWAInstallPrompt = null;
   });
+
+  // Global handler for Vite dynamic import preload errors (e.g. chunk hash changed after deployment)
+  window.addEventListener('vite:preloadError', (event) => {
+    const RELOAD_KEY = 'mm_vite_preload_reloaded';
+    try {
+      if (!sessionStorage.getItem(RELOAD_KEY)) {
+        sessionStorage.setItem(RELOAD_KEY, '1');
+        window.location.reload();
+      } else {
+        console.error('Dynamic import preload failed after reload attempt:', event);
+      }
+    } catch {
+      window.location.reload();
+    }
+  });
+
+  window.addEventListener('load', () => {
+    setTimeout(() => {
+      try {
+        sessionStorage.removeItem('mm_vite_preload_reloaded');
+      } catch {
+        // ignore storage errors
+      }
+    }, 5000);
+  });
 }
 
 interface Props {

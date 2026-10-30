@@ -8,6 +8,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     setCurrentTab,
     openAddTxModal,
     openAddAccountModal,
+    openAddCategoryModal,
     selectedAccountId,
     budgetAlerts,
     settings,
@@ -18,6 +19,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     isFeaturesModalOpen,
     isRecurringModalOpen,
     isPinModalOpen,
+    isSmartBudgetModalOpen,
     isAddTxModalOpen,
     isAccountModalOpen,
     isCategoryModalOpen,
@@ -26,6 +28,8 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     shareModalState,
     remainingBalanceModalState,
     activeSharedId,
+    activeShareDetailFolder,
+    isTxMultiSelect,
     t,
   } = useApp();
 
@@ -39,6 +43,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     isFeaturesModalOpen ||
     isRecurringModalOpen ||
     isPinModalOpen ||
+    isSmartBudgetModalOpen ||
     isAddTxModalOpen ||
     isAccountModalOpen ||
     isCategoryModalOpen ||
@@ -46,22 +51,32 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     isFilterModalOpen ||
     shareModalState?.isOpen ||
     remainingBalanceModalState?.isOpen ||
-    activeSharedId
+    activeSharedId ||
+    activeShareDetailFolder ||
+    isTxMultiSelect
   );
 
   const isNavVisible = (propBarsVisible !== undefined ? propBarsVisible : isHeaderVisible) && !isAnySubPageOrModalOpen;
 
   // Floating Action Button (+):
-  // Hide on calculator tab or subpages
+  // Hide on calculator tab, subpages, open modals, multi-select mode
   const showFab = currentTab !== 'calculator' && !isAnySubPageOrModalOpen;
 
   // Floating action button click handler:
   const handleFabClick = () => {
     if (currentTab === 'accounts') {
       openAddAccountModal();
+    } else if (currentTab === 'budget') {
+      openAddCategoryModal();
     } else {
       openAddTxModal();
     }
+  };
+
+  const getFabAriaLabel = () => {
+    if (currentTab === 'accounts') return t('addAccount');
+    if (currentTab === 'budget') return t('addCategory');
+    return t('addTransaction');
   };
 
   const tabs = [
@@ -90,8 +105,8 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
           <button
             type="button"
             onClick={handleFabClick}
-            aria-label="Add Item"
-            className="pointer-events-auto w-14 h-14 md:w-16 md:h-16 rounded-full bg-blue-600 hover:bg-blue-500 active:scale-95 text-white flex items-center justify-center shadow-2xl shadow-blue-900/60 border border-blue-400/40 transition cursor-pointer"
+            aria-label={getFabAriaLabel()}
+            className="pointer-events-auto min-w-[44px] min-h-[44px] w-14 h-14 md:w-16 md:h-16 rounded-full bg-blue-600 hover:bg-blue-500 active:scale-95 text-white flex items-center justify-center shadow-2xl shadow-blue-900/60 border border-blue-400/40 transition cursor-pointer"
           >
             <Plus className="w-7 h-7 md:w-8 md:h-8 stroke-[2.5]" />
           </button>
