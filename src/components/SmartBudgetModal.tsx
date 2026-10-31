@@ -412,46 +412,48 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   const currentCycleKey = evaluation.cycle.startDate; // YYYY-MM-DD
   const currentOverride = resolveCycleOverride(settings.smartBudget?.overrides, currentCycleKey);
 
-  const totalCycleExpensesBeforeTodayMajor = useMemo(() => {
-    const todayStr = evaluation.dailyStatus.asOfDate;
-    const baseCurr = evaluation.baseCurrency;
-    return transactions
-      .filter((tx) => {
-        if (!tx || !tx.date || tx.type !== 'expense' || tx.isAdjustment || tx.isUneditable) return false;
-        const d = tx.date.split('T')[0].trim();
-        if (d < evaluation.cycle.startDate || d >= todayStr) return false;
-        const acc = accounts.find((a) => a.id === tx.accountId);
-        if (acc?.currency && acc.currency !== baseCurr) return false;
-        return true;
-      })
-      .reduce((sum, tx) => sum + (tx.amount || 0), 0);
-  }, [transactions, accounts, evaluation.cycle.startDate, evaluation.dailyStatus.asOfDate, evaluation.baseCurrency]);
-
-  const defaultRemainingMoney = useMemo(() => {
-    const planned = currentOverride?.plannedIncome ?? (baselineSettings.plannedIncome || (incomeMinor / 100));
-    return Math.max(0, Math.round((planned - totalCycleExpensesBeforeTodayMajor) * 100) / 100);
-  }, [currentOverride?.plannedIncome, baselineSettings.plannedIncome, incomeMinor, totalCycleExpensesBeforeTodayMajor]);
-
   const activeCycleMode: 'full_cycle' | 'from_today' =
     currentOverride?.calculationMode ||
     (evaluation.dailyStatus.cycleDayIndex > 1 ? 'from_today' : 'full_cycle');
 
   const isCyclePaused = Boolean(currentOverride?.isPaused);
 
-  const [moneyLeftInput, setMoneyLeftInput] = useState<string>(() => {
-    if (currentOverride?.fromTodayConfig?.remainingMoney != null) {
-      return formatNumberWithCommas(currentOverride.fromTodayConfig.remainingMoney, 2);
-    }
-    return formatNumberWithCommas(defaultRemainingMoney, 2);
+  const [isLinkedAccountsOpen, setIsLinkedAccountsOpen] = useState<boolean>(false);
+  const [adjustmentInput, setAdjustmentInput] = useState<string>(() => {
+    const adj = currentOverride?.fromTodayConfig?.manualAdjustment;
+    return adj != null && adj !== 0 ? String(adj) : '';
   });
 
   useEffect(() => {
-    if (currentOverride?.fromTodayConfig?.remainingMoney != null) {
-      setMoneyLeftInput(formatNumberWithCommas(currentOverride.fromTodayConfig.remainingMoney, 2));
-    } else {
-      setMoneyLeftInput(formatNumberWithCommas(defaultRemainingMoney, 2));
-    }
-  }, [currentOverride?.fromTodayConfig?.remainingMoney, defaultRemainingMoney]);
+    const adj = currentOverride?.fromTodayConfig?.manualAdjustment;
+    setAdjustmentInput(adj != null && adj !== 0 ? String(adj) : '');
+  }, [currentOverride?.fromTodayConfig?.manualAdjustment]);
+
+  const defaultLinkedAccountIds = useMemo(() => {
+    const nonSavings = accounts.filter((a) => a.accountRole !== 'savings');
+    return (nonSavings.length > 0 ? nonSavings : accounts).map((a) => a.id);
+  }, [accounts]);
+
+  const activeLinkedAccountIds = useMemo(() => {
+    const ids = currentOverride?.fromTodayConfig?.linkedAccountIds;
+    if (ids && ids.length > 0) return ids;
+    return defaultLinkedAccountIds;
+  }, [currentOverride?.fromTodayConfig?.linkedAccountIds, defaultLinkedAccountIds]);
+
+  const linkedAccountsBalanceSum = useMemo(() => {
+    return accounts
+      .filter((a) => activeLinkedAccountIds.includes(a.id))
+      .reduce((sum, a) => sum + (a.balance || 0), 0);
+  }, [accounts, activeLinkedAccountIds]);
+
+  const parsedAdjustment = useMemo(() => {
+    const cleaned = adjustmentInput.replace(/[^0-9.-]/g, '');
+    return parseFloat(cleaned) || 0;
+  }, [adjustmentInput]);
+
+  const liveBudget = useMemo(() => {
+    return Math.max(0, Math.round((linkedAccountsBalanceSum + parsedAdjustment) * 100) / 100);
+  }, [linkedAccountsBalanceSum, parsedAdjustment]);
 
   if (!isOpen) return null;
 
@@ -913,7 +915,6 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   };
 
   const handleSetCalculationMode = (newMode: 'full_cycle' | 'from_today') => {
-    const numMoneyLeft = parseFloat(moneyLeftInput.replace(/,/g, '')) || defaultRemainingMoney;
     const newOverride: SmartBudgetCycleOverride = {
       ...(currentOverride || {}),
       calculationMode: newMode,
@@ -921,8 +922,10 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
         newMode === 'from_today'
           ? {
               fromDate: currentOverride?.fromTodayConfig?.fromDate || evaluation.dailyStatus.asOfDate,
-              remainingMoney: Math.max(0, numMoneyLeft),
-              remainingMoneyMinor: Math.round(Math.max(0, numMoneyLeft) * 100),
+              linkedAccountIds: activeLinkedAccountIds,
+              manualAdjustment: parsedAdjustment,
+              remainingMoney: liveBudget,
+              remainingMoneyMinor: Math.round(liveBudget * 100),
             }
           : undefined,
     };
@@ -940,14 +943,87 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     });
   };
 
-  const handleMoneyLeftChange = (raw: string, inputEl: HTMLInputElement | null) => {
-    formatIncomeWithCaret(raw, inputEl, setMoneyLeftInput);
+  const handleToggleLinkedAccount = (accountId: string) => {
+    let nextIds: string[];
+    if (activeLinkedAccountIds.includes(accountId)) {
+      nextIds = activeLinkedAccountIds.filter((id) => id !== accountId);
+    } else {
+      nextIds = [...activeLinkedAccountIds, accountId];
+    }
+    const nextSum = accounts
+      .filter((a) => nextIds.includes(a.id))
+      .reduce((sum, a) => sum + (a.balance || 0), 0);
+    const nextLiveBudget = Math.max(0, Math.round((nextSum + parsedAdjustment) * 100) / 100);
+
+    const newOverride: SmartBudgetCycleOverride = {
+      ...(currentOverride || {}),
+      calculationMode: activeCycleMode,
+      fromTodayConfig: {
+        fromDate: currentOverride?.fromTodayConfig?.fromDate || evaluation.dailyStatus.asOfDate,
+        linkedAccountIds: nextIds,
+        manualAdjustment: parsedAdjustment,
+        remainingMoney: nextLiveBudget,
+        remainingMoneyMinor: Math.round(nextLiveBudget * 100),
+      },
+    };
+    updateSettings({
+      smartBudget: {
+        baseline: settings.smartBudget?.baseline || {},
+        overrides: {
+          ...(settings.smartBudget?.overrides || {}),
+          [currentCycleKey]: newOverride,
+        },
+        adjustments: settings.smartBudget?.adjustments,
+        updatedAt: Date.now(),
+      },
+    });
   };
 
-  const handleMoneyLeftBlur = () => {
-    const cleaned = moneyLeftInput.replace(/[^0-9.]/g, '');
-    const num = Math.max(0, parseFloat(cleaned) || 0);
-    setMoneyLeftInput(formatNumberWithCommas(num, 2));
+  const handleSelectLinkedAccountsPreset = (preset: 'non_savings' | 'all') => {
+    const targetAccounts =
+      preset === 'non_savings'
+        ? accounts.filter((a) => a.accountRole !== 'savings')
+        : accounts;
+    const nextIds = (targetAccounts.length > 0 ? targetAccounts : accounts).map((a) => a.id);
+    const nextSum = accounts
+      .filter((a) => nextIds.includes(a.id))
+      .reduce((sum, a) => sum + (a.balance || 0), 0);
+    const nextLiveBudget = Math.max(0, Math.round((nextSum + parsedAdjustment) * 100) / 100);
+
+    const newOverride: SmartBudgetCycleOverride = {
+      ...(currentOverride || {}),
+      calculationMode: activeCycleMode,
+      fromTodayConfig: {
+        fromDate: currentOverride?.fromTodayConfig?.fromDate || evaluation.dailyStatus.asOfDate,
+        linkedAccountIds: nextIds,
+        manualAdjustment: parsedAdjustment,
+        remainingMoney: nextLiveBudget,
+        remainingMoneyMinor: Math.round(nextLiveBudget * 100),
+      },
+    };
+    updateSettings({
+      smartBudget: {
+        baseline: settings.smartBudget?.baseline || {},
+        overrides: {
+          ...(settings.smartBudget?.overrides || {}),
+          [currentCycleKey]: newOverride,
+        },
+        adjustments: settings.smartBudget?.adjustments,
+        updatedAt: Date.now(),
+      },
+    });
+  };
+
+  const handleAdjustmentChange = (raw: string) => {
+    setAdjustmentInput(raw);
+  };
+
+  const handleAdjustmentBlur = () => {
+    const cleaned = adjustmentInput.replace(/[^0-9.-]/g, '');
+    const num = parseFloat(cleaned) || 0;
+    setAdjustmentInput(num !== 0 ? String(num) : '');
+
+    const nextLiveBudget = Math.max(0, Math.round((linkedAccountsBalanceSum + num) * 100) / 100);
 
     if (activeCycleMode === 'from_today') {
       const newOverride: SmartBudgetCycleOverride = {
@@ -955,18 +1031,19 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
         calculationMode: 'from_today',
         fromTodayConfig: {
           fromDate: currentOverride?.fromTodayConfig?.fromDate || evaluation.dailyStatus.asOfDate,
-          remainingMoney: num,
-          remainingMoneyMinor: Math.round(num * 100),
+          linkedAccountIds: activeLinkedAccountIds,
+          manualAdjustment: num,
+          remainingMoney: nextLiveBudget,
+          remainingMoneyMinor: Math.round(nextLiveBudget * 100),
         },
-      };
-      const newOverrides = {
-        ...(settings.smartBudget?.overrides || {}),
-        [currentCycleKey]: newOverride,
       };
       updateSettings({
         smartBudget: {
           baseline: settings.smartBudget?.baseline || {},
-          overrides: newOverrides,
+          overrides: {
+            ...(settings.smartBudget?.overrides || {}),
+            [currentCycleKey]: newOverride,
+          },
           adjustments: settings.smartBudget?.adjustments,
           updatedAt: Date.now(),
         },
@@ -1535,34 +1612,158 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
                   {/* Mode explanation & From Today inputs */}
                   {activeCycleMode === 'from_today' ? (
-                    <div className="p-3 rounded-2xl bg-zinc-950/70 border border-blue-500/20 space-y-2">
+                    <div className="p-3 sm:p-4 rounded-2xl bg-zinc-950/70 border border-blue-500/20 space-y-3.5">
                       <div className="flex items-center justify-between text-[11px] text-zinc-400 flex-wrap gap-1">
                         <span>{t('modeFromTodayDesc')}</span>
-                        <span className="font-mono text-blue-300 font-semibold">
+                        <span className="font-mono text-blue-300 font-semibold flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                           {evaluation.dailyStatus.asOfDate}
                         </span>
                       </div>
 
-                      <div className="space-y-1">
-                        <label className="block text-xs font-semibold text-zinc-200">
-                          {t('moneyLeftForRestOfCycle')}
+                      {/* Live Budget Display Card */}
+                      <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                            <Zap className="w-3.5 h-3.5 text-amber-400" />
+                            {t('moneyLeftForRestOfCycle')}
+                          </span>
+                          <span className="text-xs font-mono font-bold text-emerald-400">
+                            {formatCurrency(liveBudget, currency)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
+                          <span>
+                            {t('sumOfLinkedAccounts')}: {formatCurrency(linkedAccountsBalanceSum, currency)}
+                          </span>
+                          {parsedAdjustment !== 0 && (
+                            <span className={parsedAdjustment > 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                              {parsedAdjustment > 0 ? '+' : ''}{formatCurrency(parsedAdjustment, currency)}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-zinc-500 leading-relaxed pt-0.5">
+                          {t('moneyLeftHelper')}
+                        </p>
+                      </div>
+
+                      {/* Linked Accounts Selector */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
+                            <Wallet className="w-3.5 h-3.5 text-blue-400" />
+                            {t('linkedAccountsLabel')}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setIsLinkedAccountsOpen((prev) => !prev)}
+                            className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 font-medium transition cursor-pointer"
+                          >
+                            <span>
+                              {activeLinkedAccountIds.length}/{accounts.length}
+                            </span>
+                            {isLinkedAccountsOpen ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Presets */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectLinkedAccountsPreset('non_savings')}
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-750 transition cursor-pointer"
+                          >
+                            {t('selectLinkedAccountsPresetNonSavings')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectLinkedAccountsPreset('all')}
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-750 transition cursor-pointer"
+                          >
+                            {t('selectLinkedAccountsPresetAll')}
+                          </button>
+                        </div>
+
+                        {/* Dropdown list of accounts */}
+                        {isLinkedAccountsOpen && (
+                          <div className="p-2 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-1 max-h-48 overflow-y-auto">
+                            {accounts.length === 0 ? (
+                              <div className="p-2 text-center text-xs text-zinc-500">
+                                {isArabic ? 'لا توجد حسابات' : 'No accounts found'}
+                              </div>
+                            ) : (
+                              accounts.map((acc) => {
+                                const isChecked = activeLinkedAccountIds.includes(acc.id);
+                                return (
+                                  <label
+                                    key={acc.id}
+                                    className="flex items-center justify-between p-2 rounded-lg hover:bg-zinc-800/60 cursor-pointer transition select-none"
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => handleToggleLinkedAccount(acc.id)}
+                                        className="w-4 h-4 rounded text-blue-600 bg-zinc-800 border-zinc-700 focus:ring-blue-500 cursor-pointer"
+                                      />
+                                      <span className="text-sm shrink-0">{acc.icon || '💳'}</span>
+                                      <div className="min-w-0">
+                                        <p className="text-xs font-semibold text-zinc-200 truncate">
+                                          {acc.name}
+                                        </p>
+                                        {acc.accountRole === 'savings' && (
+                                          <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                                            {t('poolSavings')}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <span
+                                      className={`text-xs font-mono font-semibold shrink-0 ${
+                                        acc.balance >= 0 ? 'text-zinc-300' : 'text-rose-400'
+                                      }`}
+                                    >
+                                      {formatCurrency(acc.balance || 0, acc.currency || currency)}
+                                    </span>
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        )}
+
+                        {activeLinkedAccountIds.length === 0 && (
+                          <p className="text-[10px] text-amber-400 leading-relaxed">
+                            {t('noLinkedAccountsWarning')}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Extra Outside Cash (Adjustment) */}
+                      <div className="space-y-1 pt-1 border-t border-zinc-800/80">
+                        <label className="block text-xs font-semibold text-zinc-300">
+                          {t('extraCashAdjustment')}
                         </label>
                         <div className="relative">
                           <input
                             type="text"
                             inputMode="decimal"
-                            value={moneyLeftInput}
-                            onChange={(e) => handleMoneyLeftChange(e.target.value, e.target)}
-                            onBlur={handleMoneyLeftBlur}
+                            value={adjustmentInput}
+                            onChange={(e) => handleAdjustmentChange(e.target.value)}
+                            onBlur={handleAdjustmentBlur}
                             placeholder="0.00"
-                            className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-900 border border-zinc-750 text-white font-mono text-sm focus:border-blue-500 focus:outline-none"
+                            className="w-full min-h-[40px] px-3.5 py-1.5 pe-12 rounded-xl bg-zinc-900 border border-zinc-750 text-white font-mono text-sm focus:border-blue-500 focus:outline-none"
                           />
                           <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 font-mono pointer-events-none">
                             {currency}
                           </span>
                         </div>
-                        <p className="text-[10px] text-zinc-400 leading-relaxed">
-                          {t('moneyLeftHelper')}
+                        <p className="text-[10px] text-zinc-500 leading-relaxed">
+                          {t('extraCashAdjustmentDesc')}
                         </p>
                       </div>
                     </div>

@@ -245,8 +245,10 @@ export interface SmartBudgetBaselineConfig {
 
 export interface FromTodayConfig {
   fromDate: string; // YYYY-MM-DD
-  remainingMoney: number; // in major units
+  remainingMoney?: number; // in major units (calculated from linked accounts + manualAdjustment)
   remainingMoneyMinor?: number; // in minor units
+  linkedAccountIds?: string[]; // IDs of accounts linked to fund the Smart Budget
+  manualAdjustment?: number; // Extra outside cash adjustment (+/-)
 }
 
 export interface SmartBudgetCycleOverride extends Partial<SmartBudgetBaselineConfig> {

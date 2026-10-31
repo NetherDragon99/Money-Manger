@@ -605,6 +605,8 @@ export function evaluateSmartBudget(
 
   let fromDateStr = cycle.startDate;
   let remainingMoneyMinor: number | null = null;
+  let evaluatedFromTodayConfig: FromTodayConfig | undefined = undefined;
+
   if (calculationMode === 'from_today') {
     const rawFromDate = effectiveConfig.fromTodayConfig?.fromDate || asOfStr;
     fromDateStr =
@@ -613,14 +615,32 @@ export function evaluateSmartBudget(
         : rawFromDate > cycle.endDate
         ? cycle.endDate
         : rawFromDate;
-    if (effectiveConfig.fromTodayConfig?.remainingMoney != null) {
-      remainingMoneyMinor = Math.max(
-        0,
-        toMinorUnits(effectiveConfig.fromTodayConfig.remainingMoney, minorFactor)
-      );
-    } else if (effectiveConfig.fromTodayConfig?.remainingMoneyMinor != null) {
-      remainingMoneyMinor = Math.max(0, effectiveConfig.fromTodayConfig.remainingMoneyMinor);
-    }
+
+    // Live Account Linkage:
+    // Determine which accounts fund the Smart Budget in "From Today" mode.
+    // Default to all active, non-savings accounts if none explicitly specified.
+    const configuredLinkedIds = effectiveConfig.fromTodayConfig?.linkedAccountIds;
+    const nonSavingsAccounts = accounts.filter((a) => a.accountRole !== 'savings');
+    const effectiveLinkedAccounts =
+      configuredLinkedIds && configuredLinkedIds.length > 0
+        ? accounts.filter((a) => configuredLinkedIds.includes(a.id))
+        : nonSavingsAccounts.length > 0
+        ? nonSavingsAccounts
+        : accounts;
+
+    const linkedBalancesSum = effectiveLinkedAccounts.reduce((sum, a) => sum + (a.balance || 0), 0);
+    const manualAdj = Number(effectiveConfig.fromTodayConfig?.manualAdjustment) || 0;
+    const liveBudgetMajor = Math.max(0, linkedBalancesSum + manualAdj);
+
+    remainingMoneyMinor = toMinorUnits(liveBudgetMajor, minorFactor);
+
+    evaluatedFromTodayConfig = {
+      fromDate: fromDateStr,
+      linkedAccountIds: effectiveLinkedAccounts.map((a) => a.id),
+      manualAdjustment: manualAdj,
+      remainingMoney: liveBudgetMajor,
+      remainingMoneyMinor,
+    };
   }
 
   const cycleTxs: Transaction[] = [];
@@ -1349,7 +1369,7 @@ export function evaluateSmartBudget(
     excludedCurrencies: Array.from(excludedCurrenciesSet),
     isPaused,
     calculationMode,
-    fromTodayConfig: effectiveConfig.fromTodayConfig,
+    fromTodayConfig: evaluatedFromTodayConfig || effectiveConfig.fromTodayConfig,
     pools: {
       savings: {
         allocatedMinor: savingsMinor,

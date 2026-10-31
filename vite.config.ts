@@ -29,7 +29,7 @@ export default defineConfig(({ command, mode }) => {
     : (existingBase === './' ? './index.html' : `${existingBase}index.html`);
 
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
-  const versionString = packageJson.version || '1.1.67';
+  const versionString = packageJson.version || '1.1.68';
 
   // The last official stable version this build is based on (beta builds keep their own version).
   let stableVersionString = versionString;

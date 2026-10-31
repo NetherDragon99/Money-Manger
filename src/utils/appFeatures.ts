@@ -19,17 +19,19 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: '1.1.67',
+    version: '1.1.68',
     isBeta: true,
     releaseDate: 'October 31, 2026',
     title: {
-      en: 'Reliable Gemini 1.5 AI Models, Mid-Cycle Budgeting & Full Category Insights',
-      ar: 'اعتماد نماذج Gemini 1.5 المستقرة، حساب الميزانية من اليوم ومخطط الفئات الشامل',
+      en: 'Live Linked Accounts Budgeting, Outside Cash Adjustments & Mid-Cycle Enhancements',
+      ar: 'ربط الحسابات الحية بالميزانية، تسوية الكاش الخارجي وتحسينات الميزانية الذكية',
     },
     highlights: {
       en: [
-        'Stable Gemini 1.5 Flash: Connection test and AI advisor now reliably use standard gemini-1.5-flash with seamless fallbacks, resolving HTTP 404 model errors',
-        'Mid-Cycle Budgeting: Choose between full-cycle and "From Today" calculation mode to start budgeting mid-month with remaining funds',
+        'Live Linked Accounts: "From Today" budget mode now dynamically calculates your remaining budget from active linked accounts, updating in real-time as transactions occur',
+        'Outside Cash Adjustments: Easily add unrecorded physical cash or adjustments to your live budget without breaking automated tracking',
+        'Account Multi-Select: Filter which accounts fund your Smart Budget with one-click presets for Non-Savings or All Accounts',
+        'Stable Gemini 1.5 Flash: Reliable connection test and AI advisor using gemini-1.5-flash with seamless fallbacks',
         'Deterministic What-If Simulator: Real-time simulation of expenses showing exact pool and daily allowance impacts without AI latency',
         'Overspend Rebalancing: Accurate un-clamped deficit resolution with instant diagnostics showing top overspending categories',
         'Dedicated Sidebar Sheets: Settings and transfer fees extracted into independent, fully responsive modal sheets',
@@ -37,8 +39,10 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
         'Transaction Tax & Multi-line Notes: Optional tax and extra fee breakdown on transactions, paired with an auto-expanding note box',
       ],
       ar: [
-        'نماذج Gemini 1.5 Flash المستقرة: استخدام نموذج gemini-1.5-flash القياسي لاختبار الاتصال والمستشار الذكي لمنع أخطاء 404',
-        'ميزانية من اليوم: اختر بين دورة الشهر كاملة أو البدء من اليوم لتنظيم متبقي أموالك في منتصف الشهر بدقة',
+        'ربط الحسابات الحية: وضع "من اليوم" يحسب الميزانية تلقائياً وحياً من أرصدة الحسابات المرتبطة ويتحدث فورياً مع كل معاملة',
+        'تسوية الكاش الخارجي: إمكانية إضافة مبالغ نقدية غير مسجلة بسهولة دون التأثير على التتبع التلقائي',
+        'تحديد الحسابات بمرونة: فلترة الحسابات التي تمول ميزانيتك بضغطة زر واحدة (حسابات غير التوفير أو الكل)',
+        'نماذج Gemini 1.5 Flash المستقرة: استخدام نموذج gemini-1.5-flash القياسي لاختبار الاتصال والمستشار الذكي',
         'محاكي مصاريف حتمي: تجربة أي مصروف فوري ومباشر لمعرفة تأثيره الدقيق على حوض المصروف ومصروفك اليومي',
         'إعادة توازن دقيقة: حلول فورية لعجز الميزانية بدون تقريب مسبق مع عرض أكثر الفئات المسببة لزيادة الصرف',
         'نوافذ مخصصة للإعدادات: فصل إعدادات التطبيق ورسوم التحويلات في نوافذ مستقلة وسريعة الاستجابة',
