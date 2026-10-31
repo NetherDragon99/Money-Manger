@@ -19,28 +19,28 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: '1.1.66',
+    version: '1.1.67',
     isBeta: true,
     releaseDate: 'October 31, 2026',
     title: {
-      en: 'Mid-Cycle Smart Budget, Deterministic Simulator, AI Health Check & Category Insights',
-      ar: 'حساب الميزانية من اليوم، محاكي المصاريف الحتمي، فحص الاتصال بالذكاء الاصطناعي ومخطط الفئات',
+      en: 'Reliable Gemini 1.5 AI Models, Mid-Cycle Budgeting & Full Category Insights',
+      ar: 'اعتماد نماذج Gemini 1.5 المستقرة، حساب الميزانية من اليوم ومخطط الفئات الشامل',
     },
     highlights: {
       en: [
+        'Stable Gemini 1.5 Flash: Connection test and AI advisor now reliably use standard gemini-1.5-flash with seamless fallbacks, resolving HTTP 404 model errors',
         'Mid-Cycle Budgeting: Choose between full-cycle and "From Today" calculation mode to start budgeting mid-month with remaining funds',
         'Deterministic What-If Simulator: Real-time simulation of expenses showing exact pool and daily allowance impacts without AI latency',
         'Overspend Rebalancing: Accurate un-clamped deficit resolution with instant diagnostics showing top overspending categories',
-        'AI Diagnostics: Sequential key testing (personal key, backend proxy, cloud configuration) with clear error reporting and consent protection',
         'Dedicated Sidebar Sheets: Settings and transfer fees extracted into independent, fully responsive modal sheets',
         'Full Category Donut Chart: Complete visualization of all active categories with distinct colors and 100% mathematical precision',
         'Transaction Tax & Multi-line Notes: Optional tax and extra fee breakdown on transactions, paired with an auto-expanding note box',
       ],
       ar: [
+        'نماذج Gemini 1.5 Flash المستقرة: استخدام نموذج gemini-1.5-flash القياسي لاختبار الاتصال والمستشار الذكي لمنع أخطاء 404',
         'ميزانية من اليوم: اختر بين دورة الشهر كاملة أو البدء من اليوم لتنظيم متبقي أموالك في منتصف الشهر بدقة',
         'محاكي مصاريف حتمي: تجربة أي مصروف فوري ومباشر لمعرفة تأثيره الدقيق على حوض المصروف ومصروفك اليومي',
         'إعادة توازن دقيقة: حلول فورية لعجز الميزانية بدون تقريب مسبق مع عرض أكثر الفئات المسببة لزيادة الصرف',
-        'فحص ذكي للاتصال: اختبار تسلسلي لمفاتيح الذكاء الاصطناعي مع إشعارات واضحة وحماية كاملة للخصوصية',
         'نوافذ مخصصة للإعدادات: فصل إعدادات التطبيق ورسوم التحويلات في نوافذ مستقلة وسريعة الاستجابة',
         'مخطط دائري شامل للفئات: عرض كل الفئات النشطة بألوان مستقلة وتوزيع مئوي دقيق بنسبة 100%',
         'ضرائب المعاملات وملاحظات مرنة: إضافة الضريبة أو الرسوم على المعاملة مع مربع ملاحظات يتسع تلقائياً',

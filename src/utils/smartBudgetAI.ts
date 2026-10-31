@@ -11,7 +11,7 @@
  *    Never transmits account names, 16-digit IDs, emails, or free-text notes (except the single
  *    note explicitly submitted by the user for context classification).
  * 5. Prompt injection defense: Free-text note is treated as untrusted data and strictly delimited.
- * 6. Dual-model resilience: Primary `gemini-2.5-flash`, automatic fallback to `gemini-2.0-flash` on 404/429/5xx.
+ * 6. Dual-model resilience: Primary `gemini-1.5-flash`, automatic fallback to `gemini-1.5-flash-8b` / `gemini-1.5-pro` on 404/429/5xx.
  * 7. Operational safeguards: 8-second AbortController timeout, 24-hour TTL cache (`mm_ai_advisor_cache`),
  *    monthly usage counter (`mm_ai_request_counter`), and in-memory 10-second throttle per feature.
  * 8. Strict response validation: Percentages must sum to 100, scenarios must belong to the allowed set,
@@ -27,8 +27,8 @@ import { getLocalGeminiApiKey } from './geminiApiKey';
 // NAMED CONSTANTS & MODEL DEFINITIONS
 // ============================================================================
 
-export const GEMINI_MODEL_PRIMARY = 'gemini-2.5-flash';
-export const GEMINI_MODEL_FALLBACK = 'gemini-2.0-flash';
+export const GEMINI_MODEL_PRIMARY = 'gemini-1.5-flash';
+export const GEMINI_MODEL_FALLBACK = 'gemini-1.5-flash-8b';
 export const GEMINI_API_TIMEOUT_MS = 8000;
 
 export const AI_CONSENT_STORAGE_KEY = 'mm_gemini_ai_consent';
@@ -494,7 +494,7 @@ async function callGeminiRest(prompt: string, responseSchema?: any): Promise<any
     return null;
   }
 
-  const modelsToTry = [GEMINI_MODEL_PRIMARY, GEMINI_MODEL_FALLBACK];
+  const modelsToTry = [GEMINI_MODEL_PRIMARY, GEMINI_MODEL_FALLBACK, 'gemini-1.5-pro'];
 
   // --------------------------------------------------------------------------
   // PRIORITY 1: User's personal key (localStorage mm_gemini_api_key synced at users/${uid}/secrets/gemini)
@@ -660,8 +660,8 @@ async function testDirectGeminiKey(
           ok: false,
           source,
           statusCode: 404,
-          message: `HTTP 404 Not Found: Neither primary model (${GEMINI_MODEL_PRIMARY}) nor fallback (${GEMINI_MODEL_FALLBACK}) is accessible with this key.`,
-          messageAr: `خطأ 404 (غير موجود): تعذر الوصول إلى النموذج الأساسي (${GEMINI_MODEL_PRIMARY}) أو الاحتياطي (${GEMINI_MODEL_FALLBACK}) بهذا المفتاح.`,
+          message: `HTTP 404 Not Found: None of the tested models (${modelsToTry.join(', ')}) are accessible with this key. Verify model availability in your region/account.`,
+          messageAr: `خطأ 404 (غير موجود): تعذر الوصول إلى النماذج (${modelsToTry.join(', ')}) بهذا المفتاح. يرجى التحقق من توفر النماذج لحسابك في Google AI Studio.`,
         };
       }
 
@@ -841,7 +841,7 @@ export async function testConnection(language: 'ar' | 'en' = 'en'): Promise<Conn
     };
   }
 
-  const modelsToTry = [GEMINI_MODEL_PRIMARY, GEMINI_MODEL_FALLBACK];
+  const modelsToTry = [GEMINI_MODEL_PRIMARY, GEMINI_MODEL_FALLBACK, 'gemini-1.5-pro'];
 
   // PRIORITY 1: Personal API Key
   const personalKey = getLocalGeminiApiKey();
