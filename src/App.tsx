@@ -24,9 +24,83 @@ import { ResetPeriodModal } from './components/ResetPeriodModal';
 import { AdvancedFilterModal } from './components/AdvancedFilterModal';
 import { EmojiPickerModal } from './components/EmojiPickerModal';
 import { SmartBudgetModal } from './components/SmartBudgetModal';
-const AppFeaturesModal = React.lazy(() =>
-  import('./components/AppFeaturesModal').then((m) => ({ default: m.AppFeaturesModal }))
-);
+
+const loadAppFeaturesModal = () =>
+  import('./components/AppFeaturesModal').then((m) => ({ default: m.AppFeaturesModal }));
+let AppFeaturesModal = React.lazy(loadAppFeaturesModal);
+
+interface LazyChunkErrorBoundaryProps {
+  isOpen: boolean;
+  isArabic: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}
+
+interface LazyChunkErrorBoundaryState {
+  hasError: boolean;
+  retryCount: number;
+}
+
+class LazyChunkErrorBoundary extends React.Component<
+  LazyChunkErrorBoundaryProps,
+  LazyChunkErrorBoundaryState
+> {
+  state: LazyChunkErrorBoundaryState = { hasError: false, retryCount: 0 };
+
+  static getDerivedStateFromError(): Partial<LazyChunkErrorBoundaryState> {
+    return { hasError: true };
+  }
+
+  handleRetry = () => {
+    AppFeaturesModal = React.lazy(loadAppFeaturesModal);
+    this.setState((prev) => ({ hasError: false, retryCount: prev.retryCount + 1 }));
+  };
+
+  render() {
+    if (this.state.hasError) {
+      if (!this.props.isOpen) return null;
+      const { isArabic, onClose } = this.props;
+      return (
+        <div
+          onClick={onClose}
+          dir={isArabic ? 'rtl' : 'ltr'}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-3xl bg-zinc-950 border border-zinc-800 p-6 text-center space-y-4 shadow-2xl"
+          >
+            <h3 className="text-base font-bold text-white">
+              {isArabic ? 'تعذر تحميل النافذة' : 'Failed to Load Module'}
+            </h3>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              {isArabic
+                ? 'تحقق من اتصالك أو اضغط على إعادة المحاولة لتحميل هذا الجزء.'
+                : 'Please check your connection or tap Retry to reload this module.'}
+            </p>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 transition cursor-pointer"
+              >
+                {isArabic ? 'إغلاق' : 'Close'}
+              </button>
+              <button
+                type="button"
+                onClick={this.handleRetry}
+                className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition cursor-pointer"
+              >
+                {isArabic ? 'إعادة المحاولة' : 'Retry'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return <React.Fragment key={this.state.retryCount}>{this.props.children}</React.Fragment>;
+  }
+}
 import { WhatsNewModal } from './components/WhatsNewModal';
 import { ExitConfirmModal } from './components/ExitConfirmModal';
 import { AppLockScreen } from './components/AppLockScreen';
@@ -890,13 +964,19 @@ const MainAppContent: React.FC = () => {
           onClose={navigateBack}
         />
 
-        {/* App Features & Release Notes Modal (Lazy Loaded) */}
-        <React.Suspense fallback={null}>
-          <AppFeaturesModal
-            isOpen={isFeaturesModalOpen}
-            onClose={navigateBack}
-          />
-        </React.Suspense>
+        {/* App Features & Release Notes Modal (Lazy Loaded with Retry Error Boundary) */}
+        <LazyChunkErrorBoundary
+          isOpen={isFeaturesModalOpen}
+          isArabic={settings.language === 'ar'}
+          onClose={navigateBack}
+        >
+          <React.Suspense fallback={null}>
+            <AppFeaturesModal
+              isOpen={isFeaturesModalOpen}
+              onClose={navigateBack}
+            />
+          </React.Suspense>
+        </LazyChunkErrorBoundary>
 
         {/* Smart Budget Hub Modal */}
         {isSmartBudgetModalOpen && (

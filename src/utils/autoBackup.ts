@@ -32,6 +32,7 @@ export interface FullAppBackupPayload {
   categories: Category[];
   transactions: Transaction[];
   recurringTransactions?: RecurringTransaction[];
+  tombstones?: Record<string, Tombstone>;
   settings: AppSettings;
   sharedSpaces?: {
     myFolders: ShareFolder[];
@@ -838,6 +839,11 @@ export async function fetchCloudAccountSnapshot(uid: string): Promise<{
   try {
     const legacy = await fetchDualCloudBackup(uid);
     if (legacy && legacy.data) {
+      if (legacy.data.tombstones && typeof legacy.data.tombstones === 'object') {
+        Object.values(legacy.data.tombstones).forEach((t: any) => {
+          if (t && t.id) saveLocalTombstone(t);
+        });
+      }
       return {
         snapshot: legacy.data,
         source: 'legacy',

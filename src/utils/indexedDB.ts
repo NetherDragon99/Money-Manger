@@ -9,6 +9,24 @@ import { migrateRecurringRule } from './recurring';
 const DB_NAME = 'PersonalFinanceTrackerDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'app_data_store';
+export const PRE_MIGRATION_BACKUP_KEY = 'mm_pre_migration_backup';
+const MAX_PRE_MIGRATION_SNAPSHOTS = 2;
+
+export interface PreMigrationSnapshot {
+  id: string;
+  migrationName: string;
+  createdAt: number;
+  createdAtISO: string;
+  uid: string | null;
+  isGuest: boolean;
+  data: {
+    accounts: Account[];
+    categories: Category[];
+    transactions: Transaction[];
+    settings: AppSettings | null;
+    recurringTransactions: RecurringTransaction[];
+  };
+}
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -159,5 +177,105 @@ export async function saveFullDataToIndexedDB(
     });
   } catch (err) {
     console.error('[IndexedDB] Failed to save full data bundle:', err);
+  }
+}
+
+function safeParseLocalStorage<T>(key: string, fallback: T): T {
+  if (typeof localStorage === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Retrieves all saved pre-migration snapshots from IndexedDB (`mm_pre_migration_backup`).
+ */
+export async function getPreMigrationSnapshots(): Promise<PreMigrationSnapshot[]> {
+  try {
+    const raw = await getItemFromIndexedDB<PreMigrationSnapshot[] | PreMigrationSnapshot>(
+      PRE_MIGRATION_BACKUP_KEY
+    );
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'object') return [raw];
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Saves an automatic pre-migration snapshot in IndexedDB under key `mm_pre_migration_backup`.
+ * Retains the latest 2 snapshots and works for both signed-in users and guests.
+ */
+export async function savePreMigrationSnapshot(
+  migrationName: string,
+  currentState?: Partial<AppData> & {
+    recurringTransactions?: RecurringTransaction[];
+    uid?: string | null;
+  }
+): Promise<PreMigrationSnapshot | null> {
+  try {
+    const idbData = await loadFullDataFromIndexedDB();
+
+    const accounts =
+      currentState?.accounts ??
+      idbData?.accounts ??
+      safeParseLocalStorage<Account[]>('pwa_finance_accounts_v2', []);
+    const categories =
+      currentState?.categories ??
+      idbData?.categories ??
+      safeParseLocalStorage<Category[]>('pwa_finance_categories_v2', []);
+    const transactions =
+      currentState?.transactions ??
+      idbData?.transactions ??
+      safeParseLocalStorage<Transaction[]>('pwa_finance_transactions_v2', []);
+    const settings =
+      currentState?.settings ??
+      idbData?.settings ??
+      safeParseLocalStorage<AppSettings | null>('pwa_finance_settings_v2', null);
+    const recurringTransactions =
+      currentState?.recurringTransactions ??
+      idbData?.recurringTransactions ??
+      safeParseLocalStorage<RecurringTransaction[]>('pwa_finance_recurring_v1', []);
+
+    let resolvedUid: string | null = currentState?.uid ?? settings?.userProfile?.uid ?? null;
+    if (!resolvedUid && typeof localStorage !== 'undefined') {
+      try {
+        const cachedUser = safeParseLocalStorage<{ uid?: string } | null>('mm_cached_auth_user', null);
+        if (cachedUser?.uid) resolvedUid = cachedUser.uid;
+      } catch {}
+    }
+
+    const now = Date.now();
+    const snapshot: PreMigrationSnapshot = {
+      id: `pre_mig_${now}_${Math.random().toString(36).slice(2, 7)}`,
+      migrationName,
+      createdAt: now,
+      createdAtISO: new Date(now).toISOString(),
+      uid: resolvedUid,
+      isGuest: !resolvedUid,
+      data: JSON.parse(
+        JSON.stringify({
+          accounts,
+          categories,
+          transactions,
+          settings,
+          recurringTransactions,
+        })
+      ),
+    };
+
+    const existing = await getPreMigrationSnapshots();
+    const updated = [snapshot, ...existing].slice(0, MAX_PRE_MIGRATION_SNAPSHOTS);
+    await saveItemToIndexedDB(PRE_MIGRATION_BACKUP_KEY, updated);
+    return snapshot;
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to save pre-migration snapshot (${migrationName}):`, err);
+    return null;
   }
 }

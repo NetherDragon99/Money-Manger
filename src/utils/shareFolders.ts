@@ -5,6 +5,7 @@ import { cleanNumericId, format16DigitId, getOrCreateNumericId } from './userId'
 import { Account, Category, Transaction } from '../types';
 import { getTransferHistoricalBalances } from './balanceEngine';
 import { encodeShareSnapshot } from './sharing';
+import { savePreMigrationSnapshot } from './indexedDB';
 import {
   queueOfflineShareUpdate,
   isSpacePendingOfflineSync,
@@ -232,65 +233,124 @@ export interface SanitizedLinkMirror {
 }
 
 /**
+ * Privacy filter for shared accounts: strips personal budgeting metadata
+ * (`accountRole`, personal custom month plans, savings flags, budget adjustments).
+ */
+export function sanitizeSharedAccountForPrivacy(acc: Account, defaultUpdatedAt?: number): Account {
+  if (!acc) return acc;
+  const cleaned: Record<string, any> = {
+    id: acc.id,
+    name: acc.name,
+    icon: acc.icon || '🏦',
+    balance: acc.balance || 0,
+    isPrivate: false,
+    customMonthStartDay: 'default',
+    notes: acc.notes || '',
+    updatedAt: acc.updatedAt || defaultUpdatedAt || Date.now(),
+  };
+  if (acc.color !== undefined) cleaned.color = acc.color;
+  if (acc.currency !== undefined) cleaned.currency = acc.currency;
+  return cleaned as Account;
+}
+
+/**
+ * Privacy filter for shared categories: strips personal budget limits, pool flags, and custom month plans.
+ */
+export function sanitizeSharedCategoryForPrivacy(cat: Category, defaultUpdatedAt?: number): Category {
+  if (!cat) return cat;
+  const cleaned: Record<string, any> = {
+    id: cat.id,
+    name: cat.name,
+    icon: cat.icon || '🏷️',
+    type: cat.type,
+    budgetLimit: 0,
+    updatedAt: cat.updatedAt || defaultUpdatedAt || Date.now(),
+  };
+  if (cat.orderIndex !== undefined) cleaned.orderIndex = cat.orderIndex;
+  return cleaned as Category;
+}
+
+/**
+ * Privacy filter for shared transactions: strips personal budgeting metadata
+ * (`budgetPool`, savings-allocation flags, `accountRole`, budget adjustments, custom month plans).
+ */
+export function sanitizeSharedTransactionForPrivacy(tx: Transaction, defaultUpdatedAt?: number): Transaction {
+  if (!tx) return tx;
+  const clone: Record<string, any> = { ...tx };
+  delete clone.budgetPool;
+  delete clone.isSalary;
+  delete clone.accountRole;
+  delete clone.savingsAllocation;
+  delete clone.isSavingsAllocation;
+  delete clone.savingsWithdrawalChoice;
+  delete clone.linkedAdjustmentId;
+  delete clone.savingsTargetId;
+  delete clone.isSavingsTransfer;
+  delete clone.budgetAdjustment;
+  delete clone.isBudgetAdjustment;
+  delete clone.budgetAdjustments;
+  delete clone.customMonthPlan;
+  delete clone.customMonthPlans;
+  delete clone.cycleOverride;
+  if (!clone.updatedAt && defaultUpdatedAt) {
+    clone.updatedAt = defaultUpdatedAt;
+  }
+  return clone as Transaction;
+}
+
+/**
  * Builds a strictly sanitized mirror payload for public link sharing.
  * Stored at flat path: shared_accounts/link_${token}.
  * Contains ONLY { ownerUid, accountName, updatedAt, ownerName, ownerAvatar/photoURL,
  * share name/icon, accounts, categories, transactions, payload, token, isLinkMirror }.
- * Strictly WITHOUT any member IDs, member lists, 16-digit IDs, invite data, or recent_activity.
+ * Strictly WITHOUT any member IDs, member lists, 16-digit IDs, invite data, recent_activity,
+ * or personal budgeting metadata.
  */
 export function buildSanitizedLinkMirror(folder: ShareFolder, token: string): SanitizedLinkMirror {
-  const accounts: Account[] = (folder.payload?.accounts || folder.accounts || []).map((a) => ({
-    id: a.id,
-    name: a.name,
-    icon: a.icon || '🏦',
-    balance: a.balance || 0,
-    isPrivate: false,
-    customMonthStartDay: a.customMonthStartDay || 'default',
-    notes: a.notes || '',
-    color: a.color,
-    updatedAt: a.updatedAt || folder.updatedAt || Date.now(),
-  }));
+  const defaultTs = folder.updatedAt || Date.now();
+  const accounts: Account[] = (folder.payload?.accounts || folder.accounts || []).map((a) =>
+    sanitizeSharedAccountForPrivacy(a, defaultTs)
+  );
 
-  const categories: Category[] = (folder.payload?.categories || folder.categories || []).map((c) => ({
-    id: c.id,
-    name: c.name,
-    icon: c.icon || '🏷️',
-    type: c.type,
-    budgetLimit: c.budgetLimit || 0,
-    orderIndex: c.orderIndex,
-    updatedAt: c.updatedAt || folder.updatedAt || Date.now(),
-  }));
+  const categories: Category[] = (folder.payload?.categories || folder.categories || []).map((c) =>
+    sanitizeSharedCategoryForPrivacy(c, defaultTs)
+  );
 
-  const transactions: Transaction[] = (folder.payload?.transactions || folder.transactions || []).map((t) => ({
-    id: t.id,
-    type: t.type,
-    amount: t.amount,
-    date: t.date,
-    time: t.time || '',
-    accountId: t.accountId,
-    toAccountId: t.toAccountId,
-    categoryId: t.categoryId,
-    categoryName: t.categoryName,
-    categoryIcon: t.categoryIcon,
-    description: t.description || '',
-    isUneditable: t.isUneditable,
-    isAdjustment: t.isAdjustment,
-    isFromRecurring: t.isFromRecurring,
-    recurringRuleId: t.recurringRuleId,
-    createdAt: t.createdAt || Date.now(),
-    updatedAt: t.updatedAt || folder.updatedAt || Date.now(),
-    fromBalanceBefore: t.fromBalanceBefore,
-    fromBalanceAfter: t.fromBalanceAfter,
-    toBalanceBefore: t.toBalanceBefore,
-    toBalanceAfter: t.toBalanceAfter,
-    fromAccountName: t.fromAccountName,
-    fromAccountIcon: t.fromAccountIcon,
-    toAccountName: t.toAccountName,
-    toAccountIcon: t.toAccountIcon,
-    note: t.note,
-    balanceBefore: t.balanceBefore,
-    balanceAfter: t.balanceAfter,
-  }));
+  const transactions: Transaction[] = (folder.payload?.transactions || folder.transactions || [])
+    .filter((t: any) => !t?.isBudgetAdjustment && !t?.budgetAdjustment)
+    .map((t) => {
+      const cleanTx = sanitizeSharedTransactionForPrivacy(t, defaultTs);
+      return {
+        id: cleanTx.id,
+        type: cleanTx.type,
+        amount: cleanTx.amount,
+        date: cleanTx.date,
+        time: cleanTx.time || '',
+        accountId: cleanTx.accountId,
+        toAccountId: cleanTx.toAccountId,
+        categoryId: cleanTx.categoryId,
+        categoryName: cleanTx.categoryName,
+        categoryIcon: cleanTx.categoryIcon,
+        description: cleanTx.description || '',
+        isUneditable: cleanTx.isUneditable,
+        isAdjustment: cleanTx.isAdjustment,
+        isFromRecurring: cleanTx.isFromRecurring,
+        recurringRuleId: cleanTx.recurringRuleId,
+        createdAt: cleanTx.createdAt || Date.now(),
+        updatedAt: cleanTx.updatedAt || defaultTs,
+        fromBalanceBefore: cleanTx.fromBalanceBefore,
+        fromBalanceAfter: cleanTx.fromBalanceAfter,
+        toBalanceBefore: cleanTx.toBalanceBefore,
+        toBalanceAfter: cleanTx.toBalanceAfter,
+        fromAccountName: cleanTx.fromAccountName,
+        fromAccountIcon: cleanTx.fromAccountIcon,
+        toAccountName: cleanTx.toAccountName,
+        toAccountIcon: cleanTx.toAccountIcon,
+        note: cleanTx.note,
+        balanceBefore: cleanTx.balanceBefore,
+        balanceAfter: cleanTx.balanceAfter,
+      };
+    });
 
   const rawOwnerPhoto = folder.ownerPhotoURL || '';
   const ownerPhotoURL = isRealPhotoUrl(rawOwnerPhoto) ? rawOwnerPhoto.trim() : '';
@@ -413,6 +473,7 @@ export async function executeOneTimeV3ShareCleanReset(): Promise<void> {
     const hasOwnedKey = localStorage.getItem(MY_OWNED_SPACES_KEY) !== null;
     const hasReceivedKey = localStorage.getItem(RECEIVED_SPACES_KEY) !== null;
     if (!hasOwnedKey || !hasReceivedKey) {
+      await savePreMigrationSnapshot('share_v3_clean_reset');
       const { myClean16Id } = resolveCurrentIdentity();
       const rawV3 = localStorage.getItem(SPACES_V3_CACHE_KEY);
       const rawLegacyOwned = localStorage.getItem('pwa_finance_share_folders_v3');
@@ -567,7 +628,7 @@ export function enrichShareTransaction(
   allTransactions?: Transaction[]
 ): Transaction {
   if (!tx) return tx;
-  const enriched: Transaction = { ...tx };
+  const enriched: Transaction = sanitizeSharedTransactionForPrivacy({ ...tx });
 
   if (enriched.type === 'transfer') {
     const accList = availableAccounts || [];
@@ -2459,17 +2520,19 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
     });
   }
 
-  const accounts: Account[] = Array.isArray(cleanFolder.payload?.accounts)
+  const rawAccounts: Account[] = Array.isArray(cleanFolder.payload?.accounts)
     ? cleanFolder.payload.accounts
     : Array.isArray(cleanFolder.accounts)
     ? cleanFolder.accounts
     : [];
+  const accounts: Account[] = rawAccounts.map((a) => sanitizeSharedAccountForPrivacy(a, now));
 
-  const categories: Category[] = Array.isArray(cleanFolder.payload?.categories)
+  const rawCategories: Category[] = Array.isArray(cleanFolder.payload?.categories)
     ? cleanFolder.payload.categories
     : Array.isArray(cleanFolder.categories)
     ? cleanFolder.categories
     : [];
+  const categories: Category[] = rawCategories.map((c) => sanitizeSharedCategoryForPrivacy(c, now));
 
   const rawTxs: Transaction[] = Array.isArray(cleanFolder.payload?.transactions)
     ? cleanFolder.payload.transactions
@@ -2477,7 +2540,9 @@ export function buildFullSharePayload(folder: ShareFolder): ShareFolder & {
     ? cleanFolder.transactions
     : [];
 
-  const transactions = rawTxs.map((t) => enrichShareTransaction(t, accounts));
+  const transactions = rawTxs
+    .filter((t: any) => !t?.isBudgetAdjustment && !t?.budgetAdjustment)
+    .map((t) => enrichShareTransaction(t, accounts));
   const name = String(cleanFolder.name || cleanFolder.accountName || 'Shared Space').trim();
   const accountName = name.slice(0, 100);
   const member16Ids = Array.from(member16Set);
@@ -3309,7 +3374,7 @@ export async function pushTransactionDeltaToCloud(
 
   let deltaValue: any = null;
   if (action !== 'delete' && typeof txOrId === 'object') {
-    deltaValue = deepSanitizeForFirebase(txOrId);
+    deltaValue = deepSanitizeForFirebase(sanitizeSharedTransactionForPrivacy(txOrId, now));
   }
 
   const updates: Record<string, any> = {
@@ -3475,9 +3540,9 @@ export function syncShareFoldersWithMainData(
           latest.isPrivate !== acc.isPrivate)
       ) {
         accountsUpdated = true;
-        return { ...latest };
+        return sanitizeSharedAccountForPrivacy(latest);
       }
-      return acc;
+      return sanitizeSharedAccountForPrivacy(acc);
     });
 
     let categoriesUpdated = false;
@@ -3486,13 +3551,12 @@ export function syncShareFoldersWithMainData(
       if (
         latest &&
         (latest.name !== cat.name ||
-          latest.icon !== cat.icon ||
-          latest.budgetLimit !== cat.budgetLimit)
+          latest.icon !== cat.icon)
       ) {
         categoriesUpdated = true;
-        return { ...latest };
+        return sanitizeSharedCategoryForPrivacy(latest);
       }
-      return cat;
+      return sanitizeSharedCategoryForPrivacy(cat);
     });
 
     const nextTxs = allTransactions
@@ -3559,9 +3623,11 @@ export function createNewShareFolder(params: {
   permission?: 'view_only' | 'allow_import_edit';
   isArabic: boolean;
 }): ShareFolder {
-  const accounts = params.accounts || [];
-  const categories = params.categories || [];
-  const rawTransactions = params.transactions || [];
+  const accounts = (params.accounts || []).map((a) => sanitizeSharedAccountForPrivacy(a));
+  const categories = (params.categories || []).map((c) => sanitizeSharedCategoryForPrivacy(c));
+  const rawTransactions = (params.transactions || []).filter(
+    (t: any) => !t?.isBudgetAdjustment && !t?.budgetAdjustment
+  );
   const transactions = rawTransactions.map((t) => enrichShareTransaction(t, accounts));
 
   const autoMeta = deduceFolderMetadata(accounts, categories, transactions, params.isArabic);
@@ -3653,12 +3719,15 @@ export function appendToExistingShareFolder(
   const combinedTransactions = [...folder.payload.transactions];
 
   newItems.accounts?.forEach((acc) => {
-    if (!combinedAccounts.some((a) => a.id === acc.id)) combinedAccounts.push(acc);
+    const cleanAcc = sanitizeSharedAccountForPrivacy(acc);
+    if (!combinedAccounts.some((a) => a.id === cleanAcc.id)) combinedAccounts.push(cleanAcc);
   });
   newItems.categories?.forEach((cat) => {
-    if (!combinedCategories.some((c) => c.id === cat.id)) combinedCategories.push(cat);
+    const cleanCat = sanitizeSharedCategoryForPrivacy(cat);
+    if (!combinedCategories.some((c) => c.id === cleanCat.id)) combinedCategories.push(cleanCat);
   });
-  newItems.transactions?.forEach((tx) => {
+  newItems.transactions?.forEach((tx: any) => {
+    if (tx?.isBudgetAdjustment || tx?.budgetAdjustment) return;
     const enriched = enrichShareTransaction(tx, combinedAccounts);
     if (!combinedTransactions.some((t) => t.id === enriched.id)) combinedTransactions.push(enriched);
   });
@@ -3742,13 +3811,15 @@ export function updateItemInShareFolder(
   const nextTransactions = [...targetFolder.payload.transactions];
 
   if (itemType === 'account') {
-    const idx = nextAccounts.findIndex((a) => a.id === updatedItem.id);
-    if (idx !== -1) nextAccounts[idx] = updatedItem as Account;
-    else nextAccounts.push(updatedItem as Account);
+    const cleanAcc = sanitizeSharedAccountForPrivacy(updatedItem as Account);
+    const idx = nextAccounts.findIndex((a) => a.id === cleanAcc.id);
+    if (idx !== -1) nextAccounts[idx] = cleanAcc;
+    else nextAccounts.push(cleanAcc);
   } else if (itemType === 'category') {
-    const idx = nextCategories.findIndex((c) => c.id === updatedItem.id);
-    if (idx !== -1) nextCategories[idx] = updatedItem as Category;
-    else nextCategories.push(updatedItem as Category);
+    const cleanCat = sanitizeSharedCategoryForPrivacy(updatedItem as Category);
+    const idx = nextCategories.findIndex((c) => c.id === cleanCat.id);
+    if (idx !== -1) nextCategories[idx] = cleanCat;
+    else nextCategories.push(cleanCat);
   } else {
     const enrichedTx = enrichShareTransaction(updatedItem as Transaction, nextAccounts);
     const idx = nextTransactions.findIndex((t) => t.id === enrichedTx.id);

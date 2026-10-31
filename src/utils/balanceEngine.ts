@@ -140,7 +140,8 @@ export function recalculateAccountBalance(
 }
 
 /**
- * Recalculates balances for all accounts based on current transactions
+ * Recalculates balances for all accounts based on current transactions,
+ * normalizing accountRole to 'spending' for existing accounts without a role.
  */
 export function syncAllAccountBalances(
   accounts: Account[],
@@ -148,6 +149,7 @@ export function syncAllAccountBalances(
 ): Account[] {
   return accounts.map((acc) => ({
     ...acc,
+    accountRole: acc.accountRole || 'spending',
     balance: recalculateAccountBalance(acc, transactions),
   }));
 }

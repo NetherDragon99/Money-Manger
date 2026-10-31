@@ -176,12 +176,108 @@ export function migrateRecurringRule(rule: RecurringTransaction): RecurringTrans
     monthDayTimes: hasCustomTimes && Object.keys(monthDayTimes).length > 0 ? monthDayTimes : undefined,
   };
 
+  const unifiedWatermark = Math.max(rule.lastRun || 0, rule.lastProcessed || 0);
+
   return {
     ...rule,
+    lastRun: unifiedWatermark > 0 ? unifiedWatermark : rule.lastRun,
+    lastProcessed: unifiedWatermark > 0 ? unifiedWatermark : rule.lastProcessed,
     useWeekdayFilter,
     useMonthDayFilter,
     advancedSchedule: updatedAdv,
   };
+}
+
+/**
+ * Builds a deterministic, DST-safe occurrence key from ruleId and local wall-clock date/time.
+ */
+export function buildOccurrenceKey(ruleId: string, dateStr: string, timeStr?: string): string {
+  const normTime = normalizeHHMM(timeStr || '09:00');
+  return `occ_${ruleId}_${dateStr}_${normTime}`;
+}
+
+/**
+ * Builds a date-only fallback occurrence key for legacy items where time was omitted or varied.
+ */
+export function buildDateOnlyOccurrenceKey(ruleId: string, dateStr: string): string {
+  return `occ_date_${ruleId}_${dateStr}`;
+}
+
+/**
+ * Parses a YYYY-MM-DD date and HH:mm time in the device's local wall-clock timezone (never UTC midnight).
+ */
+export function parseLocalScheduledTimestampMs(dateStr: string, timeStr?: string): number {
+  const [y, m, d] = (dateStr || formatDateToYYYYMMDD(new Date())).split('-').map(Number);
+  const normTime = normalizeHHMM(timeStr || '09:00');
+  const [hh, mm] = normTime.split(':').map(Number);
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return Date.now();
+  return new Date(y, m - 1, d, hh || 0, mm || 0, 0, 0).getTime();
+}
+
+/**
+ * Derives all deterministic IDs and occurrenceKeys associated with a transaction
+ * (including legacy random-ID items that have `recurringRuleId` + local `date`/`time`).
+ */
+export function deriveTransactionOccurrenceKeys(tx: Transaction | null | undefined): string[] {
+  if (!tx) return [];
+  const keys = new Set<string>();
+  if (tx.id) keys.add(tx.id);
+  if (tx.occurrenceKey) keys.add(tx.occurrenceKey);
+
+  let ruleId = tx.recurringRuleId;
+  if (!ruleId && tx.id && tx.id.startsWith('rec_')) {
+    const match = tx.id.match(/^rec_(.+)_(\d{10,15})$/);
+    if (match) {
+      ruleId = match[1];
+      const tsMs = Number(match[2]);
+      if (!isNaN(tsMs) && tsMs > 0) {
+        const dt = new Date(tsMs);
+        const dStr = formatDateToYYYYMMDD(dt);
+        const tStr = formatTimeToHHMM(dt);
+        keys.add(buildOccurrenceKey(ruleId, dStr, tStr));
+        keys.add(buildDateOnlyOccurrenceKey(ruleId, dStr));
+      }
+    }
+  }
+
+  if (ruleId && tx.date) {
+    const normTime = normalizeHHMM(tx.time || '09:00');
+    keys.add(buildOccurrenceKey(ruleId, tx.date, normTime));
+    keys.add(buildDateOnlyOccurrenceKey(ruleId, tx.date));
+    const localMs = parseLocalScheduledTimestampMs(tx.date, normTime);
+    keys.add(`rec_${ruleId}_${localMs}`);
+  }
+
+  return Array.from(keys);
+}
+
+/**
+ * Checks whether a transaction or any of its derived recurring occurrence keys is tombstoned.
+ */
+export function isTransactionTombstoned(
+  tx: Transaction | null | undefined,
+  tombstonesOrSet: Record<string, { deletedAt?: number }> | Set<string>,
+  minDeletedAfterMs: number = 0
+): boolean {
+  if (!tx) return false;
+  const candidateKeys = deriveTransactionOccurrenceKeys(tx);
+  if (tx.feeOfTransferId) {
+    candidateKeys.push(tx.feeOfTransferId);
+  }
+
+  if (tombstonesOrSet instanceof Set) {
+    return candidateKeys.some((k) => tombstonesOrSet.has(k));
+  }
+
+  for (const key of candidateKeys) {
+    const entry = tombstonesOrSet[key];
+    if (entry) {
+      if (minDeletedAfterMs <= 0 || Number(entry.deletedAt || 0) > minDeletedAfterMs) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 export function loadRecurringTransactions(): RecurringTransaction[] {
@@ -766,6 +862,12 @@ export function checkAndProcessRecurring(
   nowMs: number = Date.now()
 ): ProcessRecurringResult {
   const existingTxIdSet = new Set(existingTransactions.map((t) => t.id));
+  const existingOccurrenceKeys = new Set<string>();
+  for (const tx of existingTransactions) {
+    for (const k of deriveTransactionOccurrenceKeys(tx)) {
+      existingOccurrenceKeys.add(k);
+    }
+  }
   const newTransactions: Transaction[] = [];
 
   const updatedRecurring = recurringList.map((rec) => {
@@ -774,20 +876,15 @@ export function checkAndProcessRecurring(
       return rec;
     }
 
-    // Determine the baseline starting timestamp to check
-    let lastRunTime: number;
-    if (rec.lastRun && rec.lastRun > 0) {
-      lastRunTime = rec.lastRun;
-    } else {
-      // Rule has never run: first scheduled occurrence starts at startDate + startTime
-      const [y, m, d] = (rec.startDate || formatDateToYYYYMMDD(new Date())).split('-').map(Number);
-      const [hh, mm] = (rec.startTime || '09:00').split(':').map(Number);
-      const startDt = new Date(y, m - 1, d, hh, mm, 0, 0);
-      // Minus 1 millisecond so that startDt itself is considered due if startDt <= nowMs
-      lastRunTime = startDt.getTime() - 1;
-    }
+    const [y, m, d] = (rec.startDate || formatDateToYYYYMMDD(new Date())).split('-').map(Number);
+    const [hh, mm] = normalizeHHMM(rec.startTime || '09:00').split(':').map(Number);
+    const startDt = new Date(y, m - 1, d, hh, mm, 0, 0);
 
-    // Anti-Duplicate Catch-up: The catch-up engine must NEVER generate occurrences earlier than effectiveFrom
+    // Determine the baseline watermark timestamp to check (local wall-clock time)
+    const savedWatermark = Math.max(rec.lastRun || 0, rec.lastProcessed || 0);
+    let lastRunTime = savedWatermark > 0 ? savedWatermark : startDt.getTime() - 1;
+
+    // Anti-Duplicate Catch-up: The catch-up engine must NEVER generate occurrences earlier than effectiveFrom or savedWatermark
     if (rec.effectiveFrom && rec.effectiveFrom > 0) {
       lastRunTime = Math.max(lastRunTime, rec.effectiveFrom - 1);
     }
@@ -799,7 +896,10 @@ export function checkAndProcessRecurring(
     const MAX_CATCHUP = 366; // Capped at 366 occurrences per rule per run
 
     while (candTime <= nowMs && loopCount < MAX_CATCHUP) {
-      if (!rec.effectiveFrom || candTime >= rec.effectiveFrom) {
+      if (
+        (!rec.effectiveFrom || candTime >= rec.effectiveFrom) &&
+        candTime > savedWatermark
+      ) {
         occurrences.push({
           date: formatDateToYYYYMMDD(cand),
           time: formatTimeToHHMM(cand),
@@ -815,6 +915,8 @@ export function checkAndProcessRecurring(
       // Nothing due right now; update nextRun/nextDueDate if needed
       return {
         ...rec,
+        lastRun: savedWatermark > 0 ? savedWatermark : rec.lastRun,
+        lastProcessed: savedWatermark > 0 ? savedWatermark : rec.lastProcessed,
         nextRun: candTime,
         nextDueDate: formatDateToYYYYMMDD(cand),
       };
@@ -823,15 +925,25 @@ export function checkAndProcessRecurring(
     // Generate transactions for missed occurrences
     for (const occ of occurrences) {
       const detId = `rec_${rec.id}_${occ.timestampMs}`;
+      const occKey = buildOccurrenceKey(rec.id, occ.date, occ.time);
+      const dateOnlyKey = buildDateOnlyOccurrenceKey(rec.id, occ.date);
 
-      // Skip if already generated locally or tombstoned by user
-      if (existingTxIdSet.has(detId) || tombstoneIds.has(detId)) {
+      // Skip if already generated locally or tombstoned by user (either by deterministic ID or occurrenceKey)
+      if (
+        existingTxIdSet.has(detId) ||
+        existingOccurrenceKeys.has(detId) ||
+        existingOccurrenceKeys.has(occKey) ||
+        tombstoneIds.has(detId) ||
+        tombstoneIds.has(occKey) ||
+        tombstoneIds.has(dateOnlyKey)
+      ) {
         continue;
       }
 
       // 100% full clone: preserves original description, category, accounts, and types
-      newTransactions.push({
+      const generatedTx: Transaction = {
         id: detId,
+        occurrenceKey: occKey,
         type: rec.type,
         amount: rec.amount,
         date: occ.date,
@@ -842,18 +954,36 @@ export function checkAndProcessRecurring(
         categoryName: rec.categoryName,
         categoryIcon: rec.categoryIcon,
         description: rec.description, // PRESERVES ORIGINAL DESCRIPTION, never overwritten with generic text!
+        budgetPool: rec.budgetPool,
+        isSavingsAllocation: rec.isSavingsAllocation,
+        savingsWithdrawalChoice: rec.savingsWithdrawalChoice,
+        transferFee: rec.transferFee,
+        transferFeeMode: rec.transferFeeMode,
+        transferFeeInputType: rec.transferFeeInputType,
+        transferFeeRawValue: rec.transferFeeRawValue,
+        transferFeeBudgetPool: rec.transferFeeBudgetPool,
+        linkedFeeTxId:
+          rec.type === 'transfer' && rec.transferFee && rec.transferFee > 0
+            ? `tx_fee_${detId}`
+            : undefined,
         createdAt: occ.timestampMs,
+        updatedAt: nowMs,
         isFromRecurring: true,
         recurringRuleId: rec.id,
-      });
+      };
+      newTransactions.push(generatedTx);
       existingTxIdSet.add(detId);
+      existingOccurrenceKeys.add(detId);
+      existingOccurrenceKeys.add(occKey);
     }
 
     const lastOcc = occurrences[occurrences.length - 1];
+    const nextWatermark = Math.max(lastOcc.timestampMs, savedWatermark);
 
     return {
       ...rec,
-      lastRun: lastOcc.timestampMs,
+      lastRun: nextWatermark,
+      lastProcessed: nextWatermark,
       nextRun: candTime,
       nextDueDate: formatDateToYYYYMMDD(cand),
       lastProcessedDate: lastOcc.date,

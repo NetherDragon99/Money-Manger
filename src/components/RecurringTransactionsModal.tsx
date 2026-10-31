@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, RefreshCw, Plus, Trash2, CheckCircle2, Clock, Check } from 'lucide-react';
+import { X, RefreshCw, Plus, Trash2, CheckCircle2, Clock, Check, Pause, Play, CalendarClock } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { RecurringTransaction } from '../types';
 import { formatNumberWithCommas } from '../utils/formatters';
@@ -20,7 +20,9 @@ interface RecurringItemRowProps {
   onStartMultiSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onEdit: (item: RecurringTransaction) => void;
+  onToggleAutoProcess: (item: RecurringTransaction) => void;
   accountName: string;
+  toAccountName?: string;
   currencySymbol: string;
   isArabic: boolean;
 }
@@ -33,7 +35,9 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
   onStartMultiSelect,
   onDelete,
   onEdit,
+  onToggleAutoProcess,
   accountName,
+  toAccountName,
   currencySymbol,
   isArabic,
 }) => {
@@ -56,9 +60,24 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
     },
   });
 
-  const getFrequencyDisplay = () => {
-    return getScheduleSummaryText(item, isArabic ? 'ar' : 'en');
-  };
+  const scheduleSummary = getScheduleSummaryText(item, isArabic ? 'ar' : 'en');
+  const titleText =
+    item.description?.trim() ||
+    item.categoryName?.trim() ||
+    (item.type === 'transfer'
+      ? isArabic
+        ? 'تحويل دوري'
+        : 'Recurring Transfer'
+      : isArabic
+      ? 'معاملة متكررة'
+      : 'Recurring');
+
+  const accountLabel =
+    item.type === 'transfer' && toAccountName
+      ? `${accountName} ${isArabic ? '←' : '→'} ${toAccountName}`
+      : accountName;
+
+  const isPaused = item.autoProcess === false;
 
   return (
     <div
@@ -67,19 +86,22 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
         e.preventDefault();
         onStartMultiSelect(item.id);
       }}
-      className={`p-3.5 rounded-2xl border transition select-none flex flex-col gap-2 ${
+      className={`p-3.5 rounded-2xl border transition select-none flex flex-col gap-2.5 min-w-0 ${
         isSelected
           ? 'bg-blue-950/40 border-blue-500/80 shadow-md shadow-blue-950/40 cursor-pointer'
+          : isPaused
+          ? 'bg-zinc-900/35 hover:border-zinc-700 border-zinc-800/60 opacity-85 cursor-pointer'
           : isMultiSelect
           ? 'bg-zinc-900/60 hover:bg-zinc-850 border-zinc-800/80 cursor-pointer'
           : 'bg-zinc-900/60 hover:border-zinc-700 border-zinc-800/80 cursor-pointer'
       }`}
     >
-      <div className="flex items-center justify-between gap-3 w-full">
-        <div className="flex items-center gap-3 min-w-0">
+      {/* Row 1: Icon + Full Title (up to 2 lines) & Account Name + Amount */}
+      <div className="flex items-start justify-between gap-2.5 w-full min-w-0">
+        <div className="flex items-start gap-2.5 min-w-0 flex-1">
           {isMultiSelect && (
             <div
-              className={`w-5 h-5 rounded-lg flex items-center justify-center transition border shrink-0 ${
+              className={`w-5 h-5 mt-1 rounded-lg flex items-center justify-center transition border shrink-0 ${
                 isSelected
                   ? 'bg-blue-600 border-blue-500 text-white'
                   : 'bg-zinc-950 border-zinc-700 text-transparent'
@@ -89,54 +111,109 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
             </div>
           )}
 
-          <div className="w-10 h-10 rounded-xl bg-zinc-800/90 border border-zinc-700/60 flex items-center justify-center text-xl shrink-0">
-            {item.categoryIcon || '🔄'}
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-zinc-800/90 border border-zinc-700/60 flex items-center justify-center text-lg sm:text-xl shrink-0">
+            {item.type === 'transfer' ? '🔄' : item.categoryIcon || '🔄'}
           </div>
 
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-white truncate">
-                {item.description || item.categoryName || 'Recurring'}
-              </span>
-              <span
-                className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 shrink-0 truncate max-w-[150px] sm:max-w-[220px]"
-                title={getFrequencyDisplay()}
-              >
-                {getFrequencyDisplay()}
-              </span>
+          <div className="min-w-0 flex-1">
+            <div
+              className="text-xs sm:text-sm font-bold text-white leading-snug line-clamp-2 break-words"
+              title={titleText}
+            >
+              {titleText}
             </div>
-            <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5 truncate flex-wrap">
-              <span className="truncate">{accountName}</span>
-              <span>•</span>
-              <span className="flex items-center gap-1 text-zinc-400 font-mono shrink-0">
-                <Clock className="w-3 h-3 text-amber-400" />
-                {isArabic ? 'الاستحقاق:' : 'Due:'} {item.nextDueDate}
-              </span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowNext5((prev) => !prev);
-                }}
-                className="px-1.5 py-0.2 rounded text-[10px] bg-zinc-800 hover:bg-zinc-700 text-blue-400 font-semibold transition cursor-pointer"
-                title={isArabic ? 'عرض الـ5 مرات القادمة' : 'Preview next 5 occurrences'}
-              >
-                {showNext5 ? (isArabic ? 'إخفاء' : 'Hide') : (isArabic ? 'الـ5 القادمة' : 'Next 5')}
-              </button>
+            <div className="text-[11px] text-zinc-400 mt-0.5 leading-snug break-words">
+              {accountLabel}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-col items-end shrink-0 text-right rtl:text-left">
           <span
-            className={`font-mono text-sm font-bold ${
-              item.type === 'income' ? 'text-emerald-400' : 'text-red-400'
+            className={`font-mono text-xs sm:text-sm font-bold whitespace-nowrap ${
+              item.type === 'income'
+                ? 'text-emerald-400'
+                : item.type === 'transfer'
+                ? 'text-blue-400'
+                : 'text-red-400'
             }`}
           >
-            {item.type === 'income' ? '+' : '-'}
+            {item.type === 'income' ? '+' : item.type === 'transfer' ? '⇄ ' : '-'}
             {currencySymbol}
             {formatNumberWithCommas(item.amount, 2)}
           </span>
+          {item.type === 'transfer' && item.transferFee && item.transferFee > 0 ? (
+            <span className="text-[9.5px] font-mono text-amber-300/90 whitespace-nowrap">
+              +{currencySymbol}
+              {formatNumberWithCommas(item.transferFee, 2)} {isArabic ? 'رسوم' : 'fee'}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Row 2: Dedicated Readable Schedule Summary Banner (no single-letter truncation) */}
+      <div className="w-full px-2.5 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/25 flex items-start gap-1.5 min-w-0">
+        <CalendarClock className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+        <span className="text-[11px] text-blue-200 leading-relaxed break-words min-w-0 flex-1">
+          {scheduleSummary}
+        </span>
+      </div>
+
+      {/* Row 3: Next Due Date + Active/Paused Toggle + Next 5 Preview + Delete */}
+      <div className="flex items-center justify-between gap-2 flex-wrap w-full pt-0.5">
+        <div className="flex items-center gap-1.5 text-[11px] text-zinc-300 font-mono min-w-0">
+          <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="text-zinc-400">{isArabic ? 'الاستحقاق القادم:' : 'Next Due:'}</span>
+          <span className="font-semibold text-amber-300">{item.nextDueDate}</span>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0 ms-auto">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleAutoProcess(item);
+            }}
+            className={`px-2 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 border transition cursor-pointer ${
+              isPaused
+                ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
+                : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/30'
+            }`}
+            title={
+              isPaused
+                ? isArabic
+                  ? 'القاعدة متوقفة مؤقتاً — اضغط للتفعيل من الآن'
+                  : 'Rule paused — tap to resume from now'
+                : isArabic
+                ? 'القاعدة نشطة — اضغط للإيقاف المؤقت'
+                : 'Rule active — tap to pause'
+            }
+          >
+            {isPaused ? (
+              <>
+                <Play className="w-3 h-3" />
+                <span>{isArabic ? 'متوقف' : 'Paused'}</span>
+              </>
+            ) : (
+              <>
+                <Pause className="w-3 h-3" />
+                <span>{isArabic ? 'نشط' : 'Active'}</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowNext5((prev) => !prev);
+            }}
+            className="px-2 py-1 rounded-lg text-[10px] bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/60 text-blue-400 font-semibold transition cursor-pointer"
+            title={isArabic ? 'عرض الـ5 مرات القادمة' : 'Preview next 5 occurrences'}
+          >
+            {showNext5 ? (isArabic ? 'إخفاء' : 'Hide') : (isArabic ? 'الـ5 القادمة' : 'Next 5')}
+          </button>
+
           <button
             type="button"
             onClick={(e) => {
@@ -144,7 +221,7 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
               onDelete(item.id);
             }}
             className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition cursor-pointer"
-            title="Delete"
+            title={isArabic ? 'حذف القاعدة' : 'Delete rule'}
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -165,16 +242,16 @@ const RecurringItemRow: React.FC<RecurringItemRowProps> = ({
             next5.map((occ, idx) => (
               <div
                 key={`${occ.date}_${occ.time}_${idx}`}
-                className="flex items-center justify-between px-2 py-1 rounded-lg bg-zinc-950/80 border border-zinc-800/50 text-xs font-mono"
+                className="flex items-center justify-between px-2 py-1 rounded-lg bg-zinc-950/80 border border-zinc-800/50 text-xs font-mono gap-2"
               >
-                <div className="flex items-center gap-1.5 text-zinc-300">
+                <div className="flex items-center gap-1.5 text-zinc-300 min-w-0 flex-wrap">
                   <span className="w-3.5 h-3.5 rounded-full bg-blue-500/20 text-blue-400 text-[8.5px] font-bold flex items-center justify-center shrink-0">
                     {idx + 1}
                   </span>
                   <span className="font-semibold text-zinc-200">{occ.dayName}</span>
                   <span className="text-zinc-500 text-[10.5px]">{occ.formattedDate}</span>
                 </div>
-                <span className="px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-700/60 text-[10px] font-bold text-blue-300">
+                <span className="px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-700/60 text-[10px] font-bold text-blue-300 shrink-0">
                   {occ.formattedTime}
                 </span>
               </div>
@@ -193,6 +270,7 @@ export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProp
 }) => {
   const {
     recurringTransactions,
+    updateRecurringTransaction,
     deleteRecurringTransaction,
     processDueRecurring,
     executeManualRecurringRules,
@@ -257,11 +335,18 @@ export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProp
     }
   };
 
+  const handleToggleAutoProcess = (item: RecurringTransaction) => {
+    updateRecurringTransaction({
+      ...item,
+      autoProcess: !item.autoProcess,
+    });
+  };
+
   if (!isOpen) return null;
 
   const getAccountName = (id: string) => {
     const acc = accounts.find((a) => a.id === id);
-    return acc ? acc.name : 'Unknown Account';
+    return acc ? acc.name : isArabic ? 'حساب غير معروف' : 'Unknown Account';
   };
 
   return (
@@ -341,7 +426,9 @@ export const RecurringTransactionsModal: React.FC<RecurringTransactionsModalProp
                 onStartMultiSelect={handleStartMultiSelect}
                 onDelete={deleteRecurringTransaction}
                 onEdit={handleEditRule}
+                onToggleAutoProcess={handleToggleAutoProcess}
                 accountName={getAccountName(item.accountId)}
+                toAccountName={item.toAccountId ? getAccountName(item.toAccountId) : undefined}
                 currencySymbol={settings.currencySymbol || '£'}
                 isArabic={isArabic}
               />

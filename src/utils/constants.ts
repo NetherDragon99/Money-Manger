@@ -1,4 +1,5 @@
 import { Account, Category, AppSettings } from '../types';
+import { DEFAULT_TRANSFER_FEE_SETTINGS } from './transferFee';
 
 export const DEFAULT_ACCOUNTS: Account[] = [
   {
@@ -9,6 +10,7 @@ export const DEFAULT_ACCOUNTS: Account[] = [
     isPrivate: false,
     customMonthStartDay: 'default',
     notes: 'Daily cash and wallet balance',
+    accountRole: 'spending',
   },
 ];
 
@@ -69,6 +71,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     name: 'My Profile',
     avatarEmoji: '👤',
   },
+  transferFeeSettings: DEFAULT_TRANSFER_FEE_SETTINGS,
 };
 
 export const EMOJI_PICKER_GROUPS: Record<string, string[]> = {

@@ -3,7 +3,7 @@
  * Performs background version checks and coordinates seamless client-side updates.
  */
 
-import { IS_BETA_BUILD, APP_CHANNEL } from './channel';
+import { IS_BETA_BUILD, APP_CHANNEL, STABLE_BASE_URL } from './channel';
 
 export const CURRENT_APP_VERSION = '1.1.65';
 const BACKUP_VERSION_ENDPOINT = 'NetherDragon99/Money-Manger';
@@ -89,25 +89,8 @@ export async function checkForNewerOfficialRelease(): Promise<StableReleaseCheck
   if (typeof window === 'undefined') return null;
 
   try {
-    let stableBaseUrl = '/';
-    let stableVersionUrl = '/version.json';
-
-    const { pathname, href } = window.location;
-    if (pathname.includes('/beta/')) {
-      try {
-        stableBaseUrl = new URL('../', href).href;
-        stableVersionUrl = new URL('../version.json', href).href;
-      } catch {
-        stableBaseUrl = pathname.replace(/\/beta\/.*$/, '/');
-        stableVersionUrl = `${stableBaseUrl}version.json`;
-      }
-    } else if (pathname.startsWith('/Money-Manger')) {
-      stableBaseUrl = '/Money-Manger/';
-      stableVersionUrl = '/Money-Manger/version.json';
-    } else {
-      stableBaseUrl = './';
-      stableVersionUrl = './version.json';
-    }
+    const stableBaseUrl = STABLE_BASE_URL;
+    const stableVersionUrl = new URL('version.json', STABLE_BASE_URL).href;
 
     const res = await fetch(`${stableVersionUrl}?_t=${Date.now()}`, {
       cache: 'no-store',

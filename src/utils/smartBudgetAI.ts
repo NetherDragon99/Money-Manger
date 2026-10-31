@@ -19,6 +19,7 @@
  */
 
 import { ref, get } from 'firebase/database';
+import { onAuthStateChanged } from 'firebase/auth';
 import { auth, rtdb } from './firebase';
 import { getLocalGeminiApiKey } from './geminiApiKey';
 
@@ -37,8 +38,29 @@ export const AI_CACHE_STORAGE_KEY = 'mm_ai_advisor_cache';
 export const AI_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 Hours
 export const AI_FEATURE_THROTTLE_MS = 10000; // 10 Seconds
 
-// In-memory session cache only for shared default key (never persisted to localStorage, backups, exports, or logs)
+// In-memory session cache only for shared default key (never persisted to localStorage, IndexedDB, backups, exports, sync, shares, or logs)
 let inMemorySharedApiKey: string | null = null;
+let inMemoryRemoteKillSwitchDisabled = false;
+
+/**
+ * Immediately clears the in-memory shared RTDB key (called on sign-out or when consent is revoked).
+ */
+export function clearInMemorySharedApiKey(): void {
+  inMemorySharedApiKey = null;
+  inMemoryRemoteKillSwitchDisabled = false;
+}
+
+try {
+  if (auth) {
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        clearInMemorySharedApiKey();
+      }
+    });
+  }
+} catch {
+  // Ignore in non-browser/test environments
+}
 
 // ============================================================================
 // BILINGUAL CONSENT DISCLOSURE TEXT
@@ -108,6 +130,9 @@ export function hasAIConsent(): boolean {
 export function setAIConsent(consent: boolean): void {
   try {
     localStorage.setItem(AI_CONSENT_STORAGE_KEY, consent ? 'true' : 'false');
+    if (!consent) {
+      clearInMemorySharedApiKey();
+    }
   } catch {}
 }
 
@@ -161,22 +186,50 @@ export function setAIProxyUrl(url: string | null): void {
 }
 
 /**
- * Fetches the shared default Gemini API key on-demand for signed-in users from
- * Firebase RTDB `app_config/gemini/apiKey`.
- * Cached ONLY in memory for the current session.
- * NEVER persisted to localStorage, IndexedDB, backups, exports, or logs.
+ * Fetches the shared default Gemini API key lazily on the first AI action for signed-in users
+ * from Firebase RTDB `app_config/gemini` (`apiKey` + remote kill-switch `enabled`),
+ * ONLY after explicit one-time user consent (`hasAIConsent() === true`).
+ * Held strictly in memory for the current session; NEVER stored in localStorage, IndexedDB,
+ * backups, exports, sync, shares, logs, errors, or URL query params.
  */
 export async function getSharedDefaultApiKey(): Promise<string | null> {
+  if (!hasAIConsent()) {
+    return null;
+  }
+  if (!auth?.currentUser || !rtdb) {
+    inMemorySharedApiKey = null;
+    return null;
+  }
+  if (inMemoryRemoteKillSwitchDisabled) {
+    return null;
+  }
   if (inMemorySharedApiKey) {
     return inMemorySharedApiKey;
   }
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return null;
   }
-  if (!auth.currentUser || !rtdb) {
-    return null;
-  }
   try {
+    const parentRef = ref(rtdb, 'app_config/gemini');
+    const parentSnap = await get(parentRef);
+    if (parentSnap.exists()) {
+      const pVal = parentSnap.val();
+      if (pVal && typeof pVal === 'object') {
+        if (pVal.enabled === false) {
+          inMemoryRemoteKillSwitchDisabled = true;
+          inMemorySharedApiKey = null;
+          return null;
+        }
+        const key = pVal.apiKey || pVal.key;
+        if (typeof key === 'string' && key.trim()) {
+          inMemorySharedApiKey = key.trim();
+          return inMemorySharedApiKey;
+        }
+      } else if (typeof pVal === 'string' && pVal.trim()) {
+        inMemorySharedApiKey = pVal.trim();
+        return inMemorySharedApiKey;
+      }
+    }
     const configRef = ref(rtdb, 'app_config/gemini/apiKey');
     const snap = await get(configRef);
     if (snap.exists()) {
@@ -186,45 +239,50 @@ export async function getSharedDefaultApiKey(): Promise<string | null> {
         return inMemorySharedApiKey;
       }
     }
-    const parentRef = ref(rtdb, 'app_config/gemini');
-    const parentSnap = await get(parentRef);
-    if (parentSnap.exists()) {
-      const pVal = parentSnap.val();
-      const key = typeof pVal === 'string' ? pVal : pVal?.apiKey || pVal?.key;
-      if (typeof key === 'string' && key.trim()) {
-        inMemorySharedApiKey = key.trim();
-        return inMemorySharedApiKey;
-      }
-    }
-  } catch (err) {
-    console.warn('[SmartBudgetAI] Shared app config key lookup failed or unauthorized:', err);
+  } catch {
+    // Silent fallback without logging any key or sensitive details
   }
   return null;
 }
 
 /**
+ * Returns true when a backend proxy or authenticated Firebase RTDB fallback is available,
+ * allowing the UI to hide the manual API key setup prompt by default.
+ */
+export function isManagedBackendOrProxyAvailable(): boolean {
+  if (getAIProxyUrl()) return true;
+  if (inMemorySharedApiKey) return true;
+  if (auth?.currentUser && !inMemoryRemoteKillSwitchDisabled) return true;
+  return false;
+}
+
+/**
  * Checks whether any AI access method is available (personal key, proxy, or shared key).
+ * Does NOT pre-fetch RTDB before an AI action or without consent.
  */
 export async function hasAIAccess(): Promise<boolean> {
   if (getLocalGeminiApiKey()) return true;
   if (getAIProxyUrl()) return true;
-  const shared = await getSharedDefaultApiKey();
-  return Boolean(shared);
+  if (inMemorySharedApiKey) return true;
+  if (auth?.currentUser && !inMemoryRemoteKillSwitchDisabled) return true;
+  return false;
 }
 
 export function getAIStatus(): {
   hasConsent: boolean;
   hasKey: boolean;
   hasProxy: boolean;
+  isManagedAvailable: boolean;
   isOnline: boolean;
   monthlyUsage: { month: string; count: number };
 } {
   const hasConsent = hasAIConsent();
   const hasKey = Boolean(getLocalGeminiApiKey() || inMemorySharedApiKey);
   const hasProxy = Boolean(getAIProxyUrl());
+  const isManagedAvailable = isManagedBackendOrProxyAvailable();
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
   const monthlyUsage = getAIMonthlyUsage();
-  return { hasConsent, hasKey, hasProxy, isOnline, monthlyUsage };
+  return { hasConsent, hasKey, hasProxy, isManagedAvailable, isOnline, monthlyUsage };
 }
 
 // ============================================================================
@@ -624,7 +682,7 @@ export interface ClassifyExpenseContextParams {
 }
 
 export interface ExpenseContextClassification {
-  context: 'daily' | 'outings' | 'emergency' | 'fixed';
+  context: 'daily' | 'outings' | 'oneoff' | 'emergency' | 'fixed';
   confidence: number;
   explanation: string;
   source: 'ai' | 'deterministic';
@@ -640,30 +698,30 @@ export async function classifyExpenseContext(
   const combinedText = `${rawNote} ${rawCat}`;
 
   // Deterministic Keyword Fallback
-  let deterministicContext: 'daily' | 'outings' | 'emergency' | 'fixed' = 'daily';
+  let deterministicContext: 'daily' | 'outings' | 'oneoff' | 'emergency' | 'fixed' = 'daily';
   let deterministicExplanation = isArabic
-    ? 'تم التصنيف كمعيشة يومية للمصروفات الدورية المعتادة.'
-    : 'Classified under Daily Living for routine regular expenses.';
+    ? 'تم التصنيف ضمن المصروف اليومي للمصروفات الدورية المعتادة.'
+    : 'Classified under Daily Spending for routine regular expenses.';
 
   const isEmergency = EMERGENCY_KEYWORDS.some((kw) => combinedText.includes(kw));
   const isOuting = OUTINGS_KEYWORDS.some((kw) => combinedText.includes(kw));
   const isFixed = FIXED_KEYWORDS.some((kw) => combinedText.includes(kw));
 
   if (isEmergency) {
-    deterministicContext = 'emergency';
+    deterministicContext = 'oneoff';
     deterministicExplanation = isArabic
-      ? 'تم التصنيف كطوارئ بناءً على الطبيعة الطبية أو الإصلاح العاجل.'
-      : 'Classified under Emergency based on urgent medical, breakdown, or repair keywords.';
+      ? 'تم التصنيف كمصروف استثنائي / طارئ بناءً على الطبيعة الطبية أو الإصلاح العاجل.'
+      : 'Classified under One-off / Exceptional based on urgent medical, breakdown, or repair keywords.';
   } else if (isOuting) {
     deterministicContext = 'outings';
     deterministicExplanation = isArabic
-      ? 'تم التصنيف ضمن الترفيه والخروجات بناءً على نشاط تناول الطعام أو الترفيه.'
-      : 'Classified under Outings & Fun based on leisure, dining, or entertainment keywords.';
+      ? 'تم التصنيف ضمن الخروجات بناءً على نشاط تناول الطعام أو الترفيه.'
+      : 'Classified under Outings based on leisure, dining, or entertainment keywords.';
   } else if (isFixed) {
     deterministicContext = 'fixed';
     deterministicExplanation = isArabic
-      ? 'تم التصنيف كالتزام ثابت بناءً على طبيعة الفواتير أو الاشتراكات.'
-      : 'Classified under Fixed Obligations based on recurring bill, rent, or subscription keywords.';
+      ? 'تم التصنيف ضمن الفواتير والالتزامات بناءً على طبيعة الفواتير أو الاشتراكات.'
+      : 'Classified under Bills & Fixed based on recurring bill, rent, or subscription keywords.';
   }
 
   const deterministicFallback: ExpenseContextClassification = {
@@ -698,7 +756,7 @@ export async function classifyExpenseContext(
   const prompt = `You are a financial classification assistant for Money Manager.
 Classify the given transaction into EXACTLY one of these 4 pools:
 1. "outings": cafes, dining out, movies, leisure, gaming, social events.
-2. "emergency": unexpected health, car repairs, urgent plumbing leaks, accidents, fines.
+2. "oneoff": unexpected health, car repairs, urgent plumbing leaks, accidents, fines, one-off exceptional expenses.
 3. "fixed": regular rent, utilities, telecom bills, insurance, scheduled school fees.
 4. "daily": groceries, routine commuting, household basics, daily supplies.
 
@@ -714,7 +772,7 @@ Language for explanation: ${isArabic ? 'Arabic' : 'English'}
 
 Provide an output conforming to this JSON schema:
 {
-  "context": "daily" | "outings" | "emergency" | "fixed",
+  "context": "daily" | "outings" | "oneoff" | "fixed",
   "confidence": number between 0.0 and 1.0,
   "explanation": string
 }`;
@@ -724,7 +782,7 @@ Provide an output conforming to this JSON schema:
     properties: {
       context: {
         type: 'STRING',
-        enum: ['daily', 'outings', 'emergency', 'fixed'],
+        enum: ['daily', 'outings', 'oneoff', 'emergency', 'fixed'],
       },
       confidence: { type: 'NUMBER' },
       explanation: { type: 'STRING' },
@@ -735,12 +793,13 @@ Provide an output conforming to this JSON schema:
   const aiResult = await callGeminiRest(prompt, responseSchema);
 
   if (aiResult && typeof aiResult === 'object') {
-    const ctx = aiResult.context;
+    const rawCtx = aiResult.context;
+    const ctx = rawCtx === 'emergency' ? 'oneoff' : rawCtx;
     const conf = Number(aiResult.confidence);
     const exp = typeof aiResult.explanation === 'string' ? aiResult.explanation.trim() : '';
 
     if (
-      ['daily', 'outings', 'emergency', 'fixed'].includes(ctx) &&
+      ['daily', 'outings', 'oneoff', 'fixed'].includes(ctx) &&
       !isNaN(conf) && conf >= 0 && conf <= 1 &&
       exp.length > 0
     ) {

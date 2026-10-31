@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
-import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw, Trash2, Sparkles, CheckCircle2, AlertTriangle, AlertCircle, Check } from 'lucide-react';
-import { TransactionType, RecurringFrequency, RecurringTransaction, AdvancedScheduleConfig, Transaction } from '../types';
+import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw, Trash2, Sparkles, CheckCircle2, AlertTriangle, AlertCircle, Check, PiggyBank, ShieldAlert, Wallet, Zap, Coins } from 'lucide-react';
+import { TransactionType, RecurringFrequency, RecurringTransaction, AdvancedScheduleConfig, Transaction, SavingsWithdrawalChoice, TransferFeeMode, ManualFeeInputType, ExpenseBudgetPool } from '../types';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatDisplayNumber } from '../utils/dateCycle';
 import { calculateNextDueDate, getScheduleSummaryText, migrateRecurringRule, normalizeHHMM, normalizeTimesList, getNextNOccurrences, OccurrencePreviewItem } from '../utils/recurring';
-import { evaluateSmartBudget, SmartBudgetEvaluation, parseLocalDate } from '../utils/smartBudgetEngine';
+import { evaluateSmartBudget, SmartBudgetEvaluation, parseLocalDate, normalizeExpenseBudgetPool, canSendSmartBudgetNotificationToday, markSmartBudgetNotificationSentToday } from '../utils/smartBudgetEngine';
 import { classifyExpenseContext } from '../utils/smartBudgetAI';
+import { computeTransferFee, resolveTransferFeeSettings } from '../utils/transferFee';
 import { Numpad } from './Numpad';
 import { MiniDateTimePicker } from './MiniDateTimePicker';
 import { CategoryDirectoryModal } from './CategoryDirectoryModal';
@@ -30,15 +31,16 @@ function notifyBudgetAlertIfNeeded(
     const todayStr = evaluation.dailyStatus.asOfDate;
     const cycleKey = evaluation.cycle.startDate.slice(0, 7);
 
-    // 1. Daily pool depleted
-    if (evaluation.pools.daily.remaining <= 0) {
+    // 1. True Deficit: Daily pool depleted (max 1 notification per type per day)
+    if (evaluation.dailyStatus.allowanceState === 'true_deficit' && evaluation.pools.daily.remaining <= 0) {
       const dedupKey = `mm_alert_dedup_${cycleKey}_${todayStr}_daily_depleted`;
-      if (!localStorage.getItem(dedupKey)) {
+      if (!localStorage.getItem(dedupKey) && canSendSmartBudgetNotificationToday('daily_depleted')) {
         localStorage.setItem(dedupKey, Date.now().toString());
+        markSmartBudgetNotificationSentToday('daily_depleted');
         showToast(
           isArabic
-            ? 'تنبيه الميزانية: نفد رصيد المعيشة اليومية. انقر لإعادة التوازن.'
-            : 'Budget alert: Daily pool depleted. Tap to rebalance.',
+            ? 'تنبيه الميزانية: استُنفد حوض المصروف اليومي للشهر. اضغط لإعادة التوازن.'
+            : 'Budget alert: Monthly Daily Spending pool is exhausted. Tap to rebalance.',
           'error',
           {
             label: isArabic ? 'إعادة التوازن' : 'Rebalance',
@@ -50,41 +52,44 @@ function notifyBudgetAlertIfNeeded(
       }
     }
 
-    // 2. Outings pool depleted
+    // 2. Outings pool depleted (max 1 notification per type per day)
     if (evaluation.pools.outings.allocated > 0 && evaluation.pools.outings.remaining <= 0) {
       const dedupKey = `mm_alert_dedup_${cycleKey}_${todayStr}_outings_depleted`;
-      if (!localStorage.getItem(dedupKey)) {
+      if (!localStorage.getItem(dedupKey) && canSendSmartBudgetNotificationToday('outings_depleted')) {
         localStorage.setItem(dedupKey, Date.now().toString());
+        markSmartBudgetNotificationSentToday('outings_depleted');
         showToast(
           isArabic
-            ? 'تنبيه الميزانية: نفد رصيد حوض الخروجات. انقر لإعادة التوازن.'
-            : 'Budget alert: Outings pool depleted. Tap to rebalance.',
-          'error',
-          {
-            label: isArabic ? 'إعادة التوازن' : 'Rebalance',
-            onClick: openSmartBudget,
-          },
-          8000
-        );
-        return;
-      }
-    }
-
-    // 3. Anomalies
-    if (evaluation.anomalies.length > 0) {
-      const topAnomaly = evaluation.anomalies[0];
-      const dedupKey = `mm_alert_dedup_${cycleKey}_${todayStr}_anomaly_${topAnomaly.type}`;
-      if (!localStorage.getItem(dedupKey)) {
-        localStorage.setItem(dedupKey, Date.now().toString());
-        const msg = isArabic ? topAnomaly.message.ar : topAnomaly.message.en;
-        showToast(
-          `${isArabic ? 'تنبيه إنفاق: ' : 'Spending Alert: '}${msg}`,
-          'error',
+            ? 'ملاحظة: اكتمل حوض الخروجات وسيتم استيعاب أي زيادة بهدوء من المصروف اليومي.'
+            : 'Heads-up: Outings pool is full; any extra is calmly absorbed by Daily Spending.',
+          'info',
           {
             label: isArabic ? 'مراجعة' : 'Review',
             onClick: openSmartBudget,
           },
-          8000
+          7000
+        );
+        return;
+      }
+    }
+
+    // 3. Anomalies (max 1 notification per type per day)
+    if (evaluation.anomalies.length > 0) {
+      const topAnomaly = evaluation.anomalies[0];
+      const notifType = `anomaly_${topAnomaly.type}`;
+      const dedupKey = `mm_alert_dedup_${cycleKey}_${todayStr}_${notifType}`;
+      if (!localStorage.getItem(dedupKey) && canSendSmartBudgetNotificationToday(notifType)) {
+        localStorage.setItem(dedupKey, Date.now().toString());
+        markSmartBudgetNotificationSentToday(notifType);
+        const msg = isArabic ? topAnomaly.message.ar : topAnomaly.message.en;
+        showToast(
+          `${isArabic ? 'ملاحظة ميزانية: ' : 'Budget Heads-up: '}${msg}`,
+          'info',
+          {
+            label: isArabic ? 'مراجعة' : 'Review',
+            onClick: openSmartBudget,
+          },
+          7000
         );
       }
     }
@@ -197,8 +202,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [toAccountId, setToAccountId] = useState<string>('');
   const [categoryId, setCategoryId] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  const [budgetPool, setBudgetPool] = useState<'daily' | 'outings' | 'emergency'>('daily');
+  const [budgetPool, setBudgetPool] = useState<ExpenseBudgetPool>('daily');
+  const userManuallyPickedPoolRef = useRef<boolean>(false);
   const [isSalary, setIsSalary] = useState<boolean>(false);
+  const [isSavingsAllocation, setIsSavingsAllocation] = useState<boolean>(false);
+  const [savingsWithdrawalChoice, setSavingsWithdrawalChoice] = useState<SavingsWithdrawalChoice | undefined>(undefined);
+  const [showWithdrawalPrompt, setShowWithdrawalPrompt] = useState<boolean>(false);
+  const [transferFeeMode, setTransferFeeMode] = useState<TransferFeeMode>('none');
+  const [manualFeeInputType, setManualFeeInputType] = useState<ManualFeeInputType>('amount');
+  const [manualFeeStr, setManualFeeStr] = useState<string>('0');
+  const [transferFeeBudgetPool, setTransferFeeBudgetPool] = useState<ExpenseBudgetPool>('daily');
+  const [activeKeypadTarget, setActiveKeypadTarget] = useState<'amount' | 'fee'>('amount');
   const [isClassifyingPool, setIsClassifyingPool] = useState<boolean>(false);
   const [showDateTimePicker, setShowDateTimePicker] = useState<boolean>(false);
   const [pickerTab, setPickerTab] = useState<'date' | 'time'>('date');
@@ -453,6 +467,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setAccountDropdownOpen(null);
       setShowDateTimePicker(false);
       setPendingRecurringEdit(null);
+      setShowWithdrawalPrompt(false);
+      setActiveKeypadTarget('amount');
       return;
     }
 
@@ -466,6 +482,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
     prevIsOpenRef.current = true;
     prevEditingTxIdRef.current = currentTxId;
+    setShowWithdrawalPrompt(false);
+    setActiveKeypadTarget('amount');
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    const feeCfg = resolveTransferFeeSettings(settings.transferFeeSettings);
+    const defaultRuleActive = Boolean(feeCfg.defaultRule.enabled && feeCfg.defaultRule.ruleType !== 'none');
 
     if (activeEditingTx) {
       setType(activeEditingTx.type);
@@ -477,8 +500,37 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setToAccountId(activeEditingTx.toAccountId || '');
       setCategoryId(activeEditingTx.categoryId || '');
       setDescription(activeEditingTx.description || '');
-      setBudgetPool(activeEditingTx.budgetPool || 'daily');
+      userManuallyPickedPoolRef.current = Boolean(activeEditingTx.budgetPool);
+      setBudgetPool(
+        normalizeExpenseBudgetPool(
+          activeEditingTx.budgetPool,
+          Boolean(activeEditingTx.isFromRecurring || activeEditingTx.recurringRuleId)
+        )
+      );
       setIsSalary(Boolean(activeEditingTx.isSalary));
+      const destAcc = accounts.find((a) => a.id === activeEditingTx.toAccountId);
+      const destIsSavingsOrInv = destAcc?.accountRole === 'savings' || destAcc?.accountRole === 'investment';
+      setIsSavingsAllocation(
+        activeEditingTx.isSavingsAllocation !== undefined
+          ? Boolean(activeEditingTx.isSavingsAllocation)
+          : destIsSavingsOrInv
+      );
+      setSavingsWithdrawalChoice(
+        activeEditingTx.savingsWithdrawalChoice || activeEditingTx.budgetAdjustment?.choice
+      );
+      const initMode: TransferFeeMode =
+        activeEditingTx.transferFeeMode ||
+        (activeEditingTx.transferFee && activeEditingTx.transferFee > 0 ? 'manual' : 'none');
+      setTransferFeeMode(initMode);
+      setManualFeeInputType(activeEditingTx.transferFeeInputType || 'amount');
+      setManualFeeStr(
+        activeEditingTx.transferFeeRawValue !== undefined
+          ? activeEditingTx.transferFeeRawValue.toString()
+          : activeEditingTx.transferFee && activeEditingTx.transferFee > 0
+          ? activeEditingTx.transferFee.toString()
+          : '0'
+      );
+      setTransferFeeBudgetPool(normalizeExpenseBudgetPool(activeEditingTx.transferFeeBudgetPool, false));
       setIsRecurring(false);
       setRecurringFrequency('monthly');
       setIsAdvancedSchedule(false);
@@ -494,6 +546,26 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setToAccountId(r.toAccountId || (fallbackTo ? fallbackTo.id : ''));
       setCategoryId(r.categoryId || '');
       setDescription(r.description || '');
+      userManuallyPickedPoolRef.current = Boolean(r.budgetPool);
+      setBudgetPool(normalizeExpenseBudgetPool(r.budgetPool, true));
+      const recDestAcc = accounts.find((a) => a.id === (r.toAccountId || fallbackTo?.id));
+      const recDestIsSavings = recDestAcc?.accountRole === 'savings' || recDestAcc?.accountRole === 'investment';
+      setIsSavingsAllocation(
+        r.isSavingsAllocation !== undefined ? Boolean(r.isSavingsAllocation) : recDestIsSavings
+      );
+      setSavingsWithdrawalChoice(r.savingsWithdrawalChoice);
+      const recFeeMode: TransferFeeMode =
+        r.transferFeeMode || (r.transferFee && r.transferFee > 0 ? 'manual' : 'none');
+      setTransferFeeMode(recFeeMode);
+      setManualFeeInputType(r.transferFeeInputType || 'amount');
+      setManualFeeStr(
+        r.transferFeeRawValue !== undefined
+          ? r.transferFeeRawValue.toString()
+          : r.transferFee && r.transferFee > 0
+          ? r.transferFee.toString()
+          : '0'
+      );
+      setTransferFeeBudgetPool(normalizeExpenseBudgetPool(r.transferFeeBudgetPool, false));
       setIsRecurring(true);
       setRecurringFrequency(r.frequency);
       setSavedSimpleFrequency(r.frequency || 'monthly');
@@ -543,12 +615,21 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       const nowTime = formatTimeToHHMM(now);
       setTime(nowTime);
       setDescription('');
-      setBudgetPool('daily');
+      userManuallyPickedPoolRef.current = false;
+      setBudgetPool(!isSharedMode && defaultTxIsRecurring ? 'fixed' : 'daily');
       setIsSalary(false);
       const defaultAcc = (!isSharedMode && (defaultTxAccountId || selectedAccountId)) || (accounts[0] ? accounts[0].id : '');
       setAccountId(defaultAcc);
       const otherAcc = accounts.find((a) => a.id !== defaultAcc);
       setToAccountId(otherAcc ? otherAcc.id : '');
+      setIsSavingsAllocation(
+        otherAcc?.accountRole === 'savings' || otherAcc?.accountRole === 'investment'
+      );
+      setSavingsWithdrawalChoice(undefined);
+      setTransferFeeMode(defaultRuleActive ? 'default_rule' : 'none');
+      setManualFeeInputType('amount');
+      setManualFeeStr('0');
+      setTransferFeeBudgetPool('daily');
       const expCats = categories.filter((c) => c.type === 'expense');
       let defaultCat = expCats[0];
       if (settings.categoryOrder && settings.categoryOrder.length > 0) {
@@ -654,12 +735,51 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     return accounts.find((a) => a.id === toAccountId) || accounts.find((a) => a.id !== accountId);
   }, [accounts, toAccountId, accountId]);
 
+  const isSavingsWithdrawal = useMemo(() => {
+    if (isSharedMode || type !== 'transfer' || !selectedAccount || !selectedToAccount) return false;
+    if (selectedAccount.id === selectedToAccount.id) return false;
+    const fromRole = selectedAccount.accountRole || 'spending';
+    const toRole = selectedToAccount.accountRole || 'spending';
+    return (fromRole === 'savings' || fromRole === 'investment') && toRole === 'spending';
+  }, [isSharedMode, type, selectedAccount, selectedToAccount]);
+
+  // Automatically toggle "Savings / Investment Allocation" ON when destination account has 'savings' or 'investment' role
+  const prevDestIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!effectiveIsOpen) {
+      prevDestIdRef.current = undefined;
+      return;
+    }
+    const currentDestId = selectedToAccount?.id;
+    if (prevDestIdRef.current === currentDestId) return;
+    prevDestIdRef.current = currentDestId;
+
+    // If editing an existing transfer and destination hasn't changed from the original, keep its saved flag
+    if (
+      activeEditingTx &&
+      activeEditingTx.type === 'transfer' &&
+      activeEditingTx.toAccountId === currentDestId &&
+      activeEditingTx.isSavingsAllocation !== undefined
+    ) {
+      setIsSavingsAllocation(Boolean(activeEditingTx.isSavingsAllocation));
+      return;
+    }
+
+    const destRole = selectedToAccount?.accountRole || 'spending';
+    setIsSavingsAllocation(destRole === 'savings' || destRole === 'investment');
+  }, [effectiveIsOpen, selectedToAccount?.id, selectedToAccount?.accountRole, activeEditingTx]);
+
   const handleTypeSelect = useCallback((newType: TransactionType) => {
     setType(newType);
+    if (newType !== 'transfer') {
+      setActiveKeypadTarget('amount');
+    }
     if (newType === 'transfer') {
       const destination = accounts.find((a) => a.id !== accountId);
       if (destination) {
         setToAccountId(destination.id);
+        const destRole = destination.accountRole || 'spending';
+        setIsSavingsAllocation(destRole === 'savings' || destRole === 'investment');
       }
     }
   }, [accounts, accountId]);
@@ -937,6 +1057,48 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     return getNextNOccurrences(draftRecurringRule, 5, Date.now(), isArabic ? 'ar' : 'en');
   }, [draftRecurringRule, isArabic]);
 
+  const numericAmount = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
+  const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
+  const sourceCurrencySymbol = getLocalizedCurrencySymbol(
+    selectedAccount?.currency || settings.currencySymbol,
+    settings.language
+  );
+
+  const feeConfig = useMemo(
+    () => resolveTransferFeeSettings(settings.transferFeeSettings),
+    [settings.transferFeeSettings]
+  );
+
+  const manualFeeRawNumeric = useMemo(
+    () => parseFloat(String(manualFeeStr).replace(/,/g, '')) || 0,
+    [manualFeeStr]
+  );
+
+  const calculatedTransferFee = useMemo(() => {
+    if (isSharedMode || type !== 'transfer') return 0;
+    return computeTransferFee({
+      transferAmount: numericAmount,
+      mode: transferFeeMode,
+      manualInputType: manualFeeInputType,
+      manualRawValue: manualFeeRawNumeric,
+      feeSettings: feeConfig,
+    });
+  }, [isSharedMode, type, numericAmount, transferFeeMode, manualFeeInputType, manualFeeRawNumeric, feeConfig]);
+
+  const availableSourceBalance = useMemo(() => {
+    if (!selectedAccount) return 0;
+    let base = selectedAccount.balance;
+    if (activeEditingTx && activeEditingTx.type === 'transfer' && activeEditingTx.accountId === selectedAccount.id) {
+      base += activeEditingTx.amount + (activeEditingTx.transferFee || 0);
+    }
+    return base;
+  }, [selectedAccount, activeEditingTx]);
+
+  const exceedsAvailableWithFee = useMemo(() => {
+    if (isSharedMode || type !== 'transfer' || !selectedAccount || numericAmount <= 0) return false;
+    return numericAmount + calculatedTransferFee > availableSourceBalance + 0.0001;
+  }, [isSharedMode, type, selectedAccount, numericAmount, calculatedTransferFee, availableSourceBalance]);
+
   // Smart Update Rule: In Edit mode, keep Update button disabled until at least one field is modified
   const isModified = useMemo(() => {
     if (editingRecurring) {
@@ -949,10 +1111,22 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         type === 'transfer' ? toAccountId : '',
         type === 'transfer' ? '' : categoryId,
         description.trim(), recurringFrequency, curAdv,
+        type === 'transfer' ? Boolean(isSavingsAllocation) : false,
+        type === 'transfer' ? (savingsWithdrawalChoice || '') : '',
+        type === 'transfer' ? (transferFeeMode || 'none') : 'none',
+        type === 'transfer' ? (calculatedTransferFee || 0) : 0,
+        type === 'transfer' ? (transferFeeBudgetPool || 'daily') : 'daily',
+        type === 'expense' ? (budgetPool || 'fixed') : '',
       ]);
       const origSig = JSON.stringify([
         r.type, r.amount, r.startDate, r.startTime || '09:00', r.accountId,
         r.toAccountId || '', r.categoryId || '', r.description || '', r.frequency, origAdv,
+        r.type === 'transfer' ? Boolean(r.isSavingsAllocation) : false,
+        r.type === 'transfer' ? (r.savingsWithdrawalChoice || '') : '',
+        r.type === 'transfer' ? (r.transferFeeMode || (r.transferFee && r.transferFee > 0 ? 'manual' : 'none')) : 'none',
+        r.type === 'transfer' ? (r.transferFee || 0) : 0,
+        r.type === 'transfer' ? normalizeExpenseBudgetPool(r.transferFeeBudgetPool, false) : 'daily',
+        r.type === 'expense' ? normalizeExpenseBudgetPool(r.budgetPool, true) : '',
       ]);
       return curSig !== origSig;
     }
@@ -968,15 +1142,23 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     if ((activeEditingTx.description || '') !== description.trim()) return true;
     if (type === 'expense' && (activeEditingTx.budgetPool || 'daily') !== budgetPool) return true;
     if (type === 'income' && Boolean(activeEditingTx.isSalary) !== isSalary) return true;
+    if (type === 'transfer') {
+      if (Boolean(activeEditingTx.isSavingsAllocation) !== isSavingsAllocation) return true;
+      const origChoice = activeEditingTx.savingsWithdrawalChoice || activeEditingTx.budgetAdjustment?.choice;
+      if ((origChoice || undefined) !== savingsWithdrawalChoice) return true;
+      const origFee = activeEditingTx.transferFee || 0;
+      if (Math.abs(origFee - calculatedTransferFee) > 0.0001) return true;
+      const origFeeMode = activeEditingTx.transferFeeMode || (origFee > 0 ? 'manual' : 'none');
+      if (origFeeMode !== transferFeeMode) return true;
+      if (calculatedTransferFee > 0 && (activeEditingTx.transferFeeBudgetPool || 'daily') !== transferFeeBudgetPool) return true;
+    }
     return false;
   }, [
     activeEditingTx, editingRecurring, type, amountStr, date, hasTime, time, accountId, toAccountId, categoryId, description,
     recurringFrequency, isAdvancedSchedule, useWeekdayFilter, selectedDaysOfWeek, intervalWeeks, useMonthDayFilter,
     selectedDaysOfMonth, timesOfDay, hasCustomTimes, weekdayTimes, monthDayTimes, budgetPool, isSalary,
+    isSavingsAllocation, savingsWithdrawalChoice, transferFeeMode, calculatedTransferFee, transferFeeBudgetPool,
   ]);
-
-  const numericAmount = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
-  const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
 
   // Filter out the transaction currently being edited so its previous amount isn't double-counted
   const evalTransactions = useMemo(() => {
@@ -988,10 +1170,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     if (type !== 'expense') return null;
     const cfg = {
       ...settings.smartBudget?.baseline,
+      startDay: settings.defaultMonthStartDay || 1,
+      overrides: settings.smartBudget?.overrides,
+      adjustments: settings.smartBudget?.adjustments,
       baseCurrency: currencySymbol,
     };
     return evaluateSmartBudget(evalTransactions, accounts, cfg, new Date());
-  }, [type, evalTransactions, accounts, settings.smartBudget?.baseline, currencySymbol]);
+  }, [type, evalTransactions, accounts, settings.smartBudget?.baseline, settings.smartBudget?.overrides, settings.smartBudget?.adjustments, settings.defaultMonthStartDay, currencySymbol]);
 
   const isDateInCycle = useMemo(() => {
     if (!smartBudgetEval) return false;
@@ -1004,38 +1189,65 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
 
     const todayAllowance = smartBudgetEval.dailyStatus.todayAllowance;
+    const todayRemainingBefore = smartBudgetEval.dailyStatus.todayRemaining;
+    const monthlyDailyRemBefore = smartBudgetEval.pools.daily.remaining;
     const projectedAllowance = smartBudgetEval.projectedDailyAllowanceAfterSpend(
       numericAmount,
       budgetPool,
       date
     );
 
+    if (budgetPool === 'oneoff') {
+      return {
+        status: 'safe' as const,
+        todayAllowance,
+        projectedAllowance: todayAllowance,
+        overTodayBy: 0,
+        budgetPool,
+      };
+    }
+
     let status: 'safe' | 'warning' | 'danger' = 'safe';
+    let overTodayBy = 0;
+
     if (budgetPool === 'daily') {
-      if (numericAmount > todayAllowance) {
+      const remAfter = todayRemainingBefore - numericAmount;
+      overTodayBy = remAfter < 0 ? Math.abs(remAfter) : 0;
+      const monthlyDailyRemAfter = monthlyDailyRemBefore - numericAmount;
+      if (monthlyDailyRemAfter <= 0) {
         status = 'danger';
-      } else if (numericAmount > todayAllowance * 0.8) {
+      } else if (overTodayBy > 0 || numericAmount > todayAllowance * 0.8) {
         status = 'warning';
       } else {
         status = 'safe';
       }
     } else if (budgetPool === 'outings') {
       const outingsRem = smartBudgetEval.pools.outings.remaining;
-      if (numericAmount > outingsRem) {
+      const spillToDaily = Math.max(0, numericAmount - Math.max(0, outingsRem));
+      if (spillToDaily > 0 && monthlyDailyRemBefore - spillToDaily <= 0) {
         status = 'danger';
-      } else if (numericAmount > outingsRem * 0.8) {
+      } else if (spillToDaily > 0 || numericAmount > outingsRem * 0.8) {
         status = 'warning';
       } else {
         status = 'safe';
       }
-    } else {
-      status = 'warning';
+    } else if (budgetPool === 'fixed') {
+      const fixedRem = smartBudgetEval.pools.fixed.remaining;
+      const spillToDaily = Math.max(0, numericAmount - Math.max(0, fixedRem));
+      if (spillToDaily > 0 && monthlyDailyRemBefore - spillToDaily <= 0) {
+        status = 'danger';
+      } else if (spillToDaily > 0) {
+        status = 'warning';
+      } else {
+        status = 'safe';
+      }
     }
 
     return {
       status,
       todayAllowance,
       projectedAllowance,
+      overTodayBy,
       budgetPool,
     };
   }, [type, smartBudgetEval, isDateInCycle, numericAmount, budgetPool, date]);
@@ -1051,17 +1263,19 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         amount: numericAmount,
         language: isArabic ? 'ar' : 'en',
       });
+      userManuallyPickedPoolRef.current = true;
+      const isOneOff = res.context === 'oneoff' || res.context === 'emergency';
       if (res.context === 'outings') {
         setBudgetPool('outings');
-      } else if (res.context === 'emergency') {
-        setBudgetPool('emergency');
+      } else if (isOneOff) {
+        setBudgetPool('oneoff');
       } else {
-        setBudgetPool('daily');
+        setBudgetPool(isRecurring ? 'fixed' : 'daily');
       }
       showToast(
         isArabic
-          ? `تم التصنيف ذكياً: ${res.context === 'outings' ? 'خروجات' : res.context === 'emergency' ? 'طوارئ' : 'معيشة يومية'}`
-          : `Classified as ${res.context === 'outings' ? 'Outings' : res.context === 'emergency' ? 'Emergency' : 'Daily Living'}`,
+          ? `تم التصنيف ذكياً: ${res.context === 'outings' ? t('poolOutings') : isOneOff ? t('poolOneOff') : isRecurring ? t('poolFixed') : t('poolDaily')}`
+          : `Classified as ${res.context === 'outings' ? t('poolOutings') : isOneOff ? t('poolOneOff') : isRecurring ? t('poolFixed') : t('poolDaily')}`,
         'info'
       );
     } catch (err) {
@@ -1073,9 +1287,66 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const isTransferSameAccount = type === 'transfer' && accountId === toAccountId;
   const canSave = numericAmount > 0 && !isTransferSameAccount && isModified && !isFilterEmpty;
 
+  // Desktop physical keyboard support for in-app numeric keypad target ('amount' or 'fee')
+  // Only active when no real text input / textarea / select is focused.
+  useEffect(() => {
+    if (!effectiveIsOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (
+        active &&
+        (active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.tagName === 'SELECT' ||
+          active.isContentEditable)
+      ) {
+        return;
+      }
+
+      const isEditingFee = type === 'transfer' && transferFeeMode === 'manual' && activeKeypadTarget === 'fee';
+      const currentVal = isEditingFee ? manualFeeStr : amountStr;
+      const setVal = isEditingFee ? setManualFeeStr : setAmountStr;
+
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        if (currentVal === '0' || currentVal === '') {
+          setVal(e.key);
+          return;
+        }
+        if (currentVal.includes('.')) {
+          const parts = currentVal.split('.');
+          if (parts[1] && parts[1].length >= 2) return;
+        }
+        if (currentVal.length >= 10) return;
+        setVal(currentVal + e.key);
+      } else if (e.key === '.' || e.key === 'Decimal') {
+        e.preventDefault();
+        if (!currentVal.includes('.')) {
+          setVal(currentVal === '' || currentVal === '0' ? '0.' : currentVal + '.');
+        }
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        if (currentVal.length <= 1 || currentVal === '0') {
+          setVal('0');
+        } else {
+          const next = currentVal.slice(0, -1);
+          setVal(next === '' ? '0' : next);
+        }
+      } else if (e.key === 'Delete') {
+        e.preventDefault();
+        setVal('0');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [effectiveIsOpen, type, transferFeeMode, activeKeypadTarget, amountStr, manualFeeStr]);
+
   if (!effectiveIsOpen) return null;
 
-  const handleSave = () => {
+  const executeSave = (chosenWithdrawalChoice?: SavingsWithdrawalChoice) => {
     if (!canSave) return;
 
     const finalAccountId = accountId || selectedAccount?.id || '';
@@ -1098,8 +1369,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         categoryName: type === 'transfer' ? undefined : selectedCategory?.name,
         categoryIcon: type === 'transfer' ? undefined : selectedCategory?.icon,
         description: description.trim(),
-        budgetPool: type === 'expense' ? budgetPool : undefined,
-        isSalary: type === 'income' ? isSalary : undefined,
         createdAt: activeEditingTx?.createdAt || Date.now(),
         updatedAt: Date.now(),
         shareId: sharedSpace.id,
@@ -1109,6 +1378,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       handleAnimatedClose();
       return;
     }
+
+    const effectiveWithdrawalChoice =
+      type === 'transfer' && isSavingsWithdrawal
+        ? (chosenWithdrawalChoice || savingsWithdrawalChoice || 'just_moving')
+        : undefined;
 
     const payload = {
       type,
@@ -1123,6 +1397,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       description: description.trim(),
       budgetPool: type === 'expense' ? budgetPool : undefined,
       isSalary: type === 'income' ? isSalary : undefined,
+      isSavingsAllocation: type === 'transfer' ? isSavingsAllocation : undefined,
+      savingsWithdrawalChoice: effectiveWithdrawalChoice,
+      transferFee: type === 'transfer' && calculatedTransferFee > 0 ? calculatedTransferFee : undefined,
+      transferFeeMode: type === 'transfer' ? transferFeeMode : undefined,
+      transferFeeInputType:
+        type === 'transfer' && transferFeeMode === 'manual' ? manualFeeInputType : undefined,
+      transferFeeRawValue:
+        type === 'transfer' && transferFeeMode === 'manual' ? manualFeeRawNumeric : undefined,
+      transferFeeBudgetPool:
+        type === 'transfer' && calculatedTransferFee > 0 ? transferFeeBudgetPool : undefined,
     };
 
     if (editingRecurring) {
@@ -1144,6 +1428,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         advancedSchedule: advConfig,
         useWeekdayFilter: advConfig?.useWeekdayFilter,
         useMonthDayFilter: advConfig?.useMonthDayFilter,
+        budgetPool: type === 'expense' ? budgetPool : undefined,
+        isSavingsAllocation: type === 'transfer' ? isSavingsAllocation : undefined,
+        savingsWithdrawalChoice: effectiveWithdrawalChoice,
+        transferFee: type === 'transfer' && calculatedTransferFee > 0 ? calculatedTransferFee : undefined,
+        transferFeeMode: type === 'transfer' ? transferFeeMode : undefined,
+        transferFeeInputType:
+          type === 'transfer' && transferFeeMode === 'manual' ? manualFeeInputType : undefined,
+        transferFeeRawValue:
+          type === 'transfer' && transferFeeMode === 'manual' ? manualFeeRawNumeric : undefined,
+        transferFeeBudgetPool:
+          type === 'transfer' && calculatedTransferFee > 0 ? transferFeeBudgetPool : undefined,
       });
       return;
     }
@@ -1175,6 +1470,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           advancedSchedule: advConfig,
           useWeekdayFilter: advConfig?.useWeekdayFilter,
           useMonthDayFilter: advConfig?.useMonthDayFilter,
+          budgetPool: type === 'expense' ? budgetPool : undefined,
+          isSavingsAllocation: type === 'transfer' ? isSavingsAllocation : undefined,
+          savingsWithdrawalChoice: effectiveWithdrawalChoice,
+          transferFee: type === 'transfer' && calculatedTransferFee > 0 ? calculatedTransferFee : undefined,
+          transferFeeMode: type === 'transfer' ? transferFeeMode : undefined,
+          transferFeeInputType:
+            type === 'transfer' && transferFeeMode === 'manual' ? manualFeeInputType : undefined,
+          transferFeeRawValue:
+            type === 'transfer' && transferFeeMode === 'manual' ? manualFeeRawNumeric : undefined,
+          transferFeeBudgetPool:
+            type === 'transfer' && calculatedTransferFee > 0 ? transferFeeBudgetPool : undefined,
         });
       }
     }
@@ -1188,7 +1494,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       const postEval = evaluateSmartBudget(
         updatedTxs,
         accounts,
-        { ...settings.smartBudget?.baseline, baseCurrency: currencySymbol },
+        {
+          ...settings.smartBudget?.baseline,
+          startDay: settings.defaultMonthStartDay || 1,
+          overrides: settings.smartBudget?.overrides,
+          adjustments: settings.smartBudget?.adjustments,
+          baseCurrency: currencySymbol,
+        },
         new Date()
       );
 
@@ -1219,7 +1531,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       );
     }
 
+    setShowWithdrawalPrompt(false);
     closeAddTxModal();
+  };
+
+  const handleSave = () => {
+    if (!canSave) return;
+    if (!isSharedMode && !editingRecurring && type === 'transfer' && isSavingsWithdrawal && !savingsWithdrawalChoice) {
+      setShowWithdrawalPrompt(true);
+      return;
+    }
+    executeSave(savingsWithdrawalChoice);
   };
 
   const confirmRecurringEdit = (scope: 'future' | 'all') => {
@@ -1350,8 +1672,24 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               </div>
             )}
             {/* Inline Tightly Coupled Amount & Currency Wrapper */}
-            <div className="flex items-center justify-center py-1">
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-2xl bg-zinc-900/60 border border-zinc-800 shadow-inner select-none">
+            <div className="flex flex-col items-center justify-center py-1">
+              <button
+                type="button"
+                role="status"
+                aria-live="polite"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  if (document.activeElement instanceof HTMLElement) {
+                    document.activeElement.blur();
+                  }
+                }}
+                onClick={() => setActiveKeypadTarget('amount')}
+                className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-2xl bg-zinc-900/60 border shadow-inner select-none transition cursor-pointer ${
+                  activeKeypadTarget === 'amount'
+                    ? 'border-blue-500/60 ring-2 ring-blue-500/20'
+                    : 'border-zinc-800 opacity-75 hover:opacity-100'
+                }`}
+              >
                 <span className={`text-3xl sm:text-4xl font-black ${
                   type === 'income' ? 'text-emerald-400' : type === 'expense' ? 'text-red-400' : 'text-blue-400'
                 }`}>
@@ -1360,7 +1698,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 <span className="text-4xl sm:text-5xl font-mono font-black text-white tracking-tight">
                   {formatDisplayNumber(amountStr)}
                 </span>
-              </div>
+              </button>
+              {type === 'transfer' && activeKeypadTarget === 'fee' && (
+                <span className="mt-1 text-[10px] font-semibold text-amber-400 animate-pulse">
+                  {t('editingFeeKeypadHint')}
+                </span>
+              )}
             </div>
 
             {/* Live Non-Blocking Impact Estimate for Expense Transactions */}
@@ -1383,16 +1726,24 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     <AlertCircle className="w-4 h-4 text-red-400 shrink-0 animate-pulse" />
                   )}
                   <span className="leading-snug break-words">
-                    {impactEstimate.status === 'safe' &&
-                      (isArabic ? 'ضمن مصروف اليوم الآمن' : "Within today's safe allowance")}
-                    {impactEstimate.status === 'warning' &&
+                    {impactEstimate.budgetPool === 'oneoff' && t('poolOneOffHint')}
+                    {impactEstimate.budgetPool !== 'oneoff' &&
+                      impactEstimate.status === 'safe' &&
+                      (isArabic ? 'ضمن المسموح اليوم بهدوء' : "Within today's allowed amount")}
+                    {impactEstimate.budgetPool !== 'oneoff' &&
+                      impactEstimate.status === 'warning' &&
+                      (impactEstimate.overTodayBy > 0
+                        ? t('calmOverTodayMessage')
+                            .replace('{over}', formatCurrency(impactEstimate.overTodayBy, currencySymbol))
+                            .replace('{nextDaily}', formatCurrency(impactEstimate.projectedAllowance, currencySymbol))
+                        : isArabic
+                        ? `سيصبح المبلغ اليومي للأيام الجاية ${formatCurrency(impactEstimate.projectedAllowance, currencySymbol)}`
+                        : `Upcoming days' daily amount will be ${formatCurrency(impactEstimate.projectedAllowance, currencySymbol)}`)}
+                    {impactEstimate.budgetPool !== 'oneoff' &&
+                      impactEstimate.status === 'danger' &&
                       (isArabic
-                        ? 'يقترب من حد مصروف اليوم (أكثر من 80% من المسموح)'
-                        : "Approaching today's limit (>80% of daily allowance)")}
-                    {impactEstimate.status === 'danger' &&
-                      (isArabic
-                        ? `هذا المصروف سيتجاوز مصروف اليوم الآمن ويخفض الميزانية اليومية للأيام المتبقية من ${formatCurrency(impactEstimate.todayAllowance, currencySymbol)} إلى ${formatCurrency(impactEstimate.projectedAllowance, currencySymbol)}`
-                        : `This expense will exceed today's safe-to-spend and reduce remaining days' daily budget from ${formatCurrency(impactEstimate.todayAllowance, currencySymbol)} to ${formatCurrency(impactEstimate.projectedAllowance, currencySymbol)}`)}
+                        ? 'هذا المصروف يستنفد كامل حوض المصروف اليومي المتبقي لهذا الشهر'
+                        : 'This expense exhausts the remaining monthly Daily Spending pool')}
                   </span>
                 </div>
               </div>
@@ -1649,6 +2000,344 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   {t('sameAccountError')}
                 </div>
               )}
+
+              {/* Savings / Investment Allocation Toggle & Withdrawal 3-Choice Selector */}
+              {!isSharedMode && !isTransferSameAccount && (
+                <div className="mt-3 space-y-2.5">
+                  {/* Savings / Investment Allocation Toggle */}
+                  {!isSavingsWithdrawal && (
+                    <button
+                      type="button"
+                      onClick={() => setIsSavingsAllocation((prev) => !prev)}
+                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl border text-left rtl:text-right transition cursor-pointer ${
+                        isSavingsAllocation
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200 shadow-sm'
+                          : 'bg-zinc-900/80 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 pr-2 rtl:pr-0 rtl:pl-2">
+                        <div
+                          className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 transition ${
+                            isSavingsAllocation
+                              ? 'bg-emerald-600 text-white shadow'
+                              : 'bg-zinc-800 text-zinc-400'
+                          }`}
+                        >
+                          <PiggyBank className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-white truncate">
+                            {t('savingsInvestmentAllocation')}
+                          </div>
+                          <div className="text-[10px] text-zinc-400 truncate">
+                            {t('savingsInvestmentAllocationDesc')}
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className={`w-10 h-5.5 rounded-full p-0.5 transition-colors shrink-0 flex items-center ${
+                          isSavingsAllocation ? 'bg-emerald-600 justify-end' : 'bg-zinc-800 justify-start'
+                        }`}
+                      >
+                        <div className="w-4.5 h-4.5 rounded-full bg-white shadow-md transform transition" />
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Inline 3-Choice Withdrawal Selector when transferring OUT of 'savings'/'investment' to 'spending' */}
+                  {isSavingsWithdrawal && (
+                    <div className="p-3 rounded-2xl bg-amber-950/20 border border-amber-500/30 space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
+                        <ShieldAlert className="w-4 h-4 shrink-0 text-amber-400" />
+                        <span>{t('savingsWithdrawalPromptTitle')}</span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400">
+                        {t('savingsWithdrawalPromptDesc')}
+                      </p>
+                      <div className="grid grid-cols-1 gap-1.5 pt-1">
+                        {(
+                          [
+                            {
+                              id: 'emergency_expense' as SavingsWithdrawalChoice,
+                              title: t('withdrawalChoiceEmergency'),
+                              desc: t('withdrawalChoiceEmergencyDesc'),
+                              activeCls: 'bg-red-500/20 border-red-500/50 text-red-200',
+                            },
+                            {
+                              id: 'add_to_spending' as SavingsWithdrawalChoice,
+                              title: t('withdrawalChoiceSpending'),
+                              desc: t('withdrawalChoiceSpendingDesc'),
+                              activeCls: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-200',
+                            },
+                            {
+                              id: 'just_moving' as SavingsWithdrawalChoice,
+                              title: t('withdrawalChoiceMoving'),
+                              desc: t('withdrawalChoiceMovingDesc'),
+                              activeCls: 'bg-blue-500/20 border-blue-500/50 text-blue-200',
+                            },
+                          ]
+                        ).map((opt) => {
+                          const isChosen = savingsWithdrawalChoice === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setSavingsWithdrawalChoice(opt.id)}
+                              className={`w-full text-left rtl:text-right px-3 py-2 rounded-xl border transition cursor-pointer ${
+                                isChosen
+                                  ? opt.activeCls
+                                  : 'bg-zinc-900/90 border-zinc-800 text-zinc-300 hover:bg-zinc-800'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-bold">{opt.title}</span>
+                                {isChosen && <Check className="w-3.5 h-3.5 shrink-0" />}
+                              </div>
+                              <div className="text-[10px] text-zinc-400 mt-0.5">{opt.desc}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Transfer Fee / Tax Section (Req 7) */}
+                  <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                        <Coins className="w-3.5 h-3.5 text-amber-400" />
+                        <span>{t('transferFeeSectionTitle')}</span>
+                      </span>
+                      {calculatedTransferFee > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-[11px] font-bold text-amber-300 font-mono">
+                          +{formatCurrency(calculatedTransferFee, sourceCurrencySymbol)}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Fee Mode Selector Pills */}
+                    <div className={`grid gap-1.5 ${feeConfig.defaultRule.enabled && feeConfig.defaultRule.ruleType !== 'none' ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTransferFeeMode('none');
+                          setActiveKeypadTarget('amount');
+                        }}
+                        className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer truncate ${
+                          transferFeeMode === 'none'
+                            ? 'bg-zinc-800 border-zinc-600 text-white shadow'
+                            : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        {t('feeModeNone')}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTransferFeeMode('instapay');
+                          setActiveKeypadTarget('amount');
+                        }}
+                        className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer flex items-center justify-center gap-1 truncate ${
+                          transferFeeMode === 'instapay'
+                            ? 'bg-purple-600/25 border-purple-500/60 text-purple-200 shadow'
+                            : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        <Zap className="w-3 h-3 text-purple-400 shrink-0" />
+                        <span className="truncate">{t('feeModeInstaPay')}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTransferFeeMode('manual');
+                          setActiveKeypadTarget('fee');
+                        }}
+                        className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer truncate ${
+                          transferFeeMode === 'manual'
+                            ? 'bg-amber-600/25 border-amber-500/60 text-amber-200 shadow'
+                            : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        {t('feeModeManual')}
+                      </button>
+
+                      {feeConfig.defaultRule.enabled && feeConfig.defaultRule.ruleType !== 'none' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTransferFeeMode('default_rule');
+                            setActiveKeypadTarget('amount');
+                          }}
+                          className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer truncate ${
+                            transferFeeMode === 'default_rule'
+                              ? 'bg-blue-600/25 border-blue-500/60 text-blue-200 shadow'
+                              : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          {t('feeModeDefaultRule')}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* InstaPay Quick Preset Details */}
+                    {transferFeeMode === 'instapay' && (
+                      <div className="p-2.5 rounded-xl bg-purple-950/20 border border-purple-500/30 flex items-center justify-between gap-2 text-xs">
+                        <span className="text-[11px] text-purple-200">
+                          {t('instaPayPresetSummary')
+                            .replace('{rate}', String(feeConfig.instaPayPreset.ratePercent))
+                            .replace('{min}', formatCurrency(feeConfig.instaPayPreset.minFee, sourceCurrencySymbol))
+                            .replace('{max}', formatCurrency(feeConfig.instaPayPreset.maxFee, sourceCurrencySymbol))}
+                        </span>
+                        <span className="font-mono font-bold text-purple-300 shrink-0">
+                          {formatCurrency(calculatedTransferFee, sourceCurrencySymbol)}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Manual Fee Input with [ EGP | % ] Toggle & In-App Keypad Binding */}
+                    {transferFeeMode === 'manual' && (
+                      <div className="space-y-2 pt-0.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-zinc-400">
+                            {t('manualFeeInputLabel')}
+                          </span>
+                          {/* [ EGP | % ] Toggle */}
+                          <div className="inline-flex p-0.5 rounded-lg bg-zinc-950 border border-zinc-800">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManualFeeInputType('amount');
+                                setActiveKeypadTarget('fee');
+                              }}
+                              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                                manualFeeInputType === 'amount'
+                                  ? 'bg-amber-600 text-white'
+                                  : 'text-zinc-400 hover:text-white'
+                              }`}
+                            >
+                              {selectedAccount?.currency || (isArabic ? 'ج.م' : 'EGP')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManualFeeInputType('percent');
+                                setActiveKeypadTarget('fee');
+                              }}
+                              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                                manualFeeInputType === 'percent'
+                                  ? 'bg-amber-600 text-white'
+                                  : 'text-zinc-400 hover:text-white'
+                              }`}
+                            >
+                              %
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Tap-to-edit keypad target button (never opens OS keyboard) */}
+                        <div className="grid grid-cols-2 gap-2 items-center">
+                          <button
+                            type="button"
+                            role="status"
+                            aria-live="polite"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              if (document.activeElement instanceof HTMLElement) {
+                                document.activeElement.blur();
+                              }
+                            }}
+                            onClick={() => setActiveKeypadTarget('fee')}
+                            className={`flex items-center justify-between px-3 py-2 rounded-xl border font-mono text-sm font-bold transition cursor-pointer ${
+                              activeKeypadTarget === 'fee'
+                                ? 'bg-amber-500/15 border-amber-500 text-amber-200 ring-2 ring-amber-500/25'
+                                : 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-zinc-700'
+                            }`}
+                          >
+                            <span className="text-xs text-amber-400">
+                              {manualFeeInputType === 'percent' ? '%' : sourceCurrencySymbol}
+                            </span>
+                            <span className="truncate">{formatDisplayNumber(manualFeeStr)}</span>
+                          </button>
+
+                          <div className="px-3 py-2 rounded-xl bg-zinc-950/90 border border-zinc-800/80 flex items-center justify-between text-xs">
+                            <span className="text-[10px] text-zinc-400 truncate">
+                              {t('calculatedFeeLabel')}
+                            </span>
+                            <span className="font-mono font-bold text-amber-300">
+                              {formatCurrency(calculatedTransferFee, sourceCurrencySymbol)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Summary Breakdown, Balance Warning & Fee Budget Pool when Fee > 0 */}
+                    {calculatedTransferFee > 0 && (
+                      <div className="pt-2 border-t border-zinc-800/80 space-y-2">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-zinc-400">{t('totalDeductedWithFee')}:</span>
+                          <span className="font-mono font-bold text-red-300">
+                            {formatCurrency(numericAmount + calculatedTransferFee, sourceCurrencySymbol)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-zinc-400">{t('recipientReceivesLabel')}:</span>
+                          <span className="font-mono font-bold text-emerald-300">
+                            {formatCurrency(numericAmount, sourceCurrencySymbol)}
+                          </span>
+                        </div>
+
+                        {exceedsAvailableWithFee && (
+                          <div className="p-2 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center gap-2 text-[11px] text-amber-200">
+                            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                            <span>
+                              {t('insufficientBalanceWithFeeWarning')
+                                .replace(
+                                  '{total}',
+                                  formatCurrency(numericAmount + calculatedTransferFee, sourceCurrencySymbol)
+                                )
+                                .replace(
+                                  '{balance}',
+                                  formatCurrency(availableSourceBalance, sourceCurrencySymbol)
+                                )}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Fee Budget Pool Selector (default 'daily', never a savings withdrawal) */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                          <span className="text-[11px] text-zinc-400">{t('feeBudgetPoolLabel')}:</span>
+                          <div className="inline-flex flex-wrap gap-1 p-0.5 rounded-xl bg-zinc-950 border border-zinc-800">
+                            {(
+                              [
+                                { id: 'daily' as const, label: t('poolDaily') },
+                                { id: 'fixed' as const, label: t('poolFixed') },
+                                { id: 'outings' as const, label: t('poolOutings') },
+                                { id: 'oneoff' as const, label: t('poolOneOff') },
+                              ]
+                            ).map((p) => (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => setTransferFeeBudgetPool(p.id)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                                  transferFeeBudgetPool === p.id
+                                    ? 'bg-blue-600 text-white'
+                                    : 'text-zinc-400 hover:text-zinc-200'
+                                }`}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1659,12 +2348,24 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 role="button"
                 tabIndex={0}
                 onClick={() => {
-                  if (!editingRecurring) setIsRecurring(!isRecurring);
+                  if (!editingRecurring) {
+                    const nextRec = !isRecurring;
+                    setIsRecurring(nextRec);
+                    if (!userManuallyPickedPoolRef.current) {
+                      setBudgetPool(nextRec ? 'fixed' : 'daily');
+                    }
+                  }
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    if (!editingRecurring) setIsRecurring(!isRecurring);
+                    if (!editingRecurring) {
+                      const nextRec = !isRecurring;
+                      setIsRecurring(nextRec);
+                      if (!userManuallyPickedPoolRef.current) {
+                        setBudgetPool(nextRec ? 'fixed' : 'daily');
+                      }
+                    }
                   }
                 }}
                 className={`flex items-center justify-between w-full px-3 py-2 rounded-xl transition cursor-pointer select-none ${
@@ -2417,12 +3118,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             )}
           </div>
 
-          {/* Budget Pool Selector for Expense Transactions */}
+          {/* Budget Pool Selector for Expense Transactions (4 Standardized Pools) */}
           {type === 'expense' && (
             <div className="space-y-1.5 pt-1">
               <div className="flex items-center justify-between px-0.5">
                 <span className="text-xs font-semibold text-zinc-400">
-                  {isArabic ? 'حوض الميزانية الذكية' : 'Smart Budget Pool'}
+                  {t('budgetPoolLabel')}
                 </span>
                 <button
                   type="button"
@@ -2432,53 +3133,81 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 >
                   <Sparkles className={`w-3.5 h-3.5 ${isClassifyingPool ? 'animate-spin' : ''}`} />
                   <span>
-                    {isClassifyingPool
-                      ? (isArabic ? 'جاري التصنيف...' : 'Classifying...')
-                      : (isArabic ? 'تصنيف بالذكاء الاصطناعي' : 'Classify with AI')}
+                    {isClassifyingPool ? t('classifyingPool') : t('classifyWithAIBtn')}
                   </span>
                 </button>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <button
                   type="button"
-                  onClick={() => setBudgetPool('daily')}
-                  className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                  onClick={() => {
+                    userManuallyPickedPoolRef.current = true;
+                    setBudgetPool('daily');
+                  }}
+                  className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer min-w-0 ${
                     budgetPool === 'daily'
                       ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow'
                       : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  <span>🛒</span>
-                  <span>{isArabic ? 'معيشة يومية' : 'Daily'}</span>
+                  <span className="shrink-0">🛒</span>
+                  <span className="truncate">{t('poolDaily')}</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setBudgetPool('outings')}
-                  className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                  onClick={() => {
+                    userManuallyPickedPoolRef.current = true;
+                    setBudgetPool('fixed');
+                  }}
+                  className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer min-w-0 ${
+                    budgetPool === 'fixed'
+                      ? 'bg-purple-500/20 border-purple-500/50 text-purple-300 shadow'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <span className="shrink-0">🧾</span>
+                  <span className="truncate">{t('poolFixed')}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    userManuallyPickedPoolRef.current = true;
+                    setBudgetPool('outings');
+                  }}
+                  className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer min-w-0 ${
                     budgetPool === 'outings'
                       ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 shadow'
                       : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  <span>☕</span>
-                  <span>{isArabic ? 'خروجات' : 'Outings'}</span>
+                  <span className="shrink-0">☕</span>
+                  <span className="truncate">{t('poolOutings')}</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setBudgetPool('emergency')}
-                  className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                    budgetPool === 'emergency'
-                      ? 'bg-red-500/20 border-red-500/50 text-red-300 shadow'
+                  onClick={() => {
+                    userManuallyPickedPoolRef.current = true;
+                    setBudgetPool('oneoff');
+                  }}
+                  className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer min-w-0 ${
+                    budgetPool === 'oneoff'
+                      ? 'bg-sky-500/20 border-sky-500/50 text-sky-300 shadow'
                       : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  <span>🛡️</span>
-                  <span>{isArabic ? 'طوارئ' : 'Emergency'}</span>
+                  <span className="shrink-0">✨</span>
+                  <span className="truncate">{t('poolOneOff')}</span>
                 </button>
               </div>
+              {budgetPool === 'oneoff' && (
+                <div className="text-[11px] text-sky-300/90 px-1 pt-0.5">
+                  {t('poolOneOffHint')}
+                </div>
+              )}
             </div>
           )}
 
@@ -2579,8 +3308,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
           {/* Keypad */}
           <Numpad
-            value={amountStr}
-            onChange={setAmountStr}
+            value={type === 'transfer' && activeKeypadTarget === 'fee' ? manualFeeStr : amountStr}
+            onChange={type === 'transfer' && activeKeypadTarget === 'fee' ? setManualFeeStr : setAmountStr}
             lang={settings.language}
           />
 
@@ -2610,6 +3339,94 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Savings / Investment Withdrawal 3-Choice Prompt Modal */}
+      {showWithdrawalPrompt && (
+        <div
+          role="dialog"
+          className="fixed inset-0 z-[95] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowWithdrawalPrompt(false);
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            dir={isArabic ? 'rtl' : 'ltr'}
+            className="w-full max-w-sm rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-5 space-y-4 text-white"
+          >
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-amber-400">
+                <ShieldAlert className="w-5 h-5 shrink-0" />
+                <h3 className="text-base font-bold text-white">
+                  {t('savingsWithdrawalPromptTitle')}
+                </h3>
+              </div>
+              <p className="text-xs text-zinc-400">
+                {t('savingsWithdrawalPromptDesc')}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSavingsWithdrawalChoice('emergency_expense');
+                  executeSave('emergency_expense');
+                }}
+                className="w-full text-left rtl:text-right p-3 rounded-2xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/40 transition cursor-pointer"
+              >
+                <div className="text-sm font-bold text-red-200">
+                  {t('withdrawalChoiceEmergency')}
+                </div>
+                <div className="text-[11px] text-zinc-300 mt-0.5">
+                  {t('withdrawalChoiceEmergencyDesc')}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSavingsWithdrawalChoice('add_to_spending');
+                  executeSave('add_to_spending');
+                }}
+                className="w-full text-left rtl:text-right p-3 rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 transition cursor-pointer"
+              >
+                <div className="text-sm font-bold text-emerald-200">
+                  {t('withdrawalChoiceSpending')}
+                </div>
+                <div className="text-[11px] text-zinc-300 mt-0.5">
+                  {t('withdrawalChoiceSpendingDesc')}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSavingsWithdrawalChoice('just_moving');
+                  executeSave('just_moving');
+                }}
+                className="w-full text-left rtl:text-right p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-blue-500/50 transition cursor-pointer"
+              >
+                <div className="text-sm font-bold text-white">
+                  {t('withdrawalChoiceMoving')}
+                </div>
+                <div className="text-[11px] text-zinc-400 mt-0.5">
+                  {t('withdrawalChoiceMovingDesc')}
+                </div>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowWithdrawalPrompt(false)}
+              className="w-full py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white hover:bg-zinc-900 transition cursor-pointer"
+            >
+              {t('cancel')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Recurring edit scope confirmation */}
       {pendingRecurringEdit && (

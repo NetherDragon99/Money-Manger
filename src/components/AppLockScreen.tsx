@@ -33,7 +33,6 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockoutRemaining, setLockoutRemaining] = useState(0);
 
-  const inputRef = useRef<HTMLInputElement>(null);
   const isVerifyingRef = useRef(false);
 
   const security = loadSecuritySettings();
@@ -54,10 +53,10 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
     return () => clearInterval(timer);
   }, [lockoutRemaining]);
 
-  // Keep hidden input focused for hardware / soft keyboard input
+  // Dismiss any mobile virtual keyboard when lock screen activates
   useEffect(() => {
-    if (isLocked) {
-      inputRef.current?.focus();
+    if (isLocked && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
     }
   }, [isLocked]);
 
@@ -174,30 +173,9 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
 
   return (
     <div
-      onClick={() => inputRef.current?.focus()}
       className="fixed inset-0 z-[9999] flex flex-col items-center justify-between p-4 sm:p-6 landscape:py-3 bg-black text-white selection:bg-blue-600 overflow-y-auto overscroll-contain select-none"
       style={{ overscrollBehavior: 'contain' }}
     >
-      {/* Hidden input for software/hardware keyboard accessibility */}
-      <input
-        ref={inputRef}
-        type="password"
-        inputMode="numeric"
-        autoComplete="off"
-        autoCorrect="off"
-        spellCheck="false"
-        pattern="[0-9]*"
-        maxLength={4}
-        value={pin}
-        onChange={(e) => {
-          if (lockoutRemaining > 0) return;
-          const clean = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
-          setPin(clean);
-        }}
-        className="opacity-0 absolute -z-10 w-0 h-0 pointer-events-none"
-        aria-label={isArabic ? 'رمز المرور' : 'Passcode'}
-      />
-
       {/* Top Header */}
       <div className="pt-4 sm:pt-10 landscape:pt-2 flex flex-col items-center text-center">
         <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-3xl bg-zinc-900 border border-zinc-800 shadow-2xl flex items-center justify-center text-blue-400 mb-2 sm:mb-4 animate-in fade-in zoom-in duration-200">
@@ -218,7 +196,12 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
       </div>
 
       {/* PIN Dots Indicator with rapid <=100ms transition */}
-      <div className="flex flex-col items-center">
+      <div
+        className="flex flex-col items-center"
+        role="status"
+        aria-live="polite"
+        aria-label={isArabic ? `تم إدخال ${pin.length} من 4 أرقام` : `${pin.length} of 4 digits entered`}
+      >
         <div className={`flex items-center gap-4 my-4 ${errorShake ? 'animate-shake' : ''}`}>
           {[0, 1, 2, 3].map((idx) => {
             const isFilled = pin.length > idx;
@@ -252,6 +235,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
               key={num}
               type="button"
               disabled={lockoutRemaining > 0}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 e.stopPropagation();
                 handleKeyPress(num);
@@ -267,6 +251,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
             <button
               type="button"
               disabled={lockoutRemaining > 0}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 e.stopPropagation();
                 handleBiometricAuth();
@@ -284,6 +269,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
           <button
             type="button"
             disabled={lockoutRemaining > 0}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
               e.stopPropagation();
               handleKeyPress('0');
@@ -297,6 +283,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
           <button
             type="button"
             disabled={lockoutRemaining > 0}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
               e.stopPropagation();
               handleDelete();

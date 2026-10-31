@@ -33,22 +33,27 @@ export function getMonthCycleRange(
   monthOffset = 0
 ): { startDate: string; endDate: string; label: string } {
   // Safe clamp start day between 1 and 31
-  const targetDay = Math.min(Math.max(1, startDay), 31);
+  const targetDay = Math.min(Math.max(1, Math.floor(startDay || 1)), 31);
 
-  // Apply offset in months
-  const adjustedRef = new Date(refDate);
+  // Apply offset in months safely without 29-31 day overflow
+  let adjustedRef = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate(), 0, 0, 0, 0);
   if (monthOffset !== 0) {
-    adjustedRef.setMonth(adjustedRef.getMonth() + monthOffset);
+    const shiftedFirst = new Date(refDate.getFullYear(), refDate.getMonth() + monthOffset, 1, 0, 0, 0, 0);
+    const maxShiftedDays = getDaysInMonth(shiftedFirst.getFullYear(), shiftedFirst.getMonth());
+    adjustedRef = new Date(
+      shiftedFirst.getFullYear(),
+      shiftedFirst.getMonth(),
+      Math.min(refDate.getDate(), maxShiftedDays),
+      0,
+      0,
+      0,
+      0
+    );
   }
 
   const year = adjustedRef.getFullYear();
   const month = adjustedRef.getMonth();
   const day = adjustedRef.getDate();
-
-  let startYear = year;
-  let startMonth = month;
-  let endYear = year;
-  let endMonth = month;
 
   if (targetDay === 1) {
     // Standard calendar month
@@ -60,35 +65,44 @@ export function getMonthCycleRange(
     };
   }
 
-  if (day >= targetDay) {
-    // Current cycle starts in this month and ends in next month
+  const maxThisMonthDays = getDaysInMonth(year, month);
+  const thisMonthStartDay = Math.min(targetDay, maxThisMonthDays);
+
+  let startYear = year;
+  let startMonth = month;
+  let nextYear = year;
+  let nextMonth = month;
+
+  if (day >= thisMonthStartDay) {
+    // Current cycle starts in this month and next cycle starts in next month
     startYear = year;
     startMonth = month;
-    const nextDate = new Date(year, month + 1, 1);
-    endYear = nextDate.getFullYear();
-    endMonth = nextDate.getMonth();
+    const nextDate = new Date(year, month + 1, 1, 0, 0, 0, 0);
+    nextYear = nextDate.getFullYear();
+    nextMonth = nextDate.getMonth();
   } else {
-    // Current cycle started in previous month and ends in this month
-    const prevDate = new Date(year, month - 1, 1);
+    // Current cycle started in previous month and next cycle starts in this month
+    const prevDate = new Date(year, month - 1, 1, 0, 0, 0, 0);
     startYear = prevDate.getFullYear();
     startMonth = prevDate.getMonth();
-    endYear = year;
-    endMonth = month;
+    nextYear = year;
+    nextMonth = month;
   }
 
   const maxStartDays = getDaysInMonth(startYear, startMonth);
   const actualStartDay = Math.min(targetDay, maxStartDays);
 
-  const maxEndDays = getDaysInMonth(endYear, endMonth);
-  const actualEndDay = Math.min(targetDay - 1, maxEndDays);
+  const maxNextDays = getDaysInMonth(nextYear, nextMonth);
+  const actualNextStartDay = Math.min(targetDay, maxNextDays);
+  const cycleEnd = new Date(nextYear, nextMonth, actualNextStartDay - 1, 0, 0, 0, 0);
 
   const startStr = `${startYear}-${padZero(startMonth + 1)}-${padZero(actualStartDay)}`;
-  const endStr = `${endYear}-${padZero(endMonth + 1)}-${padZero(actualEndDay)}`;
+  const endStr = `${cycleEnd.getFullYear()}-${padZero(cycleEnd.getMonth() + 1)}-${padZero(cycleEnd.getDate())}`;
 
   return {
     startDate: startStr,
     endDate: endStr,
-    label: `${new Date(startYear, startMonth, 1).toLocaleDateString('en-US', { month: 'short' })} - ${new Date(endYear, endMonth, 1).toLocaleDateString('en-US', { month: 'short' })}`,
+    label: `${new Date(startYear, startMonth, 1).toLocaleDateString('en-US', { month: 'short' })} - ${new Date(cycleEnd.getFullYear(), cycleEnd.getMonth(), 1).toLocaleDateString('en-US', { month: 'short' })}`,
   };
 }
 

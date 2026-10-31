@@ -41,8 +41,32 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
       setError('');
       setEnableBio(false);
       setIsSaving(false);
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
     }
   }, [isOpen]);
+
+  // Desktop physical keyboard support without triggering mobile OS keyboard
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isSaving) return;
+      if (e.key === 'Escape') {
+        onClose();
+      } else if (/^[0-9]$/.test(e.key)) {
+        handleKeyPress(e.key);
+      } else if (e.key === 'Backspace') {
+        handleBackspace();
+      } else if (e.key === 'Enter') {
+        if ((step === 'enter' && pin.length === 4) || (step === 'confirm' && confirmPin.length === 4)) {
+          handleSavePin();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isSaving, step, pin, confirmPin]);
 
   const handleKeyPress = (num: string) => {
     setError('');
@@ -203,7 +227,12 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
               : 'Re-enter your 4 digits to confirm and save:'}
           </p>
 
-          <div className="flex items-center justify-center gap-4 py-2">
+          <div
+            className="flex items-center justify-center gap-4 py-2"
+            role="status"
+            aria-live="polite"
+            aria-label={isArabic ? `تم إدخال ${currentDigits.length} من 4 أرقام` : `${currentDigits.length} of 4 digits entered`}
+          >
             {[0, 1, 2, 3].map((idx) => {
               const filled = idx < currentDigits.length;
               return (
@@ -281,6 +310,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
             <button
               key={digit}
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => handleKeyPress(digit)}
               className="h-12 rounded-2xl bg-zinc-900 hover:bg-zinc-800 active:scale-95 border border-zinc-800 text-lg font-bold font-mono text-white flex items-center justify-center transition cursor-pointer shadow-sm"
             >
@@ -289,6 +319,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
           ))}
           <button
             type="button"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={handleClear}
             className="h-12 rounded-2xl bg-zinc-900/60 hover:bg-zinc-800 active:scale-95 border border-zinc-800/70 text-xs font-semibold text-zinc-400 hover:text-white flex items-center justify-center transition cursor-pointer"
           >
@@ -296,6 +327,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
           </button>
           <button
             type="button"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => handleKeyPress('0')}
             className="h-12 rounded-2xl bg-zinc-900 hover:bg-zinc-800 active:scale-95 border border-zinc-800 text-lg font-bold font-mono text-white flex items-center justify-center transition cursor-pointer shadow-sm"
           >
@@ -303,6 +335,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({ isOpen, onClose })
           </button>
           <button
             type="button"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={handleBackspace}
             aria-label="Backspace"
             className="h-12 rounded-2xl bg-zinc-900/60 hover:bg-zinc-800 active:scale-95 border border-zinc-800/70 text-zinc-300 hover:text-red-400 flex items-center justify-center transition cursor-pointer"

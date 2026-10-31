@@ -82,6 +82,10 @@ import { signOut, type User as FirebaseUser } from 'firebase/auth';
 import { WeekStartDay } from '../types';
 import { WORLD_CURRENCIES, CurrencyOption } from '../utils/currencies';
 import { evaluateSmartBudget } from '../utils/smartBudgetEngine';
+import {
+  DEFAULT_INSTAPAY_PRESET,
+  resolveTransferFeeSettings,
+} from '../utils/transferFee';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -147,25 +151,22 @@ export const Sidebar: React.FC = () => {
         transactions,
         accounts,
         {
-          startDay: settings.smartBudget?.baseline?.startDay ?? 1,
+          ...settings.smartBudget?.baseline,
+          startDay: settings.defaultMonthStartDay || 1,
+          overrides: settings.smartBudget?.overrides,
+          adjustments: settings.smartBudget?.adjustments,
           baseCurrency: settings.currencySymbol || 'EGP',
-          plannedIncome: settings.smartBudget?.baseline?.plannedIncome,
-          savings: settings.smartBudget?.baseline?.savings,
-          fixedCategoryIds: settings.smartBudget?.baseline?.fixedCategoryIds,
-          includedAccountIds: settings.smartBudget?.baseline?.includedAccountIds,
         },
         new Date()
       );
       return (
-        evaluation.anomalies.length > 0 ||
-        evaluation.rebalanceScenarios.scenarioA.deficitMinor > 0 ||
-        evaluation.dailyStatus.overBudgetByMinor > 0 ||
-        evaluation.dailyStatus.todayRemainingMinor < 0
+        evaluation.dailyStatus.allowanceState === 'true_deficit' ||
+        evaluation.anomalies.some((a) => a.severity === 'critical')
       );
     } catch {
       return false;
     }
-  }, [transactions, accounts, settings.currencySymbol, settings.smartBudget]);
+  }, [transactions, accounts, settings.currencySymbol, settings.defaultMonthStartDay, settings.smartBudget]);
 
   useEffect(() => {
     if (!IS_BETA_BUILD) return;
@@ -1105,6 +1106,249 @@ export const Sidebar: React.FC = () => {
                   </button>
                 </div>
               </div>
+
+              {/* Transfer Fees & Configurable InstaPay Defaults (Req 7) */}
+              {(() => {
+                const feeCfg = resolveTransferFeeSettings(settings.transferFeeSettings);
+                const updateFeeSettings = (
+                  nextPartial: Partial<typeof feeCfg>,
+                ) => {
+                  updateSettings({
+                    transferFeeSettings: {
+                      instaPayPreset: {
+                        ...feeCfg.instaPayPreset,
+                        ...(nextPartial.instaPayPreset || {}),
+                      },
+                      defaultRule: {
+                        ...feeCfg.defaultRule,
+                        ...(nextPartial.defaultRule || {}),
+                      },
+                    },
+                  });
+                };
+
+                return (
+                  <div className="pt-2 border-t border-zinc-800/80 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                        <Coins className="w-3.5 h-3.5 text-amber-400" />
+                        <span>{t('transferFeeSettingsTitle')}</span>
+                      </span>
+                    </div>
+
+                    {/* Editable Defaults for InstaPay Preset */}
+                    <div className="p-2.5 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-2">
+                      <div>
+                        <p className="text-[11px] font-bold text-amber-300">
+                          {t('instaPayEditableDefaultsTitle')}
+                        </p>
+                        <p className="text-[10px] text-zinc-400 leading-relaxed">
+                          {t('instaPayEditableDefaultsDesc')}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <div>
+                          <label className="block text-[10px] text-zinc-400 mb-0.5 truncate">
+                            {t('feeRatePercentLabel')}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={feeCfg.instaPayPreset.ratePercent}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              updateFeeSettings({
+                                instaPayPreset: {
+                                  ...feeCfg.instaPayPreset,
+                                  ratePercent: Number.isFinite(val) && val >= 0 ? val : 0,
+                                },
+                              });
+                            }}
+                            className="w-full px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-white outline-none focus:border-amber-500/60"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-zinc-400 mb-0.5 truncate">
+                            {t('feeMinCapLabel')}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.05"
+                            min="0"
+                            value={feeCfg.instaPayPreset.minFee}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              updateFeeSettings({
+                                instaPayPreset: {
+                                  ...feeCfg.instaPayPreset,
+                                  minFee: Number.isFinite(val) && val >= 0 ? val : 0,
+                                },
+                              });
+                            }}
+                            className="w-full px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-white outline-none focus:border-amber-500/60"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-zinc-400 mb-0.5 truncate">
+                            {t('feeMaxCapLabel')}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={feeCfg.instaPayPreset.maxFee}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              updateFeeSettings({
+                                instaPayPreset: {
+                                  ...feeCfg.instaPayPreset,
+                                  maxFee: Number.isFinite(val) && val >= 0 ? val : 0,
+                                },
+                              });
+                            }}
+                            className="w-full px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-white outline-none focus:border-amber-500/60"
+                          />
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateFeeSettings({
+                            instaPayPreset: { ...DEFAULT_INSTAPAY_PRESET },
+                          })
+                        }
+                        className="w-full py-1 text-[10px] font-semibold text-zinc-400 hover:text-amber-300 bg-zinc-950/70 hover:bg-zinc-950 border border-zinc-800 rounded-lg transition cursor-pointer"
+                      >
+                        {t('resetInstaPayDefaultsBtn')}
+                      </button>
+                    </div>
+
+                    {/* Configurable Default Transfer Fee Rule */}
+                    <div className="p-2.5 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-2">
+                      <div>
+                        <p className="text-[11px] font-bold text-zinc-200">
+                          {t('defaultTransferFeeRuleTitle')}
+                        </p>
+                        <p className="text-[10px] text-zinc-400 leading-relaxed">
+                          {t('defaultTransferFeeRuleDesc')}
+                        </p>
+                      </div>
+                      <select
+                        value={feeCfg.defaultRule.enabled ? feeCfg.defaultRule.ruleType : 'none'}
+                        onChange={(e) => {
+                          const mode = e.target.value as 'none' | 'instapay' | 'percent_caps' | 'fixed';
+                          updateFeeSettings({
+                            defaultRule: {
+                              ...feeCfg.defaultRule,
+                              enabled: mode !== 'none',
+                              ruleType: mode,
+                            },
+                          });
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-white outline-none cursor-pointer"
+                      >
+                        <option value="none">{t('ruleModeNone')}</option>
+                        <option value="instapay">{t('ruleModeInstaPay')}</option>
+                        <option value="percent_caps">{t('ruleModePercentCaps')}</option>
+                        <option value="fixed">{t('ruleModeFixed')}</option>
+                      </select>
+
+                      {feeCfg.defaultRule.enabled && feeCfg.defaultRule.ruleType === 'percent_caps' && (
+                        <div className="grid grid-cols-3 gap-1.5 pt-1">
+                          <div>
+                            <label className="block text-[10px] text-zinc-400 mb-0.5 truncate">
+                              {t('feeRatePercentLabel')}
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={feeCfg.defaultRule.ratePercent}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                updateFeeSettings({
+                                  defaultRule: {
+                                    ...feeCfg.defaultRule,
+                                    ratePercent: Number.isFinite(val) && val >= 0 ? val : 0,
+                                  },
+                                });
+                              }}
+                              className="w-full px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-white outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-zinc-400 mb-0.5 truncate">
+                              {t('feeMinCapLabel')}
+                            </label>
+                            <input
+                              type="number"
+                              step="0.05"
+                              min="0"
+                              value={feeCfg.defaultRule.minCap}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                updateFeeSettings({
+                                  defaultRule: {
+                                    ...feeCfg.defaultRule,
+                                    minCap: Number.isFinite(val) && val >= 0 ? val : 0,
+                                  },
+                                });
+                              }}
+                              className="w-full px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-white outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-zinc-400 mb-0.5 truncate">
+                              {t('feeMaxCapLabel')}
+                            </label>
+                            <input
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              value={feeCfg.defaultRule.maxCap}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                updateFeeSettings({
+                                  defaultRule: {
+                                    ...feeCfg.defaultRule,
+                                    maxCap: Number.isFinite(val) && val >= 0 ? val : 0,
+                                  },
+                                });
+                              }}
+                              className="w-full px-2 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-white outline-none"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {feeCfg.defaultRule.enabled && feeCfg.defaultRule.ruleType === 'fixed' && (
+                        <div className="pt-1">
+                          <label className="block text-[10px] text-zinc-400 mb-0.5">
+                            {t('fixedFeeAmountLabel')}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={feeCfg.defaultRule.fixedAmount}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              updateFeeSettings({
+                                defaultRule: {
+                                  ...feeCfg.defaultRule,
+                                  fixedAmount: Number.isFinite(val) && val >= 0 ? val : 0,
+                                },
+                              });
+                            }}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-white outline-none"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 

@@ -139,21 +139,14 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
     let exp = 0;
 
     for (const tx of filteredTransactions) {
+      // Internal transfers between any accounts are NEVER counted as expenses or income
+      if (tx.type === 'transfer' || Boolean(tx.toAccountId)) continue;
       if (tx.type === 'income') {
         if (publicAccountIds.has(tx.accountId)) {
           inc += tx.amount;
         }
       } else if (tx.type === 'expense') {
         if (publicAccountIds.has(tx.accountId)) {
-          exp += tx.amount;
-        }
-      } else if (tx.type === 'transfer') {
-        // If money transferred from private to public, counts as income for public
-        if (!publicAccountIds.has(tx.accountId) && tx.toAccountId && publicAccountIds.has(tx.toAccountId)) {
-          inc += tx.amount;
-        }
-        // If money transferred from public to private, counts as expense for public
-        if (publicAccountIds.has(tx.accountId) && tx.toAccountId && !publicAccountIds.has(tx.toAccountId)) {
           exp += tx.amount;
         }
       }
@@ -246,14 +239,18 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
 
   const smartBudgetConfig = useMemo(() => ({
     ...settings.smartBudget?.baseline,
+    startDay: settings.defaultMonthStartDay || 1,
+    overrides: settings.smartBudget?.overrides,
+    adjustments: settings.smartBudget?.adjustments,
     baseCurrency: currencySymbol,
-  }), [settings.smartBudget?.baseline, currencySymbol]);
+  }), [settings.smartBudget?.baseline, settings.smartBudget?.overrides, settings.smartBudget?.adjustments, settings.defaultMonthStartDay, currencySymbol]);
 
   const smartBudgetEvaluation = useMemo(() => {
     return evaluateSmartBudget(transactions, accounts, smartBudgetConfig, new Date());
   }, [transactions, accounts, smartBudgetConfig]);
 
   const todayRemaining = smartBudgetEvaluation.dailyStatus.todayRemaining;
+  const allowanceState = smartBudgetEvaluation.dailyStatus.allowanceState;
 
   // Week header day names
   const weekDayLabels = useMemo(() => {
@@ -507,29 +504,40 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
 
       {/* View Content: Responsive Tablet & Desktop Container (Item 2) */}
       <div className="flex-1 px-4 py-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto space-y-4">
-        {/* Safe-to-Spend Today Pill (Neatly on its own row under header) */}
+        {/* Safe-to-Spend Today Pill (Neatly on its own row under header, using 3 calm states) */}
         <div className="flex items-center justify-between sm:justify-start gap-2">
           <button
             type="button"
             onClick={() => setIsSmartBudgetModalOpen(true)}
-            title={isArabic ? 'المتبقي من مصروف اليوم (الميزانية الذكية)' : 'Safe-to-Spend Today (Smart Budget)'}
+            title={isArabic ? 'المتبقي اليوم (الميزانية الذكية)' : 'Remaining Today (Smart Budget)'}
             className={`min-h-[44px] flex items-center gap-2 px-3.5 py-2 rounded-2xl border text-xs sm:text-sm font-bold transition active:scale-95 cursor-pointer shadow-sm ${
-              todayRemaining > 0
-                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
-                : 'bg-red-500/10 hover:bg-red-500/20 border-red-500/30 text-red-400'
+              allowanceState === 'true_deficit'
+                ? 'bg-red-500/10 hover:bg-red-500/20 border-red-500/30 text-red-400'
+                : allowanceState === 'heads_up'
+                ? 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-300'
+                : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
             }`}
           >
             <span
               className={`w-2 h-2 rounded-full shrink-0 ${
-                todayRemaining > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'
+                allowanceState === 'true_deficit'
+                  ? 'bg-red-400'
+                  : allowanceState === 'heads_up'
+                  ? 'bg-amber-400'
+                  : 'bg-emerald-400 animate-pulse'
               }`}
             />
             <span>
-              {isArabic ? 'مصروف اليوم الآمن:' : 'Safe Today:'}
+              {isArabic ? 'المتبقي اليوم:' : 'Remaining Today:'}
             </span>
             <span className="font-mono font-black">
-              {formatCurrency(todayRemaining, currencySymbol)}
+              {formatCurrency(Math.max(0, todayRemaining), currencySymbol)}
             </span>
+            {todayRemaining < 0 && allowanceState !== 'true_deficit' && (
+              <span className="text-[11px] font-medium text-amber-300/90">
+                ({isArabic ? `الأيام الجاية: ${formatCurrency(smartBudgetEvaluation.dailyStatus.upcomingDailyAllowance, currencySymbol)}` : `Next days: ${formatCurrency(smartBudgetEvaluation.dailyStatus.upcomingDailyAllowance, currencySymbol)}`})
+              </span>
+            )}
           </button>
         </div>
 

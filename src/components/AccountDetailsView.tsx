@@ -14,9 +14,9 @@ import {
   Plus,
   ArrowDown,
   ArrowUp,
-  Users,
   Search,
   X,
+  Share2,
 } from 'lucide-react';
 import { matchesTransactionSearch } from '../utils/searchUtils';
 import { PeriodFilterType, DateRange } from '../types';
@@ -29,12 +29,10 @@ import { exportAccountAsJSON } from '../utils/storage';
 import { GroupedTransactionList } from './GroupedTransactionList';
 import { getAccountTransactions } from '../utils/balanceEngine';
 import { MiniDateTimePicker } from './MiniDateTimePicker';
-import { Share2 } from 'lucide-react';
 
 export const AccountDetailsView: React.FC = () => {
   const {
     selectedAccountId,
-    setSelectedAccountId,
     accounts,
     categories,
     transactions,
@@ -123,23 +121,20 @@ export const AccountDetailsView: React.FC = () => {
     );
   }, [accountAllTxs, activeDateRange, searchQuery, accounts, categories, currencySymbol]);
 
-  // Income & Expense for period
+  // Income & Expense for period (internal transfers between any accounts are never counted as expenses)
   const { totalIncome, totalExpense } = useMemo(() => {
     let inc = 0;
     let exp = 0;
     if (!account) return { totalIncome: 0, totalExpense: 0 };
 
     for (const tx of filteredTxs) {
+      if (tx.type === 'transfer' || Boolean(tx.toAccountId)) {
+        continue;
+      }
       if (tx.type === 'income' && tx.accountId === account.id) {
         inc += tx.amount;
       } else if (tx.type === 'expense' && tx.accountId === account.id) {
         exp += tx.amount;
-      } else if (tx.type === 'transfer') {
-        if (tx.toAccountId === account.id) {
-          inc += tx.amount; // Received transfer
-        } else if (tx.accountId === account.id) {
-          exp += tx.amount; // Sent transfer
-        }
       }
     }
     return { totalIncome: inc, totalExpense: exp };
@@ -212,6 +207,13 @@ export const AccountDetailsView: React.FC = () => {
     return t('appMonth');
   };
 
+  const roleBadgeLabel =
+    account.accountRole === 'savings'
+      ? t('roleSavings')
+      : account.accountRole === 'investment'
+      ? t('roleInvestment')
+      : null;
+
   return (
     <div className="bg-black text-white flex flex-col pb-24 animate-in fade-in">
       {/* Hidden file input for account import */}
@@ -235,7 +237,12 @@ export const AccountDetailsView: React.FC = () => {
 
         <div className="flex items-center gap-2 font-bold text-base text-white">
           <span className="text-2xl">{account.icon}</span>
-          <span className="truncate max-w-[200px]">{account.name}</span>
+          <span className="truncate max-w-[180px]">{account.name}</span>
+          {roleBadgeLabel && (
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              {roleBadgeLabel}
+            </span>
+          )}
           {account.isPrivate && (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
               {t('privateAccount')}
@@ -456,10 +463,7 @@ export const AccountDetailsView: React.FC = () => {
           </div>
         )}
 
-        {/* Summary Block:
-            Top Center: TOTAL BALANCE in large White text (£ 0.00 or -£ X if negative).
-            Bottom Left: TOTAL INCOME in Green (£ 0.00 ↓).
-            Bottom Right: TOTAL EXPENSE in Red (£ 0.00 ↑). */}
+        {/* Summary Block */}
         <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden">
           <div className="text-center space-y-1">
             <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
@@ -495,7 +499,7 @@ export const AccountDetailsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Search Bar for Transactions (Matches Comments/Notes/Descriptions/Amounts/Categories) */}
+        {/* Search Bar for Transactions */}
         <div className="relative w-full">
           <Search className="absolute left-3.5 rtl:left-auto rtl:right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
           <input
@@ -545,8 +549,6 @@ export const AccountDetailsView: React.FC = () => {
           <Plus className="w-7 h-7 md:w-8 md:h-8 stroke-[2.5]" />
         </button>
       </div>
-
-
     </div>
   );
 };

@@ -21,6 +21,11 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     isPinModalOpen,
     isSmartBudgetModalOpen,
     isAddTxModalOpen,
+    editingTx,
+    viewingTx,
+    isWhatsNewOpen,
+    isEditingSpace,
+    editingShareId,
     isAccountModalOpen,
     isCategoryModalOpen,
     isResetPeriodModalOpen,
@@ -28,8 +33,12 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     shareModalState,
     remainingBalanceModalState,
     activeSharedId,
+    activeSharedSnapshot,
     activeShareDetailFolder,
     isTxMultiSelect,
+    isCategoryMultiSelect,
+    isAccountMultiSelect,
+    isGlobalMultiSelect,
     t,
   } = useApp();
 
@@ -45,6 +54,11 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     isPinModalOpen ||
     isSmartBudgetModalOpen ||
     isAddTxModalOpen ||
+    editingTx ||
+    viewingTx ||
+    isWhatsNewOpen ||
+    isEditingSpace ||
+    editingShareId ||
     isAccountModalOpen ||
     isCategoryModalOpen ||
     isResetPeriodModalOpen ||
@@ -52,8 +66,12 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     shareModalState?.isOpen ||
     remainingBalanceModalState?.isOpen ||
     activeSharedId ||
+    activeSharedSnapshot ||
     activeShareDetailFolder ||
-    isTxMultiSelect
+    isTxMultiSelect ||
+    isCategoryMultiSelect ||
+    isAccountMultiSelect ||
+    isGlobalMultiSelect
   );
 
   const isNavVisible = (propBarsVisible !== undefined ? propBarsVisible : isHeaderVisible) && !isAnySubPageOrModalOpen;

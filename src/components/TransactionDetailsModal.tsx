@@ -193,7 +193,24 @@ export const TransactionDetailsModal: React.FC = () => {
                 </span>
               </button>
             )}
+
+            {isTransfer && Boolean(viewingTx.transferFee && viewingTx.transferFee > 0) && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/35 text-xs font-mono font-bold text-amber-300">
+                <span>
+                  {t('transferFeeBadgeLabel').replace(
+                    '{fee}',
+                    formatCurrency(viewingTx.transferFee!, currencySymbol, settings.language)
+                  )}
+                </span>
+              </span>
+            )}
           </div>
+
+          {Boolean(viewingTx.feeOfTransferId) && (
+            <div className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-300">
+              {t('linkedTransferFeeNotice').replace('{date}', viewingTx.date)}
+            </div>
+          )}
         </div>
 
         {/* Balance Breakdown: Dual-Account Breakdown for Transfers, Single-Account 3-Box for Income/Expense */}
@@ -272,6 +289,17 @@ export const TransactionDetailsModal: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {Boolean(viewingTx.transferFee && viewingTx.transferFee > 0) && (
+              <div className="p-3 rounded-2xl bg-amber-950/20 border border-amber-500/30 flex items-center justify-between gap-2 text-xs">
+                <span className="text-amber-200 font-medium">
+                  {t('parentTransferFeeBreakdown')}
+                </span>
+                <span className="font-mono font-bold text-amber-300 shrink-0">
+                  -{formatCurrency(viewingTx.transferFee!, currencySymbol, settings.language)}
+                </span>
+              </div>
+            )}
           </div>
         ) : (
           historicalBalances && (

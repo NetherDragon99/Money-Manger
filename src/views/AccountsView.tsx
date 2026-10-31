@@ -146,6 +146,16 @@ const AccountCard: React.FC<AccountCardProps> = ({
               <span>{language === 'ar' ? 'الأساسي' : 'Primary'}</span>
             </span>
           )}
+          {acc.accountRole === 'savings' && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              {t('roleSavings')}
+            </span>
+          )}
+          {acc.accountRole === 'investment' && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30">
+              {t('roleInvestment')}
+            </span>
+          )}
           {acc.isPrivate && (
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
               <Lock className="w-3 h-3" />

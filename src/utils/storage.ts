@@ -329,6 +329,7 @@ export function executeCustomDataImport(
       if (incomingAccounts.length > 0) {
         finalAccounts = incomingAccounts.map((a) => ({
           ...a,
+          accountRole: a.accountRole || 'spending',
           balance: parseFormattedNumber(a.balance),
         }));
         importedAccountsCount = incomingAccounts.length;
@@ -338,8 +339,9 @@ export function executeCustomDataImport(
       for (const incAcc of incomingAccounts) {
         if (!incAcc || !incAcc.id) continue;
         const existingIdx = finalAccounts.findIndex((a) => a.id === incAcc.id);
-        const cleanAcc = {
+        const cleanAcc: Account = {
           ...incAcc,
+          accountRole: incAcc.accountRole || (existingIdx >= 0 ? finalAccounts[existingIdx].accountRole : undefined) || 'spending',
           balance: parseFormattedNumber(incAcc.balance),
         };
         if (existingIdx >= 0) {

@@ -3,4 +3,7 @@ main = "worker.js"
 compatibility_date = "2024-01-01"
 
 [vars]
-REQUIRE_AUTH = "false"
+REQUIRE_AUTH = "true"
+DAILY_USER_QUOTA = "30"
+# Optional: set FIREBASE_PROJECT_ID to enforce strict JWT aud/iss matching
+# FIREBASE_PROJECT_ID = "your-firebase-project-id"

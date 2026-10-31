@@ -209,27 +209,39 @@ export const TransferCard: React.FC<TransferCardProps> = ({
         </div>
 
         {/* Right Section: Formatted Amount (Always 100% visible, never clipped) + Actions */}
-        <div className="flex items-center gap-1.5 shrink-0 pt-0.5 text-right rtl:text-left pl-1 rtl:pr-1 rtl:pl-0">
-          <div className="text-sm sm:text-base font-mono font-bold text-blue-400 shrink-0 min-w-fit">
-            {formatCurrency(transaction.amount, currencySymbol, isArabic ? 'ar' : 'en')}
+        <div className="flex flex-col items-end shrink-0 pt-0.5 text-right rtl:text-left pl-1 rtl:pr-1 rtl:pl-0">
+          <div className="flex items-center gap-1.5">
+            <div className="text-sm sm:text-base font-mono font-bold text-blue-400 shrink-0 min-w-fit">
+              {formatCurrency(transaction.amount, currencySymbol, isArabic ? 'ar' : 'en')}
+            </div>
+
+            {/* Optional Delete Button (Used in ShareDetailView) */}
+            {canEdit && onDeleteClick && !isMultiSelect && (
+              <button
+                type="button"
+                onTouchStart={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteClick(transaction, transferTitle, '⇄');
+                }}
+                className="p-1 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer shrink-0"
+                title={isArabic ? 'حذف المعاملة' : 'Delete Transaction'}
+                aria-label={isArabic ? 'حذف' : 'Delete'}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
-          {/* Optional Delete Button (Used in ShareDetailView) */}
-          {canEdit && onDeleteClick && !isMultiSelect && (
-            <button
-              type="button"
-              onTouchStart={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteClick(transaction, transferTitle, '⇄');
-              }}
-              className="p-1 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition cursor-pointer shrink-0"
-              title={isArabic ? 'حذف المعاملة' : 'Delete Transaction'}
-              aria-label={isArabic ? 'حذف' : 'Delete'}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+          {Boolean(transaction.transferFee && transaction.transferFee > 0) && (
+            <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0">
+              <span>
+                {isArabic
+                  ? `+ رسوم: ${formatCurrency(transaction.transferFee!, currencySymbol, 'ar')}`
+                  : `+ Fee: ${formatCurrency(transaction.transferFee!, currencySymbol, 'en')}`}
+              </span>
+            </span>
           )}
         </div>
       </div>

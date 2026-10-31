@@ -2,14 +2,13 @@ import { formatNumberWithCommas, formatDisplayNumber, parseFormattedNumber, hand
 import React, { useState, useEffect, useRef } from 'react';
 import { navigateBack } from '../context/NavigationContext';
 import { useApp } from '../context/AppContext';
-import { X, Smile, ShieldAlert } from 'lucide-react';
-import { Account } from '../types';
+import { X, Smile, ShieldAlert, Wallet, PiggyBank, TrendingUp } from 'lucide-react';
+import { Account, AccountRole } from '../types';
 
 export const AccountModal: React.FC = () => {
   const {
     isAccountModalOpen,
     editingAccount,
-    closeAccountModal,
     addAccount,
     updateAccount,
     openEmojiPicker,
@@ -21,6 +20,7 @@ export const AccountModal: React.FC = () => {
   const [icon, setIcon] = useState('💵');
   const [balance, setBalance] = useState('0');
   const [isPrivate, setIsPrivate] = useState(false);
+  const [accountRole, setAccountRole] = useState<AccountRole>('spending');
   const [monthStartDay, setMonthStartDay] = useState<string>('default');
   const [notes, setNotes] = useState('');
   const [isClosing, setIsClosing] = useState(false);
@@ -41,6 +41,7 @@ export const AccountModal: React.FC = () => {
         setIcon(editingAccount.icon || '💵');
         setBalance(editingAccount.balance.toString());
         setIsPrivate(editingAccount.isPrivate);
+        setAccountRole(editingAccount.accountRole || 'spending');
         setMonthStartDay(
           editingAccount.customMonthStartDay === 'default'
             ? 'default'
@@ -52,6 +53,7 @@ export const AccountModal: React.FC = () => {
         setIcon('💵');
         setBalance('0');
         setIsPrivate(false);
+        setAccountRole('spending');
         setMonthStartDay('default');
         setNotes('');
       }
@@ -65,6 +67,9 @@ export const AccountModal: React.FC = () => {
       }
       if (editingAccount.icon) setIcon(editingAccount.icon);
       setIsPrivate(editingAccount.isPrivate);
+      if (editingAccount.accountRole) {
+        setAccountRole(editingAccount.accountRole);
+      }
       if (editingAccount.customMonthStartDay !== undefined) {
         setMonthStartDay(
           editingAccount.customMonthStartDay === 'default'
@@ -100,6 +105,7 @@ export const AccountModal: React.FC = () => {
         name: name.trim() || 'Account',
         icon,
         isPrivate,
+        accountRole,
         customMonthStartDay: customStart,
         notes: notes.trim(),
       };
@@ -111,6 +117,7 @@ export const AccountModal: React.FC = () => {
           name: name.trim() || 'Account',
           icon,
           isPrivate,
+          accountRole,
           customMonthStartDay: customStart,
           notes: notes.trim(),
         },
@@ -133,6 +140,38 @@ export const AccountModal: React.FC = () => {
   const balanceDiff = currentNumericBalance - oldBalance;
   const willTriggerManualAdjustment =
     editingAccount !== null && Math.abs(balanceDiff) >= 0.009;
+
+  const roleOptions: Array<{
+    id: AccountRole;
+    labelKey: 'roleSpending' | 'roleSavings' | 'roleInvestment';
+    descKey: 'roleSpendingDesc' | 'roleSavingsDesc' | 'roleInvestmentDesc';
+    Icon: React.ComponentType<{ className?: string }>;
+    activeClass: string;
+  }> = [
+    {
+      id: 'spending',
+      labelKey: 'roleSpending',
+      descKey: 'roleSpendingDesc',
+      Icon: Wallet,
+      activeClass: 'bg-blue-600/20 border-blue-500 text-blue-200 shadow-lg shadow-blue-900/20',
+    },
+    {
+      id: 'savings',
+      labelKey: 'roleSavings',
+      descKey: 'roleSavingsDesc',
+      Icon: PiggyBank,
+      activeClass: 'bg-emerald-600/20 border-emerald-500 text-emerald-200 shadow-lg shadow-emerald-900/20',
+    },
+    {
+      id: 'investment',
+      labelKey: 'roleInvestment',
+      descKey: 'roleInvestmentDesc',
+      Icon: TrendingUp,
+      activeClass: 'bg-purple-600/20 border-purple-500 text-purple-200 shadow-lg shadow-purple-900/20',
+    },
+  ];
+
+  const selectedRoleOption = roleOptions.find((r) => r.id === accountRole) || roleOptions[0];
 
   return (
     <div
@@ -193,6 +232,39 @@ export const AccountModal: React.FC = () => {
               className="w-full px-4 py-3 rounded-xl bg-zinc-900 border border-zinc-800 focus:border-blue-500 text-white text-sm outline-none transition"
               required
             />
+          </div>
+
+          {/* Account Role Selector ('spending' | 'savings' | 'investment') */}
+          <div>
+            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+              {t('accountRole')}
+            </label>
+            <p className="text-[11px] text-zinc-500 mb-2">
+              {t('accountRoleDesc')}
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {roleOptions.map(({ id, labelKey, Icon, activeClass }) => {
+                const isActive = accountRole === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setAccountRole(id)}
+                    className={`flex flex-col items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                      isActive
+                        ? activeClass
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate w-full text-center">{t(labelKey)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-zinc-400 mt-1.5 px-1">
+              {t(selectedRoleOption.descKey)}
+            </p>
           </div>
 
           {/* Current / Initial Balance */}

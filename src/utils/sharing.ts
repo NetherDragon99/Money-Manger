@@ -32,11 +32,78 @@ export function buildShareUrl(params: { sharedAccountId?: string; sharedData?: s
 }
 
 /**
+ * Strips personal budgeting metadata (`budgetPool`, savings-allocation flags, `accountRole`,
+ * budget adjustments, custom month plans) from any shared snapshot bundle.
+ */
+export function stripPersonalBudgetMetadataFromBundle(bundle: any): any {
+  if (!bundle || typeof bundle !== 'object') return bundle;
+  const clone = JSON.parse(JSON.stringify(bundle));
+  delete clone.smartBudget;
+  delete clone.budgetAdjustments;
+  delete clone.customMonthPlans;
+
+  if (Array.isArray(clone.accounts)) {
+    clone.accounts = clone.accounts.map((acc: any) => {
+      if (!acc || typeof acc !== 'object') return acc;
+      const cleanAcc = { ...acc, isPrivate: false, customMonthStartDay: 'default' };
+      delete cleanAcc.accountRole;
+      delete cleanAcc.savingsAllocation;
+      delete cleanAcc.isSavingsAllocation;
+      delete cleanAcc.budgetPool;
+      delete cleanAcc.budgetAdjustments;
+      delete cleanAcc.customMonthPlan;
+      delete cleanAcc.customMonthPlans;
+      return cleanAcc;
+    });
+  }
+
+  if (Array.isArray(clone.categories)) {
+    clone.categories = clone.categories.map((cat: any) => {
+      if (!cat || typeof cat !== 'object') return cat;
+      const cleanCat = { ...cat, budgetLimit: 0 };
+      delete cleanCat.budgetPool;
+      delete cleanCat.isFixedObligation;
+      delete cleanCat.savingsAllocation;
+      delete cleanCat.customMonthPlan;
+      return cleanCat;
+    });
+  }
+
+  if (Array.isArray(clone.transactions)) {
+    clone.transactions = clone.transactions
+      .filter((tx: any) => !tx?.isBudgetAdjustment)
+      .map((tx: any) => {
+        if (!tx || typeof tx !== 'object') return tx;
+        const cleanTx = { ...tx };
+        delete cleanTx.budgetPool;
+        delete cleanTx.isSalary;
+        delete cleanTx.accountRole;
+        delete cleanTx.savingsAllocation;
+        delete cleanTx.isSavingsAllocation;
+        delete cleanTx.savingsWithdrawalChoice;
+        delete cleanTx.linkedAdjustmentId;
+        delete cleanTx.savingsTargetId;
+        delete cleanTx.isSavingsTransfer;
+        delete cleanTx.budgetAdjustment;
+        delete cleanTx.isBudgetAdjustment;
+        delete cleanTx.budgetAdjustments;
+        delete cleanTx.customMonthPlan;
+        delete cleanTx.customMonthPlans;
+        delete cleanTx.cycleOverride;
+        return cleanTx;
+      });
+  }
+
+  return clone;
+}
+
+/**
  * Encodes a data snapshot for Guest External Web Link Sharing
  */
 export function encodeShareSnapshot(bundle: any): string {
   try {
-    const json = JSON.stringify(bundle);
+    const sanitized = stripPersonalBudgetMetadataFromBundle(bundle);
+    const json = JSON.stringify(sanitized);
     // URL-safe base64 encoding
     const b64 = window.btoa(encodeURIComponent(json).replace(/%([0-9A-F]{2})/g, (_, p1) => {
       return String.fromCharCode(parseInt(p1, 16));
@@ -64,7 +131,7 @@ export function decodeShareSnapshot(b64Safe: string): any | null {
         .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
         .join('')
     );
-    return JSON.parse(json);
+    return stripPersonalBudgetMetadataFromBundle(JSON.parse(json));
   } catch (err) {
     console.warn('Failed to decode share snapshot:', err);
     return null;

@@ -345,6 +345,61 @@
       return `${currency}${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
+    function stripPersonalBudgetMetadata(raw) {
+      if (!raw || typeof raw !== 'object') return {};
+      const clean = { ...raw };
+      delete clean.smartBudget;
+      delete clean.budgetAdjustments;
+      delete clean.customMonthPlans;
+
+      const sanitizeAcc = (acc) => {
+        if (!acc || typeof acc !== 'object') return {};
+        const a = { ...acc, isPrivate: false, customMonthStartDay: 'default' };
+        delete a.accountRole;
+        delete a.savingsAllocation;
+        delete a.isSavingsAllocation;
+        delete a.budgetPool;
+        delete a.budgetAdjustments;
+        delete a.customMonthPlan;
+        delete a.customMonthPlans;
+        return a;
+      };
+
+      const sanitizeTxList = (list) => {
+        const arr = Array.isArray(list) ? list : (list && typeof list === 'object' ? Object.values(list) : []);
+        return arr
+          .filter((tx) => tx && typeof tx === 'object' && !tx.isBudgetAdjustment && !tx.budgetAdjustment)
+          .map((tx) => {
+            const t = { ...tx };
+            delete t.budgetPool;
+            delete t.isSalary;
+            delete t.accountRole;
+            delete t.savingsAllocation;
+            delete t.isSavingsAllocation;
+            delete t.savingsTargetId;
+            delete t.isSavingsTransfer;
+            delete t.budgetAdjustment;
+            delete t.isBudgetAdjustment;
+            delete t.budgetAdjustments;
+            delete t.customMonthPlan;
+            delete t.customMonthPlans;
+            delete t.cycleOverride;
+            return t;
+          });
+      };
+
+      const accountsArr = Array.isArray(clean.accounts)
+        ? clean.accounts.map(sanitizeAcc)
+        : Array.isArray(clean.payload?.accounts)
+        ? clean.payload.accounts.map(sanitizeAcc)
+        : [];
+
+      clean.account = sanitizeAcc(clean.account || accountsArr[0] || {});
+      clean.accounts = accountsArr;
+      clean.transactions = sanitizeTxList(clean.transactions || clean.payload?.transactions || []);
+      return clean;
+    }
+
     function subscribe(sharedId) {
       const cardEl = document.getElementById('account-card');
       const listEl = document.getElementById('tx-list');
@@ -371,7 +426,7 @@
           return;
         }
 
-        const data = snapshot.val();
+        const data = stripPersonalBudgetMetadata(snapshot.val());
         const account = data.account || {};
         const transactions = Array.isArray(data.transactions) ? data.transactions : [];
 

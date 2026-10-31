@@ -1,5 +1,43 @@
 export type TransactionType = 'expense' | 'income' | 'transfer';
 export type TabType = 'home' | 'budget' | 'insights' | 'accounts' | 'calculator';
+export type AccountRole = 'spending' | 'savings' | 'investment';
+export type SavingsWithdrawalChoice = 'emergency_expense' | 'add_to_spending' | 'just_moving';
+export type TransferFeeMode = 'none' | 'instapay' | 'manual' | 'default_rule';
+export type ManualFeeInputType = 'amount' | 'percent';
+export type ExpenseBudgetPool = 'daily' | 'fixed' | 'outings' | 'oneoff';
+
+export interface InstaPayFeePreset {
+  ratePercent: number; // default 0.1
+  minFee: number; // default 0.50
+  maxFee: number; // default 20.00
+}
+
+export interface DefaultTransferFeeRule {
+  enabled: boolean;
+  ruleType: 'none' | 'instapay' | 'percent_caps' | 'fixed';
+  ratePercent: number;
+  minCap: number;
+  maxCap: number;
+  fixedAmount: number;
+}
+
+export interface TransferFeeSettings {
+  instaPayPreset: InstaPayFeePreset;
+  defaultRule: DefaultTransferFeeRule;
+}
+
+export interface BudgetAdjustment {
+  id: string;
+  linkedTransferId: string;
+  date: string; // YYYY-MM-DD
+  amount: number; // major units (principal X)
+  amountMinor: number; // integer minor units
+  choice: SavingsWithdrawalChoice;
+  fromAccountId: string;
+  toAccountId: string;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export interface Account {
   id: string;
@@ -11,6 +49,7 @@ export interface Account {
   notes: string;
   color?: string;
   currency?: string; // Optional account currency (defaults to app base currency)
+  accountRole?: AccountRole; // Defaults to 'spending' for existing accounts
   updatedAt?: number;
 }
 
@@ -40,9 +79,21 @@ export interface Transaction {
   isAdjustment?: boolean; // Tag for manual balance adjustments
   isFromRecurring?: boolean; // Tag for automated recurring transactions
   recurringRuleId?: string; // ID of the generating recurring rule
+  occurrenceKey?: string; // Deterministic occurrence key (ruleId + scheduled local date/time)
   isIndividuallyEdited?: boolean; // Flag when a generated recurring occurrence was individually edited
-  budgetPool?: 'daily' | 'outings' | 'emergency'; // Optional explicit smart budget pool attribution
+  budgetPool?: ExpenseBudgetPool; // Standardized smart budget pool attribution ('daily' | 'fixed' | 'outings' | 'oneoff')
   isSalary?: boolean; // Tag for income transactions representing regular salary
+  isSavingsAllocation?: boolean; // When true on a transfer, counts principal amount toward cycle's Savings target
+  transferFee?: number; // Optional transfer fee (never counted toward Savings target)
+  transferFeeMode?: TransferFeeMode;
+  transferFeeInputType?: ManualFeeInputType;
+  transferFeeRawValue?: number;
+  transferFeeBudgetPool?: ExpenseBudgetPool;
+  linkedFeeTxId?: string; // On parent transfer: ID of auto-generated fee expense transaction
+  feeOfTransferId?: string; // On fee expense transaction: ID of parent transfer transaction
+  savingsWithdrawalChoice?: SavingsWithdrawalChoice; // Choice when transferring out of savings/investment into spending
+  linkedAdjustmentId?: string; // ID of linked reversible BudgetAdjustment
+  budgetAdjustment?: BudgetAdjustment; // Embedded reversible adjustment for atomic cross-device sync
   createdAt: number;
   updatedAt?: number;
   fromBalanceBefore?: number;
@@ -137,6 +188,7 @@ export interface RecurringTransaction {
   startTime?: string;
   nextRun?: number;
   lastRun?: number;
+  lastProcessed?: number;
   effectiveFrom?: number;
   useWeekdayFilter?: boolean;
   useMonthDayFilter?: boolean;
@@ -145,6 +197,14 @@ export interface RecurringTransaction {
   createdAt: number;
   lastProcessedDate?: string;
   updatedAt?: number;
+  isSavingsAllocation?: boolean;
+  savingsWithdrawalChoice?: SavingsWithdrawalChoice;
+  transferFee?: number;
+  transferFeeMode?: TransferFeeMode;
+  transferFeeInputType?: ManualFeeInputType;
+  transferFeeRawValue?: number;
+  transferFeeBudgetPool?: ExpenseBudgetPool;
+  budgetPool?: ExpenseBudgetPool;
 }
 
 export interface SecuritySettings {
@@ -173,6 +233,7 @@ export interface SmartBudgetBaselineConfig {
   includedAccountIds?: string[];
   includePrivateAccounts?: boolean;
   minorPerMajor?: number;
+  headsUpThresholdRatio?: number; // Fraction of planned daily allowance below which status becomes 'heads_up' (default 0.7)
   poolsConfig?: {
     savings: PoolAllocationConfig;
     fixed: PoolAllocationConfig;
@@ -182,12 +243,14 @@ export interface SmartBudgetBaselineConfig {
 
 export interface SmartBudgetCycleOverride extends Partial<SmartBudgetBaselineConfig> {
   appliedScenario?: 'A' | 'B' | 'C';
+  isCustomPlan?: boolean;
   appliedAt?: number;
 }
 
 export interface SmartBudgetSettings {
   baseline: SmartBudgetBaselineConfig;
-  overrides?: Record<string, SmartBudgetCycleOverride>; // Keyed by cycleKey 'YYYY-MM'
+  overrides?: Record<string, SmartBudgetCycleOverride>; // Keyed by cycle startDate 'YYYY-MM-DD'
+  adjustments?: Record<string, BudgetAdjustment>; // Keyed by adjustment ID (e.g. adj_tx_<transferId>)
   updatedAt: number;
 }
 
@@ -206,6 +269,7 @@ export interface AppSettings {
   security?: SecuritySettings;
   joinBeta?: boolean;
   smartBudget?: SmartBudgetSettings;
+  transferFeeSettings?: TransferFeeSettings;
   updatedAt?: number;
 }
 
@@ -215,6 +279,7 @@ export interface AppData {
   transactions: Transaction[];
   settings: AppSettings;
   recurringTransactions?: RecurringTransaction[];
+  tombstones?: Record<string, Tombstone>;
 }
 
 export interface HistoricalBalanceResult {
@@ -249,6 +314,7 @@ export interface Tombstone {
   id: string;
   collection: 'transactions' | 'recurring' | 'accounts' | 'categories' | 'budgets' | string;
   deletedAt: number;
+  occurrenceKey?: string;
 }
 
 

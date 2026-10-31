@@ -40,12 +40,17 @@ import {
   TabType,
   RecurringTransaction,
   Tombstone,
+  BudgetAdjustment,
 } from '../types';
 import {
   loadRecurringTransactions,
   saveRecurringTransactions,
   checkAndProcessRecurring,
   getNextScheduledOccurrence,
+  buildOccurrenceKey,
+  deriveTransactionOccurrenceKeys,
+  isTransactionTombstoned,
+  migrateRecurringRule,
 } from '../utils/recurring';
 import {
   loadSecuritySettings,
@@ -67,7 +72,9 @@ import {
   CustomImportConfig,
   executeCustomDataImport,
 } from '../utils/storage';
-import { requestPersistentStorage, loadFullDataFromIndexedDB, saveItemToIndexedDB } from '../utils/indexedDB';
+import { requestPersistentStorage, loadFullDataFromIndexedDB, saveItemToIndexedDB, savePreMigrationSnapshot } from '../utils/indexedDB';
+import { migrateSmartBudgetSettingsToUnifiedCycle, getSalaryCycleRange } from '../utils/smartBudgetEngine';
+import { ensureBankFeesCategory, buildLinkedTransferFeeTransaction, roundHalfUpToCents } from '../utils/transferFee';
 import { syncAllAccountBalances, getHistoricalBalance } from '../utils/balanceEngine';
 import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
 import { translations } from '../utils/translations';
@@ -106,6 +113,7 @@ import {
   pullLatestRemoteState,
 } from '../utils/autoBackup';
 import { fetchGeminiApiKeyFromCloud, removeLocalGeminiApiKeyOnSignOut } from '../utils/geminiApiKey';
+import { clearInMemorySharedApiKey } from '../utils/smartBudgetAI';
 
 export type SyncStatus = 'syncing' | 'online' | 'offline' | 'awaiting_choice' | 'local_only';
 
@@ -703,17 +711,140 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const clearTxSelection = clearGlobalSelection;
 
+  /**
+   * Writes persistent local and cloud tombstones for BOTH the transaction ID and all derived
+   * recurring occurrenceKeys (ruleId + local scheduled date/time, plus deterministic rec_ ID)
+   * so deleted recurring occurrences are NEVER recreated on reload, catch-up, restore, or merge.
+   */
+  const recordTransactionTombstones = (
+    txsToDelete: Transaction | Transaction[],
+    explicitIds: string[] = []
+  ) => {
+    const list = Array.isArray(txsToDelete) ? txsToDelete : [txsToDelete];
+    const nowTs = syncNow();
+    const allKeys = new Set<string>(explicitIds.filter(Boolean));
+
+    for (const tx of list) {
+      if (!tx) continue;
+      for (const k of deriveTransactionOccurrenceKeys(tx)) {
+        if (k) allKeys.add(k);
+      }
+    }
+
+    for (const key of allKeys) {
+      saveLocalTombstone({
+        id: key,
+        collection: 'transactions',
+        deletedAt: nowTs,
+      });
+    }
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      const uid = auth.currentUser.uid;
+      for (const key of allKeys) {
+        triggerGranularPush(() =>
+          writeGranularDeletion(uid, 'transactions', key, isSyncUnlockedRef.current)
+        );
+      }
+    }
+  };
+
+  /**
+   * Preserves the highest monotonic watermark (effectiveFrom, lastRun, lastProcessed)
+   * when merging or restoring recurring rules so an older backup or second device cannot
+   * rewind the watermark and resurrect past deleted occurrences.
+   */
+  const mergeRecurringRuleWatermarks = (
+    incoming: RecurringTransaction,
+    existing?: RecurringTransaction
+  ): RecurringTransaction => {
+    const norm = migrateRecurringRule(incoming);
+    if (!existing) return norm;
+    const maxWatermark = Math.max(
+      existing.lastRun || 0,
+      existing.lastProcessed || 0,
+      norm.lastRun || 0,
+      norm.lastProcessed || 0
+    );
+    const maxEffectiveFrom = Math.max(
+      existing.effectiveFrom || 0,
+      norm.effectiveFrom || 0
+    );
+    const baseWinner =
+      Number(norm.updatedAt || norm.createdAt || 0) >=
+      Number(existing.updatedAt || existing.createdAt || 0)
+        ? norm
+        : migrateRecurringRule(existing);
+    const nextWatermarked: RecurringTransaction = {
+      ...baseWinner,
+      effectiveFrom: maxEffectiveFrom > 0 ? maxEffectiveFrom : baseWinner.effectiveFrom,
+      lastRun: maxWatermark > 0 ? maxWatermark : baseWinner.lastRun,
+      lastProcessed: maxWatermark > 0 ? maxWatermark : baseWinner.lastProcessed,
+    };
+    if (maxWatermark > 0 || maxEffectiveFrom > 0) {
+      const anchorMs = Math.max(maxWatermark, maxEffectiveFrom ? maxEffectiveFrom - 1 : 0);
+      const nextOcc = getNextScheduledOccurrence(nextWatermarked, new Date(anchorMs));
+      nextWatermarked.nextRun = nextOcc.getTime();
+      nextWatermarked.nextDueDate = formatDateToYYYYMMDD(nextOcc);
+    }
+    return nextWatermarked;
+  };
+
+  const compareTxChronologicallyDesc = (a: Transaction, b: Transaction): number => {
+    if (a.date !== b.date) return (b.date || '').localeCompare(a.date || '');
+    const tCmp = (b.time || '').localeCompare(a.time || '');
+    if (tCmp !== 0) return tCmp;
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  };
+
   const deleteSelectedTxs = () => {
     if (selectedTxIds.length === 0) return;
-    const count = selectedTxIds.length;
-    const txsToDelete = transactions.filter((t) => selectedTxIds.includes(t.id));
+    const expandedIds = new Set<string>(selectedTxIds);
+    for (const tx of transactions) {
+      if (expandedIds.has(tx.id)) {
+        if (tx.linkedFeeTxId) expandedIds.add(tx.linkedFeeTxId);
+      }
+      if (tx.feeOfTransferId && expandedIds.has(tx.feeOfTransferId)) {
+        expandedIds.add(tx.id);
+      }
+    }
+    const txsToDelete = transactions.filter((t) => expandedIds.has(t.id));
+    const count = txsToDelete.length;
+    const deletedFeeParentIds = new Set<string>();
     for (const tx of txsToDelete) {
+      if (tx.feeOfTransferId && !expandedIds.has(tx.feeOfTransferId)) {
+        deletedFeeParentIds.add(tx.feeOfTransferId);
+      }
       propagateTransactionToLinkedSpaces('delete', tx, accounts).catch(() => {});
     }
-    const updatedList = transactions.filter((t) => !selectedTxIds.includes(t.id));
+    const updatedParentsToPush: Transaction[] = [];
+    const updatedList = transactions
+      .filter((t) => !expandedIds.has(t.id))
+      .map((t) => {
+        if (deletedFeeParentIds.has(t.id)) {
+          const cleared: Transaction = {
+            ...t,
+            transferFee: undefined,
+            transferFeeMode: 'none',
+            linkedFeeTxId: undefined,
+            updatedAt: Date.now(),
+          };
+          updatedParentsToPush.push(cleared);
+          return cleared;
+        }
+        return t;
+      });
     setTransactions(updatedList);
     const synced = syncAllAccountBalances(accounts, updatedList);
     setAccounts(synced);
+    removeLinkedAdjustmentsForTxs(txsToDelete);
+    recordTransactionTombstones(txsToDelete, Array.from(expandedIds));
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      const uid = auth.currentUser.uid;
+      for (const pTx of updatedParentsToPush) {
+        triggerGranularPush(() => writeGranularDelta(uid, 'transactions', pTx, isSyncUnlockedRef.current));
+      }
+    }
     setSelectedTxIds([]);
     showToast(
       settings.language === 'ar' ? `تم حذف ${count} معاملة بنجاح` : `Deleted ${count} transactions successfully!`,
@@ -826,9 +957,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const accToDelete = accounts.find((a) => a.id === id);
     if (!accToDelete) return false;
 
-    let updatedTxs = transactions.filter(
-      (tx) => tx.accountId !== id && tx.toAccountId !== id
+    const directRemovedIds = new Set(
+      transactions
+        .filter((tx) => tx.accountId === id || tx.toAccountId === id)
+        .map((tx) => tx.id)
     );
+    const removedTxs = transactions.filter(
+      (tx) =>
+        directRemovedIds.has(tx.id) ||
+        (tx.feeOfTransferId && directRemovedIds.has(tx.feeOfTransferId))
+    );
+    const removedTxIdSet = new Set(removedTxs.map((tx) => tx.id));
+    let updatedTxs = transactions.filter((tx) => !removedTxIdSet.has(tx.id));
 
     if (transferTargetAccountId && accToDelete.balance !== 0) {
       const now = new Date();
@@ -845,6 +985,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           ? `تحويل الرصيد المتبقي من حساب "${accToDelete.name}" المحذوف`
           : `Remaining balance transferred from deleted account "${accToDelete.name}"`,
         createdAt: Date.now(),
+        updatedAt: Date.now(),
       };
       updatedTxs.push(transferTx);
     }
@@ -853,6 +994,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const remainingAccounts = accounts.filter((a) => a.id !== id);
     const synced = syncAllAccountBalances(remainingAccounts, updatedTxs);
     setAccounts(synced);
+    removeLinkedAdjustmentsForTxs(removedTxs);
+    recordTransactionTombstones(removedTxs);
+    saveLocalTombstone({ id, collection: 'accounts', deletedAt: syncNow() });
 
     if (selectedAccountId === id) {
       setSelectedAccountId(null);
@@ -873,9 +1017,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     const accountsToDelete = accounts.filter((a) => ids.includes(a.id));
-    let updatedTxs = transactions.filter(
-      (tx) => !ids.includes(tx.accountId) && (!tx.toAccountId || !ids.includes(tx.toAccountId))
+    const directMultiRemovedIds = new Set(
+      transactions
+        .filter((tx) => ids.includes(tx.accountId) || (tx.toAccountId && ids.includes(tx.toAccountId)))
+        .map((tx) => tx.id)
     );
+    const removedMultiTxs = transactions.filter(
+      (tx) =>
+        directMultiRemovedIds.has(tx.id) ||
+        (tx.feeOfTransferId && directMultiRemovedIds.has(tx.feeOfTransferId))
+    );
+    const removedMultiIdSet = new Set(removedMultiTxs.map((tx) => tx.id));
+    let updatedTxs = transactions.filter((tx) => !removedMultiIdSet.has(tx.id));
 
     if (transferTargetAccountId) {
       const now = new Date();
@@ -904,6 +1057,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const remainingAccounts = accounts.filter((a) => !ids.includes(a.id));
     const synced = syncAllAccountBalances(remainingAccounts, updatedTxs);
     setAccounts(synced);
+    removeLinkedAdjustmentsForTxs(removedMultiTxs);
+    recordTransactionTombstones(removedMultiTxs);
+    const nowTomb = syncNow();
+    for (const accId of ids) {
+      saveLocalTombstone({ id: accId, collection: 'accounts', deletedAt: nowTomb });
+      if (auth.currentUser && isSyncUnlockedRef.current) {
+        const uid = auth.currentUser.uid;
+        triggerGranularPush(() => writeGranularDeletion(uid, 'accounts', accId, isSyncUnlockedRef.current));
+      }
+    }
 
     if (selectedAccountId && ids.includes(selectedAccountId)) {
       setSelectedAccountId(null);
@@ -1310,22 +1473,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Recurring transactions CRUD
   const addRecurringTransaction = (recData: Omit<RecurringTransaction, 'id' | 'createdAt'>) => {
+    const nowMs = Date.now();
     const tempRule: RecurringTransaction = {
       ...recData,
       id: 'temp',
-      createdAt: Date.now(),
+      createdAt: nowMs,
     };
     const [sy, sm, sd] = (recData.startDate || formatDateToYYYYMMDD(new Date())).split('-').map(Number);
     const [sh, smin] = (recData.startTime || '09:00').split(':').map(Number);
     const startAnchor = new Date(sy, sm - 1, sd, sh || 0, smin || 0, 0, 0);
-    const nextOcc = getNextScheduledOccurrence(tempRule, new Date(startAnchor.getTime() - 1));
+    const effFrom = recData.effectiveFrom || nowMs;
+    const nextOcc = getNextScheduledOccurrence(
+      tempRule,
+      new Date(Math.max(startAnchor.getTime() - 1, effFrom - 1))
+    );
 
-    const nowMs = Date.now();
     const newRec: RecurringTransaction = {
       ...recData,
       id: `rec_${nowMs}_${Math.random().toString(36).slice(2, 6)}`,
       createdAt: nowMs,
-      effectiveFrom: recData.effectiveFrom || nowMs,
+      effectiveFrom: effFrom,
+      lastRun: recData.lastRun,
+      lastProcessed: recData.lastProcessed ?? recData.lastRun,
       nextRun: nextOcc ? nextOcc.getTime() : undefined,
       nextDueDate: nextOcc ? formatDateToYYYYMMDD(nextOcc) : recData.nextDueDate,
       updatedAt: nowMs,
@@ -1340,14 +1509,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updateRecurringTransaction = (updated: RecurringTransaction) => {
-    const [sy, sm, sd] = (updated.startDate || formatDateToYYYYMMDD(new Date())).split('-').map(Number);
-    const [sh, smin] = (updated.startTime || '09:00').split(':').map(Number);
-    const startAnchor = new Date(sy, sm - 1, sd, sh || 0, smin || 0, 0, 0);
-    const nextOcc = getNextScheduledOccurrence(updated, new Date(startAnchor.getTime() - 1));
     const nowMs = Date.now();
+    const watermarkNow = Math.max(updated.lastRun || 0, updated.lastProcessed || 0, nowMs);
+    const nextOcc = getNextScheduledOccurrence(updated, new Date(watermarkNow));
     const finalUpdated: RecurringTransaction = {
       ...updated,
-      effectiveFrom: updated.effectiveFrom || nowMs,
+      effectiveFrom: nowMs,
+      lastRun: watermarkNow,
+      lastProcessed: watermarkNow,
+      lastProcessedDate: formatDateToYYYYMMDD(new Date(watermarkNow)),
       nextRun: nextOcc ? nextOcc.getTime() : updated.nextRun,
       nextDueDate: nextOcc ? formatDateToYYYYMMDD(nextOcc) : updated.nextDueDate,
       updatedAt: nowMs,
@@ -1363,6 +1533,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const deleteRecurringTransaction = (id: string) => {
     setRecurringTransactions((prev) => prev.filter((r) => r.id !== id));
+    saveLocalTombstone({ id, collection: 'recurring', deletedAt: syncNow() });
 
     if (auth.currentUser && isSyncUnlockedRef.current) {
       triggerGranularPush(() => writeGranularDeletion(auth.currentUser!.uid, 'recurring', id, isSyncUnlockedRef.current));
@@ -1373,8 +1544,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   /**
    * Applies an edited recurring rule.
-   * - 'future': only the rule template (and its schedule) is updated.
-   * - 'all': the rule AND every previously generated transaction linked to it are updated
+   * - 'future': only the rule template (and its schedule) is updated, and watermarks advance to now.
+   * - 'all': the rule template is updated (watermarks advance to now so deleted occurrences never backfill)
+   *   AND every previously generated non-deleted transaction linked to it is updated in-place
    *   (date/time of past occurrences are kept), balances are recalculated, and all deltas are
    *   pushed to Cloud Auto-Backup and every linked Shared Space (ID & link shares).
    * Returns the number of past transactions that were retroactively updated.
@@ -1392,46 +1564,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       categoryIcon: isTransfer ? undefined : edited.categoryIcon,
     };
 
-    const scheduleSig = (r: RecurringTransaction) =>
-      JSON.stringify([
-        r.frequency,
-        r.startDate,
-        r.startTime || '',
-        r.advancedSchedule?.isAdvanced ? r.advancedSchedule : null,
-      ]);
-    const scheduleChanged = !original || scheduleSig(original) !== scheduleSig(normalized);
-
-    const [sy, sm, sd] = (normalized.startDate || formatDateToYYYYMMDD(new Date())).split('-').map(Number);
-    const [sh, smin] = (normalized.startTime || '09:00').split(':').map(Number);
-    const startMs = new Date(sy, sm - 1, sd, sh || 0, smin || 0, 0, 0).getTime();
-
-    let lastRun: number | undefined = original?.lastRun;
-    let nextDate: Date;
-    if (scheduleChanged) {
-      // Re-anchor on the new schedule: occurrences up to now are considered already handled,
-      // so only FUTURE occurrences of the new schedule are generated.
-      let cand = getNextScheduledOccurrence(normalized, new Date(startMs - 1));
-      let lastPast: number | undefined;
-      let guard = 0;
-      while (cand.getTime() <= nowMs && guard < 5000) {
-        lastPast = cand.getTime();
-        cand = getNextScheduledOccurrence(normalized, cand);
-        guard++;
-      }
-      lastRun = lastPast;
-      nextDate = cand;
-    } else {
-      nextDate = getNextScheduledOccurrence(normalized, new Date(lastRun && lastRun > 0 ? lastRun : startMs - 1));
-    }
-
-    const effectiveFrom = (scheduleChanged || scope === 'future')
-      ? nowMs
-      : (original?.effectiveFrom || nowMs);
+    const watermarkNow = Math.max(
+      original?.lastRun || 0,
+      original?.lastProcessed || 0,
+      edited.lastRun || 0,
+      edited.lastProcessed || 0,
+      nowMs
+    );
+    const nextDate = getNextScheduledOccurrence(normalized, new Date(watermarkNow));
 
     const finalRule: RecurringTransaction = {
       ...normalized,
-      effectiveFrom,
-      lastRun,
+      effectiveFrom: nowMs,
+      lastRun: watermarkNow,
+      lastProcessed: watermarkNow,
+      lastProcessedDate: formatDateToYYYYMMDD(new Date(watermarkNow)),
       nextRun: nextDate.getTime(),
       nextDueDate: formatDateToYYYYMMDD(nextDate),
       updatedAt: nowMs,
@@ -1447,7 +1594,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (scope === 'all') {
       const linkedIds = new Set(
         transactions
-          .filter((tx) => tx.recurringRuleId === finalRule.id && !tx.isIndividuallyEdited)
+          .filter((tx) => tx.recurringRuleId === finalRule.id && !tx.isIndividuallyEdited && !tx.feeOfTransferId)
           .map((tx) => tx.id)
       );
 
@@ -1457,9 +1604,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           'fromAccountName', 'fromAccountIcon', 'toAccountName', 'toAccountIcon',
         ];
 
+        const hasFee = Boolean(
+          finalRule.type === 'transfer' &&
+          finalRule.toAccountId &&
+          finalRule.transferFee &&
+          finalRule.transferFee > 0
+        );
+        let workingCats = categories;
+        let feeCategory: Category | null = null;
+        if (hasFee) {
+          const feeEnsure = ensureBankFeesCategory(workingCats, settings.language);
+          feeCategory = feeEnsure.category;
+          if (feeEnsure.created) {
+            workingCats = feeEnsure.updatedCategories;
+            setCategories(workingCats);
+            if (auth.currentUser && isSyncUnlockedRef.current) {
+              const catToPush = feeCategory;
+              triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'categories', catToPush, isSyncUnlockedRef.current));
+            }
+          }
+        }
+
         const retro = (tx: Transaction): Transaction => {
           const next: any = {
             ...tx,
+            occurrenceKey: tx.occurrenceKey || buildOccurrenceKey(finalRule.id, tx.date, tx.time || '09:00'),
             type: finalRule.type,
             amount: finalRule.amount,
             accountId: finalRule.accountId,
@@ -1468,19 +1637,61 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             categoryName: finalRule.categoryName,
             categoryIcon: finalRule.categoryIcon,
             description: finalRule.description,
+            budgetPool: finalRule.budgetPool,
+            isSavingsAllocation: finalRule.isSavingsAllocation,
+            savingsWithdrawalChoice: finalRule.savingsWithdrawalChoice,
+            transferFee: hasFee ? roundHalfUpToCents(finalRule.transferFee!) : undefined,
+            transferFeeMode: finalRule.transferFeeMode,
+            transferFeeInputType: finalRule.transferFeeInputType,
+            transferFeeRawValue: finalRule.transferFeeRawValue,
+            transferFeeBudgetPool: finalRule.transferFeeBudgetPool,
+            linkedFeeTxId: hasFee ? `tx_fee_${tx.id}` : undefined,
             updatedAt: nowMs,
           };
           for (const k of TRANSFER_FIELDS) delete next[k];
           return next as Transaction;
         };
 
+        const deletedFeeTxs: Transaction[] = [];
+        const upsertedFeeMap = new Map<string, Transaction>();
+        for (const tx of transactions) {
+          if (tx.feeOfTransferId && linkedIds.has(tx.feeOfTransferId)) {
+            if (!hasFee) {
+              deletedFeeTxs.push(tx);
+            }
+          }
+        }
+        const deletedFeeIdSet = new Set(deletedFeeTxs.map((t) => t.id));
+        if (deletedFeeTxs.length > 0) {
+          recordTransactionTombstones(deletedFeeTxs);
+        }
+
         // Recalculate affected balances strictly in chronological order
-        let list = transactions.map((tx) => (linkedIds.has(tx.id) ? retro(tx) : tx));
+        let list = transactions
+          .filter((tx) => !deletedFeeIdSet.has(tx.id))
+          .map((tx) => (linkedIds.has(tx.id) ? retro(tx) : tx));
+
+        if (hasFee && feeCategory) {
+          for (const tx of list) {
+            if (linkedIds.has(tx.id)) {
+              const existingFee = list.find((f) => f.feeOfTransferId === tx.id || f.id === `tx_fee_${tx.id}`);
+              const feeTx = buildLinkedTransferFeeTransaction(tx, feeCategory, settings.language, existingFee);
+              upsertedFeeMap.set(feeTx.id, feeTx);
+            }
+          }
+          list = list.map((tx) => upsertedFeeMap.get(tx.id) || tx);
+          for (const [fId, fTx] of upsertedFeeMap.entries()) {
+            if (!list.some((x) => x.id === fId)) {
+              list.push(fTx);
+            }
+          }
+        }
+
         list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
         const updatedLinked: Transaction[] = [];
         const snapshot = [...list];
         list = snapshot.map((tx) => {
-          if (!linkedIds.has(tx.id)) return tx;
+          if (!linkedIds.has(tx.id) && !upsertedFeeMap.has(tx.id)) return tx;
           let nt = tx;
           if (tx.type === 'transfer' && tx.toAccountId) {
             const fromAcc = accounts.find((a) => a.id === tx.accountId);
@@ -1504,7 +1715,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const syncedAccounts = syncAllAccountBalances(accounts, list);
         setTransactions(list);
         setAccounts(syncedAccounts);
-        affected = updatedLinked.length;
+        affected = linkedIds.size;
 
         if (viewingTx && linkedIds.has(viewingTx.id)) {
           const refreshed = updatedLinked.find((t) => t.id === viewingTx.id);
@@ -1534,6 +1745,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               /* keep going so one failing space never blocks the others */
             }
           }
+          for (const delFee of deletedFeeTxs) {
+            try {
+              await propagateTransactionToLinkedSpaces('delete', delFee, syncedAccounts);
+            } catch {}
+          }
         })();
       }
     }
@@ -1554,17 +1770,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const processDueRecurring = (showUserToast = false): number => {
     const tombstones = loadLocalTombstones();
-    const tombstoneSet = new Set(Object.keys(tombstones));
+    const tombstoneIds = new Set(Object.keys(tombstones));
     const currentRecs = recurringTransactionsRef.current || recurringTransactions;
     const currentTxs = transactionsRef.current || transactions;
     const currentAccs = accountsRef.current || accounts;
-    const res = checkAndProcessRecurring(currentRecs, currentTxs, tombstoneSet, Date.now());
+    const currentCats = categoriesRef.current || categories;
+    const res = checkAndProcessRecurring(currentRecs, currentTxs, tombstoneIds, Date.now());
 
     if (res.newTransactions.length > 0) {
       setRecurringTransactions(res.updatedRecurring);
 
+      const allGeneratedTxs: Transaction[] = [];
+      let workingCats = currentCats;
+      let newlyCreatedFeeCategory: Category | null = null;
+      const existingTxIds = new Set(currentTxs.map((t) => t.id));
+
+      for (const genTx of res.newTransactions) {
+        allGeneratedTxs.push(genTx);
+        if (genTx.type === 'transfer' && genTx.transferFee && genTx.transferFee > 0) {
+          const feeEnsure = ensureBankFeesCategory(workingCats, settings.language);
+          if (feeEnsure.created) {
+            workingCats = feeEnsure.updatedCategories;
+            newlyCreatedFeeCategory = feeEnsure.category;
+          }
+          const feeTx = buildLinkedTransferFeeTransaction(genTx, feeEnsure.category, settings.language);
+          if (!existingTxIds.has(feeTx.id) && !tombstoneIds.has(feeTx.id)) {
+            allGeneratedTxs.push(feeTx);
+            existingTxIds.add(feeTx.id);
+          }
+        }
+      }
+
+      if (newlyCreatedFeeCategory) {
+        setCategories(workingCats);
+      }
+
       // Merge newly generated transactions chronologically
-      const combinedTxs = [...currentTxs, ...res.newTransactions].sort((a, b) => {
+      const combinedTxs = [...currentTxs, ...allGeneratedTxs].sort((a, b) => {
         if (a.date !== b.date) return a.date.localeCompare(b.date);
         return (a.time || '').localeCompare(b.time || '');
       });
@@ -1575,27 +1817,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       // Save to IndexedDB & RTDB deltas
       if (auth.currentUser && isSyncUnlockedRef.current) {
-        for (const newTx of res.newTransactions) {
-          triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'transactions', newTx, isSyncUnlockedRef.current));
+        const uid = auth.currentUser.uid;
+        if (newlyCreatedFeeCategory) {
+          const catToPush = newlyCreatedFeeCategory;
+          triggerGranularPush(() => writeGranularDelta(uid, 'categories', catToPush, isSyncUnlockedRef.current));
+        }
+        for (const newTx of allGeneratedTxs) {
+          triggerGranularPush(() => writeGranularDelta(uid, 'transactions', newTx, isSyncUnlockedRef.current));
         }
         for (const updRec of res.updatedRecurring) {
-          triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'recurring', updRec, isSyncUnlockedRef.current));
+          triggerGranularPush(() => writeGranularDelta(uid, 'recurring', updRec, isSyncUnlockedRef.current));
         }
         // Granular push for accounts whose balances changed
         const affectedAccountIds = new Set<string>();
-        for (const newTx of res.newTransactions) {
+        for (const newTx of allGeneratedTxs) {
           if (newTx.accountId) affectedAccountIds.add(newTx.accountId);
           if (newTx.toAccountId) affectedAccountIds.add(newTx.toAccountId);
         }
         for (const acc of syncedAccounts) {
           if (affectedAccountIds.has(acc.id)) {
-            triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'accounts', acc, isSyncUnlockedRef.current));
+            triggerGranularPush(() => writeGranularDelta(uid, 'accounts', acc, isSyncUnlockedRef.current));
           }
         }
       }
 
       // Propagate newly added transactions and updated account balances to any linked Shared Spaces (both ID shares and link shares) in real time
-      for (const newTx of res.newTransactions) {
+      for (const newTx of allGeneratedTxs) {
         propagateTransactionToLinkedSpaces('add', newTx, syncedAccounts).catch((err) => {
           console.warn('[Recurring] Failed to propagate recurring transaction to linked space:', err);
         });
@@ -1629,22 +1876,56 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const selectedRules = recurringTransactions.filter((r) => ruleIds.includes(r.id));
     if (selectedRules.length === 0) return 0;
 
-    const manualTxs: Transaction[] = selectedRules.map((rec, idx) => ({
-      id: `rec_${rec.id}_manual_${nowMs}_${idx}`,
-      type: rec.type,
-      amount: rec.amount,
-      date: dateStr,
-      time: timeStr,
-      accountId: rec.accountId,
-      toAccountId: rec.toAccountId,
-      categoryId: rec.categoryId,
-      categoryName: rec.categoryName,
-      categoryIcon: rec.categoryIcon,
-      description: rec.description,
-      createdAt: nowMs + idx,
-      isFromRecurring: true,
-      recurringRuleId: rec.id,
-    }));
+    const manualTxs: Transaction[] = [];
+    let workingCats = categories;
+    let newlyCreatedFeeCategory: Category | null = null;
+
+    selectedRules.forEach((rec, idx) => {
+      const detId = `rec_${rec.id}_manual_${nowMs}_${idx}`;
+      const occKey = buildOccurrenceKey(rec.id, dateStr, timeStr);
+      const hasFee = Boolean(rec.type === 'transfer' && rec.transferFee && rec.transferFee > 0);
+      const parentTx: Transaction = {
+        id: detId,
+        occurrenceKey: occKey,
+        type: rec.type,
+        amount: rec.amount,
+        date: dateStr,
+        time: timeStr,
+        accountId: rec.accountId,
+        toAccountId: rec.toAccountId,
+        categoryId: rec.categoryId,
+        categoryName: rec.categoryName,
+        categoryIcon: rec.categoryIcon,
+        description: rec.description,
+        budgetPool: rec.budgetPool,
+        isSavingsAllocation: rec.isSavingsAllocation,
+        savingsWithdrawalChoice: rec.savingsWithdrawalChoice,
+        transferFee: rec.transferFee,
+        transferFeeMode: rec.transferFeeMode,
+        transferFeeInputType: rec.transferFeeInputType,
+        transferFeeRawValue: rec.transferFeeRawValue,
+        transferFeeBudgetPool: rec.transferFeeBudgetPool,
+        linkedFeeTxId: hasFee ? `tx_fee_${detId}` : undefined,
+        createdAt: nowMs + idx * 2,
+        updatedAt: nowMs + idx * 2,
+        isFromRecurring: true,
+        recurringRuleId: rec.id,
+      };
+      manualTxs.push(parentTx);
+      if (hasFee) {
+        const feeEnsure = ensureBankFeesCategory(workingCats, settings.language);
+        if (feeEnsure.created) {
+          workingCats = feeEnsure.updatedCategories;
+          newlyCreatedFeeCategory = feeEnsure.category;
+        }
+        const feeTx = buildLinkedTransferFeeTransaction(parentTx, feeEnsure.category, settings.language);
+        manualTxs.push(feeTx);
+      }
+    });
+
+    if (newlyCreatedFeeCategory) {
+      setCategories(workingCats);
+    }
 
     const combinedTxs = [...transactions, ...manualTxs].sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
@@ -1689,9 +1970,246 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return manualTxs.length;
   };
 
-  // Check and process due recurring transactions on initial load
+  // One-Time Idempotent Recurring Watermark & OccurrenceKey Migration (with Pre-Migration Snapshot in IndexedDB)
+  // Runs BEFORE processDueRecurring() on startup so previously deleted ghost occurrences can NEVER be backfilled.
   useEffect(() => {
-    processDueRecurring();
+    const RECURRING_WATERMARK_MIGRATION_FLAG = 'mm_recurring_watermark_migrated_v1';
+    const alreadyMigrated = localStorage.getItem(RECURRING_WATERMARK_MIGRATION_FLAG) === 'true';
+
+    if (!alreadyMigrated) {
+      const migrationNowMs = Date.now();
+      const migrationDateStr = formatDateToYYYYMMDD(new Date(migrationNowMs));
+      const rawRules = recurringTransactionsRef.current || [];
+      const rawTxs = transactionsRef.current || [];
+
+      // Advance watermarks immediately in memory before any catch-up check runs
+      const migratedRules: RecurringTransaction[] = rawRules.map((rule) => {
+        const norm = migrateRecurringRule(rule);
+        const effFrom = Math.max(norm.effectiveFrom || 0, migrationNowMs);
+        const watermark = Math.max(norm.lastRun || 0, norm.lastProcessed || 0, migrationNowMs);
+        const nextOcc = getNextScheduledOccurrence(norm, new Date(watermark));
+        return {
+          ...norm,
+          effectiveFrom: effFrom,
+          lastRun: watermark,
+          lastProcessed: watermark,
+          lastProcessedDate: migrationDateStr,
+          nextRun: nextOcc.getTime(),
+          nextDueDate: formatDateToYYYYMMDD(nextOcc),
+          updatedAt: migrationNowMs,
+        };
+      });
+
+      let txsBackfilled = false;
+      const migratedTxs: Transaction[] = rawTxs.map((tx) => {
+        if (tx.recurringRuleId && !tx.occurrenceKey && tx.date) {
+          txsBackfilled = true;
+          return {
+            ...tx,
+            occurrenceKey: buildOccurrenceKey(tx.recurringRuleId, tx.date, tx.time || '09:00'),
+          };
+        }
+        return tx;
+      });
+
+      if (migratedRules.length > 0) {
+        recurringTransactionsRef.current = migratedRules;
+        setRecurringTransactions(migratedRules);
+        saveRecurringTransactions(migratedRules);
+      }
+      if (txsBackfilled) {
+        transactionsRef.current = migratedTxs;
+        setTransactions(migratedTxs);
+        saveTransactions(migratedTxs);
+      }
+
+      (async () => {
+        try {
+          await savePreMigrationSnapshot('recurring_watermark_v1', {
+            accounts: accountsRef.current,
+            categories: categoriesRef.current,
+            transactions: rawTxs,
+            settings: settingsRef.current,
+            recurringTransactions: rawRules,
+          });
+          localStorage.setItem(RECURRING_WATERMARK_MIGRATION_FLAG, 'true');
+          if (auth.currentUser && isSyncUnlockedRef.current && migratedRules.length > 0) {
+            const uid = auth.currentUser.uid;
+            for (const r of migratedRules) {
+              triggerGranularPush(() => writeGranularDelta(uid, 'recurring', r, isSyncUnlockedRef.current));
+            }
+          }
+        } catch (err) {
+          console.warn('[Migration] Failed recurring watermark v1 migration snapshot:', err);
+          localStorage.setItem(RECURRING_WATERMARK_MIGRATION_FLAG, 'true');
+        } finally {
+          processDueRecurring();
+        }
+      })();
+    } else {
+      processDueRecurring();
+    }
+  }, []);
+
+  // One-time Unified Financial Cycle Migration (with Pre-Migration Snapshot in IndexedDB)
+  useEffect(() => {
+    const UNIFIED_CYCLE_MIGRATION_FLAG = 'mm_unified_cycle_migrated_v1';
+    const currentSettings = settingsRef.current;
+    const sb = currentSettings.smartBudget;
+    const globalStartDay = currentSettings.defaultMonthStartDay || 1;
+    const alreadyMigrated = localStorage.getItem(UNIFIED_CYCLE_MIGRATION_FLAG) === 'true';
+    const hasLegacyOverrides =
+      sb?.overrides && Object.keys(sb.overrides).some((k) => /^\d{4}-\d{2}$/.test(k));
+    const hasDivergentStartDay =
+      typeof sb?.baseline?.startDay === 'number' && sb.baseline.startDay !== globalStartDay;
+
+    if (!alreadyMigrated || hasLegacyOverrides || hasDivergentStartDay) {
+      (async () => {
+        try {
+          await savePreMigrationSnapshot('unified_financial_cycle_v1', {
+            accounts: accountsRef.current,
+            categories: categoriesRef.current,
+            transactions: transactionsRef.current,
+            settings: currentSettings,
+            recurringTransactions: recurringTransactionsRef.current,
+          });
+          if (sb) {
+            // If user had a custom start day in Smart Budget (> 1) while global App Month was still default 1,
+            // adopt their Smart Budget start day as the unified global App Month start day.
+            const unifiedStartDay =
+              !alreadyMigrated &&
+              globalStartDay === 1 &&
+              typeof sb.baseline?.startDay === 'number' &&
+              sb.baseline.startDay > 1 &&
+              sb.baseline.startDay <= 31
+                ? sb.baseline.startDay
+                : globalStartDay;
+
+            const { migrated, changed } = migrateSmartBudgetSettingsToUnifiedCycle(
+              sb,
+              unifiedStartDay
+            );
+            if (changed || unifiedStartDay !== globalStartDay) {
+              setSettings((prev) => {
+                const next: AppSettings = {
+                  ...prev,
+                  defaultMonthStartDay: unifiedStartDay,
+                  smartBudget: migrated,
+                };
+                saveSettings(next);
+                return next;
+              });
+            }
+          }
+          localStorage.setItem(UNIFIED_CYCLE_MIGRATION_FLAG, 'true');
+        } catch (err) {
+          console.warn('[Migration] Failed unified financial cycle migration:', err);
+        }
+      })();
+    }
+  }, []);
+
+  // One-time Idempotent Migration: Convert legacy 'emergency' budgetPool / transferFeeBudgetPool to 'oneoff' (with Pre-Migration Snapshot)
+  useEffect(() => {
+    const BUDGET_POOL_ONEOFF_MIGRATION_FLAG = 'mm_budget_pool_oneoff_migrated_v1';
+    const alreadyMigrated = localStorage.getItem(BUDGET_POOL_ONEOFF_MIGRATION_FLAG) === 'true';
+    const rawTxs = transactionsRef.current || [];
+    const rawRules = recurringTransactionsRef.current || [];
+
+    const hasLegacyPoolOnTxs = rawTxs.some(
+      (tx) =>
+        (tx.budgetPool as string | undefined) === 'emergency' ||
+        (tx.transferFeeBudgetPool as string | undefined) === 'emergency'
+    );
+    const hasLegacyPoolOnRules = rawRules.some(
+      (r) =>
+        (r.budgetPool as string | undefined) === 'emergency' ||
+        (r.transferFeeBudgetPool as string | undefined) === 'emergency'
+    );
+
+    if (!alreadyMigrated || hasLegacyPoolOnTxs || hasLegacyPoolOnRules) {
+      (async () => {
+        try {
+          if (hasLegacyPoolOnTxs || hasLegacyPoolOnRules || !alreadyMigrated) {
+            await savePreMigrationSnapshot('budget_pool_oneoff_v1', {
+              accounts: accountsRef.current,
+              categories: categoriesRef.current,
+              transactions: rawTxs,
+              settings: settingsRef.current,
+              recurringTransactions: rawRules,
+            });
+          }
+
+          const nowMs = Date.now();
+          if (hasLegacyPoolOnTxs) {
+            const migratedTxs: Transaction[] = rawTxs.map((tx) => {
+              const nextPool =
+                (tx.budgetPool as string | undefined) === 'emergency' ? 'oneoff' : tx.budgetPool;
+              const nextFeePool =
+                (tx.transferFeeBudgetPool as string | undefined) === 'emergency'
+                  ? 'oneoff'
+                  : tx.transferFeeBudgetPool;
+              if (nextPool !== tx.budgetPool || nextFeePool !== tx.transferFeeBudgetPool) {
+                return {
+                  ...tx,
+                  budgetPool: nextPool,
+                  transferFeeBudgetPool: nextFeePool,
+                  updatedAt: nowMs,
+                };
+              }
+              return tx;
+            });
+            transactionsRef.current = migratedTxs;
+            setTransactions(migratedTxs);
+            saveTransactions(migratedTxs);
+            if (auth.currentUser && isSyncUnlockedRef.current) {
+              const uid = auth.currentUser.uid;
+              for (const tx of migratedTxs) {
+                if (tx.updatedAt === nowMs) {
+                  triggerGranularPush(() => writeGranularDelta(uid, 'transactions', tx, isSyncUnlockedRef.current));
+                }
+              }
+            }
+          }
+
+          if (hasLegacyPoolOnRules) {
+            const migratedRules: RecurringTransaction[] = rawRules.map((r) => {
+              const nextPool =
+                (r.budgetPool as string | undefined) === 'emergency' ? 'oneoff' : r.budgetPool;
+              const nextFeePool =
+                (r.transferFeeBudgetPool as string | undefined) === 'emergency'
+                  ? 'oneoff'
+                  : r.transferFeeBudgetPool;
+              if (nextPool !== r.budgetPool || nextFeePool !== r.transferFeeBudgetPool) {
+                return {
+                  ...r,
+                  budgetPool: nextPool,
+                  transferFeeBudgetPool: nextFeePool,
+                  updatedAt: nowMs,
+                };
+              }
+              return r;
+            });
+            recurringTransactionsRef.current = migratedRules;
+            setRecurringTransactions(migratedRules);
+            saveRecurringTransactions(migratedRules);
+            if (auth.currentUser && isSyncUnlockedRef.current) {
+              const uid = auth.currentUser.uid;
+              for (const r of migratedRules) {
+                if (r.updatedAt === nowMs) {
+                  triggerGranularPush(() => writeGranularDelta(uid, 'recurring', r, isSyncUnlockedRef.current));
+                }
+              }
+            }
+          }
+
+          localStorage.setItem(BUDGET_POOL_ONEOFF_MIGRATION_FLAG, 'true');
+        } catch (err) {
+          console.warn('[Migration] Failed budgetPool oneoff migration:', err);
+          localStorage.setItem(BUDGET_POOL_ONEOFF_MIGRATION_FLAG, 'true');
+        }
+      })();
+    }
   }, []);
 
   // Smart Budget Alerts calculation
@@ -1746,6 +2264,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       categories,
       transactions,
       recurringTransactions,
+      tombstones: loadLocalTombstones(),
       settings: effectiveSettings,
       sharedSpaces: {
         myFolders: loadMyShareFolders(),
@@ -1777,17 +2296,38 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const applyCloudData = (d: any) => {
     if (!d || typeof d !== 'object') return;
+    if (d.tombstones && typeof d.tombstones === 'object') {
+      Object.values(d.tombstones).forEach((t: any) => {
+        if (t && t.id) saveLocalTombstone(t);
+      });
+    }
+    const allTombs = loadLocalTombstones();
+    const filteredTxs: Transaction[] = Array.isArray(d.transactions)
+      ? d.transactions.filter(
+          (tx: Transaction) =>
+            tx &&
+            tx.id &&
+            !isTransactionTombstoned(tx, allTombs, Number(tx.updatedAt || tx.createdAt || 0))
+        )
+      : transactionsRef.current;
+
     if (Array.isArray(d.accounts) && d.accounts.length > 0) {
-      setAccounts(syncAllAccountBalances(d.accounts, d.transactions || []));
+      setAccounts(syncAllAccountBalances(d.accounts, filteredTxs));
     }
     if (Array.isArray(d.categories) && d.categories.length > 0) {
       setCategories(d.categories);
     }
     if (Array.isArray(d.transactions)) {
-      setTransactions(d.transactions);
+      setTransactions(filteredTxs);
     }
     if (Array.isArray(d.recurringTransactions)) {
-      setRecurringTransactions(d.recurringTransactions);
+      const localRecMap = new Map<string, RecurringTransaction>(
+        (recurringTransactionsRef.current || []).map((r) => [r.id, r])
+      );
+      const mergedRecs = d.recurringTransactions
+        .filter((r: RecurringTransaction) => r && r.id && !allTombs[r.id])
+        .map((r: RecurringTransaction) => mergeRecurringRuleWatermarks(r, localRecMap.get(r.id)));
+      setRecurringTransactions(mergedRecs);
     }
     if (d.settings && typeof d.settings === 'object') {
       setSettings((prev) => ({
@@ -1836,31 +2376,58 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const tombstones = loadLocalTombstones();
         const local = transactionsRef.current;
         const localMap = new Map<string, Transaction>(local.map((t) => [t.id, t]));
+        const localOccMap = new Map<string, string>();
+        for (const t of local) {
+          if (t.occurrenceKey) localOccMap.set(t.occurrenceKey, t.id);
+        }
         let changed = false;
 
         for (const r of remoteTxs) {
           if (!r || !r.id) continue;
-          const tomb = tombstones[r.id];
           const rUpdated = Number(r.updatedAt || r.createdAt || 0);
-          if (tomb && tomb.deletedAt > rUpdated) {
+          if (isTransactionTombstoned(r, tombstones, rUpdated)) {
             if (localMap.has(r.id)) {
               localMap.delete(r.id);
+              changed = true;
+            }
+            if (r.occurrenceKey && localOccMap.has(r.occurrenceKey)) {
+              const dupId = localOccMap.get(r.occurrenceKey)!;
+              if (localMap.has(dupId)) {
+                localMap.delete(dupId);
+                changed = true;
+              }
+            }
+            continue;
+          }
+          // Deduplicate by occurrenceKey if another device generated the same recurring occurrence
+          const rOccKey =
+            r.occurrenceKey ||
+            (r.recurringRuleId && r.date
+              ? buildOccurrenceKey(r.recurringRuleId, r.date, r.time || '09:00')
+              : undefined);
+          if (rOccKey && localOccMap.has(rOccKey) && localOccMap.get(rOccKey) !== r.id) {
+            const existingId = localOccMap.get(rOccKey)!;
+            const existingTx = localMap.get(existingId);
+            if (existingTx && rUpdated > Number(existingTx.updatedAt || existingTx.createdAt || 0)) {
+              localMap.delete(existingId);
+              localMap.set(r.id, { ...r, occurrenceKey: rOccKey });
+              localOccMap.set(rOccKey, r.id);
               changed = true;
             }
             continue;
           }
           const loc = localMap.get(r.id);
           if (!loc || rUpdated > Number(loc.updatedAt || loc.createdAt || 0)) {
-            localMap.set(r.id, r);
+            const stampedR = rOccKey ? { ...r, occurrenceKey: rOccKey } : r;
+            localMap.set(r.id, stampedR);
+            if (rOccKey) localOccMap.set(rOccKey, r.id);
             changed = true;
           }
         }
 
         if (changed) {
           isApplyingRemoteSyncRef.current = true;
-          const nextTxs = Array.from(localMap.values()).sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-          );
+          const nextTxs = Array.from(localMap.values()).sort(compareTxChronologicallyDesc);
           setTransactions(nextTxs);
           setAccounts((prevAccs) => syncAllAccountBalances(prevAccs, nextTxs));
           setTimeout(() => {
@@ -1958,7 +2525,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }
           const loc = localMap.get(r.id);
           if (!loc || rUpdated > Number(loc.updatedAt || loc.createdAt || 0)) {
-            localMap.set(r.id, r);
+            localMap.set(r.id, mergeRecurringRuleWatermarks(r, loc));
             changed = true;
           }
         }
@@ -1978,26 +2545,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         for (const t of remoteTombs) {
           if (!t || !t.id) continue;
           saveLocalTombstone(t);
-          if (t.collection === 'transactions' && transactionsRef.current.some((x) => x.id === t.id)) {
-            anyApplied = true;
-          } else if (t.collection === 'recurring' && recurringTransactionsRef.current.some((x) => x.id === t.id)) {
-            anyApplied = true;
-          } else if (t.collection === 'accounts' && accountsRef.current.some((x) => x.id === t.id)) {
-            anyApplied = true;
-          } else if (t.collection === 'categories' && categoriesRef.current.some((x) => x.id === t.id)) {
-            anyApplied = true;
-          }
+          anyApplied = true;
         }
         if (anyApplied) {
-          isApplyingRemoteSyncRef.current = true;
           const allTombs = loadLocalTombstones();
-          setTransactions((prev) => prev.filter((tx) => !allTombs[tx.id] || allTombs[tx.id].deletedAt <= Number(tx.updatedAt || tx.createdAt || 0)));
-          setRecurringTransactions((prev) => prev.filter((r) => !allTombs[r.id] || allTombs[r.id].deletedAt <= Number(r.updatedAt || r.createdAt || 0)));
+          const hasMatchingLocal =
+            transactionsRef.current.some((x) =>
+              isTransactionTombstoned(x, allTombs, Number(x.updatedAt || x.createdAt || 0))
+            ) ||
+            recurringTransactionsRef.current.some(
+              (x) => allTombs[x.id] && allTombs[x.id].deletedAt > Number(x.updatedAt || x.createdAt || 0)
+            ) ||
+            accountsRef.current.some(
+              (x) => allTombs[x.id] && allTombs[x.id].deletedAt > Number(x.updatedAt || 0)
+            ) ||
+            categoriesRef.current.some(
+              (x) => allTombs[x.id] && allTombs[x.id].deletedAt > Number(x.updatedAt || 0)
+            );
+          if (!hasMatchingLocal) return;
+
+          isApplyingRemoteSyncRef.current = true;
+          setTransactions((prev) =>
+            prev.filter(
+              (tx) => !isTransactionTombstoned(tx, allTombs, Number(tx.updatedAt || tx.createdAt || 0))
+            )
+          );
+          setRecurringTransactions((prev) =>
+            prev.filter((r) => !allTombs[r.id] || allTombs[r.id].deletedAt <= Number(r.updatedAt || r.createdAt || 0))
+          );
           setAccounts((prev) => {
-            const remaining = prev.filter((a) => !allTombs[a.id] || allTombs[a.id].deletedAt <= Number(a.updatedAt || 0));
+            const remaining = prev.filter(
+              (a) => !allTombs[a.id] || allTombs[a.id].deletedAt <= Number(a.updatedAt || 0)
+            );
             return syncAllAccountBalances(remaining, transactionsRef.current);
           });
-          setCategories((prev) => prev.filter((c) => !allTombs[c.id] || allTombs[c.id].deletedAt <= Number(c.updatedAt || 0)));
+          setCategories((prev) =>
+            prev.filter((c) => !allTombs[c.id] || allTombs[c.id].deletedAt <= Number(c.updatedAt || 0))
+          );
           setTimeout(() => {
             isApplyingRemoteSyncRef.current = false;
           }, 100);
@@ -2072,29 +2656,55 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       let txsChanged = false;
       const currentTxs = transactionsRef.current;
       const txMap = new Map<string, Transaction>(currentTxs.map((t) => [t.id, t]));
+      const occMap = new Map<string, string>();
 
-      // Remote deletes
+      // Remote deletes (by ID or occurrenceKey)
       for (const [id, tx] of txMap.entries()) {
-        if (allTombs[id] && allTombs[id].deletedAt > Number(tx.updatedAt || tx.createdAt || 0)) {
+        if (isTransactionTombstoned(tx, allTombs, Number(tx.updatedAt || tx.createdAt || 0))) {
           txMap.delete(id);
           txsChanged = true;
+        } else {
+          const occKey =
+            tx.occurrenceKey ||
+            (tx.recurringRuleId && tx.date
+              ? buildOccurrenceKey(tx.recurringRuleId, tx.date, tx.time || '09:00')
+              : undefined);
+          if (occKey) occMap.set(occKey, id);
         }
       }
       // Remote upserts
       for (const rTx of Object.values(remote.transactions || {})) {
         if (!rTx || !rTx.id) continue;
-        if (allTombs[rTx.id] && allTombs[rTx.id].deletedAt > Number(rTx.updatedAt || rTx.createdAt || 0)) {
+        const rUpdated = Number(rTx.updatedAt || rTx.createdAt || 0);
+        if (isTransactionTombstoned(rTx, allTombs, rUpdated)) {
+          continue;
+        }
+        const rOccKey =
+          rTx.occurrenceKey ||
+          (rTx.recurringRuleId && rTx.date
+            ? buildOccurrenceKey(rTx.recurringRuleId, rTx.date, rTx.time || '09:00')
+            : undefined);
+        if (rOccKey && occMap.has(rOccKey) && occMap.get(rOccKey) !== rTx.id) {
+          const existingId = occMap.get(rOccKey)!;
+          const existingTx = txMap.get(existingId);
+          if (existingTx && rUpdated > Number(existingTx.updatedAt || existingTx.createdAt || 0)) {
+            txMap.delete(existingId);
+            txMap.set(rTx.id, { ...rTx, occurrenceKey: rOccKey });
+            occMap.set(rOccKey, rTx.id);
+            txsChanged = true;
+          }
           continue;
         }
         const loc = txMap.get(rTx.id);
-        const rUpdated = Number(rTx.updatedAt || rTx.createdAt || 0);
         if (!loc || rUpdated > Number(loc.updatedAt || loc.createdAt || 0)) {
-          txMap.set(rTx.id, rTx);
+          const stampedR = rOccKey ? { ...rTx, occurrenceKey: rOccKey } : rTx;
+          txMap.set(rTx.id, stampedR);
+          if (rOccKey) occMap.set(rOccKey, rTx.id);
           txsChanged = true;
         }
       }
       const nextTxs = txsChanged
-        ? Array.from(txMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        ? Array.from(txMap.values()).sort(compareTxChronologicallyDesc)
         : currentTxs;
       if (txsChanged) {
         setTransactions(nextTxs);
@@ -2172,7 +2782,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const loc = recMap.get(rRec.id);
         const rUpdated = Number(rRec.updatedAt || rRec.createdAt || 0);
         if (!loc || rUpdated > Number(loc.updatedAt || loc.createdAt || 0)) {
-          recMap.set(rRec.id, rRec);
+          recMap.set(rRec.id, mergeRecurringRuleWatermarks(rRec, loc));
           recsChanged = true;
         }
       }
@@ -2468,6 +3078,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         localStorage.removeItem('mm_cached_authenticated_user');
         localStorage.removeItem('google_drive_access_token');
         clearUserIdentityState();
+        clearInMemorySharedApiKey();
         lastRestoredUidRef.current = null;
         isCloudHydratedRef.current = false;
         isSyncUnlockedRef.current = false;
@@ -2822,15 +3433,159 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   };
 
+  // Linked Budget Adjustment Helpers for Reversible Savings/Investment Withdrawals
+  const reconcileTransferAdjustment = (
+    tx: Transaction,
+    currentAccounts: Account[]
+  ): {
+    finalTx: Transaction;
+    upsertAdjustment?: BudgetAdjustment;
+    removeAdjustmentId?: string;
+  } => {
+    const nowTs = Date.now();
+    const adjId = tx.linkedAdjustmentId || `adj_tx_${tx.id}`;
+
+    if (tx.type === 'transfer' && tx.toAccountId && tx.accountId !== tx.toAccountId) {
+      const fromAcc = currentAccounts.find((a) => a.id === tx.accountId);
+      const toAcc = currentAccounts.find((a) => a.id === tx.toAccountId);
+      const fromRole = fromAcc?.accountRole || 'spending';
+      const toRole = toAcc?.accountRole || 'spending';
+      const isSavingsWithdrawal =
+        (fromRole === 'savings' || fromRole === 'investment') && toRole === 'spending';
+
+      if (isSavingsWithdrawal) {
+        const choice = tx.savingsWithdrawalChoice || tx.budgetAdjustment?.choice || 'just_moving';
+        const adj: BudgetAdjustment = {
+          id: adjId,
+          linkedTransferId: tx.id,
+          date: tx.date,
+          amount: tx.amount,
+          amountMinor: Math.round(tx.amount * 100),
+          choice,
+          fromAccountId: tx.accountId,
+          toAccountId: tx.toAccountId,
+          createdAt: tx.budgetAdjustment?.createdAt || tx.createdAt || nowTs,
+          updatedAt: nowTs,
+        };
+        return {
+          finalTx: {
+            ...tx,
+            savingsWithdrawalChoice: choice,
+            linkedAdjustmentId: adjId,
+            budgetAdjustment: adj,
+            updatedAt: nowTs,
+          },
+          upsertAdjustment: adj,
+        };
+      }
+    }
+
+    return {
+      finalTx: {
+        ...tx,
+        savingsWithdrawalChoice: undefined,
+        linkedAdjustmentId: undefined,
+        budgetAdjustment: undefined,
+        updatedAt: nowTs,
+      },
+      removeAdjustmentId: adjId,
+    };
+  };
+
+  const syncAdjustmentsInSettings = (
+    upsertAdj?: BudgetAdjustment,
+    removeIds?: string[]
+  ) => {
+    const currentAdjustments = settings.smartBudget?.adjustments || {};
+    let changed = false;
+    const nextAdjustments: Record<string, BudgetAdjustment> = { ...currentAdjustments };
+
+    if (removeIds && removeIds.length > 0) {
+      for (const rId of removeIds) {
+        if (rId && nextAdjustments[rId]) {
+          delete nextAdjustments[rId];
+          changed = true;
+        }
+      }
+    }
+
+    if (upsertAdj) {
+      nextAdjustments[upsertAdj.id] = upsertAdj;
+      changed = true;
+    }
+
+    if (!changed) return;
+
+    const nowTs = Date.now();
+    const nextSettings: AppSettings = {
+      ...settings,
+      updatedAt: nowTs,
+      smartBudget: {
+        baseline: settings.smartBudget?.baseline || {},
+        overrides: settings.smartBudget?.overrides || {},
+        adjustments: nextAdjustments,
+        updatedAt: nowTs,
+      },
+    };
+    setSettings(nextSettings);
+    saveSettings(nextSettings);
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      const uid = auth.currentUser.uid;
+      triggerGranularPush(() =>
+        writeGranularManifest(uid, nextSettings, nextSettings.userProfile, isSyncUnlockedRef.current)
+      );
+    }
+  };
+
+  const removeLinkedAdjustmentsForTxs = (deletedTxs: Transaction[]) => {
+    if (!deletedTxs || deletedTxs.length === 0) return;
+    const idsToRemove: string[] = [];
+    for (const tx of deletedTxs) {
+      if (tx.linkedAdjustmentId) idsToRemove.push(tx.linkedAdjustmentId);
+      idsToRemove.push(`adj_tx_${tx.id}`);
+    }
+    syncAdjustmentsInSettings(undefined, idsToRemove);
+  };
+
   // CRUD TRANSACTIONS
   const addTransaction = (txData: Omit<Transaction, 'id' | 'createdAt'>) => {
+    const nowTs = Date.now();
+    const txId = `tx_${nowTs}_${Math.random().toString(36).slice(2, 7)}`;
+    const hasTransferFee = Boolean(
+      txData.type === 'transfer' &&
+      txData.toAccountId &&
+      txData.transferFee &&
+      txData.transferFee > 0
+    );
+    const feeVal = hasTransferFee ? roundHalfUpToCents(txData.transferFee!) : undefined;
+
     let newTx: Transaction = {
       ...txData,
-      id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      createdAt: Date.now(),
+      id: txId,
+      transferFee: feeVal,
+      linkedFeeTxId: hasTransferFee ? `tx_fee_${txId}` : undefined,
+      createdAt: nowTs,
+      updatedAt: nowTs,
     };
 
-    let updatedTransactions = [...transactions, newTx];
+    const { finalTx: reconciledTx, upsertAdjustment, removeAdjustmentId } =
+      reconcileTransferAdjustment(newTx, accounts);
+    newTx = reconciledTx;
+
+    let linkedFeeTx: Transaction | null = null;
+    let newlyCreatedCategory: Category | null = null;
+    if (hasTransferFee && feeVal && feeVal > 0) {
+      const feeEnsure = ensureBankFeesCategory(categories, settings.language);
+      if (feeEnsure.created) {
+        setCategories(feeEnsure.updatedCategories);
+        newlyCreatedCategory = feeEnsure.category;
+      }
+      linkedFeeTx = buildLinkedTransferFeeTransaction(newTx, feeEnsure.category, settings.language);
+    }
+
+    let updatedTransactions = linkedFeeTx
+      ? [...transactions, newTx, linkedFeeTx]
+      : [...transactions, newTx];
 
     // If transfer transaction, compute and record before & after balances for BOTH accounts
     if (newTx.type === 'transfer' && newTx.toAccountId) {
@@ -2846,35 +3601,149 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           toBalanceBefore: toHist.balanceBefore,
           toBalanceAfter: toHist.balanceAfter,
         };
-        updatedTransactions = [...transactions, newTx];
+        if (linkedFeeTx) {
+          const feeHist = getHistoricalBalance(linkedFeeTx.id, fromAcc, updatedTransactions);
+          linkedFeeTx = {
+            ...linkedFeeTx,
+            balanceBefore: feeHist.balanceBefore,
+            balanceAfter: feeHist.balanceAfter,
+          };
+        }
+        updatedTransactions = linkedFeeTx
+          ? [...transactions, newTx, linkedFeeTx]
+          : [...transactions, newTx];
       }
     }
 
     setTransactions(updatedTransactions);
 
-    // Sync account balances
+    // Sync account balances (deducts X + F from source account and adds X to destination account)
     const syncedAccounts = syncAllAccountBalances(accounts, updatedTransactions);
     setAccounts(syncedAccounts);
 
-    // Propagate transaction to linked shared spaces in real-time
-    propagateTransactionToLinkedSpaces('add', newTx, accounts).catch(() => {});
+    // Sync linked budget adjustment if applicable
+    if (upsertAdjustment || removeAdjustmentId) {
+      syncAdjustmentsInSettings(
+        upsertAdjustment,
+        removeAdjustmentId ? [removeAdjustmentId] : undefined
+      );
+    }
+
+    // Propagate transaction(s) to linked shared spaces in real-time
+    propagateTransactionToLinkedSpaces('add', newTx, syncedAccounts).catch(() => {});
+    if (linkedFeeTx) {
+      propagateTransactionToLinkedSpaces('add', linkedFeeTx, syncedAccounts).catch(() => {});
+    }
 
     if (auth.currentUser && isSyncUnlockedRef.current) {
-      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'transactions', newTx, isSyncUnlockedRef.current));
+      const uid = auth.currentUser.uid;
+      if (newlyCreatedCategory) {
+        const catToPush = newlyCreatedCategory;
+        triggerGranularPush(() => writeGranularDelta(uid, 'categories', catToPush, isSyncUnlockedRef.current));
+      }
+      triggerGranularPush(() => writeGranularDelta(uid, 'transactions', newTx, isSyncUnlockedRef.current));
+      if (linkedFeeTx) {
+        const feeToPush = linkedFeeTx;
+        triggerGranularPush(() => writeGranularDelta(uid, 'transactions', feeToPush, isSyncUnlockedRef.current));
+      }
     }
 
     showToast(t('savedSuccess'), 'success');
   };
 
   const updateTransaction = (updatedTx: Transaction) => {
-    let finalTx = updatedTx;
+    const nowTs = Date.now();
+    let finalTx: Transaction = {
+      ...updatedTx,
+      updatedAt: nowTs,
+    };
     if (finalTx.recurringRuleId) {
       finalTx = {
         ...finalTx,
         isIndividuallyEdited: true,
       };
     }
-    let updatedList = transactions.map((t) => (t.id === finalTx.id ? finalTx : t));
+
+    const { finalTx: reconciledTx, upsertAdjustment, removeAdjustmentId } =
+      reconcileTransferAdjustment(finalTx, accounts);
+    finalTx = reconciledTx;
+
+    const existingFeeTx = transactions.find(
+      (t) =>
+        t.feeOfTransferId === finalTx.id ||
+        (finalTx.linkedFeeTxId && t.id === finalTx.linkedFeeTxId)
+    );
+
+    const hasTransferFee = Boolean(
+      finalTx.type === 'transfer' &&
+      finalTx.toAccountId &&
+      finalTx.transferFee &&
+      finalTx.transferFee > 0
+    );
+    const feeVal = hasTransferFee ? roundHalfUpToCents(finalTx.transferFee!) : undefined;
+
+    let upsertedFeeTx: Transaction | null = null;
+    let deletedFeeTx: Transaction | null = null;
+    let newlyCreatedCategory: Category | null = null;
+
+    if (hasTransferFee && feeVal && feeVal > 0) {
+      const feeEnsure = ensureBankFeesCategory(categories, settings.language);
+      if (feeEnsure.created) {
+        setCategories(feeEnsure.updatedCategories);
+        newlyCreatedCategory = feeEnsure.category;
+      }
+      const feeTxId = existingFeeTx?.id || finalTx.linkedFeeTxId || `tx_fee_${finalTx.id}`;
+      finalTx = {
+        ...finalTx,
+        transferFee: feeVal,
+        linkedFeeTxId: feeTxId,
+      };
+      upsertedFeeTx = buildLinkedTransferFeeTransaction(
+        finalTx,
+        feeEnsure.category,
+        settings.language,
+        existingFeeTx
+      );
+    } else {
+      finalTx = {
+        ...finalTx,
+        transferFee: undefined,
+        linkedFeeTxId: undefined,
+      };
+      if (existingFeeTx) {
+        deletedFeeTx = existingFeeTx;
+      }
+    }
+
+    // If the user directly edited a linked fee transaction, keep its parent transfer's transferFee in sync
+    let syncedParentTx: Transaction | null = null;
+    if (finalTx.feeOfTransferId) {
+      const parentTx = transactions.find((t) => t.id === finalTx.feeOfTransferId);
+      if (parentTx && parentTx.type === 'transfer') {
+        syncedParentTx = {
+          ...parentTx,
+          transferFee: roundHalfUpToCents(finalTx.amount),
+          transferFeeMode: 'manual',
+          transferFeeInputType: 'amount',
+          transferFeeRawValue: roundHalfUpToCents(finalTx.amount),
+          transferFeeBudgetPool: finalTx.budgetPool || parentTx.transferFeeBudgetPool || 'daily',
+          updatedAt: nowTs,
+        };
+      }
+    }
+
+    let updatedList = transactions
+      .filter((t) => !deletedFeeTx || t.id !== deletedFeeTx.id)
+      .map((t) => {
+        if (t.id === finalTx.id) return finalTx;
+        if (upsertedFeeTx && t.id === upsertedFeeTx.id) return upsertedFeeTx;
+        if (syncedParentTx && t.id === syncedParentTx.id) return syncedParentTx;
+        return t;
+      });
+
+    if (upsertedFeeTx && !updatedList.some((t) => t.id === upsertedFeeTx!.id)) {
+      updatedList = [...updatedList, upsertedFeeTx];
+    }
 
     // If transfer transaction, recalculate and record before & after balances for BOTH accounts
     if (finalTx.type === 'transfer' && finalTx.toAccountId) {
@@ -2890,7 +3759,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           toBalanceBefore: toHist.balanceBefore,
           toBalanceAfter: toHist.balanceAfter,
         };
-        updatedList = transactions.map((t) => (t.id === finalTx.id ? finalTx : t));
+        if (upsertedFeeTx) {
+          const feeHist = getHistoricalBalance(upsertedFeeTx.id, fromAcc, updatedList);
+          upsertedFeeTx = {
+            ...upsertedFeeTx,
+            balanceBefore: feeHist.balanceBefore,
+            balanceAfter: feeHist.balanceAfter,
+          };
+        }
+        updatedList = updatedList.map((t) => {
+          if (t.id === finalTx.id) return finalTx;
+          if (upsertedFeeTx && t.id === upsertedFeeTx.id) return upsertedFeeTx;
+          return t;
+        });
       }
     }
 
@@ -2899,16 +3780,54 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const syncedAccounts = syncAllAccountBalances(accounts, updatedList);
     setAccounts(syncedAccounts);
 
-    // Propagate transaction to linked shared spaces in real-time
-    propagateTransactionToLinkedSpaces('update', finalTx, accounts).catch(() => {});
+    // Sync or reverse linked budget adjustment
+    if (upsertAdjustment || removeAdjustmentId) {
+      syncAdjustmentsInSettings(
+        upsertAdjustment,
+        removeAdjustmentId ? [removeAdjustmentId] : undefined
+      );
+    }
+
+    // Propagate transaction(s) to linked shared spaces in real-time
+    propagateTransactionToLinkedSpaces('update', finalTx, syncedAccounts).catch(() => {});
+    if (upsertedFeeTx) {
+      propagateTransactionToLinkedSpaces(
+        existingFeeTx ? 'update' : 'add',
+        upsertedFeeTx,
+        syncedAccounts
+      ).catch(() => {});
+    }
+    if (deletedFeeTx) {
+      propagateTransactionToLinkedSpaces('delete', deletedFeeTx, syncedAccounts).catch(() => {});
+    }
+    if (syncedParentTx) {
+      propagateTransactionToLinkedSpaces('update', syncedParentTx, syncedAccounts).catch(() => {});
+    }
 
     // If currently viewing this transaction details, update it
     if (viewingTx && viewingTx.id === finalTx.id) {
       setViewingTx(finalTx);
     }
 
+    if (deletedFeeTx) {
+      recordTransactionTombstones(deletedFeeTx);
+    }
+
     if (auth.currentUser && isSyncUnlockedRef.current) {
-      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'transactions', finalTx, isSyncUnlockedRef.current));
+      const uid = auth.currentUser.uid;
+      if (newlyCreatedCategory) {
+        const catToPush = newlyCreatedCategory;
+        triggerGranularPush(() => writeGranularDelta(uid, 'categories', catToPush, isSyncUnlockedRef.current));
+      }
+      triggerGranularPush(() => writeGranularDelta(uid, 'transactions', finalTx, isSyncUnlockedRef.current));
+      if (upsertedFeeTx) {
+        const feeToPush = upsertedFeeTx;
+        triggerGranularPush(() => writeGranularDelta(uid, 'transactions', feeToPush, isSyncUnlockedRef.current));
+      }
+      if (syncedParentTx) {
+        const parentToPush = syncedParentTx;
+        triggerGranularPush(() => writeGranularDelta(uid, 'transactions', parentToPush, isSyncUnlockedRef.current));
+      }
     }
 
     showToast(t('updatedSuccess'), 'success');
@@ -2916,21 +3835,65 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const deleteTransaction = (id: string) => {
     const txToDelete = transactions.find((t) => t.id === id);
-    const updatedList = transactions.filter((t) => t.id !== id);
+    const linkedFeeTx = txToDelete
+      ? transactions.find(
+          (t) =>
+            t.feeOfTransferId === txToDelete.id ||
+            (txToDelete.linkedFeeTxId && t.id === txToDelete.linkedFeeTxId)
+        )
+      : undefined;
+
+    const idsToDelete = new Set<string>([id]);
+    if (linkedFeeTx) idsToDelete.add(linkedFeeTx.id);
+
+    let clearedParentTx: Transaction | null = null;
+    if (txToDelete?.feeOfTransferId) {
+      const parentTx = transactions.find((t) => t.id === txToDelete.feeOfTransferId);
+      if (parentTx && !idsToDelete.has(parentTx.id)) {
+        clearedParentTx = {
+          ...parentTx,
+          transferFee: undefined,
+          transferFeeMode: 'none',
+          linkedFeeTxId: undefined,
+          updatedAt: Date.now(),
+        };
+      }
+    }
+
+    const updatedList = transactions
+      .filter((t) => !idsToDelete.has(t.id))
+      .map((t) => (clearedParentTx && t.id === clearedParentTx.id ? clearedParentTx : t));
     setTransactions(updatedList);
 
     const syncedAccounts = syncAllAccountBalances(accounts, updatedList);
     setAccounts(syncedAccounts);
 
-    // Propagate transaction to linked shared spaces in real-time
-    propagateTransactionToLinkedSpaces('delete', txToDelete || ({ id } as Transaction), accounts).catch(() => {});
+    if (txToDelete) {
+      removeLinkedAdjustmentsForTxs(linkedFeeTx ? [txToDelete, linkedFeeTx] : [txToDelete]);
+    }
 
-    if (viewingTx && viewingTx.id === id) {
+    // Propagate transaction(s) to linked shared spaces in real-time
+    propagateTransactionToLinkedSpaces('delete', txToDelete || ({ id } as Transaction), syncedAccounts).catch(() => {});
+    if (linkedFeeTx) {
+      propagateTransactionToLinkedSpaces('delete', linkedFeeTx, syncedAccounts).catch(() => {});
+    }
+    if (clearedParentTx) {
+      propagateTransactionToLinkedSpaces('update', clearedParentTx, syncedAccounts).catch(() => {});
+    }
+
+    if (viewingTx && idsToDelete.has(viewingTx.id)) {
       setViewingTx(null);
     }
 
-    if (auth.currentUser && isSyncUnlockedRef.current) {
-      triggerGranularPush(() => writeGranularDeletion(auth.currentUser!.uid, 'transactions', id, isSyncUnlockedRef.current));
+    const txsForTombstone: Transaction[] = [];
+    if (txToDelete) txsForTombstone.push(txToDelete);
+    if (linkedFeeTx) txsForTombstone.push(linkedFeeTx);
+    recordTransactionTombstones(txsForTombstone, Array.from(idsToDelete));
+
+    if (auth.currentUser && isSyncUnlockedRef.current && clearedParentTx) {
+      const uid = auth.currentUser.uid;
+      const pToPush = clearedParentTx;
+      triggerGranularPush(() => writeGranularDelta(uid, 'transactions', pToPush, isSyncUnlockedRef.current));
     }
 
     showToast(t('deletedSuccess'), 'success');
@@ -2938,11 +3901,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // CRUD ACCOUNTS
   const addAccount = (accData: Omit<Account, 'id' | 'balance'>, initialBalance = 0) => {
-    const newAccId = `acc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowTs = Date.now();
+    const newAccId = `acc_${nowTs}_${Math.random().toString(36).slice(2, 6)}`;
     const newAcc: Account = {
       ...accData,
       id: newAccId,
+      accountRole: accData.accountRole || 'spending',
       balance: initialBalance,
+      updatedAt: nowTs,
     };
 
     let updatedTxs = [...transactions];
@@ -2951,7 +3917,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (initialBalance !== 0) {
       const now = new Date();
       initialTx = {
-        id: `tx_init_${Date.now()}`,
+        id: `tx_init_${nowTs}`,
         type: initialBalance > 0 ? 'income' : 'expense',
         amount: Math.abs(initialBalance),
         date: formatDateToYYYYMMDD(now),
@@ -2960,7 +3926,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         categoryName: 'Initial Balance',
         categoryIcon: '💵',
         description: 'Initial Account Balance',
-        createdAt: Date.now(),
+        createdAt: nowTs,
+        updatedAt: nowTs,
       };
       updatedTxs.push(initialTx);
       setTransactions(updatedTxs);
@@ -2982,10 +3949,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updateAccount = (updatedAcc: Account, newBalanceTarget?: number) => {
+    const nowTs = Date.now();
+    const stampedAcc: Account = {
+      ...updatedAcc,
+      accountRole: updatedAcc.accountRole || 'spending',
+      updatedAt: nowTs,
+    };
     let currentTxs = [...transactions];
 
     if (typeof newBalanceTarget === 'number') {
-      const existingAccount = accounts.find((a) => a.id === updatedAcc.id);
+      const existingAccount = accounts.find((a) => a.id === stampedAcc.id);
       const oldBalance = existingAccount ? existingAccount.balance : 0;
       const diff = newBalanceTarget - oldBalance;
 
@@ -2993,29 +3966,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const now = new Date();
         const symbol = settings.currencySymbol || '£';
         const adjustmentTx: Transaction = {
-          id: `tx_adj_${Date.now()}`,
+          id: `tx_adj_${nowTs}`,
           type: diff > 0 ? 'income' : 'expense',
           amount: Math.abs(diff),
           date: formatDateToYYYYMMDD(now),
           time: formatTimeToHHMM(now),
-          accountId: updatedAcc.id,
+          accountId: stampedAcc.id,
           categoryName: 'Manual Adjustment',
           categoryIcon: '⚙️',
           isAdjustment: true,
           description: `Manual Adjustment: Changed from ${symbol}${oldBalance.toFixed(2)} to ${symbol}${newBalanceTarget.toFixed(2)}`,
-          createdAt: Date.now(),
+          createdAt: nowTs,
+          updatedAt: nowTs,
         };
         currentTxs = [...currentTxs, adjustmentTx];
         setTransactions(currentTxs);
       }
     }
 
-    const updatedList = accounts.map((a) => (a.id === updatedAcc.id ? updatedAcc : a));
+    const updatedList = accounts.map((a) => (a.id === stampedAcc.id ? stampedAcc : a));
     const synced = syncAllAccountBalances(updatedList, currentTxs);
     setAccounts(synced);
 
     if (auth.currentUser && isSyncUnlockedRef.current) {
-      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'accounts', updatedAcc, isSyncUnlockedRef.current));
+      triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'accounts', stampedAcc, isSyncUnlockedRef.current));
     }
 
     showToast(t('updatedSuccess'), 'success');
@@ -3027,18 +4001,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return false;
     }
 
-    // Remove transactions linked to this account
-    const updatedTxs = transactions.filter(
-      (tx) => tx.accountId !== id && tx.toAccountId !== id
+    const directDelIds = new Set(
+      transactions
+        .filter((tx) => tx.accountId === id || tx.toAccountId === id)
+        .map((tx) => tx.id)
     );
+    const removedTxs = transactions.filter(
+      (tx) =>
+        directDelIds.has(tx.id) ||
+        (tx.feeOfTransferId && directDelIds.has(tx.feeOfTransferId))
+    );
+    const removedDelIdSet = new Set(removedTxs.map((tx) => tx.id));
+    // Remove transactions linked to this account
+    const updatedTxs = transactions.filter((tx) => !removedDelIdSet.has(tx.id));
     setTransactions(updatedTxs);
 
     const remainingAccounts = accounts.filter((a) => a.id !== id);
     const synced = syncAllAccountBalances(remainingAccounts, updatedTxs);
     setAccounts(synced);
+    removeLinkedAdjustmentsForTxs(removedTxs);
+    recordTransactionTombstones(removedTxs);
+    saveLocalTombstone({ id, collection: 'accounts', deletedAt: syncNow() });
 
     if (selectedAccountId === id) {
       setSelectedAccountId(null);
+    }
+
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      const uid = auth.currentUser.uid;
+      triggerGranularPush(() => writeGranularDeletion(uid, 'accounts', id, isSyncUnlockedRef.current));
     }
 
     showToast(t('deletedSuccess'), 'success');
@@ -3073,6 +4064,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const deleteCategory = (id: string) => {
     setCategories((prev) => prev.filter((c) => c.id !== id));
+    saveLocalTombstone({ id, collection: 'categories', deletedAt: syncNow() });
 
     if (auth.currentUser && isSyncUnlockedRef.current) {
       triggerGranularPush(() => writeGranularDeletion(auth.currentUser!.uid, 'categories', id, isSyncUnlockedRef.current));
@@ -3125,7 +4117,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // SETTINGS
   const updateSettings = (newSettings: Partial<AppSettings>) => {
-    const updated = { ...settings, ...newSettings };
+    const updated: AppSettings = { ...settings, ...newSettings };
+    if (
+      newSettings.defaultMonthStartDay !== undefined &&
+      newSettings.defaultMonthStartDay !== settings.defaultMonthStartDay &&
+      updated.smartBudget?.baseline
+    ) {
+      const oldStartDay = settings.defaultMonthStartDay || 1;
+      const newStartDay = Math.max(1, Math.min(31, Math.round(newSettings.defaultMonthStartDay)));
+      const now = new Date();
+      const oldCycle = getSalaryCycleRange(now, oldStartDay);
+      const newCycle = getSalaryCycleRange(now, newStartDay);
+      const nextOverrides = { ...(updated.smartBudget.overrides || {}) };
+      if (nextOverrides[oldCycle.startDate] && !nextOverrides[newCycle.startDate]) {
+        nextOverrides[newCycle.startDate] = { ...nextOverrides[oldCycle.startDate] };
+      }
+      updated.smartBudget = {
+        ...updated.smartBudget,
+        baseline: {
+          ...updated.smartBudget.baseline,
+          startDay: newStartDay,
+        },
+        overrides: nextOverrides,
+      };
+    }
     setSettings(updated);
     if (auth.currentUser && isSyncUnlockedRef.current) {
       triggerGranularPush(() => writeGranularManifest(auth.currentUser!.uid, updated, updated.userProfile, isSyncUnlockedRef.current));
@@ -3187,6 +4202,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await logoutUser();
       clearUserIdentityState();
       removeLocalGeminiApiKeyOnSignOut();
+      clearInMemorySharedApiKey();
 
       // 3. Reset internal cloud hydration and conflict refs
       lastRestoredUidRef.current = null;
@@ -3240,6 +4256,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       let targetCategories = categories;
       let targetTxs = transactions;
 
+      if (data.tombstones && typeof data.tombstones === 'object') {
+        Object.values(data.tombstones).forEach((t: any) => {
+          if (t && t.id) saveLocalTombstone(t);
+        });
+      }
+      const allTombs = loadLocalTombstones();
+
       if (Array.isArray(data.accounts) && data.accounts.length > 0) {
         targetAccounts = data.accounts;
       }
@@ -3247,7 +4270,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         targetCategories = data.categories;
       }
       if (Array.isArray(data.transactions)) {
-        targetTxs = data.transactions;
+        targetTxs = data.transactions.filter(
+          (tx) =>
+            tx &&
+            tx.id &&
+            !isTransactionTombstoned(tx, allTombs, Number(tx.updatedAt || tx.createdAt || 0))
+        );
       }
 
       const syncedAccounts = syncAllAccountBalances(targetAccounts, targetTxs);
@@ -3256,7 +4284,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setCategories(targetCategories);
       setTransactions(targetTxs);
       if (Array.isArray(data.recurringTransactions)) {
-        setRecurringTransactions(data.recurringTransactions);
+        const localRecMap = new Map<string, RecurringTransaction>(
+          (recurringTransactionsRef.current || []).map((r) => [r.id, r])
+        );
+        const mergedRecs = data.recurringTransactions
+          .filter((r) => r && r.id && !allTombs[r.id])
+          .map((r) => mergeRecurringRuleWatermarks(r, localRecMap.get(r.id)));
+        setRecurringTransactions(mergedRecs);
       }
 
       if (data.settings && typeof data.settings === 'object') {
@@ -3509,17 +4543,38 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     const data = cloudBackup.data;
     isHydratingCloudRef.current = true;
+    if (data.tombstones && typeof data.tombstones === 'object') {
+      Object.values(data.tombstones).forEach((t: any) => {
+        if (t && t.id) saveLocalTombstone(t);
+      });
+    }
+    const allTombs = loadLocalTombstones();
+    const filteredTxs: Transaction[] = Array.isArray(data.transactions)
+      ? data.transactions.filter(
+          (tx: Transaction) =>
+            tx &&
+            tx.id &&
+            !isTransactionTombstoned(tx, allTombs, Number(tx.updatedAt || tx.createdAt || 0))
+        )
+      : transactionsRef.current;
+
     if (Array.isArray(data.accounts) && data.accounts.length > 0) {
-      setAccounts(syncAllAccountBalances(data.accounts, data.transactions || []));
+      setAccounts(syncAllAccountBalances(data.accounts, filteredTxs));
     }
     if (Array.isArray(data.categories) && data.categories.length > 0) {
       setCategories(data.categories);
     }
     if (Array.isArray(data.transactions)) {
-      setTransactions(data.transactions);
+      setTransactions(filteredTxs);
     }
     if (Array.isArray(data.recurringTransactions)) {
-      setRecurringTransactions(data.recurringTransactions);
+      const localRecMap = new Map<string, RecurringTransaction>(
+        (recurringTransactionsRef.current || []).map((r) => [r.id, r])
+      );
+      const mergedRecs = data.recurringTransactions
+        .filter((r: RecurringTransaction) => r && r.id && !allTombs[r.id])
+        .map((r: RecurringTransaction) => mergeRecurringRuleWatermarks(r, localRecMap.get(r.id)));
+      setRecurringTransactions(mergedRecs);
     }
     if (data.settings && typeof data.settings === 'object') {
       setSettings((prev) => ({
@@ -3631,22 +4686,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
       const mergedCategories = Array.from(catMap.values());
 
-      // 2. Transactions
+      // 2. Transactions (respecting both ID and occurrenceKey tombstones, deduplicating recurring occurrences)
       const localTxs = transactionsRef.current;
       const cloudTxs: Transaction[] = Array.isArray(d.transactions) ? d.transactions : [];
       const txMap = new Map<string, Transaction>();
+      const occMap = new Map<string, string>();
       [...localTxs, ...cloudTxs].forEach((t) => {
         if (!t || !t.id) return;
-        const tomb = allTombstones[t.id];
         const tUpdated = Number(t.updatedAt || t.createdAt || 0);
-        if (tomb && tomb.deletedAt > tUpdated) return;
+        if (isTransactionTombstoned(t, allTombstones, tUpdated)) return;
+
+        const tOccKey =
+          t.occurrenceKey ||
+          (t.recurringRuleId && t.date
+            ? buildOccurrenceKey(t.recurringRuleId, t.date, t.time || '09:00')
+            : undefined);
+
+        if (tOccKey && occMap.has(tOccKey) && occMap.get(tOccKey) !== t.id) {
+          const existingId = occMap.get(tOccKey)!;
+          const existingTx = txMap.get(existingId);
+          if (existingTx && tUpdated > Number(existingTx.updatedAt || existingTx.createdAt || 0)) {
+            txMap.delete(existingId);
+            txMap.set(t.id, { ...t, occurrenceKey: tOccKey });
+            occMap.set(tOccKey, t.id);
+          }
+          return;
+        }
+
         const existing = txMap.get(t.id);
         if (!existing || tUpdated > Number(existing.updatedAt || existing.createdAt || 0)) {
-          txMap.set(t.id, t);
+          txMap.set(t.id, tOccKey ? { ...t, occurrenceKey: tOccKey } : t);
+          if (tOccKey) occMap.set(tOccKey, t.id);
         }
       });
       const mergedTransactions = Array.from(txMap.values());
-      mergedTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      mergedTransactions.sort(compareTxChronologicallyDesc);
 
       // 3. Accounts
       const localAccs = accountsRef.current;
@@ -3665,7 +4739,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       let mergedAccounts = Array.from(accMap.values());
       mergedAccounts = syncAllAccountBalances(mergedAccounts, mergedTransactions);
 
-      // 4. Recurring Transactions
+      // 4. Recurring Transactions (preserving highest monotonic watermark)
       const localRecs = recurringTransactionsRef.current;
       const cloudRecs: RecurringTransaction[] = Array.isArray(d.recurringTransactions) ? d.recurringTransactions : [];
       const recMap = new Map<string, RecurringTransaction>();
@@ -3675,9 +4749,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const rUpdated = Number(r.updatedAt || r.createdAt || 0);
         if (tomb && tomb.deletedAt > rUpdated) return;
         const existing = recMap.get(r.id);
-        if (!existing || rUpdated > Number(existing.updatedAt || existing.createdAt || 0)) {
-          recMap.set(r.id, r);
-        }
+        recMap.set(r.id, mergeRecurringRuleWatermarks(r, existing));
       });
       const mergedRecurring = Array.from(recMap.values());
 

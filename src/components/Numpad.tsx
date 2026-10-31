@@ -8,6 +8,17 @@ interface NumpadProps {
 }
 
 export const Numpad: React.FC<NumpadProps> = ({ value, onChange, lang = 'en' }) => {
+  const preventKeyboardFocus = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
+    ) {
+      active.blur();
+    }
+  };
+
   const handleDigit = (digit: string) => {
     // If value is currently "0" or empty, replace with digit unless digit is "."
     if (value === '0' || value === '') {
@@ -64,6 +75,7 @@ export const Numpad: React.FC<NumpadProps> = ({ value, onChange, lang = 'en' }) 
       <div className="flex items-center justify-between gap-1.5 px-0.5">
         <button
           type="button"
+          onMouseDown={preventKeyboardFocus}
           onClick={handleClear}
           className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[11px] font-bold text-amber-400 hover:bg-zinc-850 active:scale-95 transition cursor-pointer"
         >
@@ -76,6 +88,7 @@ export const Numpad: React.FC<NumpadProps> = ({ value, onChange, lang = 'en' }) 
             <button
               key={amt}
               type="button"
+              onMouseDown={preventKeyboardFocus}
               onClick={() => handleQuickAdd(amt)}
               className="px-2.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[11px] font-mono font-bold text-zinc-300 hover:text-white hover:bg-zinc-850 active:scale-95 transition cursor-pointer"
             >
@@ -92,6 +105,7 @@ export const Numpad: React.FC<NumpadProps> = ({ value, onChange, lang = 'en' }) 
           <button
             key={d}
             type="button"
+            onMouseDown={preventKeyboardFocus}
             onClick={() => handleDigit(d)}
             className="h-12 sm:h-13 flex items-center justify-center rounded-2xl bg-zinc-900 border border-zinc-800 text-xl font-bold font-mono text-white hover:bg-zinc-850 active:scale-95 active:bg-zinc-800 transition shadow-sm cursor-pointer"
           >
@@ -104,6 +118,7 @@ export const Numpad: React.FC<NumpadProps> = ({ value, onChange, lang = 'en' }) 
           <button
             key={d}
             type="button"
+            onMouseDown={preventKeyboardFocus}
             onClick={() => handleDigit(d)}
             className="h-12 sm:h-13 flex items-center justify-center rounded-2xl bg-zinc-900 border border-zinc-800 text-xl font-bold font-mono text-white hover:bg-zinc-850 active:scale-95 active:bg-zinc-800 transition shadow-sm cursor-pointer"
           >
@@ -116,6 +131,7 @@ export const Numpad: React.FC<NumpadProps> = ({ value, onChange, lang = 'en' }) 
           <button
             key={d}
             type="button"
+            onMouseDown={preventKeyboardFocus}
             onClick={() => handleDigit(d)}
             className="h-12 sm:h-13 flex items-center justify-center rounded-2xl bg-zinc-900 border border-zinc-800 text-xl font-bold font-mono text-white hover:bg-zinc-850 active:scale-95 active:bg-zinc-800 transition shadow-sm cursor-pointer"
           >
@@ -126,6 +142,7 @@ export const Numpad: React.FC<NumpadProps> = ({ value, onChange, lang = 'en' }) 
         {/* Row 4: Decimal (.), 0 (Normal 1-col size), Backspace (⌫) */}
         <button
           type="button"
+          onMouseDown={preventKeyboardFocus}
           onClick={handleDecimal}
           className="h-12 sm:h-13 flex items-center justify-center rounded-2xl bg-zinc-900 border border-zinc-800 text-2xl font-bold font-mono text-zinc-300 hover:text-white hover:bg-zinc-850 active:scale-95 active:bg-zinc-800 transition shadow-sm cursor-pointer"
         >
@@ -134,6 +151,7 @@ export const Numpad: React.FC<NumpadProps> = ({ value, onChange, lang = 'en' }) 
 
         <button
           type="button"
+          onMouseDown={preventKeyboardFocus}
           onClick={() => handleDigit('0')}
           className="h-12 sm:h-13 flex items-center justify-center rounded-2xl bg-zinc-900 border border-zinc-800 text-xl font-bold font-mono text-white hover:bg-zinc-850 active:scale-95 active:bg-zinc-800 transition shadow-sm cursor-pointer"
         >
@@ -142,6 +160,7 @@ export const Numpad: React.FC<NumpadProps> = ({ value, onChange, lang = 'en' }) 
 
         <button
           type="button"
+          onMouseDown={preventKeyboardFocus}
           onClick={handleBackspace}
           aria-label="Backspace"
           className="h-12 sm:h-13 flex items-center justify-center rounded-2xl bg-zinc-850 border border-zinc-750 text-zinc-300 hover:text-red-400 hover:bg-zinc-800 active:scale-95 active:bg-zinc-700 transition shadow-sm cursor-pointer"

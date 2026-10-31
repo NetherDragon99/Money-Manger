@@ -31,7 +31,6 @@ export const PasscodeVerificationModal: React.FC<PasscodeVerificationModalProps>
   const [errorShake, setErrorShake] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const inputRef = useRef<HTMLInputElement>(null);
   const isVerifyingRef = useRef(false);
 
   const security = loadSecuritySettings();
@@ -42,7 +41,9 @@ export const PasscodeVerificationModal: React.FC<PasscodeVerificationModalProps>
       setErrorShake(false);
       setErrorMessage('');
       isVerifyingRef.current = false;
-      inputRef.current?.focus();
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
     }
   }, [isOpen]);
 
@@ -113,29 +114,9 @@ export const PasscodeVerificationModal: React.FC<PasscodeVerificationModalProps>
       <div
         onClick={(e) => {
           e.stopPropagation();
-          inputRef.current?.focus();
         }}
         className="w-full max-w-sm rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl p-5 text-white animate-in zoom-in-95 duration-150 flex flex-col items-center"
       >
-        {/* Hidden Input for Keyboard Access */}
-        <input
-          ref={inputRef}
-          type="password"
-          inputMode="numeric"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck="false"
-          pattern="[0-9]*"
-          maxLength={4}
-          value={pin}
-          onChange={(e) => {
-            const clean = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
-            setPin(clean);
-          }}
-          className="opacity-0 absolute -z-10 w-0 h-0 pointer-events-none"
-          aria-label={isArabic ? 'رمز المرور' : 'Passcode'}
-        />
-
         {/* Header */}
         <div className="w-full flex items-center justify-between pb-2 border-b border-zinc-800/80">
           <div className="flex items-center gap-2">
@@ -160,7 +141,12 @@ export const PasscodeVerificationModal: React.FC<PasscodeVerificationModalProps>
         )}
 
         {/* Dots with instant <=100ms transition */}
-        <div className="flex items-center gap-4 my-5">
+        <div
+          className="flex items-center gap-4 my-5"
+          role="status"
+          aria-live="polite"
+          aria-label={isArabic ? `تم إدخال ${pin.length} من 4 أرقام` : `${pin.length} of 4 digits entered`}
+        >
           {[0, 1, 2, 3].map((idx) => {
             const filled = idx < pin.length;
             return (
@@ -191,6 +177,7 @@ export const PasscodeVerificationModal: React.FC<PasscodeVerificationModalProps>
               <button
                 key={num}
                 type="button"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleKeyPress(num);
@@ -205,6 +192,7 @@ export const PasscodeVerificationModal: React.FC<PasscodeVerificationModalProps>
 
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 e.stopPropagation();
                 handleKeyPress('0');
@@ -216,6 +204,7 @@ export const PasscodeVerificationModal: React.FC<PasscodeVerificationModalProps>
 
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 e.stopPropagation();
                 handleDelete();
