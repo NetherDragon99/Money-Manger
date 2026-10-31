@@ -17,19 +17,14 @@ import {
 } from '../utils/dateCycle';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
 
-// Vibrant Palette for Donut slices
-const DONUT_COLORS = [
-  '#3b82f6', // blue
-  '#ef4444', // red
-  '#10b981', // emerald
-  '#f59e0b', // amber
-  '#8b5cf6', // purple
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#f97316', // orange
-  '#14b8a6', // teal
-  '#6366f1', // indigo
-];
+import {
+  getCategoryChartColor,
+  computeLargestRemainderPercentages,
+  CURATED_CHART_PALETTE,
+} from '../utils/chartColors';
+
+// Export for backwards compatibility
+export const DONUT_COLORS = [...CURATED_CHART_PALETTE];
 
 export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
   const { accounts, transactions, settings, setIsSidebarOpen, t } = useApp();
@@ -61,8 +56,10 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
     let inc = 0;
     let exp = 0;
     for (const tx of cycleTransactions) {
-      if (tx.type === 'income') inc += tx.amount;
-      if (tx.type === 'expense') exp += tx.amount;
+      const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
+      const effectiveTotal = tx.amount + tax;
+      if (tx.type === 'income') inc += effectiveTotal;
+      if (tx.type === 'expense') exp += effectiveTotal;
     }
     const bal = accounts.filter((a) => !a.isPrivate).reduce((sum, a) => sum + a.balance, 0);
     return {
@@ -89,7 +86,9 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
 
     for (const tx of cycleTransactions) {
       if (tx.type === targetType && !isManualAdjustment(tx)) {
-        totalAmount += tx.amount;
+        const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
+        const effectiveTotal = tx.amount + tax;
+        totalAmount += effectiveTotal;
         const key = tx.categoryId || tx.categoryName || 'Unknown';
         const existing = map.get(key) || {
           id: key,
@@ -98,18 +97,21 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
           amount: 0,
           count: 0,
         };
-        existing.amount += tx.amount;
+        existing.amount += effectiveTotal;
         existing.count += 1;
         map.set(key, existing);
       }
     }
 
-    const list = Array.from(map.values())
-      .map((item) => ({
-        ...item,
-        percentage: totalAmount > 0 ? (item.amount / totalAmount) * 100 : 0,
-      }))
-      .sort((a, b) => b.amount - a.amount);
+    const sorted = Array.from(map.values()).sort((a, b) => b.amount - a.amount);
+    const amounts = sorted.map((item) => item.amount);
+    const roundedPercentages = computeLargestRemainderPercentages(amounts, totalAmount);
+
+    const list = sorted.map((item, idx) => ({
+      ...item,
+      percentage: roundedPercentages[idx],
+      color: getCategoryChartColor(idx, sorted.length),
+    }));
 
     return { list, totalAmount };
   };
@@ -120,24 +122,38 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
   const categoryAnalytics = activeAnalysisType === 'expense' ? expenseAnalytics : incomeAnalytics;
 
   // Helper to compute Donut paths for an analytics list
-  const computeDonutPaths = (analytics: { list: any[]; totalAmount: number }) => {
+  const computeDonutPaths = (analytics: {
+    list: Array<{
+      id: string;
+      name: string;
+      amount: number;
+      percentage: number;
+      color: string;
+    }>;
+    totalAmount: number;
+  }) => {
     if (analytics.totalAmount === 0 || analytics.list.length === 0) return [];
     const r = 64;
     const circ = 2 * Math.PI * r;
-    let accumulatedAngle = 0;
+    let accumulatedLength = 0;
 
-    return analytics.list.slice(0, 5).map((item, idx) => {
-      const sliceFraction = item.amount / analytics.totalAmount;
+    // Draw ALL active categories from the list as distinct colored SVG arcs summing to exactly 100%
+    return analytics.list.map((item, idx) => {
+      const sliceFraction = item.percentage / 100;
       const strokeLength = sliceFraction * circ;
-      const strokeDashoffset = -accumulatedAngle;
-      accumulatedAngle += strokeLength;
+      const strokeDashoffset = -accumulatedLength;
+      accumulatedLength += strokeLength;
 
       return {
+        id: item.id || `slice_${idx}`,
+        name: item.name,
         pathData: `M 80 16 A ${r} ${r} 0 1 1 79.99 16`,
-        strokeDasharray: `${strokeLength} ${circ - strokeLength}`,
+        strokeDasharray: `${strokeLength} ${Math.max(0, circ - strokeLength)}`,
         strokeDashoffset,
-        color: DONUT_COLORS[idx % DONUT_COLORS.length],
+        color: item.color,
         strokeWidth: 24,
+        strokeLinecap: analytics.list.length === 1 ? ('round' as const) : ('butt' as const),
+        percentage: item.percentage,
       };
     });
   };
@@ -161,8 +177,10 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
       else if (day >= 15 && day <= 21) pIdx = 2;
       else pIdx = 3;
 
-      if (tx.type === 'income') periods[pIdx].income += tx.amount;
-      if (tx.type === 'expense') periods[pIdx].expense += tx.amount;
+      const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
+      const effectiveTotal = tx.amount + tax;
+      if (tx.type === 'income') periods[pIdx].income += effectiveTotal;
+      if (tx.type === 'expense') periods[pIdx].expense += effectiveTotal;
     }
 
     const maxVal = Math.max(
@@ -173,51 +191,7 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
     return { periods, maxVal };
   }, [cycleTransactions]);
 
-  // SVG Donut Path Builder
-  const donutPaths = useMemo(() => {
-    const { list, totalAmount } = categoryAnalytics;
-    if (totalAmount === 0 || list.length === 0) return [];
-
-    let currentAngle = 0;
-    const size = 160;
-    const center = size / 2;
-    const radius = 64;
-    const strokeWidth = 24;
-
-    return list.map((item, index) => {
-      const angle = (item.amount / totalAmount) * 360;
-      const startAngle = currentAngle;
-      const endAngle = currentAngle + angle;
-      currentAngle = endAngle;
-
-      // Arc coordinates
-      const startRad = ((startAngle - 90) * Math.PI) / 180;
-      const endRad = ((endAngle - 90) * Math.PI) / 180;
-
-      const x1 = center + radius * Math.cos(startRad);
-      const y1 = center + radius * Math.sin(startRad);
-      const x2 = center + radius * Math.cos(endRad);
-      const y2 = center + radius * Math.sin(endRad);
-
-      const largeArcFlag = angle > 180 ? 1 : 0;
-      const pathData =
-        angle >= 359.9
-          ? `M ${center} ${center - radius} A ${radius} ${radius} 0 1 1 ${center - 0.001} ${center - radius}`
-          : `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`;
-
-      return {
-        pathData,
-        color: DONUT_COLORS[index % DONUT_COLORS.length],
-        item,
-        strokeWidth,
-      };
-    });
-  }, [categoryAnalytics]);
-
   const currencySymbol = settings.currencySymbol || '£';
-  const displayedCategories = showAllCategories
-    ? categoryAnalytics.list
-    : categoryAnalytics.list.slice(0, 3);
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
@@ -340,7 +314,7 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
                             {item.name}
                           </div>
                           <div className="text-[10px] text-zinc-400 mt-0.5">
-                            {item.count} {t('transactionsCount')} • {item.percentage.toFixed(1)}%
+                            {item.count} {t('transactionsCount')} • {item.percentage}%
                           </div>
                         </div>
                       </div>
@@ -380,16 +354,18 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
                   <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
                     <svg width="170" height="170" viewBox="0 0 160 160" className="transform -rotate-90">
                       <circle cx="80" cy="80" r="64" fill="none" stroke="#18181b" strokeWidth="24" />
-                      {expenseDonutPaths.map((slice, i) => (
-                        <path
-                          key={i}
-                          d={slice.pathData}
+                      {expenseDonutPaths.map((slice) => (
+                        <circle
+                          key={slice.id}
+                          cx="80"
+                          cy="80"
+                          r="64"
                           fill="none"
                           stroke={slice.color}
                           strokeWidth={slice.strokeWidth}
                           strokeDasharray={slice.strokeDasharray}
                           strokeDashoffset={slice.strokeDashoffset}
-                          strokeLinecap="round"
+                          strokeLinecap={slice.strokeLinecap}
                           className="transition-all duration-500"
                         />
                       ))}
@@ -403,17 +379,17 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
                   </div>
 
                   <div className="flex-1 w-full space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {expenseAnalytics.list.map((cat, idx) => (
+                    {expenseAnalytics.list.map((cat) => (
                       <div key={cat.id} className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2 min-w-0">
                           <span
                             className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}
+                            style={{ backgroundColor: cat.color }}
                           />
                           <span className="text-zinc-300 truncate max-w-[120px]">{cat.name}</span>
                         </div>
                         <div className="font-mono text-zinc-400 font-semibold shrink-0 pl-2">
-                          {formatCurrency(cat.amount, currencySymbol)} ({cat.percentage.toFixed(0)}%)
+                          {formatCurrency(cat.amount, currencySymbol)} ({cat.percentage}%)
                         </div>
                       </div>
                     ))}
@@ -455,7 +431,7 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
                             {item.name}
                           </div>
                           <div className="text-[10px] text-zinc-400 mt-0.5">
-                            {item.count} {t('transactionsCount')} • {item.percentage.toFixed(1)}%
+                            {item.count} {t('transactionsCount')} • {item.percentage}%
                           </div>
                         </div>
                       </div>
@@ -495,16 +471,18 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
                   <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
                     <svg width="170" height="170" viewBox="0 0 160 160" className="transform -rotate-90">
                       <circle cx="80" cy="80" r="64" fill="none" stroke="#18181b" strokeWidth="24" />
-                      {incomeDonutPaths.map((slice, i) => (
-                        <path
-                          key={i}
-                          d={slice.pathData}
+                      {incomeDonutPaths.map((slice) => (
+                        <circle
+                          key={slice.id}
+                          cx="80"
+                          cy="80"
+                          r="64"
                           fill="none"
                           stroke={slice.color}
                           strokeWidth={slice.strokeWidth}
                           strokeDasharray={slice.strokeDasharray}
                           strokeDashoffset={slice.strokeDashoffset}
-                          strokeLinecap="round"
+                          strokeLinecap={slice.strokeLinecap}
                           className="transition-all duration-500"
                         />
                       ))}
@@ -518,17 +496,17 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
                   </div>
 
                   <div className="flex-1 w-full space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {incomeAnalytics.list.map((cat, idx) => (
+                    {incomeAnalytics.list.map((cat) => (
                       <div key={cat.id} className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2 min-w-0">
                           <span
                             className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}
+                            style={{ backgroundColor: cat.color }}
                           />
                           <span className="text-zinc-300 truncate max-w-[120px]">{cat.name}</span>
                         </div>
                         <div className="font-mono text-zinc-400 font-semibold shrink-0 pl-2">
-                          {formatCurrency(cat.amount, currencySymbol)} ({cat.percentage.toFixed(0)}%)
+                          {formatCurrency(cat.amount, currencySymbol)} ({cat.percentage}%)
                         </div>
                       </div>
                     ))}

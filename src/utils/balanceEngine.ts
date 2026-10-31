@@ -25,14 +25,18 @@ export function getAccountTransactions(accountId: string, transactions: Transact
 }
 
 /**
- * Computes net delta for an account from a single transaction
+ * Computes net delta for an account from a single transaction.
+ * For regular expenses and incomes, includes any optional taxAmount in the effective total.
  */
 export function getTransactionDeltaForAccount(tx: Transaction, accountId: string): number {
+  const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
+  const effectiveTotal = tx.amount + tax;
+
   if (tx.type === 'income') {
-    return tx.accountId === accountId ? tx.amount : 0;
+    return tx.accountId === accountId ? effectiveTotal : 0;
   }
   if (tx.type === 'expense') {
-    return tx.accountId === accountId ? -tx.amount : 0;
+    return tx.accountId === accountId ? -effectiveTotal : 0;
   }
   if (tx.type === 'transfer') {
     if (tx.accountId === accountId) {

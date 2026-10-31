@@ -120,6 +120,9 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({
     amountColorClass = 'text-blue-400';
   }
 
+  const tax = typeof transaction.taxAmount === 'number' && !isNaN(transaction.taxAmount) ? Math.max(0, transaction.taxAmount) : 0;
+  const effectiveAmount = transaction.amount + tax;
+
   return (
     <div
       {...handlers}
@@ -185,8 +188,13 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({
         {/* Right: Amount */}
         <div className="text-right rtl:text-left shrink-0 pl-2 rtl:pr-2">
           <div className={`text-sm font-mono font-bold ${amountColorClass}`}>
-            {amountSign}{formatCurrency(transaction.amount, currencySymbol, settings.language)}
+            {amountSign}{formatCurrency(effectiveAmount, currencySymbol, settings.language)}
           </div>
+          {tax > 0 && (
+            <div className="text-[10px] text-zinc-400 font-mono">
+              ({formatCurrency(transaction.amount, currencySymbol, settings.language)} + {formatCurrency(tax, currencySymbol, settings.language)})
+            </div>
+          )}
         </div>
       </div>
     </div>

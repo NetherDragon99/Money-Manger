@@ -5,7 +5,7 @@
 
 import { IS_BETA_BUILD, APP_CHANNEL, STABLE_BASE_URL } from './channel';
 
-export const CURRENT_APP_VERSION = '1.1.65';
+export const CURRENT_APP_VERSION = '1.1.66';
 const BACKUP_VERSION_ENDPOINT = 'NetherDragon99/Money-Manger';
 const AUTO_UPDATE_STORAGE_KEY = 'mm_auto_update_enabled';
 

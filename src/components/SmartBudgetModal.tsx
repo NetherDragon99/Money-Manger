@@ -27,6 +27,7 @@ import {
   AlertCircle,
   CheckCircle2,
   TrendingUp,
+  TrendingDown,
   RefreshCw,
   Wallet,
   PiggyBank,
@@ -53,6 +54,7 @@ import {
 import {
   PoolAllocationConfig,
   SmartBudgetBaselineConfig,
+  SmartBudgetCycleOverride,
 } from '../types';
 import {
   hasAIConsent,
@@ -60,10 +62,13 @@ import {
   getAIMonthlyUsage,
   AI_CONSENT_DISCLOSURE,
   suggestSalaryAllocation,
-  evaluatePeriodicHealthAndWhatIf,
   clearAICache,
   hasAIAccess,
   isManagedBackendOrProxyAvailable,
+  testConnection,
+  ConnectionTestResult,
+  requestSmartBudgetAdvice,
+  SmartBudgetAdviceResult,
 } from '../utils/smartBudgetAI';
 import {
   getLocalGeminiApiKey,
@@ -196,9 +201,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   // TAB 1: THIS MONTH & REBALANCE STATE
   // ==========================================================================
   const [whatIfAmount, setWhatIfAmount] = useState<string>('');
-  const [whatIfPool, setWhatIfPool] = useState<'daily' | 'outings'>('outings');
-  const [aiWhatIfAdvice, setAiWhatIfAdvice] = useState<string | null>(null);
-  const [isAskingAI, setIsAskingAI] = useState<boolean>(false);
+  const [whatIfPool, setWhatIfPool] = useState<'daily' | 'outings' | 'fixed' | 'oneoff'>('outings');
 
   // ==========================================================================
   // TAB 2: BASELINE PLAN DRAFT STATE & 4-POOL ALLOCATION
@@ -217,7 +220,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     outings: string | null;
   }>({ savings: null, fixed: null, outings: null });
 
-  const savingsMinPercent = 10;
+  const savingsMinPercent = 0;
   const [headsUpThresholdPercent, setHeadsUpThresholdPercent] = useState<number>(() =>
     Math.round(((baselineSettings.headsUpThresholdRatio ?? 0.7) * 100))
   );
@@ -318,12 +321,14 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   const [isEditingKey, setIsEditingKey] = useState<boolean>(false);
   const [monthlyUsage, setMonthlyUsage] = useState(() => getAIMonthlyUsage());
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
-  const [connectionTestResult, setConnectionTestResult] = useState<'success' | 'error' | null>(null);
+  const [connectionTestResult, setConnectionTestResult] = useState<ConnectionTestResult | null>(null);
   const [hasAIAccessState, setHasAIAccessState] = useState<boolean>(false);
   const [managedAiAvailable, setManagedAiAvailable] = useState<boolean>(() =>
     isManagedBackendOrProxyAvailable()
   );
   const [showAdvancedKeySection, setShowAdvancedKeySection] = useState<boolean>(false);
+  const [adviceData, setAdviceData] = useState<SmartBudgetAdviceResult | null>(null);
+  const [isLoadingAdvice, setIsLoadingAdvice] = useState<boolean>(false);
 
   // Refresh AI key & metrics when tab opens
   useEffect(() => {
@@ -406,6 +411,47 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
   const currentCycleKey = evaluation.cycle.startDate; // YYYY-MM-DD
   const currentOverride = resolveCycleOverride(settings.smartBudget?.overrides, currentCycleKey);
+
+  const totalCycleExpensesBeforeTodayMajor = useMemo(() => {
+    const todayStr = evaluation.dailyStatus.asOfDate;
+    const baseCurr = evaluation.baseCurrency;
+    return transactions
+      .filter((tx) => {
+        if (!tx || !tx.date || tx.type !== 'expense' || tx.isAdjustment || tx.isUneditable) return false;
+        const d = tx.date.split('T')[0].trim();
+        if (d < evaluation.cycle.startDate || d >= todayStr) return false;
+        const acc = accounts.find((a) => a.id === tx.accountId);
+        if (acc?.currency && acc.currency !== baseCurr) return false;
+        return true;
+      })
+      .reduce((sum, tx) => sum + (tx.amount || 0), 0);
+  }, [transactions, accounts, evaluation.cycle.startDate, evaluation.dailyStatus.asOfDate, evaluation.baseCurrency]);
+
+  const defaultRemainingMoney = useMemo(() => {
+    const planned = currentOverride?.plannedIncome ?? (baselineSettings.plannedIncome || (incomeMinor / 100));
+    return Math.max(0, Math.round((planned - totalCycleExpensesBeforeTodayMajor) * 100) / 100);
+  }, [currentOverride?.plannedIncome, baselineSettings.plannedIncome, incomeMinor, totalCycleExpensesBeforeTodayMajor]);
+
+  const activeCycleMode: 'full_cycle' | 'from_today' =
+    currentOverride?.calculationMode ||
+    (evaluation.dailyStatus.cycleDayIndex > 1 ? 'from_today' : 'full_cycle');
+
+  const isCyclePaused = Boolean(currentOverride?.isPaused);
+
+  const [moneyLeftInput, setMoneyLeftInput] = useState<string>(() => {
+    if (currentOverride?.fromTodayConfig?.remainingMoney != null) {
+      return formatNumberWithCommas(currentOverride.fromTodayConfig.remainingMoney, 2);
+    }
+    return formatNumberWithCommas(defaultRemainingMoney, 2);
+  });
+
+  useEffect(() => {
+    if (currentOverride?.fromTodayConfig?.remainingMoney != null) {
+      setMoneyLeftInput(formatNumberWithCommas(currentOverride.fromTodayConfig.remainingMoney, 2));
+    } else {
+      setMoneyLeftInput(formatNumberWithCommas(defaultRemainingMoney, 2));
+    }
+  }, [currentOverride?.fromTodayConfig?.remainingMoney, defaultRemainingMoney]);
 
   if (!isOpen) return null;
 
@@ -567,13 +613,8 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       const maxMinor = Math.max(0, targetIncomeMinor - otherMinor);
       const maxPct = Math.round(((maxMinor / targetIncomeMinor) * 100) * 10) / 10;
 
-      let clampedPct = val;
+      let clampedPct = Math.max(0, val);
       let hint: string | null = null;
-
-      if (poolKey === 'savings' && clampedPct < savingsMinPercent) {
-        clampedPct = Math.min(savingsMinPercent, maxPct);
-        hint = t('minSavingsHint').replace('{min}', String(savingsMinPercent));
-      }
 
       if (clampedPct > maxPct) {
         clampedPct = maxPct;
@@ -640,11 +681,6 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       hint = t('maxAllowedPoolHint')
         .replace('{amount}', formatCurrency(maxMinor / 100, currency))
         .replace('{percent}', String(maxPct));
-    } else if (
-      poolKey === 'savings' &&
-      valMinor < Math.round(targetIncomeMinor * (savingsMinPercent / 100))
-    ) {
-      hint = t('minSavingsHint').replace('{min}', String(savingsMinPercent));
     }
 
     setHintsFn((h) => ({ ...h, [poolKey]: hint }));
@@ -693,17 +729,11 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
   const applyDualAmountBlur = (
     poolKey: 'savings' | 'fixed' | 'outings',
-    targetIncomeMinor: number,
+    _targetIncomeMinor: number,
     setPoolsFn: React.Dispatch<React.SetStateAction<PoolsState>>
   ) => {
     setPoolsFn((prev) => {
-      let minor = prev[poolKey].minorUnits;
-      if (poolKey === 'savings' && targetIncomeMinor > 0) {
-        const minMinor = Math.round(targetIncomeMinor * (savingsMinPercent / 100));
-        if (minor < minMinor) {
-          minor = minMinor;
-        }
-      }
+      const minor = Math.max(0, prev[poolKey].minorUnits);
       return {
         ...prev,
         [poolKey]: {
@@ -805,11 +835,29 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   // ==========================================================================
   // ACTIONS: REBALANCE SCENARIOS
   // ==========================================================================
-  const handleApplyScenario = (scenarioId: 'A' | 'B' | 'C') => {
+  const topOverspendCategories = useMemo(() => {
+    return (evaluation.topOverspendCategories || []).map((item) => {
+      const cat = categories.find((c) => c.id === item.categoryId);
+      return {
+        ...item,
+        name:
+          cat?.name ||
+          (item.categoryId === 'uncategorized'
+            ? isArabic
+              ? 'غير مصنف'
+              : 'Uncategorized'
+            : item.categoryId),
+        icon: cat?.icon || '📁',
+      };
+    });
+  }, [evaluation.topOverspendCategories, categories, isArabic]);
+
+  const handleApplyScenario = (scenarioId: string) => {
     const newOverrides = {
       ...(settings.smartBudget?.overrides || {}),
       [currentCycleKey]: {
-        appliedScenario: scenarioId,
+        ...(settings.smartBudget?.overrides?.[currentCycleKey] || {}),
+        appliedScenario: scenarioId as any,
         appliedAt: Date.now(),
       },
     };
@@ -842,6 +890,88 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
     setIsEditingCustomPlan(false);
     showToast(t('scenarioRevertedSuccess'), 'info');
+  };
+
+  const handleToggleCyclePause = () => {
+    const nextPaused = !isCyclePaused;
+    const newOverride: SmartBudgetCycleOverride = {
+      ...(currentOverride || {}),
+      isPaused: nextPaused,
+    };
+    const newOverrides = {
+      ...(settings.smartBudget?.overrides || {}),
+      [currentCycleKey]: newOverride,
+    };
+    updateSettings({
+      smartBudget: {
+        baseline: settings.smartBudget?.baseline || {},
+        overrides: newOverrides,
+        adjustments: settings.smartBudget?.adjustments,
+        updatedAt: Date.now(),
+      },
+    });
+  };
+
+  const handleSetCalculationMode = (newMode: 'full_cycle' | 'from_today') => {
+    const numMoneyLeft = parseFloat(moneyLeftInput.replace(/,/g, '')) || defaultRemainingMoney;
+    const newOverride: SmartBudgetCycleOverride = {
+      ...(currentOverride || {}),
+      calculationMode: newMode,
+      fromTodayConfig:
+        newMode === 'from_today'
+          ? {
+              fromDate: currentOverride?.fromTodayConfig?.fromDate || evaluation.dailyStatus.asOfDate,
+              remainingMoney: Math.max(0, numMoneyLeft),
+              remainingMoneyMinor: Math.round(Math.max(0, numMoneyLeft) * 100),
+            }
+          : undefined,
+    };
+    const newOverrides = {
+      ...(settings.smartBudget?.overrides || {}),
+      [currentCycleKey]: newOverride,
+    };
+    updateSettings({
+      smartBudget: {
+        baseline: settings.smartBudget?.baseline || {},
+        overrides: newOverrides,
+        adjustments: settings.smartBudget?.adjustments,
+        updatedAt: Date.now(),
+      },
+    });
+  };
+
+  const handleMoneyLeftChange = (raw: string, inputEl: HTMLInputElement | null) => {
+    formatIncomeWithCaret(raw, inputEl, setMoneyLeftInput);
+  };
+
+  const handleMoneyLeftBlur = () => {
+    const cleaned = moneyLeftInput.replace(/[^0-9.]/g, '');
+    const num = Math.max(0, parseFloat(cleaned) || 0);
+    setMoneyLeftInput(formatNumberWithCommas(num, 2));
+
+    if (activeCycleMode === 'from_today') {
+      const newOverride: SmartBudgetCycleOverride = {
+        ...(currentOverride || {}),
+        calculationMode: 'from_today',
+        fromTodayConfig: {
+          fromDate: currentOverride?.fromTodayConfig?.fromDate || evaluation.dailyStatus.asOfDate,
+          remainingMoney: num,
+          remainingMoneyMinor: Math.round(num * 100),
+        },
+      };
+      const newOverrides = {
+        ...(settings.smartBudget?.overrides || {}),
+        [currentCycleKey]: newOverride,
+      };
+      updateSettings({
+        smartBudget: {
+          baseline: settings.smartBudget?.baseline || {},
+          overrides: newOverrides,
+          adjustments: settings.smartBudget?.adjustments,
+          updatedAt: Date.now(),
+        },
+      });
+    }
   };
 
   // ==========================================================================
@@ -1028,40 +1158,90 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   };
 
   // ==========================================================================
-  // ACTIONS: WHAT-IF SIMULATION WITH AI
+  // ACTIONS: 100% INSTANT CLIENT-SIDE DETERMINISTIC WHAT-IF SIMULATION
   // ==========================================================================
-  const simulatedExpenseNumber = parseFloat(whatIfAmount) || 0;
-  const instantProjectedAllowance = evaluation.projectedDailyAllowanceAfterSpend(
-    simulatedExpenseNumber,
-    whatIfPool === 'outings' ? 'outings' : 'daily'
-  );
+  const simulatedExpenseNumber = Math.max(0, parseFloat(whatIfAmount.replace(/,/g, '')) || 0);
 
-  const handleAskAIWhatIf = async () => {
-    setIsAskingAI(true);
-    setAiWhatIfAdvice(null);
-    try {
-      const advice = await evaluatePeriodicHealthAndWhatIf({
-        cycleLength: evaluation.cycle.length,
-        daysRemaining: evaluation.dailyStatus.remainingDaysInCycle,
-        cycleProgressPercent: Math.round(
-          (evaluation.dailyStatus.cycleDayIndex / evaluation.cycle.length) * 100
-        ),
-        dailyPoolRemainingMinor: evaluation.pools.daily.remainingMinor,
-        dailySuggestedRateMinor: evaluation.dailyStatus.todayAllowanceMinor,
-        outingsRemainingMinor: evaluation.pools.outings.remainingMinor,
-        emergencySpentMinor: evaluation.pools.savings.spentMinor,
-        currency,
-        whatIfExtraExpenseMinor: Math.round(simulatedExpenseNumber * 100),
-        whatIfPool,
-        language: isArabic ? 'ar' : 'en',
-      });
-      setAiWhatIfAdvice(advice.whatIfAnalysis || advice.adviceText);
-    } catch {
-      showToast(t('errorOccurred'), 'error');
-    } finally {
-      setIsAskingAI(false);
+  const whatIfCalculation = useMemo(() => {
+    if (simulatedExpenseNumber <= 0) return null;
+
+    const remainingDaysInCycle = evaluation.dailyStatus.remainingDaysInCycle;
+    const isLastDay = remainingDaysInCycle <= 1;
+
+    let poolName = t('poolDaily');
+    let poolBefore = evaluation.pools.daily.remaining;
+    let poolAfter = poolBefore - simulatedExpenseNumber;
+    let spilloverToDaily = simulatedExpenseNumber;
+    let isCoveredByEmergency = false;
+
+    if (whatIfPool === 'outings') {
+      poolName = t('poolOutings');
+      poolBefore = evaluation.pools.outings.remaining;
+      poolAfter = poolBefore - simulatedExpenseNumber;
+      if (poolBefore > 0) {
+        spilloverToDaily = Math.max(0, simulatedExpenseNumber - poolBefore);
+      } else {
+        spilloverToDaily = simulatedExpenseNumber;
+      }
+    } else if (whatIfPool === 'fixed') {
+      poolName = t('poolFixed');
+      poolBefore = evaluation.pools.fixed.remaining;
+      poolAfter = poolBefore - simulatedExpenseNumber;
+      if (poolBefore > 0) {
+        spilloverToDaily = Math.max(0, simulatedExpenseNumber - poolBefore);
+      } else {
+        spilloverToDaily = simulatedExpenseNumber;
+      }
+    } else if (whatIfPool === 'daily') {
+      poolName = t('poolDaily');
+      poolBefore = evaluation.pools.daily.remaining;
+      poolAfter = poolBefore - simulatedExpenseNumber;
+      spilloverToDaily = simulatedExpenseNumber;
+    } else if (whatIfPool === 'oneoff') {
+      poolName = t('poolOneOff');
+      const emergencyCredit = evaluation.pools.savings.remainingEmergencyCredit;
+      poolBefore = emergencyCredit;
+      poolAfter = Math.max(0, emergencyCredit - simulatedExpenseNumber);
+      spilloverToDaily = 0;
+      isCoveredByEmergency = true;
     }
-  };
+
+    // Daily allowance before & after
+    const allowanceBefore = isLastDay
+      ? Math.max(0, evaluation.dailyStatus.todayRemaining)
+      : evaluation.dailyStatus.upcomingDailyAllowance;
+
+    let allowanceAfter = allowanceBefore;
+    let dailyImpact = 0;
+
+    if (whatIfPool === 'oneoff') {
+      allowanceAfter = allowanceBefore;
+      dailyImpact = 0;
+    } else if (isLastDay) {
+      allowanceAfter = Math.max(0, allowanceBefore - spilloverToDaily);
+      dailyImpact = allowanceAfter - allowanceBefore;
+    } else {
+      allowanceAfter = evaluation.projectedDailyAllowanceAfterSpend(
+        simulatedExpenseNumber,
+        whatIfPool,
+        evaluation.dailyStatus.asOfDate
+      );
+      dailyImpact = allowanceAfter - allowanceBefore;
+    }
+
+    return {
+      poolName,
+      poolBefore,
+      poolAfter,
+      spilloverToDaily,
+      isCoveredByEmergency,
+      isLastDay,
+      remainingDaysInCycle,
+      allowanceBefore,
+      allowanceAfter,
+      dailyImpact,
+    };
+  }, [simulatedExpenseNumber, whatIfPool, evaluation, t]);
 
   // ==========================================================================
   // ACTIONS: KEY & CONNECTION TEST
@@ -1088,24 +1268,112 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     setIsTestingConnection(true);
     setConnectionTestResult(null);
     try {
-      const testRes = await suggestSalaryAllocation({
-        plannedIncomeMajor: 10000,
-        fixedObligationsMajor: 3000,
-        savingsMinPercent: 10,
-        language: isArabic ? 'ar' : 'en',
-      });
-      if (testRes && testRes.source === 'ai') {
-        setConnectionTestResult('success');
+      const res = await testConnection(isArabic ? 'ar' : 'en');
+      setConnectionTestResult(res);
+      if (res.ok) {
         showToast(t('connectionSuccess'), 'success');
       } else {
-        setConnectionTestResult('error');
-        showToast(t('connectionFailed'), 'error');
+        showToast(isArabic ? res.messageAr : res.message, 'error');
       }
-    } catch {
-      setConnectionTestResult('error');
+    } catch (err: any) {
+      const fallbackRes: ConnectionTestResult = {
+        ok: false,
+        source: 'personal',
+        message: err?.message || 'Connection test failed',
+        messageAr: 'فشل اختبار الاتصال',
+      };
+      setConnectionTestResult(fallbackRes);
       showToast(t('connectionFailed'), 'error');
     } finally {
       setIsTestingConnection(false);
+      setMonthlyUsage(getAIMonthlyUsage());
+    }
+  };
+
+  const handleGetAdvice = async () => {
+    if (!aiConsentEnabled) {
+      showToast(t('aiAdvisorConsentRequired'), 'error');
+      return;
+    }
+    setIsLoadingAdvice(true);
+    try {
+      const todayStr = evaluation.dailyStatus.asOfDate;
+      const baseCurr = evaluation.baseCurrency;
+      const cycleStart = evaluation.cycle.startDate;
+      const cycleEnd = evaluation.cycle.endDate;
+      const isFromToday = evaluation.calculationMode === 'from_today';
+      const effectiveStart = isFromToday ? (evaluation.fromTodayConfig?.fromDate || todayStr) : cycleStart;
+
+      // Group cycle transactions by category (excluding transfers)
+      // Send ONLY aggregated numbers (category names capped at 30 chars, category totals, count, pool)
+      // ZERO notes, ZERO emails, ZERO account IDs/names
+      const catMap = new Map<string, { name: string; total: number; count: number; pool: string }>();
+
+      (transactions || []).forEach((tx) => {
+        if (!tx || !tx.date || tx.type !== 'expense' || tx.isAdjustment || tx.isUneditable) return;
+        const d = tx.date.split('T')[0].trim();
+        if (d < effectiveStart || d > cycleEnd) return;
+        const acc = accounts.find((a) => a.id === tx.accountId);
+        if (acc?.currency && acc.currency !== baseCurr) return;
+
+        const catId = tx.categoryId || 'uncategorized';
+        const cat = categories.find((c) => c.id === catId);
+        const rawName = cat?.name || (catId === 'uncategorized' ? (isArabic ? 'غير مصنف' : 'Uncategorized') : catId);
+        const sanitizedName = rawName.slice(0, 30).trim() || 'Category';
+
+        let pool = 'daily';
+        if (selectedFixedCatIds.includes(catId)) {
+          pool = 'fixed';
+        } else if ((cat as any)?.isOuting || /outing|entertainment|restaurant|خروج|ترفيه|مطعم/i.test(rawName)) {
+          pool = 'outings';
+        }
+
+        const existing = catMap.get(catId);
+        if (existing) {
+          existing.total += (tx.amount || 0);
+          existing.count += 1;
+        } else {
+          catMap.set(catId, {
+            name: sanitizedName,
+            total: tx.amount || 0,
+            count: 1,
+            pool,
+          });
+        }
+      });
+
+      const categoryList = Array.from(catMap.values())
+        .map((item) => ({
+          categoryName: item.name,
+          amountMajor: Math.round(item.total * 100) / 100,
+          count: item.count,
+          pool: item.pool,
+        }))
+        .sort((a, b) => b.amountMajor - a.amountMajor)
+        .slice(0, 10);
+
+      const hasDeficit = evaluation.rebalanceScenarios.hasDeficit;
+      const deficitOrSurplus = hasDeficit
+        ? -Math.abs(evaluation.rebalanceScenarios.deficit)
+        : Math.max(0, evaluation.pools.daily.remaining);
+
+      const advice = await requestSmartBudgetAdvice({
+        categoryTotals: categoryList,
+        cycleDeficitOrSurplusMajor: deficitOrSurplus,
+        isDeficit: hasDeficit,
+        remainingDays: evaluation.dailyStatus.remainingDaysInCycle,
+        totalCycleIncomeMajor: evaluation.pools.total.income,
+        totalCycleSpentMajor: evaluation.pools.total.spent,
+        currency,
+        language: isArabic ? 'ar' : 'en',
+      });
+
+      setAdviceData(advice);
+      showToast(t('updatedSuccess'), 'success');
+    } catch {
+      showToast(t('errorOccurred'), 'error');
+    } finally {
+      setIsLoadingAdvice(false);
       setMonthlyUsage(getAIMonthlyUsage());
     }
   };
@@ -1194,16 +1462,153 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
           {/* =============================================================== */}
           {activeTab === 'thisMonth' && (
             <div className="space-y-6">
-              {/* Calm Daily Allowance Card (3-State: Normal, Heads-up, True Deficit) */}
-              <div
-                className={`p-4 sm:p-5 rounded-3xl border shadow-xl relative overflow-hidden transition-colors ${
-                  evaluation.dailyStatus.allowanceState === 'true_deficit'
-                    ? 'bg-gradient-to-br from-red-950/50 via-zinc-900 to-zinc-900/90 border-red-500/40'
-                    : evaluation.dailyStatus.allowanceState === 'heads_up'
-                      ? 'bg-gradient-to-br from-amber-950/50 via-zinc-900 to-zinc-900/90 border-amber-500/40'
-                      : 'bg-gradient-to-br from-emerald-950/60 via-zinc-900 to-zinc-900/90 border-emerald-500/30'
-                }`}
-              >
+              {/* Active Cycle Controls: Mode (From Today vs Full Cycle) & Pause Toggle */}
+              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/80 border border-zinc-800 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Calendar className="w-4 h-4 text-blue-400 shrink-0" />
+                      <h4 className="text-xs sm:text-sm font-bold text-white truncate">
+                        {evaluation.cycle.label}
+                      </h4>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700">
+                        {currentCycleKey}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 mt-1">
+                      {isArabic
+                        ? `اليوم ${evaluation.dailyStatus.cycleDayIndex} من ${evaluation.dailyStatus.cycleLength} · متبقي ${evaluation.dailyStatus.remainingDaysInCycle} يوماً`
+                        : `Day ${evaluation.dailyStatus.cycleDayIndex} of ${evaluation.dailyStatus.cycleLength} · ${evaluation.dailyStatus.remainingDaysInCycle} days left`}
+                    </p>
+                  </div>
+
+                  {/* Pause Smart Budget for this month toggle */}
+                  <button
+                    type="button"
+                    onClick={handleToggleCyclePause}
+                    className={`min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs font-bold border transition flex items-center gap-2 cursor-pointer ${
+                      isCyclePaused
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                        : 'bg-zinc-800 hover:bg-zinc-750 text-zinc-300 border-zinc-700'
+                    }`}
+                  >
+                    <Shield className={`w-3.5 h-3.5 ${isCyclePaused ? 'text-amber-400' : 'text-zinc-400'}`} />
+                    <span>
+                      {isCyclePaused
+                        ? t('smartBudgetPausedBadge')
+                        : t('pauseSmartBudgetThisMonth')}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Calculation Mode Selector: Full Cycle vs. From Today */}
+                <div className="pt-2 border-t border-zinc-800/80 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-zinc-300">
+                      {t('calculationMode')}
+                    </span>
+                    <div className="inline-flex p-1 rounded-xl bg-zinc-950 border border-zinc-800">
+                      <button
+                        type="button"
+                        onClick={() => handleSetCalculationMode('from_today')}
+                        className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          activeCycleMode === 'from_today'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        {t('modeFromToday')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetCalculationMode('full_cycle')}
+                        className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          activeCycleMode === 'full_cycle'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        {t('modeFullCycle')}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Mode explanation & From Today inputs */}
+                  {activeCycleMode === 'from_today' ? (
+                    <div className="p-3 rounded-2xl bg-zinc-950/70 border border-blue-500/20 space-y-2">
+                      <div className="flex items-center justify-between text-[11px] text-zinc-400 flex-wrap gap-1">
+                        <span>{t('modeFromTodayDesc')}</span>
+                        <span className="font-mono text-blue-300 font-semibold">
+                          {evaluation.dailyStatus.asOfDate}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-zinc-200">
+                          {t('moneyLeftForRestOfCycle')}
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={moneyLeftInput}
+                            onChange={(e) => handleMoneyLeftChange(e.target.value, e.target)}
+                            onBlur={handleMoneyLeftBlur}
+                            placeholder="0.00"
+                            className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-900 border border-zinc-750 text-white font-mono text-sm focus:border-blue-500 focus:outline-none"
+                          />
+                          <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 font-mono pointer-events-none">
+                            {currency}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-zinc-400 leading-relaxed">
+                          {t('moneyLeftHelper')}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-zinc-400">
+                      {t('modeFullCycleDesc')}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Paused Status Banner */}
+              {isCyclePaused && (
+                <div className="p-4 sm:p-5 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-start justify-between gap-3 flex-wrap sm:flex-nowrap">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <Shield className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-amber-300">
+                        {t('smartBudgetPausedBadge')}
+                      </h4>
+                      <p className="text-xs text-amber-200/90 mt-1 leading-relaxed">
+                        {t('smartBudgetPausedMessage')}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleToggleCyclePause}
+                    className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs shrink-0 transition cursor-pointer"
+                  >
+                    {t('resumeSmartBudgetBtn')}
+                  </button>
+                </div>
+              )}
+
+              {/* Calm Daily Allowance Card (Hidden when Smart Budget is paused) */}
+              {!isCyclePaused && (
+                <div
+                  className={`p-4 sm:p-5 rounded-3xl border shadow-xl relative overflow-hidden transition-colors ${
+                    evaluation.dailyStatus.allowanceState === 'true_deficit'
+                      ? 'bg-gradient-to-br from-red-950/50 via-zinc-900 to-zinc-900/90 border-red-500/40'
+                      : evaluation.dailyStatus.allowanceState === 'heads_up'
+                        ? 'bg-gradient-to-br from-amber-950/50 via-zinc-900 to-zinc-900/90 border-amber-500/40'
+                        : 'bg-gradient-to-br from-emerald-950/60 via-zinc-900 to-zinc-900/90 border-emerald-500/30'
+                  }`}
+                >
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                   <span
                     className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
@@ -1348,6 +1753,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   </div>
                 )}
               </div>
+              )}
 
               {/* Single-Month Override: Custom Plan for This Month (`استثناء لشهر معين`) */}
               <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-3">
@@ -1423,7 +1829,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       <div className="grid grid-cols-2 gap-2.5 items-center">
                         <input
                           type="range"
-                          min={savingsMinPercent}
+                          min={0}
                           max={60}
                           step={0.5}
                           value={customPools.savings.percent}
@@ -1702,92 +2108,214 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                 </div>
               </div>
 
-              {/* What-If Simulator Card */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Zap className="w-4.5 h-4.5 text-amber-400" />
-                    <h4 className="text-xs sm:text-sm font-bold text-white">
-                      {t('whatIfSimulatorTitle')}
-                    </h4>
-                  </div>
-                </div>
+              {/* What-If Simulator & Rebalance Scenarios (Hidden when paused) */}
+              {!isCyclePaused && (
+                <>
+                  {/* What-If Simulator Card */}
+                  <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-4.5 h-4.5 text-amber-400" />
+                        <h4 className="text-xs sm:text-sm font-bold text-white">
+                          {t('whatIfSimulatorTitle')}
+                        </h4>
+                      </div>
+                    </div>
                 <p className="text-xs text-zinc-400">{t('whatIfSimulatorDesc')}</p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-3">
                   <div>
                     <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
                       {t('whatIfAmount')}
                     </label>
-                    <input
-                      type="number"
-                      value={whatIfAmount}
-                      onChange={(e) => setWhatIfAmount(e.target.value)}
-                      placeholder="e.g. 500"
-                      className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-emerald-500 focus:outline-none"
-                    />
+                    <div className="relative">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={whatIfAmount}
+                        onChange={(e) => setWhatIfAmount(e.target.value)}
+                        placeholder="e.g. 500"
+                        className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                      />
+                      <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-mono pointer-events-none">
+                        {currency}
+                      </span>
+                    </div>
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
+                    <label className="block text-[11px] font-semibold text-zinc-400 mb-1.5">
                       {t('whatIfPool')}
                     </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setWhatIfPool('outings')}
-                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition ${
-                          whatIfPool === 'outings'
-                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                            : 'bg-zinc-950 border-zinc-800 text-zinc-400'
-                        }`}
-                      >
-                        {t('poolOutings')}
-                      </button>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <button
                         type="button"
                         onClick={() => setWhatIfPool('daily')}
-                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition ${
+                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
                           whatIfPool === 'daily'
                             ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                            : 'bg-zinc-950 border-zinc-800 text-zinc-400'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
                         }`}
                       >
-                        {t('poolDaily')}
+                        <Wallet className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{t('poolDaily')}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setWhatIfPool('outings')}
+                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                          whatIfPool === 'outings'
+                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        <Coffee className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{t('poolOutings')}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setWhatIfPool('fixed')}
+                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                          whatIfPool === 'fixed'
+                            ? 'bg-purple-500/20 border-purple-500/50 text-purple-300'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{t('poolFixed')}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setWhatIfPool('oneoff')}
+                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                          whatIfPool === 'oneoff'
+                            ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        <Shield className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{t('poolOneOff')}</span>
                       </button>
                     </div>
                   </div>
                 </div>
 
-                {simulatedExpenseNumber > 0 && (
-                  <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800/80 flex items-center justify-between">
-                    <span className="text-xs text-zinc-400 font-medium">
-                      {t('whatIfInstantResult')}:
-                    </span>
-                    <span className="text-sm font-bold font-mono text-emerald-400">
-                      {formatCurrency(instantProjectedAllowance, currency)}
-                    </span>
+                {/* 100% Instant Deterministic Math Results Display */}
+                {whatIfCalculation && (
+                  <div className="pt-2 border-t border-zinc-800 space-y-3">
+                    {/* Last Day of Cycle Notice */}
+                    {whatIfCalculation.isLastDay && (
+                      <div className="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-xs text-blue-200 flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-blue-400 shrink-0" />
+                        <span>{t('lastDayCycleNotice')}</span>
+                      </div>
+                    )}
+
+                    {/* Math Cards Grid: Pool Before->After & Daily Allowance Before->After */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Card 1: Selected Pool Before -> After */}
+                      <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800/80 space-y-2">
+                        <div className="flex items-center justify-between text-xs font-semibold text-zinc-400">
+                          <span>{t('whatIfPoolBeforeAfter')}: {whatIfCalculation.poolName}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm font-mono">
+                          <span className="text-zinc-300">
+                            {formatCurrency(whatIfCalculation.poolBefore, currency)}
+                          </span>
+                          <span className="text-zinc-500 text-xs">→</span>
+                          <span
+                            className={`font-bold ${
+                              whatIfCalculation.poolAfter < 0
+                                ? 'text-red-400'
+                                : 'text-emerald-400'
+                            }`}
+                          >
+                            {formatCurrency(whatIfCalculation.poolAfter, currency)}
+                          </span>
+                        </div>
+
+                        {/* Spillover note if pool is exhausted */}
+                        {whatIfCalculation.spilloverToDaily > 0 && whatIfPool !== 'daily' && (
+                          <p className="text-[10px] text-amber-300 leading-relaxed pt-1 border-t border-zinc-900">
+                            {t('spilloverToDailyNote').replace(
+                              '{over}',
+                              formatCurrency(whatIfCalculation.spilloverToDaily, currency)
+                            )}
+                          </p>
+                        )}
+
+                        {/* One-off covered note */}
+                        {whatIfCalculation.isCoveredByEmergency && (
+                          <p className="text-[10px] text-emerald-300 leading-relaxed pt-1 border-t border-zinc-900">
+                            {t('coveredByEmergencyCredit')}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Card 2: Projected Daily Allowance Before -> After */}
+                      <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800/80 space-y-2">
+                        <div className="flex items-center justify-between text-xs font-semibold text-zinc-400">
+                          <span>{t('whatIfDailyBeforeAfter')}</span>
+                          <span className="text-[10px] font-mono text-zinc-500">
+                            {whatIfCalculation.isLastDay
+                              ? isArabic ? 'اليوم الأخير' : 'Last Day'
+                              : isArabic
+                              ? `على مدى ${Math.max(1, whatIfCalculation.remainingDaysInCycle - 1)} يوماً`
+                              : `Over ${Math.max(1, whatIfCalculation.remainingDaysInCycle - 1)} days`}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm font-mono">
+                          <span className="text-zinc-300">
+                            {formatCurrency(whatIfCalculation.allowanceBefore, currency)}
+                          </span>
+                          <span className="text-zinc-500 text-xs">→</span>
+                          <span
+                            className={`font-bold ${
+                              whatIfCalculation.allowanceAfter < whatIfCalculation.allowanceBefore
+                                ? whatIfCalculation.allowanceAfter <= 0
+                                  ? 'text-red-400'
+                                  : 'text-amber-300'
+                                : 'text-emerald-400'
+                            }`}
+                          >
+                            {formatCurrency(whatIfCalculation.allowanceAfter, currency)}
+                          </span>
+                        </div>
+
+                        {/* Exact Daily Impact Pill */}
+                        <div className="pt-1 border-t border-zinc-900 flex items-center justify-between">
+                          <span className="text-[10px] text-zinc-400">
+                            {t('whatIfDailyImpact')}:
+                          </span>
+                          {whatIfCalculation.dailyImpact === 0 ? (
+                            <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                              {t('noDailyImpact')}
+                            </span>
+                          ) : (
+                            <span
+                              className={`text-[11px] font-mono font-bold ${
+                                whatIfCalculation.allowanceAfter <= 0
+                                  ? 'text-red-400'
+                                  : 'text-amber-400'
+                              }`}
+                            >
+                              {whatIfCalculation.isLastDay
+                                ? t('lastDayDailyImpact').replace(
+                                    '{amount}',
+                                    formatCurrency(Math.abs(whatIfCalculation.dailyImpact), currency)
+                                  )
+                                : `-${formatCurrency(Math.abs(whatIfCalculation.dailyImpact), currency)} ${t('perDay')}`}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
-
-                {/* Optional Ask AI Button */}
-                <div className="pt-1 flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={handleAskAIWhatIf}
-                    disabled={isAskingAI || simulatedExpenseNumber <= 0}
-                    className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition disabled:opacity-50"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>{isAskingAI ? t('classifying') : t('askAIWhatIf')}</span>
-                  </button>
-
-                  {aiWhatIfAdvice && (
-                    <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 text-xs text-emerald-200 leading-relaxed">
-                      {aiWhatIfAdvice}
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* Adaptive Rebalance Scenarios Section */}
@@ -1811,138 +2339,148 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   )}
                 </div>
 
-                {/* Scenario Cards */}
-                <div className="space-y-3">
-                  {/* Scenario A: Mild Rebalance */}
-                  <div
-                    className={`p-4 rounded-2xl border transition ${
-                      currentOverride?.appliedScenario === 'A'
-                        ? 'bg-emerald-950/30 border-emerald-500'
-                        : 'bg-zinc-900/70 border-zinc-800'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-white">
-                        {t('scenarioMild')}
-                      </span>
-                      {currentOverride?.appliedScenario === 'A' && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          {t('activeCurrently')}
-                        </span>
+                {/* Rebalance Section Body: If NO deficit, show calm budget on track card. If deficit exists (D > 0), show What caused overspend + Rebalance Cards */}
+                {!evaluation.rebalanceScenarios.hasDeficit ? (
+                  <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-center space-y-2">
+                    <div className="w-10 h-10 mx-auto rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <h5 className="text-xs font-bold text-white">
+                      {t('budgetBalancedTitle')}
+                    </h5>
+                    <p className="text-[11px] text-zinc-400 max-w-sm mx-auto">
+                      {t('budgetBalancedDesc')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* What caused the overspend summary */}
+                    <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <TrendingDown className="w-4 h-4 text-amber-400" />
+                        <h5 className="text-xs font-bold text-white">
+                          {t('whatCausedOverspend')}
+                        </h5>
+                      </div>
+                      <p className="text-[11px] text-zinc-400">
+                        {t('whatCausedOverspendDesc')}
+                      </p>
+
+                      {topOverspendCategories.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                          {topOverspendCategories.map((item, idx) => (
+                            <div
+                              key={item.categoryId || idx}
+                              className="p-3 rounded-xl bg-zinc-950 border border-zinc-850 flex items-center justify-between sm:flex-col sm:items-start sm:justify-center gap-2"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-base shrink-0 select-none">
+                                  {item.icon || '📁'}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold text-zinc-200 truncate">
+                                    {item.name}
+                                  </p>
+                                  <p className="text-[10px] text-zinc-500">
+                                    {item.pool === 'outings' ? t('poolOutings') : t('poolDaily')} • {item.count} {isArabic ? 'معاملات' : 'txs'}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="font-mono text-xs font-bold text-red-400 shrink-0">
+                                {formatCurrency(item.amount, currency)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-zinc-500 italic py-2">
+                          {t('noOverspendCategories')}
+                        </p>
                       )}
                     </div>
-                    <p className="text-xs text-zinc-400 mb-3">{t('scenarioMildDesc')}</p>
 
-                    <div className="flex items-center justify-between text-xs font-mono mb-3 p-2.5 rounded-xl bg-zinc-950">
-                      <span className="text-zinc-400">
-                        {t('beforeDaily')}: {formatCurrency(evaluation.rebalanceScenarios.scenarioA.beforeDailyAllowance, currency)}
-                      </span>
-                      <span className="text-emerald-400 font-bold">
-                        {t('afterDaily')}: {formatCurrency(evaluation.rebalanceScenarios.scenarioA.afterDailyAllowance, currency)}
-                      </span>
+                    {/* Rebalance Scenario Cards (Capped at actual remaining funding sources) */}
+                    <div className="space-y-3">
+                      {evaluation.rebalanceScenarios.scenarios.map((scenario) => {
+                        const isScenarioActive =
+                          currentOverride?.appliedScenario === scenario.id ||
+                          (scenario.id === 'B' && currentOverride?.appliedScenario === 'outings') ||
+                          (scenario.id === 'C' && currentOverride?.appliedScenario === 'savings') ||
+                          (scenario.id === 'A' && currentOverride?.appliedScenario === 'fixed');
+
+                        return (
+                          <div
+                            key={scenario.id}
+                            className={`p-4 rounded-2xl border transition ${
+                              isScenarioActive
+                                ? 'bg-emerald-950/30 border-emerald-500'
+                                : 'bg-zinc-900/70 border-zinc-800'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-xs font-bold text-white">
+                                {scenario.name[isArabic ? 'ar' : 'en']}
+                              </span>
+                              {isScenarioActive && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                  {t('activeCurrently')}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-zinc-400 mb-2.5">
+                              {scenario.description[isArabic ? 'ar' : 'en']}
+                            </p>
+
+                            {/* Funding Source Pill */}
+                            <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-lg bg-zinc-950/80 border border-zinc-850 mb-3">
+                              <span className="text-zinc-400">
+                                {t('fundingSource')}:{' '}
+                                <span className="text-zinc-200 font-semibold">
+                                  {scenario.sourceName[isArabic ? 'ar' : 'en']}
+                                </span>
+                              </span>
+                              <span className="font-mono text-zinc-300">
+                                {t('availableBalance').replace(
+                                  '{amount}',
+                                  formatCurrency(scenario.sourceAvailable, currency)
+                                )}
+                              </span>
+                            </div>
+
+                            {/* Before & After Display */}
+                            <div className="flex items-center justify-between text-xs font-mono mb-3 p-2.5 rounded-xl bg-zinc-950">
+                              <span className="text-red-400 font-semibold">
+                                {t('beforeDaily')}:{' '}
+                                {t('overByAmount').replace(
+                                  '{amount}',
+                                  formatCurrency(scenario.deficit, currency)
+                                )}
+                              </span>
+                              <span className="text-emerald-400 font-bold">
+                                {t('afterDaily')}: {formatCurrency(scenario.afterDailyAllowance, currency)}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              disabled={!scenario.isAvailable}
+                              onClick={() => handleApplyScenario(scenario.id)}
+                              className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            >
+                              {scenario.isAvailable
+                                ? t('applyToCurrentMonth')
+                                : scenario.unavailableReason?.[isArabic ? 'ar' : 'en'] ||
+                                  t('scenarioUnavailable')}
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
-
-                    <button
-                      type="button"
-                      disabled={!evaluation.rebalanceScenarios.scenarioA.isAvailable}
-                      onClick={() => handleApplyScenario('A')}
-                      className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition disabled:opacity-40"
-                    >
-                      {evaluation.rebalanceScenarios.scenarioA.isAvailable
-                        ? t('applyToCurrentMonth')
-                        : evaluation.rebalanceScenarios.scenarioA.unavailableReason?.[
-                            isArabic ? 'ar' : 'en'
-                          ] || t('scenarioUnavailable')}
-                    </button>
                   </div>
-
-                  {/* Scenario B: Daily Freeze */}
-                  <div
-                    className={`p-4 rounded-2xl border transition ${
-                      currentOverride?.appliedScenario === 'B'
-                        ? 'bg-emerald-950/30 border-emerald-500'
-                        : 'bg-zinc-900/70 border-zinc-800'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-white">
-                        {t('scenarioFreeze')}
-                      </span>
-                      {currentOverride?.appliedScenario === 'B' && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          {t('activeCurrently')}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-zinc-400 mb-3">{t('scenarioFreezeDesc')}</p>
-
-                    <div className="flex items-center justify-between text-xs font-mono mb-3 p-2.5 rounded-xl bg-zinc-950">
-                      <span className="text-zinc-400">
-                        {t('beforeDaily')}: {formatCurrency(evaluation.rebalanceScenarios.scenarioB.beforeDailyAllowance, currency)}
-                      </span>
-                      <span className="text-amber-400 font-bold">
-                        {t('afterDaily')}: {formatCurrency(evaluation.rebalanceScenarios.scenarioB.afterDailyAllowance, currency)}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={!evaluation.rebalanceScenarios.scenarioB.isAvailable}
-                      onClick={() => handleApplyScenario('B')}
-                      className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition disabled:opacity-40"
-                    >
-                      {evaluation.rebalanceScenarios.scenarioB.isAvailable
-                        ? t('applyToCurrentMonth')
-                        : evaluation.rebalanceScenarios.scenarioB.unavailableReason?.[
-                            isArabic ? 'ar' : 'en'
-                          ] || t('scenarioUnavailable')}
-                    </button>
-                  </div>
-
-                  {/* Scenario C: Emergency Savings Absorption */}
-                  <div
-                    className={`p-4 rounded-2xl border transition ${
-                      currentOverride?.appliedScenario === 'C'
-                        ? 'bg-emerald-950/30 border-emerald-500'
-                        : 'bg-zinc-900/70 border-zinc-800'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-white">
-                        {t('scenarioRescue')}
-                      </span>
-                      {currentOverride?.appliedScenario === 'C' && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          {t('activeCurrently')}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-zinc-400 mb-3">{t('scenarioRescueDesc')}</p>
-
-                    <div className="flex items-center justify-between text-xs font-mono mb-3 p-2.5 rounded-xl bg-zinc-950">
-                      <span className="text-zinc-400">
-                        {t('beforeDaily')}: {formatCurrency(evaluation.rebalanceScenarios.scenarioC.beforeDailyAllowance, currency)}
-                      </span>
-                      <span className="text-blue-400 font-bold">
-                        {t('afterDaily')}: {formatCurrency(evaluation.rebalanceScenarios.scenarioC.afterDailyAllowance, currency)}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={!evaluation.rebalanceScenarios.scenarioC.isAvailable}
-                      onClick={() => handleApplyScenario('C')}
-                      className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition disabled:opacity-40"
-                    >
-                      {evaluation.rebalanceScenarios.scenarioC.isAvailable
-                        ? t('applyToCurrentMonth')
-                        : evaluation.rebalanceScenarios.scenarioC.unavailableReason?.[
-                            isArabic ? 'ar' : 'en'
-                          ] || t('scenarioUnavailable')}
-                    </button>
-                  </div>
-                </div>
+                )}
               </div>
+              </>
+            )}
             </div>
           )}
 
@@ -2014,7 +2552,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       </div>
                       <input
                         type="range"
-                        min={savingsMinPercent}
+                        min={0}
                         max={60}
                         step={0.5}
                         value={pools.savings.percent}
@@ -2055,9 +2593,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-zinc-500">
-                    <span>
-                      {t('lockedSavingsMin').replace('{0}', String(savingsMinPercent))}
-                    </span>
+                    <span>{t('noMinSavings')}</span>
                     {poolHints.savings && (
                       <span className="text-amber-400 font-medium">
                         {poolHints.savings}
@@ -2516,7 +3052,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
                 {/* Test Connection Button */}
                 {(storedApiKey || hasAIAccessState || managedAiAvailable || Boolean(auth.currentUser)) && (
-                  <div className="pt-1">
+                  <div className="pt-1 space-y-3">
                     <button
                       type="button"
                       onClick={handleTestConnection}
@@ -2526,6 +3062,161 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       <RefreshCw className={`w-3.5 h-3.5 ${isTestingConnection ? 'animate-spin' : ''}`} />
                       <span>{isTestingConnection ? t('testingConnection') : t('testConnectionBtn')}</span>
                     </button>
+
+                    {connectionTestResult && (
+                      <div
+                        className={`p-3.5 rounded-2xl border text-xs leading-relaxed space-y-1.5 transition-all ${
+                          connectionTestResult.ok
+                            ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                            : 'bg-red-950/40 border-red-500/40 text-red-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between font-bold">
+                          <div className="flex items-center gap-1.5">
+                            {connectionTestResult.ok ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            ) : (
+                              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                            )}
+                            <span>
+                              {connectionTestResult.ok
+                                ? t('connectionSuccess')
+                                : t('connectionFailed')}
+                            </span>
+                          </div>
+                          {connectionTestResult.source && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-750 text-zinc-300">
+                              {connectionTestResult.source === 'personal'
+                                ? t('sourcePersonalKey')
+                                : connectionTestResult.source === 'proxy'
+                                ? t('sourceBackendProxy')
+                                : t('sourceSharedKey')}
+                            </span>
+                          )}
+                        </div>
+
+                        {connectionTestResult.modelUsed && (
+                          <div className="text-[11px] text-zinc-400 font-mono">
+                            Model: {connectionTestResult.modelUsed}
+                            {connectionTestResult.statusCode ? ` • HTTP ${connectionTestResult.statusCode}` : ''}
+                          </div>
+                        )}
+
+                        {(!connectionTestResult.ok || connectionTestResult.message) && (
+                          <div className={`text-[11px] font-medium leading-normal break-words pt-1 ${
+                            connectionTestResult.ok ? 'text-emerald-300/90' : 'text-red-300'
+                          }`}>
+                            {isArabic ? connectionTestResult.messageAr : connectionTestResult.message}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* AI Budget Advisor Card */}
+              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>{t('aiBudgetAdvisorTitle')}</span>
+                    </h4>
+                    <p className="text-[11px] text-zinc-400 mt-0.5">
+                      {t('aiBudgetAdvisorDesc')}
+                    </p>
+                  </div>
+                </div>
+
+                {!aiConsentEnabled ? (
+                  <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30 text-amber-200 text-xs space-y-2">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>{t('aiAdvisorConsentRequired')}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAiConsentEnabled(true);
+                        setAIConsent(true);
+                        showToast(t('updatedSuccess'), 'info');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold transition flex items-center gap-1.5"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{t('enableConsentBtn')}</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={handleGetAdvice}
+                      disabled={isLoadingAdvice}
+                      className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/40 transition disabled:opacity-50"
+                    >
+                      <Sparkles className={`w-4 h-4 ${isLoadingAdvice ? 'animate-spin' : ''}`} />
+                      <span>{isLoadingAdvice ? t('analyzingBudget') : (adviceData ? t('refreshAdviceBtn') : t('getAdviceBtn'))}</span>
+                    </button>
+
+                    {adviceData && (
+                      <div className="p-4 rounded-2xl bg-zinc-950 border border-emerald-500/30 space-y-3.5">
+                        {/* Headline & Source Badge */}
+                        <div className="flex items-center justify-between gap-2">
+                          <h5 className="text-xs sm:text-sm font-bold text-emerald-300">
+                            {adviceData.headline}
+                          </h5>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                              adviceData.source === 'ai'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-zinc-800 text-zinc-300 border border-zinc-700'
+                            }`}>
+                              {adviceData.source === 'ai' ? 'Gemini AI' : 'Smart Engine'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Top Observation */}
+                        <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80 space-y-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1">
+                            <TrendingUp className="w-3 h-3 text-emerald-400" />
+                            <span>{t('keyObservation')}</span>
+                          </span>
+                          <p className="text-xs text-zinc-200 leading-relaxed">
+                            {adviceData.topObservation}
+                          </p>
+                        </div>
+
+                        {/* Actionable Advice List */}
+                        {adviceData.actionableAdvice && adviceData.actionableAdvice.length > 0 && (
+                          <div className="space-y-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-teal-400" />
+                              <span>{t('actionableRecommendations')}</span>
+                            </span>
+                            <div className="space-y-1.5">
+                              {adviceData.actionableAdvice.map((rec, idx) => (
+                                <div
+                                  key={idx}
+                                  className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/60 flex items-start gap-2 text-xs text-zinc-300 leading-relaxed"
+                                >
+                                  <span className="text-emerald-400 font-bold shrink-0 mt-0.5">•</span>
+                                  <span>{rec}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Data Protection Disclaimer */}
+                        <div className="pt-1 flex items-center gap-1.5 text-[10px] text-zinc-500">
+                          <Shield className="w-3 h-3 text-zinc-400 shrink-0" />
+                          <span>{t('dataProtectionSummary')}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

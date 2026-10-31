@@ -946,6 +946,7 @@ export function checkAndProcessRecurring(
         occurrenceKey: occKey,
         type: rec.type,
         amount: rec.amount,
+        taxAmount: rec.taxAmount,
         date: occ.date,
         time: occ.time,
         accountId: rec.accountId,

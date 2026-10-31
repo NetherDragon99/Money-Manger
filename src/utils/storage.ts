@@ -1,12 +1,13 @@
 import { parseFormattedNumber } from './formatters';
 import { Account, Category, Transaction, AppSettings, AppData, RecurringTransaction } from '../types';
 import { DEFAULT_ACCOUNTS, INITIAL_CATEGORIES, DEFAULT_SETTINGS } from './constants';
+import { isStrictSeededDailyExpressCategory, CORRECTED_SEEDED_EXPENSE_CATEGORY_NAME } from './categoryMigration';
 import { syncAllAccountBalances } from './balanceEngine';
 import { saveItemToIndexedDB, saveFullDataToIndexedDB } from './indexedDB';
 import { debouncedPersist } from './persistQueue';
 import { loadRecurringTransactions, migrateRecurringRule } from './recurring';
 import { writeCurrentSchemaVersion } from './schemaGuard';
-import { formatVersionLabel } from './versionChecker';
+import { formatVersionLabel, CURRENT_APP_VERSION } from './versionChecker';
 import {
   loadMyShareFolders,
   saveMyShareFolders,
@@ -112,8 +113,8 @@ export function saveSettings(settings: AppSettings): void {
 export function exportAllDataAsJSON(data: AppData & { recurringTransactions?: RecurringTransaction[] }): void {
   const recurring = (data.recurringTransactions || loadRecurringTransactions()).map(migrateRecurringRule);
   const exportPayload = {
-    version: '1.1.65',
-    versionLabel: formatVersionLabel('1.1.65'),
+    version: CURRENT_APP_VERSION,
+    versionLabel: formatVersionLabel(CURRENT_APP_VERSION),
     exportDate: new Date().toISOString(),
     ...data,
     recurringTransactions: recurring,
@@ -138,8 +139,8 @@ export function exportAccountAsJSON(account: Account, allTransactions: Transacti
     (tx) => tx.accountId === account.id || tx.toAccountId === account.id
   );
   const payload = {
-    version: '1.1.65',
-    versionLabel: formatVersionLabel('1.1.65'),
+    version: CURRENT_APP_VERSION,
+    versionLabel: formatVersionLabel(CURRENT_APP_VERSION),
     type: 'single_account_backup',
     exportDate: new Date().toISOString(),
     account,
@@ -356,7 +357,13 @@ export function executeCustomDataImport(
 
   // 2. CATEGORIES & BUDGETS IMPORT
   if (config.importCategories) {
-    const incomingCategories: Category[] = Array.isArray(payload.categories) ? payload.categories : [];
+    const rawIncoming: Category[] = Array.isArray(payload.categories) ? payload.categories : [];
+    const incomingCategories: Category[] = rawIncoming.map((cat) => {
+      if (isStrictSeededDailyExpressCategory(cat)) {
+        return { ...cat, name: CORRECTED_SEEDED_EXPENSE_CATEGORY_NAME, updatedAt: Date.now() };
+      }
+      return cat;
+    });
 
     if (config.mode === 'replace') {
       if (incomingCategories.length > 0) {

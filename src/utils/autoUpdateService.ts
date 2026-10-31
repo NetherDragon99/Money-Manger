@@ -10,7 +10,7 @@ import { getItemFromIndexedDB, saveItemToIndexedDB, saveFullDataToIndexedDB } fr
 import { loadInitialData } from './storage';
 import { loadRecurringTransactions } from './recurring';
 import { CURRENT_APP_VERSION, formatVersionLabel, isAutoUpdateEnabled } from './versionChecker';
-import { IS_BETA_BUILD } from './channel';
+import { IS_BETA_BUILD, BETA_BASE_URL } from './channel';
 import { auth } from './firebase';
 import { flushGranularDirtyQueue } from './autoBackup';
 import { Account, Category, Transaction, AppSettings, RecurringTransaction } from '../types';
@@ -46,6 +46,15 @@ export function reconcileBetaChannelStartup(): void {
     if (IS_BETA_BUILD) {
       localStorage.setItem('mm_join_beta', 'true');
     } else {
+      const userJoinedBeta = localStorage.getItem('mm_join_beta') === 'true';
+      if (userJoinedBeta) {
+        // Prevent accidental drop-off if user background-closed app and reopened at root
+        if (!window.location.pathname.includes('/beta/')) {
+          console.log('[AutoUpdate] User enrolled in Beta. Redirecting to Beta channel to prevent drop-off...');
+          window.location.replace(BETA_BASE_URL);
+          return;
+        }
+      }
       localStorage.removeItem('mm_join_beta');
     }
   } catch {}

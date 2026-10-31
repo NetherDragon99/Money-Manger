@@ -1,0 +1,69 @@
+[
+  {
+    "version": "1.1.64",
+    "isBeta": true,
+    "releaseDate": "October 30, 2026",
+    "title": {
+      "en": "Faster App Lock, Unified Budget Controls and Safe Updates",
+      "ar": "قفل أسرع للتطبيق، تحكم مرن في الميزانية وتحديثات آمنة"
+    },
+    "highlights": {
+      "en": [
+        "Instant passcode response: Enter your passcode smoothly with quick responsive feedback and a short return window",
+        "Coordinated budget sliders: Change your budget by dragging sliders or typing exact amounts side by side with zero math errors",
+        "Automatic safety backup: Updates install safely while saving a fresh safety copy of your data before applying improvements",
+        "Smart spending assistant: Helpful budgeting tips with simple sharing options to keep your numbers balanced"
+      ],
+      "ar": [
+        "قفل فوري وسريع: اكتب رمز الدخول بسهولة وسرعة وبدون أي تأخير مع مهلة مريحة عند الرجوع للتطبيق",
+        "تحكم متكامل في الميزانية: عدل ميزانيتك بالشرائح أو اكتب المبالغ يدوياً جنباً إلى جنب مع توزيع دقيق وتلقائي",
+        "نسخة أمان تلقائية: التحديثات بتنزل بأمان بعد حفظ نسخة احتياطية فورية لبياناتك تلقائياً قبل أي ترقية",
+        "مساعد ذكي للميزانية: نصائح واقتراحات سهلة ومتوازنة لمصاريفك مع خيارات مرنة لحماية أموالك"
+      ]
+    }
+  },
+  {
+    "version": "1.1.63",
+    "isBeta": true,
+    "releaseDate": "October 29, 2026",
+    "title": {
+      "en": "Smart Budget Hub, Daily Safe-to-Spend Meter and Rebalance Assistant",
+      "ar": "الميزانية الذكية، مصروف اليوم الآمن ومساعد إعادة التوازن"
+    },
+    "highlights": {
+      "en": [
+        "Daily safe spending: Clear meter on the main screen that tells you exactly how much is safe to spend today",
+        "Balanced spending pools: Keep your savings and essential bills separated from your outings and daily pocket money",
+        "One-tap rebalancing: Instant friendly fixes whenever spending runs high to protect your monthly peace of mind",
+        "Smart spending advisor: Optional on-device assistant that helps classify expenses and optimize your spending plan"
+      ],
+      "ar": [
+        "مصروف اليوم الآمن: عداد واضح ومباشر في الشاشة الرئيسية يعرفك تصرف كام في اليوم بأمان ومن غير قلق",
+        "أحواض ميزانية متوازنة: افصل فلوس تحويشتك وفواتيرك الأساسية عن مصاريفك اليومية وفسحك وخروجاتك",
+        "إعادة توازن سريعة: حلول فورية وسهلة بضغطة واحدة لما تزيد مصاريفك عشان تحافظ على خطتك لآخر الشهر",
+        "مستشار مالي ذكي: مساعد اختياري يساعدك تفهم مصاريفك ويقترح عليك أنسب تقسيم لفلوسك"
+      ]
+    }
+  },
+  {
+    "version": "1.1.62",
+    "isBeta": true,
+    "releaseDate": "October 29, 2026",
+    "title": {
+      "en": "Channel-Aware Release Updates and Early Testing Tools",
+      "ar": "تحديثات سجل التغييرات وأدوات التجربة المبكرة"
+    },
+    "highlights": {
+      "en": [
+        "Easier early testing: Preview upcoming features before official releases with one tap",
+        "Clear update tags: See which improvements are early previews and which are official",
+        "Safer channel switching: Try new features with full backup protection whenever you want"
+      ],
+      "ar": [
+        "تجربة أسهل وأسرع: جرب الميزات الجديدة قبل نزولها للكل بضغطة واحدة",
+        "علامات واضحة للتحديثات: اعرف بسهولة إيه الميزات التجريبية وإيه التحديثات الرسمية",
+        "تنقل آمن وسلس: جرب الجديد براحتك مع حماية كاملة لبياناتك ونسخ احتياطي فوري"
+      ]
+    }
+  }
+]

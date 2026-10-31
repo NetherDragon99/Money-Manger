@@ -14,6 +14,9 @@ export const DEFAULT_ACCOUNTS: Account[] = [
   },
 ];
 
+export const LEGACY_SEEDED_EXPENSE_CATEGORY_TYPO = 'Daily express';
+export const CORRECTED_SEEDED_EXPENSE_CATEGORY_NAME = 'Daily Expenses';
+
 export const DEFAULT_EXPENSE_CATEGORIES: Array<{ name: string; icon: string }> = [
   { name: 'Groceries & Supermarket', icon: '🍲' },
   { name: 'Dining & Restaurants', icon: '🍔' },

@@ -24,6 +24,8 @@ import { ResetPeriodModal } from './components/ResetPeriodModal';
 import { AdvancedFilterModal } from './components/AdvancedFilterModal';
 import { EmojiPickerModal } from './components/EmojiPickerModal';
 import { SmartBudgetModal } from './components/SmartBudgetModal';
+import { SettingsModal } from './components/SettingsModal';
+import { TransferFeesModal } from './components/TransferFeesModal';
 
 const loadAppFeaturesModal = () =>
   import('./components/AppFeaturesModal').then((m) => ({ default: m.AppFeaturesModal }));
@@ -174,6 +176,8 @@ const MainAppContent: React.FC = () => {
     isPinModalOpen,
     setIsPinModalOpen,
     isSmartBudgetModalOpen,
+    isSettingsModalOpen,
+    isTransferFeesModalOpen,
     isRecurringModalOpen,
     setIsRecurringModalOpen,
     isSharedHubModalOpen,
@@ -733,6 +737,8 @@ const MainAppContent: React.FC = () => {
     isAddTxModalOpen ||
     isPinModalOpen ||
     isRecurringModalOpen ||
+    isSettingsModalOpen ||
+    isTransferFeesModalOpen ||
     isEmojiPickerOpen ||
     isFeaturesModalOpen ||
     isWhatsNewOpen ||
@@ -982,6 +988,22 @@ const MainAppContent: React.FC = () => {
         {isSmartBudgetModalOpen && (
           <SmartBudgetModal
             isOpen={isSmartBudgetModalOpen}
+            onClose={navigateBack}
+          />
+        )}
+
+        {/* App Preferences & Settings Modal */}
+        {isSettingsModalOpen && (
+          <SettingsModal
+            isOpen={isSettingsModalOpen}
+            onClose={navigateBack}
+          />
+        )}
+
+        {/* Transfer Fees & Taxes Modal */}
+        {isTransferFeesModalOpen && (
+          <TransferFeesModal
+            isOpen={isTransferFeesModalOpen}
             onClose={navigateBack}
           />
         )}

@@ -27,6 +27,7 @@ function notifyBudgetAlertIfNeeded(
   openSmartBudget: () => void,
   isArabic: boolean
 ) {
+  if (evaluation.isPaused) return;
   try {
     const todayStr = evaluation.dailyStatus.asOfDate;
     const cycleKey = evaluation.cycle.startDate.slice(0, 7);
@@ -202,6 +203,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [toAccountId, setToAccountId] = useState<string>('');
   const [categoryId, setCategoryId] = useState<string>('');
   const [description, setDescription] = useState<string>('');
+  const [taxAmountStr, setTaxAmountStr] = useState<string>('');
+  const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [budgetPool, setBudgetPool] = useState<ExpenseBudgetPool>('daily');
   const userManuallyPickedPoolRef = useRef<boolean>(false);
   const [isSalary, setIsSalary] = useState<boolean>(false);
@@ -500,6 +503,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setToAccountId(activeEditingTx.toAccountId || '');
       setCategoryId(activeEditingTx.categoryId || '');
       setDescription(activeEditingTx.description || '');
+      setTaxAmountStr(
+        activeEditingTx.taxAmount && activeEditingTx.taxAmount > 0
+          ? activeEditingTx.taxAmount.toString()
+          : ''
+      );
       userManuallyPickedPoolRef.current = Boolean(activeEditingTx.budgetPool);
       setBudgetPool(
         normalizeExpenseBudgetPool(
@@ -546,6 +554,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setToAccountId(r.toAccountId || (fallbackTo ? fallbackTo.id : ''));
       setCategoryId(r.categoryId || '');
       setDescription(r.description || '');
+      setTaxAmountStr(
+        r.taxAmount && r.taxAmount > 0
+          ? r.taxAmount.toString()
+          : ''
+      );
       userManuallyPickedPoolRef.current = Boolean(r.budgetPool);
       setBudgetPool(normalizeExpenseBudgetPool(r.budgetPool, true));
       const recDestAcc = accounts.find((a) => a.id === (r.toAccountId || fallbackTo?.id));
@@ -615,6 +628,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       const nowTime = formatTimeToHHMM(now);
       setTime(nowTime);
       setDescription('');
+      setTaxAmountStr('');
       userManuallyPickedPoolRef.current = false;
       setBudgetPool(!isSharedMode && defaultTxIsRecurring ? 'fixed' : 'daily');
       setIsSalary(false);
@@ -659,6 +673,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setAdvancedTab('weekdays');
     }
   }, [effectiveIsOpen, activeEditingTx?.id, editingRecurring?.id, defaultTxIsRecurring, settings.categoryOrder, isSharedMode, accounts, categories]);
+
+  // Dynamic auto-expanding height for note textarea (up to ~6 lines / 144px)
+  useEffect(() => {
+    if (noteTextareaRef.current) {
+      noteTextareaRef.current.style.height = 'auto';
+      noteTextareaRef.current.style.height = `${Math.min(noteTextareaRef.current.scrollHeight, 144)}px`;
+    }
+  }, [description, effectiveIsOpen]);
 
   // When type changes, ensure valid category selection & Transfer destination
   const prevTypeRef = useRef(type);
@@ -1058,6 +1080,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   }, [draftRecurringRule, isArabic]);
 
   const numericAmount = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
+  const numericTaxAmount = (type === 'expense' || type === 'income') ? (parseFloat(String(taxAmountStr).replace(/,/g, '')) || 0) : 0;
+  const effectiveExpenseAmount = numericAmount + numericTaxAmount;
   const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
   const sourceCurrencySymbol = getLocalizedCurrencySymbol(
     selectedAccount?.currency || settings.currencySymbol,
@@ -1104,10 +1128,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     if (editingRecurring) {
       const r = migrateRecurringRule(editingRecurring);
       const amt = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
+      const curTax = (type === 'expense' || type === 'income') ? (parseFloat(String(taxAmountStr).replace(/,/g, '')) || 0) : 0;
       const origAdv = r.advancedSchedule && r.advancedSchedule.isAdvanced ? r.advancedSchedule : null;
       const curAdv = buildAdvConfig() || null;
       const curSig = JSON.stringify([
-        type, amt, date, hasTime ? time : '09:00', accountId,
+        type, amt, curTax, date, hasTime ? time : '09:00', accountId,
         type === 'transfer' ? toAccountId : '',
         type === 'transfer' ? '' : categoryId,
         description.trim(), recurringFrequency, curAdv,
@@ -1119,7 +1144,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         type === 'expense' ? (budgetPool || 'fixed') : '',
       ]);
       const origSig = JSON.stringify([
-        r.type, r.amount, r.startDate, r.startTime || '09:00', r.accountId,
+        r.type, r.amount, r.taxAmount || 0, r.startDate, r.startTime || '09:00', r.accountId,
         r.toAccountId || '', r.categoryId || '', r.description || '', r.frequency, origAdv,
         r.type === 'transfer' ? Boolean(r.isSavingsAllocation) : false,
         r.type === 'transfer' ? (r.savingsWithdrawalChoice || '') : '',
@@ -1132,6 +1157,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
     if (!activeEditingTx) return true;
     const numAmt = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
+    const curTax = (type === 'expense' || type === 'income') ? (parseFloat(String(taxAmountStr).replace(/,/g, '')) || 0) : 0;
+    const origTax = activeEditingTx.taxAmount || 0;
+    if (Math.abs(origTax - curTax) > 0.0001) return true;
     if (activeEditingTx.type !== type) return true;
     if (Math.abs(activeEditingTx.amount - numAmt) > 0.0001) return true;
     if (activeEditingTx.date !== date) return true;
@@ -1154,7 +1182,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
     return false;
   }, [
-    activeEditingTx, editingRecurring, type, amountStr, date, hasTime, time, accountId, toAccountId, categoryId, description,
+    activeEditingTx, editingRecurring, type, amountStr, taxAmountStr, date, hasTime, time, accountId, toAccountId, categoryId, description,
     recurringFrequency, isAdvancedSchedule, useWeekdayFilter, selectedDaysOfWeek, intervalWeeks, useMonthDayFilter,
     selectedDaysOfMonth, timesOfDay, hasCustomTimes, weekdayTimes, monthDayTimes, budgetPool, isSalary,
     isSavingsAllocation, savingsWithdrawalChoice, transferFeeMode, calculatedTransferFee, transferFeeBudgetPool,
@@ -1184,7 +1212,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   }, [smartBudgetEval, date]);
 
   const impactEstimate = useMemo(() => {
-    if (type !== 'expense' || !smartBudgetEval || !isDateInCycle || numericAmount <= 0) {
+    if (type !== 'expense' || !smartBudgetEval || smartBudgetEval.isPaused || !isDateInCycle || effectiveExpenseAmount <= 0) {
       return null;
     }
 
@@ -1192,7 +1220,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     const todayRemainingBefore = smartBudgetEval.dailyStatus.todayRemaining;
     const monthlyDailyRemBefore = smartBudgetEval.pools.daily.remaining;
     const projectedAllowance = smartBudgetEval.projectedDailyAllowanceAfterSpend(
-      numericAmount,
+      effectiveExpenseAmount,
       budgetPool,
       date
     );
@@ -1211,29 +1239,29 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     let overTodayBy = 0;
 
     if (budgetPool === 'daily') {
-      const remAfter = todayRemainingBefore - numericAmount;
+      const remAfter = todayRemainingBefore - effectiveExpenseAmount;
       overTodayBy = remAfter < 0 ? Math.abs(remAfter) : 0;
-      const monthlyDailyRemAfter = monthlyDailyRemBefore - numericAmount;
+      const monthlyDailyRemAfter = monthlyDailyRemBefore - effectiveExpenseAmount;
       if (monthlyDailyRemAfter <= 0) {
         status = 'danger';
-      } else if (overTodayBy > 0 || numericAmount > todayAllowance * 0.8) {
+      } else if (overTodayBy > 0 || effectiveExpenseAmount > todayAllowance * 0.8) {
         status = 'warning';
       } else {
         status = 'safe';
       }
     } else if (budgetPool === 'outings') {
       const outingsRem = smartBudgetEval.pools.outings.remaining;
-      const spillToDaily = Math.max(0, numericAmount - Math.max(0, outingsRem));
+      const spillToDaily = Math.max(0, effectiveExpenseAmount - Math.max(0, outingsRem));
       if (spillToDaily > 0 && monthlyDailyRemBefore - spillToDaily <= 0) {
         status = 'danger';
-      } else if (spillToDaily > 0 || numericAmount > outingsRem * 0.8) {
+      } else if (spillToDaily > 0 || effectiveExpenseAmount > outingsRem * 0.8) {
         status = 'warning';
       } else {
         status = 'safe';
       }
     } else if (budgetPool === 'fixed') {
       const fixedRem = smartBudgetEval.pools.fixed.remaining;
-      const spillToDaily = Math.max(0, numericAmount - Math.max(0, fixedRem));
+      const spillToDaily = Math.max(0, effectiveExpenseAmount - Math.max(0, fixedRem));
       if (spillToDaily > 0 && monthlyDailyRemBefore - spillToDaily <= 0) {
         status = 'danger';
       } else if (spillToDaily > 0) {
@@ -1250,7 +1278,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       overTodayBy,
       budgetPool,
     };
-  }, [type, smartBudgetEval, isDateInCycle, numericAmount, budgetPool, date]);
+  }, [type, smartBudgetEval, isDateInCycle, effectiveExpenseAmount, budgetPool, date]);
 
   const handleClassifyWithAI = async () => {
     if (isClassifyingPool) return;
@@ -1357,6 +1385,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         id: activeEditingTx ? activeEditingTx.id : `tx_shared_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         type,
         amount: numericAmount,
+        taxAmount: (type === 'expense' || type === 'income') && numericTaxAmount > 0 ? numericTaxAmount : undefined,
         date,
         time: hasTime ? time : '',
         accountId: finalAccountId,
@@ -1387,6 +1416,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     const payload = {
       type,
       amount: numericAmount,
+      taxAmount: (type === 'expense' || type === 'income') && numericTaxAmount > 0 ? numericTaxAmount : undefined,
       date,
       time: hasTime ? time : '',
       accountId: finalAccountId,
@@ -1416,6 +1446,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         ...editingRecurring,
         type,
         amount: numericAmount,
+        taxAmount: (type === 'expense' || type === 'income') && numericTaxAmount > 0 ? numericTaxAmount : undefined,
         description: description.trim(),
         accountId: finalAccountId,
         toAccountId: finalToAccountId,
@@ -1456,6 +1487,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         addRecurringTransaction({
           type,
           amount: numericAmount,
+          taxAmount: (type === 'expense' || type === 'income') && numericTaxAmount > 0 ? numericTaxAmount : undefined,
           description: description.trim(),
           accountId: finalAccountId,
           toAccountId: finalToAccountId,
@@ -2341,6 +2373,74 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             </div>
           )}
 
+          {/* Optional Tax / Extra Fee Input (for Expense & Income) */}
+          {(type === 'expense' || type === 'income') && (
+            <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                  <Coins className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{t('taxExtraFeeLabel')}</span>
+                </label>
+                {numericTaxAmount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-[11px] font-bold text-amber-300 font-mono">
+                    +{formatCurrency(numericTaxAmount, currencySymbol)}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-zinc-400">
+                {t('taxExtraFeeDesc')}
+              </p>
+              <div className="relative">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={taxAmountStr}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/[^0-9.]/g, '');
+                    const parts = cleaned.split('.');
+                    const sanitized = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : cleaned;
+                    setTaxAmountStr(sanitized);
+                  }}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white font-mono placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 transition"
+                />
+                {Boolean(taxAmountStr) && (
+                  <button
+                    type="button"
+                    onClick={() => setTaxAmountStr('')}
+                    className="absolute right-2.5 rtl:right-auto rtl:left-2.5 top-1/2 -translate-y-1/2 p-1 text-zinc-500 hover:text-zinc-300"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Explicit Breakdown Preview if tax > 0 */}
+              {numericTaxAmount > 0 && numericAmount > 0 && (
+                <div className="pt-1.5 border-t border-zinc-800/80 grid grid-cols-3 gap-1.5 text-center font-mono">
+                  <div className="p-1.5 rounded-lg bg-zinc-950/60 border border-zinc-800/60">
+                    <div className="text-[9px] text-zinc-400 font-sans truncate">{t('amountBeforeTax')}</div>
+                    <div className="text-xs font-semibold text-zinc-200 mt-0.5">
+                      {formatCurrency(numericAmount, currencySymbol)}
+                    </div>
+                  </div>
+                  <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                    <div className="text-[9px] text-amber-300/80 font-sans truncate">{t('taxAmount')}</div>
+                    <div className="text-xs font-semibold text-amber-300 mt-0.5">
+                      +{formatCurrency(numericTaxAmount, currencySymbol)}
+                    </div>
+                  </div>
+                  <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                    <div className="text-[9px] text-emerald-300/80 font-sans truncate">{t('totalAfterTax')}</div>
+                    <div className="text-xs font-bold text-emerald-300 mt-0.5">
+                      {formatCurrency(numericAmount + numericTaxAmount, currencySymbol)}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Modern Responsive Recurring Transaction Toggle (Directly ABOVE Description) */}
           {!editingTx && !isSharedMode && (
             <div className="rounded-2xl bg-zinc-900/70 border border-zinc-800/80 p-2.5 transition-all shadow-sm">
@@ -3098,12 +3198,20 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
           {/* Notes / Description Input (Directly BELOW Recurring Toggle) */}
           <div className="relative">
-            <input
-              type="text"
+            <textarea
+              ref={noteTextareaRef}
+              rows={1}
+              dir="auto"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                const el = e.target;
+                el.style.height = 'auto';
+                el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
+              }}
               placeholder={t('addNotes')}
-              className={`w-full ${type === 'expense' ? 'pl-4 pr-11 rtl:pl-11 rtl:pr-4' : 'px-4'} py-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition`}
+              className={`w-full ${type === 'expense' ? 'pl-4 pr-11 rtl:pl-11 rtl:pr-4' : 'px-4'} py-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition resize-none overflow-y-auto leading-relaxed`}
+              style={{ maxHeight: '144px' }}
             />
             {type === 'expense' && (
               <button
@@ -3111,7 +3219,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 disabled={isClassifyingPool}
                 onClick={handleClassifyWithAI}
                 title={isArabic ? 'تصنيف بحوض الميزانية المناسب بالذكاء الاصطناعي' : 'Classify into budget pool with AI'}
-                className="absolute right-2.5 rtl:right-auto rtl:left-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-xl text-indigo-400 hover:text-indigo-300 hover:bg-zinc-800 transition cursor-pointer disabled:opacity-50"
+                className="absolute right-2.5 rtl:right-auto rtl:left-2.5 top-2.5 p-1.5 rounded-xl text-indigo-400 hover:text-indigo-300 hover:bg-zinc-800 transition cursor-pointer disabled:opacity-50"
               >
                 <Sparkles className={`w-4 h-4 ${isClassifyingPool ? 'animate-spin' : ''}`} />
               </button>

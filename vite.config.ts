@@ -23,8 +23,13 @@ export default defineConfig(({ command, mode }) => {
     ? (existingBase === './' ? './' : `${existingBase}beta/`)
     : base;
 
+  // Dedicated start_url for PWA manifest to ensure beta never reverts to stable
+  const manifestStartUrl = isBeta
+    ? (existingBase === './' ? './index.html' : `${existingBase}beta/index.html`)
+    : (existingBase === './' ? './index.html' : `${existingBase}index.html`);
+
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
-  const versionString = packageJson.version || '1.1.65';
+  const versionString = packageJson.version || '1.1.66';
 
   // The last official stable version this build is based on (beta builds keep their own version).
   let stableVersionString = versionString;
@@ -104,7 +109,7 @@ export default defineConfig(({ command, mode }) => {
           display: 'standalone',
           display_override: ['standalone'],
           orientation: 'any',
-          start_url: channelScope,
+          start_url: manifestStartUrl,
           scope: channelScope,
           categories: ['finance', 'productivity', 'utilities'],
           prefer_related_applications: false,
@@ -137,7 +142,7 @@ export default defineConfig(({ command, mode }) => {
           skipWaiting: false,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
-          navigateFallback: isDev ? '/index.html' : 'index.html',
+          navigateFallback: isDev ? (isBeta ? '/beta/index.html' : '/index.html') : 'index.html',
           navigateFallbackDenylist: isBeta ? [/^\/api/] : [/^\/api/, /\/beta\//],
           runtimeCaching: [
             {

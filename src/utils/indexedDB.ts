@@ -5,6 +5,7 @@
 
 import { AppData, Account, Category, Transaction, AppSettings, RecurringTransaction } from '../types';
 import { migrateRecurringRule } from './recurring';
+import { CURRENT_APP_VERSION } from './versionChecker';
 
 const DB_NAME = 'PersonalFinanceTrackerDB';
 const DB_VERSION = 1;
@@ -167,7 +168,7 @@ export async function saveFullDataToIndexedDB(
         store.put(data.recurringTransactions.map(migrateRecurringRule), 'recurring_transactions');
       }
       store.put(new Date().toISOString(), 'last_saved_at');
-      store.put('1.1.65', 'version');
+      store.put(CURRENT_APP_VERSION, 'version');
 
       transaction.oncomplete = () => {
         db.close();

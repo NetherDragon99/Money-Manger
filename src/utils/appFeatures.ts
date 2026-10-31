@@ -19,96 +19,31 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: '1.1.65',
+    version: '1.1.66',
     isBeta: true,
     releaseDate: 'October 31, 2026',
     title: {
-      en: 'Smart Budget Overhaul, Transfer Fees, Account Roles, and Header Controls',
-      ar: 'تطوير الميزانية الذكية، رسوم التحويلات، أدوار الحسابات، وعناصر التحكم',
+      en: 'Mid-Cycle Smart Budget, Deterministic Simulator, AI Health Check & Category Insights',
+      ar: 'حساب الميزانية من اليوم، محاكي المصاريف الحتمي، فحص الاتصال بالذكاء الاصطناعي ومخطط الفئات',
     },
     highlights: {
       en: [
-        'Smart Budget reliability: Instant access to your calm daily allowance and spending pools with zero interruptions',
-        'Restored header controls: Time period selectors and filters are back at the top of your screen with easy arrows',
-        'InstaPay and transfer fees: Quick fee calculations with preset limits and clear commission summaries',
-        'Savings and investment tracking: Separate accounts by their purpose with clear progress and flexible withdrawal options',
-        'Clean recurring schedules: Repeated payments display full details clearly without repeating after deletion',
-        'Contextual action button: The main plus button adapts to your active screen to add transactions, accounts, or categories',
+        'Mid-Cycle Budgeting: Choose between full-cycle and "From Today" calculation mode to start budgeting mid-month with remaining funds',
+        'Deterministic What-If Simulator: Real-time simulation of expenses showing exact pool and daily allowance impacts without AI latency',
+        'Overspend Rebalancing: Accurate un-clamped deficit resolution with instant diagnostics showing top overspending categories',
+        'AI Diagnostics: Sequential key testing (personal key, backend proxy, cloud configuration) with clear error reporting and consent protection',
+        'Dedicated Sidebar Sheets: Settings and transfer fees extracted into independent, fully responsive modal sheets',
+        'Full Category Donut Chart: Complete visualization of all active categories with distinct colors and 100% mathematical precision',
+        'Transaction Tax & Multi-line Notes: Optional tax and extra fee breakdown on transactions, paired with an auto-expanding note box',
       ],
       ar: [
-        'ميزانية ذكية ومريحة: وصول فوري لمصروفك اليومي الهادئ وأقسام الميزانية بدون أي توقف',
-        'استعادة أدوات التحكم العلوية: اختيار الفترة وفلاتر المعاملات رجعت في أعلى الشاشة بأسهم واضحة',
-        'رسوم التحويل وإنستا باي: حساب سريع لرسوم التحويلات مع حدود مسبقة وحفظ منظم للعمولات',
-        'متابعة التحويش والاستثمار: تصنيف الحسابات حسب الغرض مع متابعة دقيقة لتقدم مدخراتك',
-        'جدولة منتظمة وواضحة: المعاملات المتكررة بتظهر ببياناتها كاملة ومن غير ما ترجع تاني بعد حذفها',
-        'زر إضافة ذكي: الزر الرئيسي بيتغير تلقائياً حسب الشاشة لإضافة المعاملات أو الحسابات أو الفئات',
-      ],
-    },
-  },
-  {
-    version: '1.1.64',
-    isBeta: true,
-    releaseDate: 'October 30, 2026',
-    title: {
-      en: 'Faster App Lock, Unified Budget Controls and Safe Updates',
-      ar: 'قفل أسرع للتطبيق، تحكم مرن في الميزانية وتحديثات آمنة',
-    },
-    highlights: {
-      en: [
-        'Instant passcode response: Enter your passcode smoothly with quick responsive feedback and a short return window',
-        'Coordinated budget sliders: Change your budget by dragging sliders or typing exact amounts side by side with zero math errors',
-        'Automatic safety backup: Updates install safely while saving a fresh safety copy of your data before applying improvements',
-        'Smart spending assistant: Helpful budgeting tips with simple sharing options to keep your numbers balanced',
-      ],
-      ar: [
-        'قفل فوري وسريع: اكتب رمز الدخول بسهولة وسرعة وبدون أي تأخير مع مهلة مريحة عند الرجوع للتطبيق',
-        'تحكم متكامل في الميزانية: عدل ميزانيتك بالشرائح أو اكتب المبالغ يدوياً جنباً إلى جنب مع توزيع دقيق وتلقائي',
-        'نسخة أمان تلقائية: التحديثات بتنزل بأمان بعد حفظ نسخة احتياطية فورية لبياناتك تلقائياً قبل أي ترقية',
-        'مساعد ذكي للميزانية: نصائح واقتراحات سهلة ومتوازنة لمصاريفك مع خيارات مرنة لحماية أموالك',
-      ],
-    },
-  },
-  {
-    version: '1.1.63',
-    isBeta: true,
-    releaseDate: 'October 29, 2026',
-    title: {
-      en: 'Smart Budget Hub, Daily Safe-to-Spend Meter and Rebalance Assistant',
-      ar: 'الميزانية الذكية، مصروف اليوم الآمن ومساعد إعادة التوازن',
-    },
-    highlights: {
-      en: [
-        'Daily safe spending: Clear meter on the main screen that tells you exactly how much is safe to spend today',
-        'Balanced spending pools: Keep your savings and essential bills separated from your outings and daily pocket money',
-        'One-tap rebalancing: Instant friendly fixes whenever spending runs high to protect your monthly peace of mind',
-        'Smart spending advisor: Optional on-device assistant that helps classify expenses and optimize your spending plan',
-      ],
-      ar: [
-        'مصروف اليوم الآمن: عداد واضح ومباشر في الشاشة الرئيسية يعرفك تصرف كام في اليوم بأمان ومن غير قلق',
-        'أحواض ميزانية متوازنة: افصل فلوس تحويشتك وفواتيرك الأساسية عن مصاريفك اليومية وفسحك وخروجاتك',
-        'إعادة توازن سريعة: حلول فورية وسهلة بضغطة واحدة لما تزيد مصاريفك عشان تحافظ على خطتك لآخر الشهر',
-        'مستشار مالي ذكي: مساعد اختياري يساعدك تفهم مصاريفك ويقترح عليك أنسب تقسيم لفلوسك',
-      ],
-    },
-  },
-  {
-    version: '1.1.62',
-    isBeta: true,
-    releaseDate: 'October 29, 2026',
-    title: {
-      en: 'Channel-Aware Release Updates and Early Testing Tools',
-      ar: 'تحديثات سجل التغييرات وأدوات التجربة المبكرة',
-    },
-    highlights: {
-      en: [
-        'Easier early testing: Preview upcoming features before official releases with one tap',
-        'Clear update tags: See which improvements are early previews and which are official',
-        'Safer channel switching: Try new features with full backup protection whenever you want',
-      ],
-      ar: [
-        'تجربة أسهل وأسرع: جرب الميزات الجديدة قبل نزولها للكل بضغطة واحدة',
-        'علامات واضحة للتحديثات: اعرف بسهولة إيه الميزات التجريبية وإيه التحديثات الرسمية',
-        'تنقل آمن وسلس: جرب الجديد براحتك مع حماية كاملة لبياناتك ونسخ احتياطي فوري',
+        'ميزانية من اليوم: اختر بين دورة الشهر كاملة أو البدء من اليوم لتنظيم متبقي أموالك في منتصف الشهر بدقة',
+        'محاكي مصاريف حتمي: تجربة أي مصروف فوري ومباشر لمعرفة تأثيره الدقيق على حوض المصروف ومصروفك اليومي',
+        'إعادة توازن دقيقة: حلول فورية لعجز الميزانية بدون تقريب مسبق مع عرض أكثر الفئات المسببة لزيادة الصرف',
+        'فحص ذكي للاتصال: اختبار تسلسلي لمفاتيح الذكاء الاصطناعي مع إشعارات واضحة وحماية كاملة للخصوصية',
+        'نوافذ مخصصة للإعدادات: فصل إعدادات التطبيق ورسوم التحويلات في نوافذ مستقلة وسريعة الاستجابة',
+        'مخطط دائري شامل للفئات: عرض كل الفئات النشطة بألوان مستقلة وتوزيع مئوي دقيق بنسبة 100%',
+        'ضرائب المعاملات وملاحظات مرنة: إضافة الضريبة أو الرسوم على المعاملة مع مربع ملاحظات يتسع تلقائياً',
       ],
     },
   },

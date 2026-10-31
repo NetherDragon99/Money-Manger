@@ -73,6 +73,7 @@ import {
   executeCustomDataImport,
 } from '../utils/storage';
 import { requestPersistentStorage, loadFullDataFromIndexedDB, saveItemToIndexedDB, savePreMigrationSnapshot } from '../utils/indexedDB';
+import { isStrictSeededDailyExpressCategory, migrateCategoryTypo } from '../utils/categoryMigration';
 import { migrateSmartBudgetSettingsToUnifiedCycle, getSalaryCycleRange } from '../utils/smartBudgetEngine';
 import { ensureBankFeesCategory, buildLinkedTransferFeeTransaction, roundHalfUpToCents } from '../utils/transferFee';
 import { syncAllAccountBalances, getHistoricalBalance } from '../utils/balanceEngine';
@@ -251,6 +252,10 @@ interface AppContextType {
   setIsPinModalOpen: (open: boolean) => void;
   isSmartBudgetModalOpen: boolean;
   setIsSmartBudgetModalOpen: (open: boolean) => void;
+  isSettingsModalOpen: boolean;
+  setIsSettingsModalOpen: (open: boolean) => void;
+  isTransferFeesModalOpen: boolean;
+  setIsTransferFeesModalOpen: (open: boolean) => void;
 
   // Security & Biometric Lock
   isAppLocked: boolean;
@@ -486,6 +491,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isSmartBudgetModalOpen, setIsSmartBudgetModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isTransferFeesModalOpen, setIsTransferFeesModalOpen] = useState(false);
   const [isSharedHubModalOpen, setIsSharedHubModalOpen] = useState(false);
   const [isEditingSpace, setIsEditingSpace] = useState(false);
   const [editingShareId, setEditingShareId] = useState<string | null>(null);
@@ -1631,6 +1638,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             occurrenceKey: tx.occurrenceKey || buildOccurrenceKey(finalRule.id, tx.date, tx.time || '09:00'),
             type: finalRule.type,
             amount: finalRule.amount,
+            taxAmount: finalRule.taxAmount,
             accountId: finalRule.accountId,
             toAccountId: finalRule.toAccountId,
             categoryId: finalRule.categoryId,
@@ -1889,6 +1897,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         occurrenceKey: occKey,
         type: rec.type,
         amount: rec.amount,
+        taxAmount: rec.taxAmount,
         date: dateStr,
         time: timeStr,
         accountId: rec.accountId,
@@ -2207,6 +2216,88 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         } catch (err) {
           console.warn('[Migration] Failed budgetPool oneoff migration:', err);
           localStorage.setItem(BUDGET_POOL_ONEOFF_MIGRATION_FLAG, 'true');
+        }
+      })();
+    }
+  }, []);
+
+  // One-time Idempotent Migration: Fix seeded default category typo ('Daily express' -> 'Daily Expenses')
+  useEffect(() => {
+    const CATEGORY_DAILY_EXPENSES_MIGRATION_FLAG = 'mm_category_daily_expenses_migrated_v1';
+    const alreadyMigrated = localStorage.getItem(CATEGORY_DAILY_EXPENSES_MIGRATION_FLAG) === 'true';
+    const rawCategories = categoriesRef.current || [];
+    const rawTxs = transactionsRef.current || [];
+    const rawRules = recurringTransactionsRef.current || [];
+
+    const hasTypoCategory = rawCategories.some(isStrictSeededDailyExpressCategory);
+    const hasTypoTx = rawTxs.some((tx) => Boolean(tx.categoryName && tx.categoryName.trim().toLowerCase() === 'daily express'));
+    const hasTypoRule = rawRules.some((r) => Boolean(r.categoryName && r.categoryName.trim().toLowerCase() === 'daily express'));
+
+    if (!alreadyMigrated || hasTypoCategory || hasTypoTx || hasTypoRule) {
+      (async () => {
+        try {
+          if (hasTypoCategory || hasTypoTx || hasTypoRule) {
+            await savePreMigrationSnapshot('category_daily_expenses_v1', {
+              accounts: accountsRef.current,
+              categories: rawCategories,
+              transactions: rawTxs,
+              settings: settingsRef.current,
+              recurringTransactions: rawRules,
+            });
+
+            const nowMs = Date.now();
+            const migrationResult = migrateCategoryTypo(
+              rawCategories,
+              rawTxs,
+              rawRules,
+              nowMs
+            );
+
+            if (migrationResult.hasChanges) {
+              if (migrationResult.categories !== rawCategories) {
+                categoriesRef.current = migrationResult.categories;
+                setCategories(migrationResult.categories);
+                saveCategories(migrationResult.categories);
+              }
+
+              if (migrationResult.transactions !== rawTxs) {
+                transactionsRef.current = migrationResult.transactions;
+                setTransactions(migrationResult.transactions);
+                saveTransactions(migrationResult.transactions);
+              }
+
+              if (migrationResult.recurringTransactions !== rawRules) {
+                recurringTransactionsRef.current = migrationResult.recurringTransactions;
+                setRecurringTransactions(migrationResult.recurringTransactions);
+                saveRecurringTransactions(migrationResult.recurringTransactions);
+              }
+
+              // Stamp and trigger granular push for real-time Firebase RTDB sync
+              if (auth.currentUser && isSyncUnlockedRef.current) {
+                const uid = auth.currentUser.uid;
+                for (const cat of migrationResult.categories) {
+                  if (cat.updatedAt === nowMs) {
+                    triggerGranularPush(() => writeGranularDelta(uid, 'categories', cat, isSyncUnlockedRef.current));
+                  }
+                }
+                for (const tx of migrationResult.transactions) {
+                  if (tx.updatedAt === nowMs) {
+                    triggerGranularPush(() => writeGranularDelta(uid, 'transactions', tx, isSyncUnlockedRef.current));
+                  }
+                }
+                for (const rule of migrationResult.recurringTransactions) {
+                  if (rule.updatedAt === nowMs) {
+                    triggerGranularPush(() => writeGranularDelta(uid, 'recurring', rule, isSyncUnlockedRef.current));
+                  }
+                }
+              }
+            }
+          }
+
+          localStorage.setItem(CATEGORY_DAILY_EXPENSES_MIGRATION_FLAG, 'true');
+        } catch (err) {
+          console.warn('[Migration] Failed category typo migration:', err);
+          localStorage.setItem(CATEGORY_DAILY_EXPENSES_MIGRATION_FLAG, 'true');
         }
       })();
     }
@@ -4674,8 +4765,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const localCats = categoriesRef.current;
       const cloudCats: Category[] = Array.isArray(d.categories) ? d.categories : [];
       const catMap = new Map<string, Category>();
-      [...localCats, ...cloudCats].forEach((c) => {
-        if (!c || !c.id) return;
+      [...localCats, ...cloudCats].forEach((rawCat) => {
+        if (!rawCat || !rawCat.id) return;
+        const c = isStrictSeededDailyExpressCategory(rawCat)
+          ? { ...rawCat, name: 'Daily Expenses', updatedAt: Math.max(Number(rawCat.updatedAt || 0), Date.now()) }
+          : rawCat;
         const tomb = allTombstones[c.id];
         const cUpdated = Number(c.updatedAt || 0);
         if (tomb && tomb.deletedAt > cUpdated) return;
@@ -4968,6 +5062,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsRecurringModalOpen,
     setIsPinModalOpen,
     setIsSmartBudgetModalOpen,
+    setIsSettingsModalOpen,
+    setIsTransferFeesModalOpen,
     setIsSharedHubModalOpen,
     setIsEditingSpace,
     setEditingShareId,
@@ -5077,6 +5173,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isRecurringModalOpen,
       isPinModalOpen,
       isSmartBudgetModalOpen,
+      isSettingsModalOpen,
+      isTransferFeesModalOpen,
       isSharedHubModalOpen,
       isEditingSpace,
       editingShareId,
@@ -5142,6 +5240,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isRecurringModalOpen,
       isPinModalOpen,
       isSmartBudgetModalOpen,
+      isSettingsModalOpen,
+      isTransferFeesModalOpen,
       isSharedHubModalOpen,
       isEditingSpace,
       editingShareId,

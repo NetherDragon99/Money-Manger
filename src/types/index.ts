@@ -82,6 +82,7 @@ export interface Transaction {
   occurrenceKey?: string; // Deterministic occurrence key (ruleId + scheduled local date/time)
   isIndividuallyEdited?: boolean; // Flag when a generated recurring occurrence was individually edited
   budgetPool?: ExpenseBudgetPool; // Standardized smart budget pool attribution ('daily' | 'fixed' | 'outings' | 'oneoff')
+  taxAmount?: number; // Optional tax or extra fee for regular expenses and incomes
   isSalary?: boolean; // Tag for income transactions representing regular salary
   isSavingsAllocation?: boolean; // When true on a transfer, counts principal amount toward cycle's Savings target
   transferFee?: number; // Optional transfer fee (never counted toward Savings target)
@@ -205,6 +206,7 @@ export interface RecurringTransaction {
   transferFeeRawValue?: number;
   transferFeeBudgetPool?: ExpenseBudgetPool;
   budgetPool?: ExpenseBudgetPool;
+  taxAmount?: number; // Optional tax or extra fee for regular recurring expenses and incomes
 }
 
 export interface SecuritySettings {
@@ -241,10 +243,19 @@ export interface SmartBudgetBaselineConfig {
   };
 }
 
+export interface FromTodayConfig {
+  fromDate: string; // YYYY-MM-DD
+  remainingMoney: number; // in major units
+  remainingMoneyMinor?: number; // in minor units
+}
+
 export interface SmartBudgetCycleOverride extends Partial<SmartBudgetBaselineConfig> {
-  appliedScenario?: 'A' | 'B' | 'C';
+  appliedScenario?: 'A' | 'B' | 'C' | 'outings' | 'savings' | 'fixed' | string;
   isCustomPlan?: boolean;
   appliedAt?: number;
+  calculationMode?: 'full_cycle' | 'from_today';
+  fromTodayConfig?: FromTodayConfig;
+  isPaused?: boolean;
 }
 
 export interface SmartBudgetSettings {

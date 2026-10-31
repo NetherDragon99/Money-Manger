@@ -107,6 +107,12 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (s.isSmartBudgetModalOpen) {
       stack.push('modal:smart_budget');
     }
+    if (s.isSettingsModalOpen) {
+      stack.push('modal:settings');
+    }
+    if (s.isTransferFeesModalOpen) {
+      stack.push('modal:transfer_fees');
+    }
     if (s.isUserProfileModalOpen) {
       stack.push('modal:user_profile');
     }
@@ -194,6 +200,8 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     app.isPinModalOpen,
     app.isRecurringModalOpen,
     app.isSmartBudgetModalOpen,
+    app.isSettingsModalOpen,
+    app.isTransferFeesModalOpen,
     app.isUserProfileModalOpen,
     app.isFeaturesModalOpen,
     app.selectedFeatureId,
@@ -311,6 +319,14 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       if (s.isRecurringModalOpen) {
         s.setIsRecurringModalOpen(false);
+        return;
+      }
+      if (s.isTransferFeesModalOpen) {
+        s.setIsTransferFeesModalOpen(false);
+        return;
+      }
+      if (s.isSettingsModalOpen) {
+        s.setIsSettingsModalOpen(false);
         return;
       }
       if (s.isSmartBudgetModalOpen) {

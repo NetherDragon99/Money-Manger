@@ -396,23 +396,25 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     );
   }, [transactions, cycleRange]);
 
-  // Spent amount per category in this cycle
+  // Spent amount per category in this cycle (including any tax/extra fee)
   const categorySpentMap = useMemo(() => {
     const map = new Map<string, number>();
     for (const tx of cycleExpenseTxs) {
       if (tx.categoryId) {
-        map.set(tx.categoryId, (map.get(tx.categoryId) || 0) + tx.amount);
+        const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
+        map.set(tx.categoryId, (map.get(tx.categoryId) || 0) + (tx.amount + tax));
       }
     }
     return map;
   }, [cycleExpenseTxs]);
 
-  // Income received per category in this cycle
+  // Income received per category in this cycle (including any tax/extra fee)
   const categoryIncomeMap = useMemo(() => {
     const map = new Map<string, number>();
     for (const tx of cycleIncomeTxs) {
       if (tx.categoryId) {
-        map.set(tx.categoryId, (map.get(tx.categoryId) || 0) + tx.amount);
+        const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
+        map.set(tx.categoryId, (map.get(tx.categoryId) || 0) + (tx.amount + tax));
       }
     }
     return map;

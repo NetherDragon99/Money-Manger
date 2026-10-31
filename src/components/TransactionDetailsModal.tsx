@@ -303,44 +303,88 @@ export const TransactionDetailsModal: React.FC = () => {
           </div>
         ) : (
           historicalBalances && (
-            <div className="grid grid-cols-3 gap-2">
-              {/* Balance Before */}
-              <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
-                <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
-                  {t('balanceBefore')}
-                </span>
-                <span className="text-xs font-mono font-bold text-zinc-200 mt-1 truncate">
-                  {formatCurrency(historicalBalances.balanceBefore, currencySymbol, settings.language)}
-                </span>
-              </div>
+            <div className="space-y-3">
+              {/* Optional Tax / Extra Fee Breakdown Card */}
+              {Boolean(viewingTx.taxAmount && viewingTx.taxAmount > 0) && (
+                <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 space-y-2">
+                  <div className="text-[11px] font-bold text-zinc-300 flex items-center justify-between">
+                    <span>{t('taxExtraFeeLabel')}</span>
+                    <span className="font-mono text-amber-300 font-bold">
+                      +{formatCurrency(viewingTx.taxAmount!, currencySymbol, settings.language)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 text-center font-mono pt-1">
+                    <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800/60">
+                      <span className="text-[9px] uppercase font-bold text-zinc-400 block font-sans truncate">
+                        {t('amountBeforeTax')}
+                      </span>
+                      <span className="text-xs font-bold text-zinc-200 mt-0.5 block truncate">
+                        {formatCurrency(viewingTx.amount, currencySymbol, settings.language)}
+                      </span>
+                    </div>
+                    <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                      <span className="text-[9px] uppercase font-bold text-amber-300/80 block font-sans truncate">
+                        {t('taxAmount')}
+                      </span>
+                      <span className="text-xs font-bold text-amber-300 mt-0.5 block truncate">
+                        +{formatCurrency(viewingTx.taxAmount!, currencySymbol, settings.language)}
+                      </span>
+                    </div>
+                    <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                      <span className="text-[9px] uppercase font-bold text-emerald-300/80 block font-sans truncate">
+                        {t('totalAfterTax')}
+                      </span>
+                      <span className="text-xs font-bold text-emerald-300 mt-0.5 block truncate">
+                        {formatCurrency(viewingTx.amount + viewingTx.taxAmount!, currencySymbol, settings.language)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-              {/* Transaction Amount */}
-              <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
-                <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
-                  Amount
-                </span>
-                <span
-                  className={`text-xs font-mono font-black mt-1 truncate ${
-                    viewingTx.type === 'income'
-                      ? 'text-emerald-400'
-                      : viewingTx.type === 'expense'
-                      ? 'text-red-400'
-                      : 'text-blue-400'
-                  }`}
-                >
-                  {viewingTx.type === 'income' ? '+' : viewingTx.type === 'expense' ? '-' : ''}
-                  {formatCurrency(viewingTx.amount, currencySymbol, settings.language)}
-                </span>
-              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {/* Balance Before */}
+                <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                    {t('balanceBefore')}
+                  </span>
+                  <span className="text-xs font-mono font-bold text-zinc-200 mt-1 truncate">
+                    {formatCurrency(historicalBalances.balanceBefore, currencySymbol, settings.language)}
+                  </span>
+                </div>
 
-              {/* Balance After */}
-              <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
-                <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
-                  {t('balanceAfter')}
-                </span>
-                <span className="text-xs font-mono font-bold text-white mt-1 truncate">
-                  {formatCurrency(historicalBalances.balanceAfter, currencySymbol, settings.language)}
-                </span>
+                {/* Transaction Amount / Total */}
+                <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider truncate">
+                    {viewingTx.taxAmount && viewingTx.taxAmount > 0 ? t('totalAfterTax') : t('transactionAmount')}
+                  </span>
+                  <span
+                    className={`text-xs font-mono font-black mt-1 truncate ${
+                      viewingTx.type === 'income'
+                        ? 'text-emerald-400'
+                        : viewingTx.type === 'expense'
+                        ? 'text-red-400'
+                        : 'text-blue-400'
+                    }`}
+                  >
+                    {viewingTx.type === 'income' ? '+' : viewingTx.type === 'expense' ? '-' : ''}
+                    {formatCurrency(
+                      viewingTx.amount + (viewingTx.taxAmount && viewingTx.taxAmount > 0 ? viewingTx.taxAmount : 0),
+                      currencySymbol,
+                      settings.language
+                    )}
+                  </span>
+                </div>
+
+                {/* Balance After */}
+                <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 text-center flex flex-col justify-center">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                    {t('balanceAfter')}
+                  </span>
+                  <span className="text-xs font-mono font-bold text-white mt-1 truncate">
+                    {formatCurrency(historicalBalances.balanceAfter, currencySymbol, settings.language)}
+                  </span>
+                </div>
               </div>
             </div>
           )

@@ -542,6 +542,400 @@ async function callGeminiRest(prompt: string, responseSchema?: any): Promise<any
 }
 
 // ============================================================================
+// CONNECTION TESTER & DYNAMIC MODEL VALIDATOR
+// ============================================================================
+
+export interface ConnectionTestResult {
+  ok: boolean;
+  source: 'personal' | 'proxy' | 'shared';
+  modelUsed?: string;
+  statusCode?: number;
+  message: string;
+  messageAr: string;
+}
+
+async function testDirectGeminiKey(
+  apiKey: string,
+  source: 'personal' | 'shared',
+  modelsToTry: string[],
+  isArabic: boolean
+): Promise<ConnectionTestResult> {
+  let lastStatus = 0;
+  let lastErrorText = '';
+
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const model = modelsToTry[i];
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), GEMINI_API_TIMEOUT_MS);
+
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Ping. Output JSON: {"status":"ok"}' }] }],
+          generationConfig: {
+            temperature: 0.1,
+            responseMimeType: 'application/json',
+          },
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      lastStatus = res.status;
+
+      if (res.ok) {
+        return {
+          ok: true,
+          source,
+          modelUsed: model,
+          statusCode: res.status,
+          message: `Connected successfully to Google Gemini (${model}) using ${
+            source === 'personal' ? 'personal API key' : 'shared Firebase key'
+          }!`,
+          messageAr: `تم الاتصال بنجاح بـ Google Gemini (${model}) باستخدام ${
+            source === 'personal' ? 'المفتاح الشخصي' : 'المفتاح المشترك'
+          }!`,
+        };
+      }
+
+      try {
+        const errJson = await res.json();
+        lastErrorText = errJson?.error?.message || '';
+      } catch {}
+
+      // Model not found (404) or server error (500/503) -> dynamically try fallback model
+      if ((res.status === 404 || res.status >= 500) && i < modelsToTry.length - 1) {
+        console.warn(
+          `[SmartBudgetAI] Model ${model} returned ${res.status}. Falling back dynamically to ${modelsToTry[i + 1]}...`
+        );
+        continue;
+      }
+
+      if (res.status === 403) {
+        return {
+          ok: false,
+          source,
+          statusCode: 403,
+          message:
+            'HTTP 403 Forbidden: Key rejected. Note: On localhost or Vite preview, HTTP 403 is expected if your Gemini API key has HTTP referrer restrictions in Google Cloud Console. Remove referrer restrictions in Google Cloud Console or test on your production domain.',
+          messageAr:
+            'خطأ 403 (محظور): تم رفض المفتاح. ملاحظة: عند الاختبار على localhost أو معاينة Vite، يكون هذا الخطأ متوقعاً إذا كانت هناك قيود نطاق (HTTP referrer) على المفتاح في Google Cloud Console. يرجى إزالة قيود النطاق أو الاختبار على النطاق الفعلي.',
+        };
+      }
+
+      if (res.status === 400) {
+        return {
+          ok: false,
+          source,
+          statusCode: 400,
+          message: `HTTP 400 Bad Request: Invalid API key or request payload. ${
+            lastErrorText ? `(${lastErrorText})` : 'Verify your key in Google AI Studio.'
+          }`,
+          messageAr: `خطأ 400 (طلب غير صالح): مفتاح API غير صالح أو البيانات غير صحيحة. ${
+            lastErrorText ? `(${lastErrorText})` : 'يرجى التحقق من المفتاح في Google AI Studio.'
+          }`,
+        };
+      }
+
+      if (res.status === 429) {
+        return {
+          ok: false,
+          source,
+          statusCode: 429,
+          message:
+            'HTTP 429 Too Many Requests: Rate limit exceeded or quota exhausted. Please try again in a few moments or use a key with higher quota.',
+          messageAr:
+            'خطأ 429 (تجاوز معدل الاستخدام): تم استنفاد الحصة أو تجاوز عدد الطلبات المسموح. يرجى المحاولة بعد قليل أو استخدام مفتاح ذي حصة أكبر.',
+        };
+      }
+
+      if (res.status === 404) {
+        return {
+          ok: false,
+          source,
+          statusCode: 404,
+          message: `HTTP 404 Not Found: Neither primary model (${GEMINI_MODEL_PRIMARY}) nor fallback (${GEMINI_MODEL_FALLBACK}) is accessible with this key.`,
+          messageAr: `خطأ 404 (غير موجود): تعذر الوصول إلى النموذج الأساسي (${GEMINI_MODEL_PRIMARY}) أو الاحتياطي (${GEMINI_MODEL_FALLBACK}) بهذا المفتاح.`,
+        };
+      }
+
+      return {
+        ok: false,
+        source,
+        statusCode: res.status,
+        message: `HTTP ${res.status}: Connection test failed. ${
+          lastErrorText || 'Unexpected response from Google Gemini.'
+        }`,
+        messageAr: `خطأ HTTP ${res.status}: فشل اختبار الاتصال. ${
+          lastErrorText || 'استجابة غير متوقعة من Google Gemini.'
+        }`,
+      };
+    } catch (fetchErr: any) {
+      clearTimeout(timeoutId);
+      if (fetchErr.name === 'AbortError') {
+        return {
+          ok: false,
+          source,
+          message: 'Connection timed out after 8 seconds. Google Gemini servers did not respond in time.',
+          messageAr: 'انتهت مهلة الاتصال بعد 8 ثوانٍ. لم تستجب خوادم Google Gemini في الوقت المحدد.',
+        };
+      }
+      return {
+        ok: false,
+        source,
+        message: `Network error: ${fetchErr.message || 'Unable to connect to Google Gemini servers.'}`,
+        messageAr: `خطأ في الشبكة: ${fetchErr.message || 'تعذر الاتصال بخوادم Google Gemini.'}`,
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    source,
+    statusCode: lastStatus,
+    message: `Connection failed with status ${lastStatus}.`,
+    messageAr: `فشل الاتصال برمز الحالة ${lastStatus}.`,
+  };
+}
+
+async function testProxyConnection(
+  proxyUrl: string,
+  isArabic: boolean
+): Promise<ConnectionTestResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GEMINI_API_TIMEOUT_MS);
+
+  try {
+    let idToken = '';
+    if (auth.currentUser) {
+      try {
+        idToken = await auth.currentUser.getIdToken();
+      } catch (tokenErr) {
+        console.warn('[SmartBudgetAI] Failed to fetch ID token for proxy test:', tokenErr);
+      }
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (idToken) {
+      headers['Authorization'] = `Bearer ${idToken}`;
+    }
+
+    const res = await fetch(proxyUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: GEMINI_MODEL_PRIMARY,
+        contents: [{ parts: [{ text: 'Ping. Output JSON: {"status":"ok"}' }] }],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: 'application/json',
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      return {
+        ok: true,
+        source: 'proxy',
+        modelUsed: GEMINI_MODEL_PRIMARY,
+        statusCode: res.status,
+        message: 'Connected successfully via Backend Proxy!',
+        messageAr: 'تم الاتصال بنجاح عبر البروكسي الخلفي!',
+      };
+    }
+
+    if (res.status === 401) {
+      return {
+        ok: false,
+        source: 'proxy',
+        statusCode: 401,
+        message: 'Proxy HTTP 401 Unauthorized: Firebase authentication token missing or invalid. Please sign in.',
+        messageAr: 'خطأ 401 في البروكسي (غير مصرح): رمز مصادقة Firebase مفقود أو غير صالح. يرجى تسجيل الدخول.',
+      };
+    }
+
+    if (res.status === 403) {
+      return {
+        ok: false,
+        source: 'proxy',
+        statusCode: 403,
+        message: 'Proxy HTTP 403 Forbidden: Daily proxy quota reached or unauthorized user origin.',
+        messageAr: 'خطأ 403 في البروكسي (محظور): تم الوصول للحد اليومي لطلبات البروكسي أو المصدر غير مصرح به.',
+      };
+    }
+
+    if (res.status === 429) {
+      return {
+        ok: false,
+        source: 'proxy',
+        statusCode: 429,
+        message: 'Proxy HTTP 429: Too many requests to the proxy server.',
+        messageAr: 'خطأ 429 في البروكسي: عدد طلبات كبير جداً على خادم البروكسي.',
+      };
+    }
+
+    return {
+      ok: false,
+      source: 'proxy',
+      statusCode: res.status,
+      message: `Proxy HTTP ${res.status}: Proxy request failed.`,
+      messageAr: `خطأ HTTP ${res.status} في البروكسي: فشل طلب البروكسي.`,
+    };
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      return {
+        ok: false,
+        source: 'proxy',
+        message: 'Proxy connection timed out after 8 seconds.',
+        messageAr: 'انتهت مهلة الاتصال بالبروكسي بعد 8 ثوانٍ.',
+      };
+    }
+    return {
+      ok: false,
+      source: 'proxy',
+      message: `Proxy connection error: ${err?.message || 'Unable to reach proxy endpoint.'}`,
+      messageAr: `خطأ اتصال بالبروكسي: ${err?.message || 'تعذر الوصول لنقطة نهاية البروكسي.'}`,
+    };
+  }
+}
+
+/**
+ * Tests connection to Google Gemini API following strict resolution order:
+ * Priority 1: Personal API Key
+ * Priority 2: Backend Proxy
+ * Priority 3: Firebase RTDB app_config/gemini/apiKey (requires signed-in user and consent ON)
+ * Never fails solely because the personal key is empty!
+ */
+export async function testConnection(language: 'ar' | 'en' = 'en'): Promise<ConnectionTestResult> {
+  const isArabic = language === 'ar';
+
+  // 1. Consent Gate
+  if (!hasAIConsent()) {
+    return {
+      ok: false,
+      source: 'personal',
+      message: 'Consent OFF: AI consent is currently turned off. Please toggle consent ON above before testing.',
+      messageAr: 'الموافقة معطلة: تم إيقاف موافقة الذكاء الاصطناعي. يرجى تفعيل مفتاح الموافقة بالأعلى قبل الاختبار.',
+    };
+  }
+
+  // 2. Online status
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return {
+      ok: false,
+      source: 'personal',
+      message: 'Network Offline: Unable to test connection while offline. Please check your internet connection.',
+      messageAr: 'غير متصل بالإنترنت: تعذر اختبار الاتصال في وضع عدم الاتصال. يرجى التحقق من اتصالك بالشبكة.',
+    };
+  }
+
+  const modelsToTry = [GEMINI_MODEL_PRIMARY, GEMINI_MODEL_FALLBACK];
+
+  // PRIORITY 1: Personal API Key
+  const personalKey = getLocalGeminiApiKey();
+  if (personalKey) {
+    return testDirectGeminiKey(personalKey, 'personal', modelsToTry, isArabic);
+  }
+
+  // PRIORITY 2: Backend Proxy
+  const proxyUrl = getAIProxyUrl();
+  if (proxyUrl) {
+    return testProxyConnection(proxyUrl, isArabic);
+  }
+
+  // PRIORITY 3: Shared Firebase Key (app_config/gemini/apiKey)
+  if (!auth?.currentUser) {
+    return {
+      ok: false,
+      source: 'shared',
+      message: 'Not signed in: Sign in to your account to use the shared AI connection, or enter a personal Gemini API key.',
+      messageAr: 'لم يتم تسجيل الدخول: يرجى تسجيل الدخول لاستخدام الاتصال المشترك، أو إدخال مفتاح Gemini شخصي.',
+    };
+  }
+
+  if (!rtdb) {
+    return {
+      ok: false,
+      source: 'shared',
+      message: 'Firebase Database unavailable: Realtime Database is not initialized.',
+      messageAr: 'قاعدة بيانات Firebase غير متوفرة: لم يتم تهيئة Realtime Database.',
+    };
+  }
+
+  let sharedKey: string | null = null;
+  try {
+    const parentRef = ref(rtdb, 'app_config/gemini');
+    const snap = await get(parentRef);
+    if (!snap.exists()) {
+      return {
+        ok: false,
+        source: 'shared',
+        message: 'Configuration not found: No Gemini API key found in Firebase app_config. Please enter a personal API key.',
+        messageAr: 'لم يتم العثور على التكوين: لا يوجد مفتاح Gemini في إعدادات التطبيق (app_config). يرجى إدخال مفتاح شخصي.',
+      };
+    }
+    const val = snap.val();
+    if (val && typeof val === 'object') {
+      if (val.enabled === false) {
+        inMemoryRemoteKillSwitchDisabled = true;
+        return {
+          ok: false,
+          source: 'shared',
+          message: 'Service Disabled: The shared AI connection has been temporarily disabled by the administrator.',
+          messageAr: 'الخدمة معطلة: تم إيقاف خدمة الذكاء الاصطناعي المشتركة مؤقتاً من قِبل المسؤول.',
+        };
+      }
+      const k = val.apiKey || val.key;
+      if (typeof k === 'string' && k.trim()) {
+        sharedKey = k.trim();
+      }
+    } else if (typeof val === 'string' && val.trim()) {
+      sharedKey = val.trim();
+    }
+  } catch (rtdbErr: any) {
+    const isPermDenied =
+      rtdbErr?.code?.includes('permission-denied') ||
+      rtdbErr?.message?.toLowerCase().includes('permission denied') ||
+      rtdbErr?.message?.toLowerCase().includes('permission_denied');
+
+    return {
+      ok: false,
+      source: 'shared',
+      message: isPermDenied
+        ? 'Permission Denied: Unable to read app_config from Firebase Realtime Database. Verify that database.rules.json allows auth != null for app_config.'
+        : `Firebase Error: ${rtdbErr?.message || 'Failed to read app_config'}`,
+      messageAr: isPermDenied
+        ? 'تم رفض الإذن: تعذر قراءة إعدادات التطبيق من Firebase. تحقق من قواعد أمان database.rules.json.'
+        : `خطأ في Firebase: ${rtdbErr?.message || 'فشل قراءة إعدادات التطبيق'}`,
+    };
+  }
+
+  if (!sharedKey) {
+    return {
+      ok: false,
+      source: 'shared',
+      message: 'No API key configured in Firebase app_config. Please enter a personal Gemini API key in Advanced Settings.',
+      messageAr: 'مفتاح API غير متوفر في إعدادات التطبيق. يرجى إدخال مفتاح شخصي في الإعدادات المتقدمة.',
+    };
+  }
+
+  inMemorySharedApiKey = sharedKey;
+  return testDirectGeminiKey(sharedKey, 'shared', modelsToTry, isArabic);
+}
+
+// ============================================================================
 // 1. SALARY ALLOCATION SUGGESTION
 // ============================================================================
 
@@ -1112,6 +1506,239 @@ Output schema:
       const validResult: RebalanceRecommendation = {
         recommendedScenario: sc,
         reasoning: rsn,
+        source: 'ai',
+      };
+      saveToCache(cacheKey, validResult);
+      return validResult;
+    }
+  }
+
+  return deterministicFallback;
+}
+
+// ============================================================================
+// 5. STRUCTURED AI BUDGET ADVISOR (AGGREGATED NUMBERS ONLY)
+// ============================================================================
+
+export interface RequestSmartBudgetAdviceParams {
+  categoryTotals: Array<{
+    categoryName: string;
+    amountMajor: number;
+    count: number;
+    pool: string;
+  }>;
+  cycleDeficitOrSurplusMajor: number; // positive = surplus, negative = deficit
+  isDeficit: boolean;
+  remainingDays: number;
+  totalCycleIncomeMajor: number;
+  totalCycleSpentMajor: number;
+  currency: string;
+  language?: 'ar' | 'en';
+}
+
+export interface SmartBudgetAdviceResult {
+  status: 'healthy' | 'caution' | 'critical';
+  headline: string;
+  topObservation: string;
+  actionableAdvice: string[];
+  source: 'ai' | 'deterministic';
+}
+
+/**
+ * AI Advisor Tab Request:
+ * Strictly transmits ONLY minimal aggregated numbers:
+ * - Category names capped at 30 characters
+ * - Category spending totals & transaction counts
+ * - Remaining cycle days & overall deficit/surplus
+ * ZERO transaction notes, ZERO emails, ZERO account names or IDs!
+ * Validates JSON structure returned by Gemini or provides deterministic fallback.
+ */
+export async function requestSmartBudgetAdvice(
+  params: RequestSmartBudgetAdviceParams
+): Promise<SmartBudgetAdviceResult> {
+  const language = params.language || 'en';
+  const isArabic = language === 'ar';
+  const remDays = Math.max(0, Math.round(params.remainingDays));
+  const income = Math.max(0, Math.round(params.totalCycleIncomeMajor));
+  const spent = Math.max(0, Math.round(params.totalCycleSpentMajor));
+  const diff = Math.round(params.cycleDeficitOrSurplusMajor);
+  const isDeficit = params.isDeficit;
+  const currency = params.currency || 'EGP';
+
+  // 1. DATA MINIMIZATION:
+  // Cap category names at 30 characters, totals rounded, only top 8 categories, NO notes, NO emails, NO account IDs!
+  const sanitizedCategories = (params.categoryTotals || [])
+    .slice(0, 8)
+    .map((c) => ({
+      categoryName: (c.categoryName || 'Other').slice(0, 30).trim(),
+      amountMajor: Math.max(0, Math.round(c.amountMajor)),
+      count: Math.max(0, Math.round(c.count)),
+      pool: c.pool || 'daily',
+    }));
+
+  // 2. Deterministic Fallback based strictly on the aggregated numbers
+  let fallbackStatus: 'healthy' | 'caution' | 'critical' = 'healthy';
+  let fallbackHeadline = '';
+  let fallbackTopObservation = '';
+  const fallbackAdvice: string[] = [];
+
+  const topCat = sanitizedCategories[0];
+  if (topCat) {
+    fallbackTopObservation = isArabic
+      ? `أكبر فئة استهلاكاً هي ${topCat.categoryName} بإجمالي ${topCat.amountMajor} ${currency}.`
+      : `Highest spending category is ${topCat.categoryName} totaling ${topCat.amountMajor} ${currency}.`;
+  } else {
+    fallbackTopObservation = isArabic
+      ? 'لم يتم تسجيل مصاريف كافية لتحديد الفئة الأكبر.'
+      : 'Not enough category data recorded yet for this cycle.';
+  }
+
+  if (isDeficit) {
+    fallbackStatus = 'critical';
+    fallbackHeadline = isArabic
+      ? `تجاوز في الميزانية بمقدار ${Math.abs(diff)} ${currency}`
+      : `Budget is overspent by ${Math.abs(diff)} ${currency}`;
+    fallbackAdvice.push(
+      isArabic
+        ? 'طبق أحد خيارات إعادة التوازن من تبويب "هذا الشهر" لامتصاص العجز.'
+        : 'Apply a rebalance option from the "This Month" tab to absorb the deficit.'
+    );
+    fallbackAdvice.push(
+      isArabic
+        ? `اقتصر على المشتريات الضرورية جداً خلال الـ ${remDays} يوماً المتبقية.`
+        : `Limit spending strictly to essentials for the remaining ${remDays} days.`
+    );
+  } else if (remDays <= 5) {
+    fallbackStatus = 'healthy';
+    fallbackHeadline = isArabic
+      ? `أداء ممتاز! متبقي فائض قدره ${diff} ${currency} في نهاية الدورة`
+      : `Great pacing! You have a ${diff} ${currency} surplus entering the final days`;
+    fallbackAdvice.push(
+      isArabic
+        ? 'حافظ على وتيرة الصرف الحالية لإنهاء الشهر بفائض نظيف.'
+        : 'Maintain your current spending pace to finish the month with a surplus.'
+    );
+    fallbackAdvice.push(
+      isArabic
+        ? 'سيتم ترحيل أي فائض متبقٍ في نهاية الدورة إلى مدخراتك.'
+        : 'Any remaining balance at cycle end will roll into your savings.'
+    );
+  } else if (diff < income * 0.15) {
+    fallbackStatus = 'caution';
+    fallbackHeadline = isArabic
+      ? `متبقي ${diff} ${currency} للمصروف خلال ${remDays} يوماً`
+      : `Tight margin: ${diff} ${currency} remaining across ${remDays} days`;
+    fallbackAdvice.push(
+      isArabic
+        ? 'خفض وتيرة مصاريف الخروجات والترفيه لضمان استقرار المصروف اليومي.'
+        : 'Moderate outings and leisure spending to keep daily living comfortable.'
+    );
+    fallbackAdvice.push(
+      isArabic
+        ? `راقب مصاريف فئة ${topCat?.categoryName || 'الرئيسية'} لتقليل النفقات غير الضرورية.`
+        : `Keep an eye on ${topCat?.categoryName || 'top category'} expenses to trim non-essentials.`
+    );
+  } else {
+    fallbackStatus = 'healthy';
+    fallbackHeadline = isArabic
+      ? `ميزانيتك متزنة وتسير بخطى مريحة (${remDays} يوماً متبقية)`
+      : `Budget is balanced and on track (${remDays} days remaining)`;
+    fallbackAdvice.push(
+      isArabic
+        ? 'معدل الصرف اليومي آمن ويتوافق مع خطتك الأساسية.'
+        : 'Your daily spending pace aligns well with your planned budget.'
+    );
+    fallbackAdvice.push(
+      isArabic
+        ? 'استمر في تسجيل المعاملات يومياً للحفاظ على دقة التتبع.'
+        : 'Continue logging expenses daily to keep your allowance accurate.'
+    );
+  }
+
+  const deterministicFallback: SmartBudgetAdviceResult = {
+    status: fallbackStatus,
+    headline: fallbackHeadline,
+    topObservation: fallbackTopObservation,
+    actionableAdvice: fallbackAdvice,
+    source: 'deterministic',
+  };
+
+  // Check consent gate
+  if (!hasAIConsent()) {
+    return deterministicFallback;
+  }
+
+  // Check Cache
+  const cacheKey = computeCacheKey('ai_budget_advisor_v2', {
+    income,
+    spent,
+    diff,
+    isDeficit,
+    remDays,
+    cats: sanitizedCategories.map((c) => `${c.categoryName}:${c.amountMajor}`).join(','),
+    language,
+  });
+  const cached = getFromCache<SmartBudgetAdviceResult>(cacheKey);
+  if (cached) return cached;
+
+  if (isFeatureRateLimited('smart_budget_advisor_v2')) {
+    return deterministicFallback;
+  }
+  recordFeatureRequest('smart_budget_advisor_v2');
+
+  const prompt = `You are a certified financial planning advisor.
+Analyze these anonymous, strictly aggregated budget numbers for the current cycle:
+- Remaining days in cycle: ${remDays} days
+- Planned cycle income: ${income} ${currency}
+- Total spent so far: ${spent} ${currency}
+- Cycle balance: ${isDeficit ? `Deficit of ${Math.abs(diff)} ${currency}` : `Surplus of ${diff} ${currency}`}
+- Top spending categories (totals only):
+${sanitizedCategories.map((c) => `  * ${c.categoryName} (${c.pool}): ${c.amountMajor} ${currency} (${c.count} transactions)`).join('\n')}
+
+Language for advice: ${isArabic ? 'Arabic' : 'English'}
+
+Strict Rules:
+1. Base your evaluation strictly on the aggregated numbers above. Never invent facts or numbers.
+2. Provide a status: "healthy", "caution", or "critical".
+3. "headline": One concise encouraging sentence summarizing financial health (max 15 words).
+4. "topObservation": One brief observation about the main spending driver (max 20 words).
+5. "actionableAdvice": Exactly 2 or 3 short, concrete, practical bullet points (max 20 words each) for the remaining ${remDays} days.
+6. Return structured JSON matching the schema.`;
+
+  const responseSchema = {
+    type: 'OBJECT',
+    properties: {
+      status: {
+        type: 'STRING',
+        enum: ['healthy', 'caution', 'critical'],
+      },
+      headline: { type: 'STRING' },
+      topObservation: { type: 'STRING' },
+      actionableAdvice: {
+        type: 'ARRAY',
+        items: { type: 'STRING' },
+      },
+    },
+    required: ['status', 'headline', 'topObservation', 'actionableAdvice'],
+  };
+
+  const aiResult = await callGeminiRest(prompt, responseSchema);
+
+  if (aiResult && typeof aiResult === 'object') {
+    const st = aiResult.status;
+    const headline = typeof aiResult.headline === 'string' ? aiResult.headline.trim() : '';
+    const topObs = typeof aiResult.topObservation === 'string' ? aiResult.topObservation.trim() : '';
+    const rawAdvice = Array.isArray(aiResult.actionableAdvice) ? aiResult.actionableAdvice : [];
+    const validAdvice = rawAdvice
+      .filter((a: any) => typeof a === 'string' && a.trim().length > 0)
+      .map((a: string) => a.trim());
+
+    if (['healthy', 'caution', 'critical'].includes(st) && headline.length > 0 && validAdvice.length > 0) {
+      const validResult: SmartBudgetAdviceResult = {
+        status: st as any,
+        headline,
+        topObservation: topObs || fallbackTopObservation,
+        actionableAdvice: validAdvice.slice(0, 3),
         source: 'ai',
       };
       saveToCache(cacheKey, validResult);
