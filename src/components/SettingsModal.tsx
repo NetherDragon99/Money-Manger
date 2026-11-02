@@ -1,3 +1,20 @@
+import {
+  IS_BETA_BUILD,
+  checkBetaAvailability,
+  STABLE_BASE_URL,
+  BETA_BASE_URL,
+  switchChannelWithHistoryUnwind,
+} from '../utils/channel';
+import {
+  CURRENT_APP_VERSION,
+  formatVersionLabel,
+  isAutoUpdateEnabled,
+  setAutoUpdateEnabled,
+} from '../utils/versionChecker';
+import { saveItemToIndexedDB } from '../utils/indexedDB';
+import { exportAllDataAsJSON } from '../utils/storage';
+import { useNavigation } from '../context/NavigationContext';
+import { JoinBetaWarningModal } from './JoinBetaWarningModal';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   X,
@@ -14,6 +31,8 @@ import {
   Search,
   Check,
   ChevronRight,
+  RefreshCw,
+  Download,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { WeekStartDay } from '../types';
@@ -42,6 +61,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setIsTransferFeesModalOpen,
     lockApp,
     showToast,
+    accounts,
+    categories,
+    transactions,
+    recurringTransactions,
     t,
   } = useApp();
 
@@ -61,6 +84,103 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     mode: 'disable_lock' | 'change_grace';
     targetGrace?: number;
   }>({ isOpen: false, mode: 'disable_lock' });
+
+  const { getPushedFramesCount } = useNavigation();
+  const [autoUpdateEnabled, setAutoUpdateState] = useState(() => isAutoUpdateEnabled());
+  const [isBetaAvailable, setIsBetaAvailable] = useState<boolean | null>(null);
+  const [isJoinBetaModalOpen, setIsJoinBetaModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!IS_BETA_BUILD) {
+      checkBetaAvailability().then(setIsBetaAvailable).catch(() => setIsBetaAvailable(false));
+    }
+  }, []);
+
+  const handleToggleAutoUpdate = () => {
+    const nextVal = !autoUpdateEnabled;
+    setAutoUpdateState(nextVal);
+    setAutoUpdateEnabled(nextVal);
+    showToast(
+      isArabic
+        ? nextVal
+          ? 'تم تفعيل التحديث التلقائي في الخلفية'
+          : 'تم تعطيل التحديث التلقائي'
+        : nextVal
+        ? 'Automatic background updates enabled'
+        : 'Automatic background updates disabled',
+      'info'
+    );
+  };
+
+  const handleToggleJoinBeta = () => {
+    if (isBetaAvailable === false) {
+      showToast(t('betaNotAvailable'), 'info');
+      return;
+    }
+    setIsJoinBetaModalOpen(true);
+  };
+
+  const handleConfirmJoinBeta = async (downloadBackup: boolean) => {
+    try {
+      const snapshotPayload = {
+        version: CURRENT_APP_VERSION,
+        versionLabel: formatVersionLabel(CURRENT_APP_VERSION),
+        type: 'pre_beta_safety_backup',
+        backupDate: new Date().toISOString(),
+        timestamp: Date.now(),
+        accounts,
+        categories,
+        transactions,
+        settings,
+        recurringTransactions,
+      };
+      await saveItemToIndexedDB('mm_pre_beta_backup', snapshotPayload);
+
+      if (downloadBackup) {
+        exportAllDataAsJSON({ accounts, categories, transactions, settings, recurringTransactions });
+      }
+
+      const isReachable = await checkBetaAvailability(true);
+      if (!isReachable) {
+        showToast(t('betaUnreachableToast'), 'error');
+        setIsJoinBetaModalOpen(false);
+        return;
+      }
+
+      try {
+        localStorage.setItem('mm_join_beta', 'true');
+      } catch {}
+      updateSettings({ joinBeta: true });
+
+      showToast(t('switchingToBetaToast'), 'info');
+      setIsJoinBetaModalOpen(false);
+
+      const frames = typeof getPushedFramesCount === 'function' ? getPushedFramesCount() : 1;
+      setTimeout(() => {
+        switchChannelWithHistoryUnwind(BETA_BASE_URL, frames);
+      }, 350);
+    } catch (err) {
+      console.error('Error switching to beta channel:', err);
+      showToast(isArabic ? 'حدث خطأ أثناء الانتقال للبيتا' : 'Error switching to Beta', 'error');
+      setIsJoinBetaModalOpen(false);
+    }
+  };
+
+  const handleLeaveBeta = () => {
+    const message = t('confirmLeaveBeta');
+    const confirmed = window.confirm(message);
+    if (confirmed) {
+      try {
+        localStorage.removeItem('mm_join_beta');
+      } catch {}
+      updateSettings({ joinBeta: false });
+      showToast(t('leavingBetaToast'), 'info');
+      const frames = typeof getPushedFramesCount === 'function' ? getPushedFramesCount() : 1;
+      setTimeout(() => {
+        switchChannelWithHistoryUnwind(STABLE_BASE_URL, frames);
+      }, 350);
+    }
+  };
 
   useEffect(() => {
     isBiometricAvailable().then(setIsBioSupported).catch(() => setIsBioSupported(false));
@@ -502,6 +622,92 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               </div>
             )}
           </div>
+
+          {/* Section 6: App Updates & Release Channel Preferences */}
+          <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3.5">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+              <RefreshCw className="w-4 h-4 text-emerald-400" />
+              <span>{isArabic ? 'تحديثات التطبيق والقناة' : 'App Updates & Channel Preferences'}</span>
+            </h4>
+
+            {/* Auto-Update Toggle */}
+            <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/60">
+              <div className="min-w-0 pr-2 rtl:pr-0 rtl:pl-2">
+                <span className="text-xs font-bold text-white block">
+                  {isArabic ? 'التحديث التلقائي في الخلفية' : 'Background Auto-Update'}
+                </span>
+                <span className="text-[11px] text-zinc-400 block mt-0.5 leading-normal">
+                  {isArabic
+                    ? 'التحقق الدوري وتطبيق تحسينات وإصلاحات التطبيق تلقائياً'
+                    : 'Check and install updates automatically in the background'}
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoUpdateEnabled}
+                onClick={handleToggleAutoUpdate}
+                className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 ${
+                  autoUpdateEnabled ? 'bg-emerald-600' : 'bg-zinc-700'
+                }`}
+              >
+                <span
+                  className={`block w-4.5 h-4.5 rounded-full bg-white shadow-sm transition-transform absolute top-0.75 ${
+                    autoUpdateEnabled
+                      ? (isArabic ? 'right-1' : 'left-5.5')
+                      : (isArabic ? 'right-5.5' : 'left-1')
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Join / Leave Beta Switch */}
+            <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/60">
+              <div className="min-w-0 pr-2 rtl:pr-0 rtl:pl-2">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>{isArabic ? 'قناة البيتا التجريبية' : 'Beta Preview Channel'}</span>
+                  {IS_BETA_BUILD && (
+                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase">
+                      Active
+                    </span>
+                  )}
+                </span>
+                <span className="text-[11px] text-zinc-400 block mt-0.5 leading-normal">
+                  {IS_BETA_BUILD
+                    ? (isArabic ? 'أنت تستخدم إصدار البيتا حالياً' : 'You are currently on the Beta testing channel')
+                    : (isArabic ? 'تجربة أحدث الميزات قبل إطلاقها الرسمي' : 'Try early features before official release')}
+                </span>
+              </div>
+              {IS_BETA_BUILD ? (
+                <button
+                  type="button"
+                  onClick={handleLeaveBeta}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold transition active:scale-95 shrink-0 cursor-pointer"
+                >
+                  {isArabic ? 'العودة للمستقرة' : 'Leave Beta'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  role="switch"
+                  disabled={isBetaAvailable === false}
+                  aria-checked={false}
+                  onClick={handleToggleJoinBeta}
+                  className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${
+                    isBetaAvailable === false
+                      ? 'opacity-40 cursor-not-allowed bg-zinc-800 border border-zinc-700'
+                      : 'bg-zinc-700 cursor-pointer'
+                  }`}
+                >
+                  <span
+                    className={`block w-4.5 h-4.5 rounded-full bg-white shadow-sm transition-transform absolute top-0.75 ${
+                      isArabic ? 'right-5.5' : 'left-1'
+                    }`}
+                  />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Modal Footer */}
@@ -516,6 +722,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </button>
         </div>
       </div>
+
+      {/* High-Severity Join Beta Warning Modal */}
+      <JoinBetaWarningModal
+        isOpen={isJoinBetaModalOpen}
+        onClose={() => setIsJoinBetaModalOpen(false)}
+        onConfirm={handleConfirmJoinBeta}
+      />
 
       {/* Passcode Verification Modal for Disabling Lock or Changing Grace Period */}
       <PasscodeVerificationModal

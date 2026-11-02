@@ -140,9 +140,12 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
     // Draw ALL active categories from the list as distinct colored SVG arcs summing to exactly 100%
     return analytics.list.map((item, idx) => {
       const sliceFraction = item.percentage / 100;
-      const strokeLength = sliceFraction * circ;
+      const rawStrokeLength = sliceFraction * circ;
+      // Guarantee a minimum visible arc angle for tiny percentages
+      const minStroke = 3.5;
+      const strokeLength = item.percentage > 0 ? Math.max(minStroke, rawStrokeLength) : 0;
       const strokeDashoffset = -accumulatedLength;
-      accumulatedLength += strokeLength;
+      accumulatedLength += rawStrokeLength;
 
       return {
         id: item.id || `slice_${idx}`,
@@ -306,8 +309,15 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
                       className="flex items-center justify-between p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800/60"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
+                        <div
+                          className="w-10 h-10 rounded-xl bg-zinc-900 border flex items-center justify-center text-xl shrink-0 relative"
+                          style={{ borderColor: item.color }}
+                        >
                           {item.icon}
+                          <span
+                            className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 border-zinc-900"
+                            style={{ backgroundColor: item.color }}
+                          />
                         </div>
                         <div className="min-w-0">
                           <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs">
@@ -423,8 +433,15 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
                       className="flex items-center justify-between p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800/60"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-xl shrink-0">
+                        <div
+                          className="w-10 h-10 rounded-xl bg-zinc-900 border flex items-center justify-center text-xl shrink-0 relative"
+                          style={{ borderColor: item.color }}
+                        >
                           {item.icon}
+                          <span
+                            className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 border-zinc-900"
+                            style={{ backgroundColor: item.color }}
+                          />
                         </div>
                         <div className="min-w-0">
                           <div className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs">

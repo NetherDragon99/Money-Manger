@@ -532,8 +532,8 @@ export const translations = {
     settingsModalTitle: 'Preferences & Settings',
     settingsModalDesc: 'Customize currency, cycles, appearance, and app security',
     transferFeesModalDesc: 'Configure InstaPay preset rates, min/max caps, and automatic transfer rules',
-    openTransferFeesModal: 'Transfer Fees & Taxes',
-    openSettingsModal: 'Preferences & Settings',
+    openTransferFeesModal: 'Transfer Fees & Tax Rules',
+    openSettingsModal: 'App Settings & Preferences',
   },
   ar: {
     // Navigation
@@ -1067,8 +1067,8 @@ export const translations = {
     settingsModalTitle: 'التفضيلات والإعدادات',
     settingsModalDesc: 'تخصيص العملة، دورة الميزانية، المظهر، وأمان التطبيق',
     transferFeesModalDesc: 'تخصيص نسب إنستا باي والحدود وقواعد التحويل التلقائية',
-    openTransferFeesModal: 'رسوم التحويل والضرائب',
-    openSettingsModal: 'التفضيلات والإعدادات',
+    openTransferFeesModal: 'رسوم التحويل وقواعد الضرائب',
+    openSettingsModal: 'إعدادات وتفضيلات التطبيق',
   },
 };
 

@@ -1,0 +1,327 @@
+[
+  {
+    "version": "1.1.60",
+    "isBeta": false,
+    "releaseDate": "October 28, 2026",
+    "title": {
+      "en": "Shared Space Security & Audit Log, Responsive Transfer Cards & Next Occurrences Preview",
+      "ar": "أمان وتدقيق المساحات المشتركة، بطاقات تحويل متجاوبة ومعاينة المواعيد القادمة"
+    },
+    "highlights": {
+      "en": [
+        "Sanitized Link Mirror: External share links sync instantly via isolated mirror nodes (shared_accounts/link_${token}) without leaking member data or invite history.",
+        "Bulk Delete Scope & Audit Log: Dedicated scope dialog for owners and editors, coupled with a real-time recent changes audit strip with live profile avatars.",
+        "Responsive Mobile Transfer Cards: Unified two-row layout with clear direction indicators, zero text truncation, and full RTL mirror support.",
+        "Next 5 Occurrences Preview: Real-time preview of upcoming execution dates under schedule summaries with preset locking during advanced scheduling.",
+        "Sidebar Polish & Outer Sign In: Streamlined drawer menu with prominent outer sign-in button for guests and elevated interactive feature cards."
+      ],
+      "ar": [
+        "مرآة آمنة للروابط الخارجية: مزامنة فورية لروابط المشاركة عبر مسار مخصص وآمن دون تسريب بيانات الأعضاء أو سجل الدعوات.",
+        "نطاق الحذف الجماعي وسجل التدقيق: نافذة تأكيد ذكية لمالك ومحرري المساحة، مع شريط مدمج لأحدث التغييرات يوضح صور وأسماء الأعضاء الحية.",
+        "بطاقات تحويل متجاوبة: تصميم موحد ومحسن لعمليات التحويل بتنسيق ثنائي السطور يوضح اتجاه التحويل بدقة دون اقتطاع للنصوص في الشاشات الصغيرة.",
+        "معاينة الـ5 مرات القادمة: استعراض حي وتفاعلي لمواعيد التنفيذ القادمة للقواعد المتكررة مع قفل التضارب عند تفعيل الجدولة المتقدمة.",
+        "تحسين القائمة الجانبية: إزالة الأزرار المكررة، إضافة زر تسجيل دخول مباشر بحساب Google للضيوف، وتطوير أزرار الميزات بأسطح بطاقات حديثة."
+      ]
+    }
+  },
+  {
+    "version": "1.1.59",
+    "isBeta": false,
+    "releaseDate": "October 28, 2026",
+    "title": {
+      "en": "Unified Recurring Schedules: Connected Weekday & Month-Day Filters, Multi-Time Overrides & Cloud Sync",
+      "ar": "جدولة دورية موحدة: ربط فلاتر الأسبوع والشهر، توقيتات مخصصة ومزامنة سحابية شاملة"
+    },
+    "highlights": {
+      "en": [
+        "Dedicated Times Daily Tab: Unified multi-time scheduling with default fallback execution times and per-day multi-time overrides for specific weekdays and month days.",
+        "Connected Weekday & Month-Day Filters: Run recurring rules on specific weekdays only within chosen month days without locking to Day 1.",
+        "Bi-Weekly Calendar Preset: Accurate every-2-weeks interval calculated using calendar dates to eliminate DST time shifts.",
+        "Anti-Duplicate Cloud & Share Sync: Real-time propagation of scheduled and retroactively edited rules with effectiveFrom timestamp boundaries to prevent duplicate catch-up transactions."
+      ],
+      "ar": [
+        "تبويب مخصص لأوقات اليوم: إدارة شاملة للتوقيت الافتراضي مع إمكانية تحديد عدة أوقات مخصصة لأيام محددة من الأسبوع أو الشهر.",
+        "ربط فلاتر أيام الأسبوع وأيام الشهر: جدولة المعاملات في أيام محددة من الأسبوع ضمن أيام معينة من الشهر دون تقييد باليوم الأول.",
+        "خيار كل أسبوعين الدقيق: حساب فترة الأسبوعين بالتقويم الفعلي لمنع أي تغيير في التوقيت بسبب التوقيت الصيفي.",
+        "مزامنة سحابية ومنع التكرار: مزامنة فورية للقواعد والتعديلات بأثر رجعي مع حدود زمنية تمنع تكرار المعاملات المتأخرة عبر السحابة والمساحات المشتركة."
+      ]
+    }
+  },
+  {
+    "version": "1.1.58",
+    "isBeta": false,
+    "releaseDate": "October 28, 2026",
+    "title": {
+      "en": "Interactive Recurring Rule Editing, Scheduled Catch-Up & Advanced Timing",
+      "ar": "تحرير تفاعلي للقواعد المتكررة، تنفيذ دقيق للمواعيد السابقة وجدولة متقدمة"
+    },
+    "highlights": {
+      "en": [
+        "Interactive Rule Editing: Click any recurring rule to edit details and schedule with a choice between \"Future only\" or \"Past & future\" retroactive updates.",
+        "Exact Scheduled Date & Time Catch-Up: Missed occurrences preserve their exact scheduled timestamp (never app-open time) with deterministic deduplication and instant auto-backup.",
+        "100% Full Transaction Cloning: Automated transactions preserve original descriptions, notes, categories, and account metadata with visual recurring badges across all views.",
+        "Simple Presets & Advanced Multi-Day Scheduling: One-tap presets (Daily/Weekly/Monthly) plus advanced controls for specific weekdays, custom per-day times, month days, and intra-day repeat times."
+      ],
+      "ar": [
+        "تحرير تفاعلي للقواعد المتكررة: النقر على أي قاعدة متكررة لفتح شاشة التعديل الكاملة مع خيار تطبيق التعديل على \"المعاملات القادمة فقط\" أو \"السابقة والقادمة\".",
+        "تنفيذ دقيق للمواعيد المجدولة السابقة: المعاملات المتأخرة تسجل بدقة تاريخها ووقتها المجدولين (وليس وقت فتح التطبيق) مع منع التكرار ومزامنة النسخ السحابي فوراً.",
+        "استنساخ كامل 100% للمعاملات: الحفاظ الكامل على الأوصاف والتصنيفات الأصلية مع إظهار شارة مميزة للمعاملات المتكررة في جميع الشاشات والمساحات المشتركة.",
+        "خيارات بسيطة وجدولة متقدمة: قوالب سريعة بنقرة واحدة (يومي/أسبوعي/شهري) مع وضع متقدم يتيح تحديد أيام الأسبوع بأوقات مخصصة وأيام الشهر وتكرارات متعددة في اليوم."
+      ]
+    }
+  },
+  {
+    "version": "1.1.57",
+    "isBeta": false,
+    "releaseDate": "October 28, 2026",
+    "title": {
+      "en": "Real-Time Shared Spaces Overhaul: Instant Sync, Live Profiles & Member Cleanup",
+      "ar": "تحديث شامل للمساحات المشتركة: مزامنة فورية، هويات حية وتنظيم الأعضاء"
+    },
+    "highlights": {
+      "en": [
+        "Instant Real-Time Invites & Smart Reset: Shared spaces appear instantly upon invitation without app reload, with one-time notifications that cleanly reset on re-invite.",
+        "Low-Bandwidth Transaction Sync: Creating, editing, or deleting transactions from inside or outside share views immediately syncs delta updates across both in-app ID shares and link shares.",
+        "Live Profile Broadcast & Avatars: Profile display names, custom photos, and chosen icon avatars sync in real time across member badges and transaction author chips.",
+        "Deduplicated Member Directory: Saved contacts are strictly deduplicated by unique ID, stale accounts are automatically pruned from the server, and manual removal is supported."
+      ],
+      "ar": [
+        "دعوات فورية لحظية وإشعارات ذكية: تظهر المساحات المشتركة فور إرسال الدعوة دون الحاجة لتحديث التطبيق، مع إشعار لمرة واحدة يتجدد بذكاء عند إعادة الدعوة.",
+        "مزامنة فورية خفيفة للمعاملات: إضافة أو تعديل أو حذف المعاملات من أي مكان داخل التطبيق أو خارجه يرسل التحديث فوراً لجميع الأعضاء وروابط المشاركة.",
+        "مزامنة الهوية والصور الحية: تحديث فوري لاسم المستخدم وصورته والرموز التعبيرية المختارة عبر شارات الأعضاء وبطاقات كاتب المعاملة.",
+        "تنظيم جهات الاتصال وحذف المكررات: دمج وتنظيم جهات الاتصال السابقة بدقة حسب المعرّف الفريد، مع حذف الحسابات غير الموجودة وإتاحة خيار الإزالة اليدوية."
+      ]
+    }
+  },
+  {
+    "version": "1.1.56",
+    "isBeta": false,
+    "releaseDate": "October 27, 2026",
+    "title": {
+      "en": "User Profile Navigation Fix & Dedicated Cloud Account Menu Access",
+      "ar": "إصلاح فتح صفحة الملف الشخصي وتوفير زر وصول مباشر للحساب السحابي"
+    },
+    "highlights": {
+      "en": [
+        "Instant Profile Launch: Fixed an issue where tapping the user profile header failed to open due to a navigation popstate conflict, now opening cleanly and reliably.",
+        "Dedicated Menu Action: Added an explicit \"User Profile & Cloud Account\" button in the sidebar drawer for convenient one-tap access."
+      ],
+      "ar": [
+        "فتح فوري للملف الشخصي: إصلاح تعطل فتح صفحة الملف الشخصي بسبب تعارض في سجل التنقل لتفتح فوراً وبسلاسة تامة بمجرد النقر.",
+        "زر وصول مخصص: إضافة زر مباشر ومميز \"الملف الشخصي والحساب السحابي\" في القائمة الجانبية لسهولة إدارة الحساب والمزامنة."
+      ]
+    }
+  },
+  {
+    "version": "1.1.55",
+    "isBeta": false,
+    "releaseDate": "October 27, 2026",
+    "title": {
+      "en": "Streamlined 2-Page Feature Guide & Instant Swipe Return",
+      "ar": "تبسيط دليل المميزات لصفحتين مباشرين مع العودة الفورية بالسحب"
+    },
+    "highlights": {
+      "en": [
+        "Direct 2-Page Flow: Skipped the intermediate split layout for an immediate, focused detail view with a thin quick-access sidebar upon tapping any feature card.",
+        "Instant Swipe Return: A single horizontal swipe gesture now immediately returns you from the detail view directly back to the first directory cards grid."
+      ],
+      "ar": [
+        "تنقل مباشر ومبسط بين صفحتين: إلغاء العرض المقسم الوسيط للانتقال فوراً للشريط الجانبي المدمج مع لوحة الشرح المفصلة عند لمس أي بطاقة.",
+        "عودة فورية بالسحب: إيماءة سحب أفقية واحدة تعيدك مباشرة وبسلاسة تامة من لوحة التفاصيل إلى شبكة البطاقات الأولى."
+      ]
+    }
+  },
+  {
+    "version": "1.1.54",
+    "isBeta": false,
+    "releaseDate": "October 27, 2026",
+    "title": {
+      "en": "Feature Directory 3-State Motion Layout, Thin Sidebar & Swipe Gestures",
+      "ar": "دليل المميزات التفاعلي ثلاثي المراحل، شريط جانبي مدمج وتنقل انسيابي بالسحب"
+    },
+    "highlights": {
+      "en": [
+        "Interactive 3-State Motion Architecture: Tapping any card smoothly shrinks the feature list into a thin quick-access sidebar showing icons and titles while expanding the rich detail panel.",
+        "Directional Swipe Transitions: Swipe left-to-right to push the detail panel into a 50/50 split view, and swipe again to return seamlessly to the full directory card grid.",
+        "Dedicated \"Where to Find It\" Guide: Every single feature now includes explicit in-app navigation routes alongside thorough descriptions, actionable usage steps, and pro tips.",
+        "Instant Real-Time Detail Switching: Tapping any icon or title in the thin sidebar instantly switches the active feature without reloading or lag."
+      ],
+      "ar": [
+        "بنية تفاعلية حركية ثلاثية المراحل: النقر على أي بطاقة يقلص قائمة المميزات بسلاسة إلى شريط جانبي مدمج للأيقونات والعناوين مع فتح لوحة التفاصيل الشاملة.",
+        "تنقل انسيابي بالسحب الاتجاهي: اسحب من اليسار إلى اليمين لتوسيع العرض إلى وضع منصف 50/50، واسحب مرة أخرى للعودة إلى شبكة البطاقات الأولية.",
+        "دليل مخصص \"أين تجد هذه الميزة\": توثيق دقيق للمسار داخل التطبيق لكل ميزة مع شروحات مفصلة، خطوات استخدام عملية، وتلميحات ذكية.",
+        "تبديل فوري لتفاصيل الميزة: لمس أي أيقونة أو عنوان في الشريط الجانبي يُحدث بيانات الشاشة فوراً وبسلاسة تامة."
+      ]
+    }
+  },
+  {
+    "version": "1.1.53",
+    "isBeta": false,
+    "releaseDate": "October 27, 2026",
+    "title": {
+      "en": "Real-Time Bottom Navigation Sync on Hand Swipe & Fast Gesture Coordination",
+      "ar": "مزامنة فورية ولحظية لشريط التنقل السفلي أثناء السحب السريع باليد"
+    },
+    "highlights": {
+      "en": [
+        "Instant Real-Time Footer Synchronization: The bottom navigation bar indicator pill and active tab now update instantly the exact moment the hand-scroll crosses the page midpoint, eliminating any delayed settle lags.",
+        "Zero Hand-Scroll Resistance: Hand swiping cleanly bypasses programmatic scrollIntoView triggers, allowing lightning-fast consecutive swiping across all views without queuing conflicts."
+      ],
+      "ar": [
+        "مزامنة فورية لشريط التنقل السفلي: مؤشر التبويب النشط وأزرار الشريط السفلي تتحدث لحظياً وفوراً في نفس لحظة تمرير الصفحة باليد بدون أي انتظار لتوقف الحركة.",
+        "سلاسة تامة دون مقاومة: السحب باليد يتجاوز التمرير التلقائي بالكامل لضمان سرعة فائقة عند التنقل السريع والمتتالي بين كافة الشاشات."
+      ]
+    }
+  },
+  {
+    "version": "1.1.52",
+    "isBeta": false,
+    "releaseDate": "October 27, 2026",
+    "title": {
+      "en": "Insights Swipe Unlock, Reliable Bottom Nav Navigation, Home Sidebar Pull & Category Sync",
+      "ar": "إلغاء قفل سحب التحليلات، تنقل دقيق بالشريط السفلي، سحب القائمة الجانبية ومزامنة ترتيب الفئات"
+    },
+    "highlights": {
+      "en": [
+        "Insights Horizontal Swipe Unlocked: Removed conflicting touch-pan-y from the insights view, enabling seamless horizontal swiping between Budget, Insights, and Accounts.",
+        "Reliable Bottom Nav Transitions: Guaranteed exact page arrival without stopping on intermediate screens, even during extended smooth scrolls or across wide tab jumps.",
+        "Home Page Sidebar Pull Gesture: Restored 1:1 tactile edge-pulling on the home page to smoothly draw the sidebar open while preserving native vertical scroll.",
+        "Synchronized Category Arrangement: Synchronized custom category ordering from Budget & Categories into the make transaction keypad row and full category directory."
+      ],
+      "ar": [
+        "إلغاء قفل التمرير الأفقي لصفحة التحليلات: إزالة قيود اللمس الرأسي ليتحرك التمرير الأفقي بسلاسة تامة بين الميزانية، التحليلات، والحسابات.",
+        "انتقال دقيق عبر الشريط السفلي: وصول مؤكد للصفحة المختارة دون التوقف خطأً على صفحات وسيطة حتى مع التمرير الطويل أو القفز بين التبويبات المتباعدة.",
+        "إيماءة سحب القائمة الجانبية من الرئيسية: استعادة سحب القائمة الجانبية 1:1 بالسحب الأفقي من الصفحة الرئيسية مع الحفاظ الكامل على فيزياء التمرير الرأسي.",
+        "مزامنة ترتيب الفئات بالكامل: مزامنة الترتيب المخصص للفئات من صفحة الميزانية مباشرة في شريط إضافة المعاملة ودليل الفئات الشامل."
+      ]
+    }
+  },
+  {
+    "version": "1.1.51",
+    "isBeta": false,
+    "releaseDate": "October 27, 2026",
+    "title": {
+      "en": "Native Vertical Scrolling Fix & Pure CSS Horizontal Page Swiping Engine",
+      "ar": "إصلاح التمرير الرأسي الشامل ومحرك السحب الأفقي الطبيعي عبر الصفحات"
+    },
+    "highlights": {
+      "en": [
+        "Natural Vertical Scrolling Restored: Eliminated nested scroll traps and artificial touch captures across Home, Budget, Insights, Accounts, and Calculator views.",
+        "Real Native Horizontal Page Swiping: Replaced laggy JS animation transforms with native CSS scroll-snap (overflow-x: auto, snap-x mandatory) for silky-smooth 120 FPS page switching.",
+        "Unconstrained Segmented Controls: Redesigned SwipeableTabs to render content in direct flow without overflow-hidden or height restrictions."
+      ],
+      "ar": [
+        "استعادة التمرير الرأسي الطبيعي: إزالة كافة قيود التمرير المتداخلة وحبس الأحداث في صفحات الرئيسية، الميزانية، التحليلات، الحسابات، والحاسبة.",
+        "سحب أفقي طبيعي وسلس بين الصفحات: استبدال تحريكات الجافاسكريبت بمحرك تمرير CSS طبيعي فائق السرعة وبدون أي بطء أو تقطيع.",
+        "أزرار تنقل انسيابية: إعادة تصميم التبويبات الفرعية لعرض المحتوى مباشرة في الصفحة بحرية ودون حبس داخل حاويات مقيدة."
+      ]
+    }
+  },
+  {
+    "version": "1.1.50",
+    "isBeta": false,
+    "releaseDate": "October 27, 2026",
+    "title": {
+      "en": "Vertical Scroll Restoration, Gesture Direction Locking & Navigation Hierarchy Fix",
+      "ar": "استعادة التمرير الرأسي الطبيعي، قفل اتجاه الإيماءات وإصلاح بنية التنقل"
+    },
+    "highlights": {
+      "en": [
+        "Native Vertical Scrolling Restored: Dedicated independent scroll view containers across Home, Budget, Insights, Accounts, and Calculator with touch-pan-y physics.",
+        "Intelligent Direction Locking: Swipe carousels wait for 10px directional confirmation and immediately yield to vertical scrolling when vertical motion dominates.",
+        "NavigationProvider & Error Safety: Fortified navigation hierarchy with safe fallback handlers, zero TDZ initialization issues, and English system defaults."
+      ],
+      "ar": [
+        "استعادة التمرير الرأسي الطبيعي: حاويات تمرير مستقلة لصفحات الرئيسية، الميزانية، التحليلات، الحسابات، والحاسبة مع دعم فيزياء اللمس الرأسية.",
+        "قفل ذكي لاتجاه الإيماءات: تنتظر أشرطة التمرير تأكيد الاتجاه الأفقي بمسافة 10 بكسل وتمنح الأولوية فوراً للتمرير الرأسي عند سحب القوائم.",
+        "أمان التنقل وشاشات الأخطاء: بنية تنقل محصنة مع معالجة بديلة آمنة تمنع أي تعطل مع اعتماد اللغة الإنجليزية كخيار افتراضي."
+      ]
+    }
+  },
+  {
+    "version": "1.1.49",
+    "isBeta": false,
+    "releaseDate": "October 27, 2026",
+    "title": {
+      "en": "UI/UX Overhaul, 1:1 Gesture Carousels, Recurring Engine & Deep Navigation Stack",
+      "ar": "تطوير تجربة المستخدم، التنقل بالسحب 1:1، محرك المعاملات الدورية وسجل التراجع المتعدد"
+    },
+    "highlights": {
+      "en": [
+        "3-State Gesture Guide & Lazy Loading: Reimagined user guide with instant dynamic code-splitting, 50/50 split view, full-screen swipe expansion, and ultra-concise subtitles.",
+        "Deep Multi-Level Navigation Stack: Step-by-step hardware and browser back button support that unwinds nested popups, sub-pages, and drawers smoothly before root exit confirmation.",
+        "Automated Recurring Rules Engine: Advanced multi-day, weekly, and monthly scheduling with deterministic timestamp preservation and long-press instant processing.",
+        "Fluid 1:1 Drag-Swipe Carousels: Natural physical finger tracking across tabs, category screens, and shared spaces with smooth snapping physics.",
+        "Dual-Account Transfer Cards & Sticky Keypad UX: Modern responsive transfer cards with dual accounts and a sticky category row pinned above the calculator keypad."
+      ],
+      "ar": [
+        "دليل استخدام ثلاثي المراحل وتحميل مؤجل: دليل استخدام متطور مع تقسيم الشاشة 50/50، وتوسيع الشاشة بالسحب، وتحميل ذكي يوفر الذاكرة بالكامل.",
+        "سجل تراجع متعدد الطبقات: دعم كامل لزر الرجوع بالهاتف والمتصفح لإغلاق النوافذ والقوائم والصفحات الفرعية تدريجياً وبسلاسة قبل تأكيد الخروج.",
+        "محرك متقدم للمعاملات المتكررة: جدولة مرنة يومية وأسبوعية وشهرية مع الحفاظ على التوقيت الفعلي وخيار المعالجة الفورية بالضغط المطول.",
+        "تنقل انسيابي بالسحب 1:1: تتبع دقيق لحركة الأصبع بين التبويبات وشاشات الفئات والمساحات المشتركة مع فيزياء توقف سلسة.",
+        "بطاقات تحويل مطورة ولوحة أرقام ذكية: عرض أنيق لتحويلات الحسابات المزدوجة مع شريط فئات ثابت فوق لوحة الأرقام لسهولة الإدخال."
+      ]
+    }
+  },
+  {
+    "version": "1.1.48",
+    "isBeta": false,
+    "releaseDate": "October 27, 2026",
+    "title": {
+      "en": "App Reliability, Gesture Navigation & Multi-Level History Stack",
+      "ar": "تحسين استقرار التطبيق والتنقل بالإيماءات وسجل التراجع المتعدد"
+    },
+    "highlights": {
+      "en": [
+        "Deep Multi-Level Navigation: Hardware and browser back buttons now smoothly close active popups, sub-pages, and drawers step-by-step before prompting to exit.",
+        "1:1 Finger Tracking: Smooth horizontal drag gestures across tabs and category screens that physically follow your finger."
+      ],
+      "ar": [
+        "نظام تراجع عميق متعدد المراحل: زر الرجوع بالهاتف والمتصفح يغلق النوافذ والقوائم المنسدلة تدريجياً وبسلاسة قبل شاشة الخروج.",
+        "تتبع حركة الأصبع 1:1: إيماءات سحب أفقية انسيابية تتتبع حركة يدك بدقة بين التبويبات وشاشات الفئات."
+      ]
+    }
+  },
+  {
+    "version": "1.1.47",
+    "isBeta": false,
+    "releaseDate": "October 26, 2026",
+    "title": {
+      "en": "Live Cloud Sync, Instant Change Catch-Up & Sidebar Status",
+      "ar": "المزامنة السحابية اللحظية، تحديث فوري للتغييرات ومؤشر القائمة"
+    },
+    "highlights": {
+      "en": [
+        "Live Sync Status Indicator: A clean indicator inside the side menu displays your live connection status and last sync time without intrusive popups.",
+        "Instant Cloud Updates: Any transaction, category, or account you create or edit syncs immediately to the cloud.",
+        "Reliable Offline Queue: Edit freely without internet; all modifications queue up safely and sync automatically once you are back online."
+      ],
+      "ar": [
+        "مؤشر حالة المزامنة بالقائمة: مؤشر مدمج وأنيق داخل القائمة الجانبية يوضح حالة الاتصال وتاريخ آخر مزامنة دون نوافذ منبثقة مزعجة.",
+        "تحديثات سحابية فورية: أي معاملة أو فئة أو حساب تضيفه أو تعدله تتم مزامنته تلقائياً ولحظياً مع الخادم.",
+        "حفظ مؤكد بدون إنترنت: سجّل كل مصروفاتك بحرية دون اتصال؛ يتم حفظ التعديلات وإرسالها تلقائياً فور عودة الإنترنت."
+      ]
+    }
+  },
+  {
+    "version": "1.1.46",
+    "isBeta": false,
+    "releaseDate": "October 25, 2026",
+    "title": {
+      "en": "Shared Spaces, Scheduled Recurring Rules & Transaction Numpad Overhaul",
+      "ar": "المساحات المشتركة، المعاملات المتكررة وتطوير لوحة الأرقام"
+    },
+    "highlights": {
+      "en": [
+        "Family & Group Shared Spaces: Share dedicated budgets and financial spaces with family and friends in real time.",
+        "Automated Repeating Rules: Schedule recurring salaries, rent, and monthly bills with automatic date and time preservation.",
+        "Sticky Category Bar & Built-in Keypad: Choose categories easily above the keypad while typing transaction amounts."
+      ],
+      "ar": [
+        "مساحات مشتركة للعائلة والشركاء: شارك ميزانيات مخصصة مع العائلة والأصدقاء لمتابعة المصروفات المشتركة لحظة بلحظة.",
+        "معاملات دورية مجدولة: جدولة تلقائية للرواتب والإيجار والفواتير الدورية مع توثيق التوقيت بدقة.",
+        "شريط فئات ثابت ولوحة أرقام متطورة: اختيار سريع للفئة مباشرة فوق لوحة الأرقام أثناء إدخال المبلغ."
+      ]
+    }
+  }
+]
