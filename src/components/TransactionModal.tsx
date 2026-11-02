@@ -2,12 +2,13 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
 import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw, Trash2, Sparkles, CheckCircle2, AlertTriangle, AlertCircle, Check, PiggyBank, ShieldAlert, Wallet, Zap, Coins } from 'lucide-react';
-import { TransactionType, RecurringFrequency, RecurringTransaction, AdvancedScheduleConfig, Transaction, SavingsWithdrawalChoice, TransferFeeMode, ManualFeeInputType, ExpenseBudgetPool } from '../types';
+import { TransactionType, RecurringFrequency, RecurringTransaction, AdvancedScheduleConfig, Transaction, SavingsWithdrawalChoice, TaxFeeMode, TransferFeeMode, ManualFeeInputType, ExpenseBudgetPool } from '../types';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatDisplayNumber } from '../utils/dateCycle';
 import { calculateNextDueDate, getScheduleSummaryText, migrateRecurringRule, normalizeHHMM, normalizeTimesList, getNextNOccurrences, OccurrencePreviewItem } from '../utils/recurring';
 import { evaluateSmartBudget, SmartBudgetEvaluation, parseLocalDate, normalizeExpenseBudgetPool, canSendSmartBudgetNotificationToday, markSmartBudgetNotificationSentToday } from '../utils/smartBudgetEngine';
 import { classifyExpenseContext } from '../utils/smartBudgetAI';
-import { computeTransferFee, resolveTransferFeeSettings } from '../utils/transferFee';
+import { computeTransferFee, computeTaxFee, resolveTransferFeeSettings } from '../utils/transferFee';
+import { AdvancedTaxFeeInput } from './AdvancedTaxFeeInput';
 import { Numpad } from './Numpad';
 import { MiniDateTimePicker } from './MiniDateTimePicker';
 import { CategoryDirectoryModal } from './CategoryDirectoryModal';
@@ -503,11 +504,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setToAccountId(activeEditingTx.toAccountId || '');
       setCategoryId(activeEditingTx.categoryId || '');
       setDescription(activeEditingTx.description || '');
-      setTaxAmountStr(
-        activeEditingTx.taxAmount && activeEditingTx.taxAmount > 0
-          ? activeEditingTx.taxAmount.toString()
-          : ''
-      );
       userManuallyPickedPoolRef.current = Boolean(activeEditingTx.budgetPool);
       setBudgetPool(
         normalizeExpenseBudgetPool(
@@ -526,18 +522,31 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setSavingsWithdrawalChoice(
         activeEditingTx.savingsWithdrawalChoice || activeEditingTx.budgetAdjustment?.choice
       );
-      const initMode: TransferFeeMode =
-        activeEditingTx.transferFeeMode ||
-        (activeEditingTx.transferFee && activeEditingTx.transferFee > 0 ? 'manual' : 'none');
+      const hasTax = Boolean(activeEditingTx.taxAmount && activeEditingTx.taxAmount > 0);
+      const isTxTransfer = activeEditingTx.type === 'transfer';
+      const initMode: TaxFeeMode = isTxTransfer
+        ? (activeEditingTx.transferFeeMode || (activeEditingTx.transferFee && activeEditingTx.transferFee > 0 ? 'manual' : 'none'))
+        : (activeEditingTx.taxMode || (hasTax ? 'manual' : 'none'));
       setTransferFeeMode(initMode);
-      setManualFeeInputType(activeEditingTx.transferFeeInputType || 'amount');
-      setManualFeeStr(
-        activeEditingTx.transferFeeRawValue !== undefined
-          ? activeEditingTx.transferFeeRawValue.toString()
-          : activeEditingTx.transferFee && activeEditingTx.transferFee > 0
-          ? activeEditingTx.transferFee.toString()
-          : '0'
+      setManualFeeInputType(
+        isTxTransfer
+          ? (activeEditingTx.transferFeeInputType || 'amount')
+          : (activeEditingTx.taxInputType || 'amount')
       );
+      setManualFeeStr(
+        isTxTransfer
+          ? (activeEditingTx.transferFeeRawValue !== undefined
+              ? activeEditingTx.transferFeeRawValue.toString()
+              : activeEditingTx.transferFee && activeEditingTx.transferFee > 0
+              ? activeEditingTx.transferFee.toString()
+              : '0')
+          : (activeEditingTx.taxRawValue !== undefined
+              ? activeEditingTx.taxRawValue.toString()
+              : hasTax
+              ? activeEditingTx.taxAmount!.toString()
+              : '0')
+      );
+      setTaxAmountStr(hasTax ? activeEditingTx.taxAmount!.toString() : '');
       setTransferFeeBudgetPool(normalizeExpenseBudgetPool(activeEditingTx.transferFeeBudgetPool, false));
       setIsRecurring(false);
       setRecurringFrequency('monthly');
@@ -554,11 +563,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setToAccountId(r.toAccountId || (fallbackTo ? fallbackTo.id : ''));
       setCategoryId(r.categoryId || '');
       setDescription(r.description || '');
-      setTaxAmountStr(
-        r.taxAmount && r.taxAmount > 0
-          ? r.taxAmount.toString()
-          : ''
-      );
       userManuallyPickedPoolRef.current = Boolean(r.budgetPool);
       setBudgetPool(normalizeExpenseBudgetPool(r.budgetPool, true));
       const recDestAcc = accounts.find((a) => a.id === (r.toAccountId || fallbackTo?.id));
@@ -567,17 +571,31 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         r.isSavingsAllocation !== undefined ? Boolean(r.isSavingsAllocation) : recDestIsSavings
       );
       setSavingsWithdrawalChoice(r.savingsWithdrawalChoice);
-      const recFeeMode: TransferFeeMode =
-        r.transferFeeMode || (r.transferFee && r.transferFee > 0 ? 'manual' : 'none');
+      const hasTax = Boolean(r.taxAmount && r.taxAmount > 0);
+      const isRecTransfer = r.type === 'transfer';
+      const recFeeMode: TaxFeeMode = isRecTransfer
+        ? (r.transferFeeMode || (r.transferFee && r.transferFee > 0 ? 'manual' : 'none'))
+        : (r.taxMode || (hasTax ? 'manual' : 'none'));
       setTransferFeeMode(recFeeMode);
-      setManualFeeInputType(r.transferFeeInputType || 'amount');
-      setManualFeeStr(
-        r.transferFeeRawValue !== undefined
-          ? r.transferFeeRawValue.toString()
-          : r.transferFee && r.transferFee > 0
-          ? r.transferFee.toString()
-          : '0'
+      setManualFeeInputType(
+        isRecTransfer
+          ? (r.transferFeeInputType || 'amount')
+          : (r.taxInputType || 'amount')
       );
+      setManualFeeStr(
+        isRecTransfer
+          ? (r.transferFeeRawValue !== undefined
+              ? r.transferFeeRawValue.toString()
+              : r.transferFee && r.transferFee > 0
+              ? r.transferFee.toString()
+              : '0')
+          : (r.taxRawValue !== undefined
+              ? r.taxRawValue.toString()
+              : hasTax
+              ? r.taxAmount!.toString()
+              : '0')
+      );
+      setTaxAmountStr(hasTax ? r.taxAmount!.toString() : '');
       setTransferFeeBudgetPool(normalizeExpenseBudgetPool(r.transferFeeBudgetPool, false));
       setIsRecurring(true);
       setRecurringFrequency(r.frequency);
@@ -793,18 +811,22 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   const handleTypeSelect = useCallback((newType: TransactionType) => {
     setType(newType);
-    if (newType !== 'transfer') {
-      setActiveKeypadTarget('amount');
-    }
     if (newType === 'transfer') {
+      if (transferFeeMode === 'vat14') {
+        setTransferFeeMode('none');
+      }
       const destination = accounts.find((a) => a.id !== accountId);
       if (destination) {
         setToAccountId(destination.id);
         const destRole = destination.accountRole || 'spending';
         setIsSavingsAllocation(destRole === 'savings' || destRole === 'investment');
       }
+    } else {
+      if (transferFeeMode === 'instapay') {
+        setTransferFeeMode('none');
+      }
     }
-  }, [accounts, accountId]);
+  }, [accounts, accountId, transferFeeMode]);
 
   // Swipe & Drag Gesture State
   const modalContainerRef = useRef<HTMLDivElement | null>(null);
@@ -1080,8 +1102,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   }, [draftRecurringRule, isArabic]);
 
   const numericAmount = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
-  const numericTaxAmount = (type === 'expense' || type === 'income') ? (parseFloat(String(taxAmountStr).replace(/,/g, '')) || 0) : 0;
-  const effectiveExpenseAmount = numericAmount + numericTaxAmount;
   const currencySymbol = getLocalizedCurrencySymbol(settings.currencySymbol, settings.language);
   const sourceCurrencySymbol = getLocalizedCurrencySymbol(
     selectedAccount?.currency || settings.currencySymbol,
@@ -1098,16 +1118,21 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     [manualFeeStr]
   );
 
-  const calculatedTransferFee = useMemo(() => {
-    if (isSharedMode || type !== 'transfer') return 0;
-    return computeTransferFee({
-      transferAmount: numericAmount,
+  const calculatedTaxFee = useMemo(() => {
+    if (isSharedMode) return 0;
+    return computeTaxFee({
+      txType: type,
+      baseAmount: numericAmount,
       mode: transferFeeMode,
       manualInputType: manualFeeInputType,
       manualRawValue: manualFeeRawNumeric,
       feeSettings: feeConfig,
     });
   }, [isSharedMode, type, numericAmount, transferFeeMode, manualFeeInputType, manualFeeRawNumeric, feeConfig]);
+
+  const calculatedTransferFee = type === 'transfer' ? calculatedTaxFee : 0;
+  const numericTaxAmount = (type === 'expense' || type === 'income') ? calculatedTaxFee : 0;
+  const effectiveExpenseAmount = numericAmount + numericTaxAmount;
 
   const availableSourceBalance = useMemo(() => {
     if (!selectedAccount) return 0;
@@ -1128,7 +1153,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     if (editingRecurring) {
       const r = migrateRecurringRule(editingRecurring);
       const amt = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
-      const curTax = (type === 'expense' || type === 'income') ? (parseFloat(String(taxAmountStr).replace(/,/g, '')) || 0) : 0;
+      const curTax = (type === 'expense' || type === 'income') ? calculatedTaxFee : 0;
       const origAdv = r.advancedSchedule && r.advancedSchedule.isAdvanced ? r.advancedSchedule : null;
       const curAdv = buildAdvConfig() || null;
       const curSig = JSON.stringify([
@@ -1138,7 +1163,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         description.trim(), recurringFrequency, curAdv,
         type === 'transfer' ? Boolean(isSavingsAllocation) : false,
         type === 'transfer' ? (savingsWithdrawalChoice || '') : '',
-        type === 'transfer' ? (transferFeeMode || 'none') : 'none',
+        transferFeeMode || 'none',
+        manualFeeInputType,
+        manualFeeStr,
         type === 'transfer' ? (calculatedTransferFee || 0) : 0,
         type === 'transfer' ? (transferFeeBudgetPool || 'daily') : 'daily',
         type === 'expense' ? (budgetPool || 'fixed') : '',
@@ -1148,7 +1175,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         r.toAccountId || '', r.categoryId || '', r.description || '', r.frequency, origAdv,
         r.type === 'transfer' ? Boolean(r.isSavingsAllocation) : false,
         r.type === 'transfer' ? (r.savingsWithdrawalChoice || '') : '',
-        r.type === 'transfer' ? (r.transferFeeMode || (r.transferFee && r.transferFee > 0 ? 'manual' : 'none')) : 'none',
+        r.type === 'transfer'
+          ? (r.transferFeeMode || (r.transferFee && r.transferFee > 0 ? 'manual' : 'none'))
+          : (r.taxMode || (r.taxAmount && r.taxAmount > 0 ? 'manual' : 'none')),
+        r.type === 'transfer' ? (r.transferFeeInputType || 'amount') : (r.taxInputType || 'amount'),
+        r.type === 'transfer'
+          ? (r.transferFeeRawValue !== undefined ? r.transferFeeRawValue.toString() : (r.transferFee || 0).toString())
+          : (r.taxRawValue !== undefined ? r.taxRawValue.toString() : (r.taxAmount || 0).toString()),
         r.type === 'transfer' ? (r.transferFee || 0) : 0,
         r.type === 'transfer' ? normalizeExpenseBudgetPool(r.transferFeeBudgetPool, false) : 'daily',
         r.type === 'expense' ? normalizeExpenseBudgetPool(r.budgetPool, true) : '',
@@ -1157,7 +1190,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
     if (!activeEditingTx) return true;
     const numAmt = parseFloat(String(amountStr).replace(/,/g, '')) || 0;
-    const curTax = (type === 'expense' || type === 'income') ? (parseFloat(String(taxAmountStr).replace(/,/g, '')) || 0) : 0;
+    const curTax = (type === 'expense' || type === 'income') ? calculatedTaxFee : 0;
     const origTax = activeEditingTx.taxAmount || 0;
     if (Math.abs(origTax - curTax) > 0.0001) return true;
     if (activeEditingTx.type !== type) return true;
@@ -1170,6 +1203,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     if ((activeEditingTx.description || '') !== description.trim()) return true;
     if (type === 'expense' && (activeEditingTx.budgetPool || 'daily') !== budgetPool) return true;
     if (type === 'income' && Boolean(activeEditingTx.isSalary) !== isSalary) return true;
+    if (type === 'expense' || type === 'income') {
+      const origTaxMode = activeEditingTx.taxMode || (origTax > 0 ? 'manual' : 'none');
+      if (origTaxMode !== transferFeeMode) return true;
+      if (transferFeeMode === 'manual') {
+        const origTaxInputType = activeEditingTx.taxInputType || 'amount';
+        if (origTaxInputType !== manualFeeInputType) return true;
+        const origTaxRaw = activeEditingTx.taxRawValue !== undefined ? activeEditingTx.taxRawValue : origTax;
+        if (Math.abs(origTaxRaw - manualFeeRawNumeric) > 0.0001) return true;
+      }
+    }
     if (type === 'transfer') {
       if (Boolean(activeEditingTx.isSavingsAllocation) !== isSavingsAllocation) return true;
       const origChoice = activeEditingTx.savingsWithdrawalChoice || activeEditingTx.budgetAdjustment?.choice;
@@ -1182,10 +1225,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
     return false;
   }, [
-    activeEditingTx, editingRecurring, type, amountStr, taxAmountStr, date, hasTime, time, accountId, toAccountId, categoryId, description,
+    activeEditingTx, editingRecurring, type, amountStr, calculatedTaxFee, date, hasTime, time, accountId, toAccountId, categoryId, description,
     recurringFrequency, isAdvancedSchedule, useWeekdayFilter, selectedDaysOfWeek, intervalWeeks, useMonthDayFilter,
     selectedDaysOfMonth, timesOfDay, hasCustomTimes, weekdayTimes, monthDayTimes, budgetPool, isSalary,
-    isSavingsAllocation, savingsWithdrawalChoice, transferFeeMode, calculatedTransferFee, transferFeeBudgetPool,
+    isSavingsAllocation, savingsWithdrawalChoice, transferFeeMode, calculatedTransferFee, transferFeeBudgetPool, manualFeeInputType, manualFeeRawNumeric, manualFeeStr,
   ]);
 
   // Filter out the transaction currently being edited so its previous amount isn't double-counted
@@ -1333,7 +1376,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         return;
       }
 
-      const isEditingFee = type === 'transfer' && transferFeeMode === 'manual' && activeKeypadTarget === 'fee';
+      const isEditingFee = activeKeypadTarget === 'fee' && transferFeeMode === 'manual';
       const currentVal = isEditingFee ? manualFeeStr : amountStr;
       const setVal = isEditingFee ? setManualFeeStr : setAmountStr;
 
@@ -1386,6 +1429,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         type,
         amount: numericAmount,
         taxAmount: (type === 'expense' || type === 'income') && numericTaxAmount > 0 ? numericTaxAmount : undefined,
+        taxMode: (type === 'expense' || type === 'income') && transferFeeMode !== 'none' ? transferFeeMode : undefined,
+        taxInputType:
+          (type === 'expense' || type === 'income') && transferFeeMode === 'manual' ? manualFeeInputType : undefined,
+        taxRawValue:
+          (type === 'expense' || type === 'income') && transferFeeMode === 'manual' ? manualFeeRawNumeric : undefined,
         date,
         time: hasTime ? time : '',
         accountId: finalAccountId,
@@ -1417,6 +1465,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       type,
       amount: numericAmount,
       taxAmount: (type === 'expense' || type === 'income') && numericTaxAmount > 0 ? numericTaxAmount : undefined,
+      taxMode: (type === 'expense' || type === 'income') && transferFeeMode !== 'none' ? transferFeeMode : undefined,
+      taxInputType:
+        (type === 'expense' || type === 'income') && transferFeeMode === 'manual' ? manualFeeInputType : undefined,
+      taxRawValue:
+        (type === 'expense' || type === 'income') && transferFeeMode === 'manual' ? manualFeeRawNumeric : undefined,
       date,
       time: hasTime ? time : '',
       accountId: finalAccountId,
@@ -1447,6 +1500,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         type,
         amount: numericAmount,
         taxAmount: (type === 'expense' || type === 'income') && numericTaxAmount > 0 ? numericTaxAmount : undefined,
+        taxMode: (type === 'expense' || type === 'income') && transferFeeMode !== 'none' ? transferFeeMode : undefined,
+        taxInputType:
+          (type === 'expense' || type === 'income') && transferFeeMode === 'manual' ? manualFeeInputType : undefined,
+        taxRawValue:
+          (type === 'expense' || type === 'income') && transferFeeMode === 'manual' ? manualFeeRawNumeric : undefined,
         description: description.trim(),
         accountId: finalAccountId,
         toAccountId: finalToAccountId,
@@ -1488,6 +1546,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           type,
           amount: numericAmount,
           taxAmount: (type === 'expense' || type === 'income') && numericTaxAmount > 0 ? numericTaxAmount : undefined,
+          taxMode: (type === 'expense' || type === 'income') && transferFeeMode !== 'none' ? transferFeeMode : undefined,
+          taxInputType:
+            (type === 'expense' || type === 'income') && transferFeeMode === 'manual' ? manualFeeInputType : undefined,
+          taxRawValue:
+            (type === 'expense' || type === 'income') && transferFeeMode === 'manual' ? manualFeeRawNumeric : undefined,
           description: description.trim(),
           accountId: finalAccountId,
           toAccountId: finalToAccountId,
@@ -2134,311 +2197,80 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   )}
 
                   {/* Transfer Fee / Tax Section (Req 7) */}
-                  <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
-                        <Coins className="w-3.5 h-3.5 text-amber-400" />
-                        <span>{t('transferFeeSectionTitle')}</span>
-                      </span>
-                      {calculatedTransferFee > 0 && (
-                        <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-[11px] font-bold text-amber-300 font-mono">
-                          +{formatCurrency(calculatedTransferFee, sourceCurrencySymbol)}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Fee Mode Selector Pills */}
-                    <div className={`grid gap-1.5 ${feeConfig.defaultRule.enabled && feeConfig.defaultRule.ruleType !== 'none' ? 'grid-cols-4' : 'grid-cols-3'}`}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTransferFeeMode('none');
-                          setActiveKeypadTarget('amount');
-                        }}
-                        className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer truncate ${
-                          transferFeeMode === 'none'
-                            ? 'bg-zinc-800 border-zinc-600 text-white shadow'
-                            : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        {t('feeModeNone')}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTransferFeeMode('instapay');
-                          setActiveKeypadTarget('amount');
-                        }}
-                        className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer flex items-center justify-center gap-1 truncate ${
-                          transferFeeMode === 'instapay'
-                            ? 'bg-purple-600/25 border-purple-500/60 text-purple-200 shadow'
-                            : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        <Zap className="w-3 h-3 text-purple-400 shrink-0" />
-                        <span className="truncate">{t('feeModeInstaPay')}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTransferFeeMode('manual');
-                          setActiveKeypadTarget('fee');
-                        }}
-                        className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer truncate ${
-                          transferFeeMode === 'manual'
-                            ? 'bg-amber-600/25 border-amber-500/60 text-amber-200 shadow'
-                            : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        {t('feeModeManual')}
-                      </button>
-
-                      {feeConfig.defaultRule.enabled && feeConfig.defaultRule.ruleType !== 'none' && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTransferFeeMode('default_rule');
-                            setActiveKeypadTarget('amount');
-                          }}
-                          className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer truncate ${
-                            transferFeeMode === 'default_rule'
-                              ? 'bg-blue-600/25 border-blue-500/60 text-blue-200 shadow'
-                              : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                          }`}
-                        >
-                          {t('feeModeDefaultRule')}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* InstaPay Quick Preset Details */}
-                    {transferFeeMode === 'instapay' && (
-                      <div className="p-2.5 rounded-xl bg-purple-950/20 border border-purple-500/30 flex items-center justify-between gap-2 text-xs">
-                        <span className="text-[11px] text-purple-200">
-                          {t('instaPayPresetSummary')
-                            .replace('{rate}', String(feeConfig.instaPayPreset.ratePercent))
-                            .replace('{min}', formatCurrency(feeConfig.instaPayPreset.minFee, sourceCurrencySymbol))
-                            .replace('{max}', formatCurrency(feeConfig.instaPayPreset.maxFee, sourceCurrencySymbol))}
-                        </span>
-                        <span className="font-mono font-bold text-purple-300 shrink-0">
-                          {formatCurrency(calculatedTransferFee, sourceCurrencySymbol)}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Manual Fee Input with [ EGP | % ] Toggle & In-App Keypad Binding */}
-                    {transferFeeMode === 'manual' && (
-                      <div className="space-y-2 pt-0.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] text-zinc-400">
-                            {t('manualFeeInputLabel')}
-                          </span>
-                          {/* [ EGP | % ] Toggle */}
-                          <div className="inline-flex p-0.5 rounded-lg bg-zinc-950 border border-zinc-800">
+                  <AdvancedTaxFeeInput
+                    type="transfer"
+                    mode={transferFeeMode}
+                    onModeChange={setTransferFeeMode}
+                    inputType={manualFeeInputType}
+                    onInputTypeChange={setManualFeeInputType}
+                    inputValue={manualFeeStr}
+                    calculatedAmount={calculatedTransferFee}
+                    baseAmount={numericAmount}
+                    currencySymbol={sourceCurrencySymbol}
+                    isKeypadActive={activeKeypadTarget === 'fee'}
+                    onFocusKeypad={() => setActiveKeypadTarget('fee')}
+                    onBlurKeypad={() => setActiveKeypadTarget('amount')}
+                    feeConfig={feeConfig}
+                    availableBalance={availableSourceBalance}
+                    exceedsAvailable={exceedsAvailableWithFee}
+                    budgetPoolSlot={
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                        <span className="text-[11px] text-zinc-400">{t('feeBudgetPoolLabel')}:</span>
+                        <div className="inline-flex flex-wrap gap-1 p-0.5 rounded-xl bg-zinc-950 border border-zinc-800">
+                          {(
+                            [
+                              { id: 'daily' as const, label: t('poolDaily') },
+                              { id: 'fixed' as const, label: t('poolFixed') },
+                              { id: 'outings' as const, label: t('poolOutings') },
+                              { id: 'oneoff' as const, label: t('poolOneOff') },
+                            ]
+                          ).map((p) => (
                             <button
+                              key={p.id}
                               type="button"
-                              onClick={() => {
-                                setManualFeeInputType('amount');
-                                setActiveKeypadTarget('fee');
-                              }}
-                              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
-                                manualFeeInputType === 'amount'
-                                  ? 'bg-amber-600 text-white'
-                                  : 'text-zinc-400 hover:text-white'
+                              onClick={() => setTransferFeeBudgetPool(p.id)}
+                              className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                                transferFeeBudgetPool === p.id
+                                  ? 'bg-blue-600 text-white'
+                                  : 'text-zinc-400 hover:text-zinc-200'
                               }`}
                             >
-                              {selectedAccount?.currency || (isArabic ? 'ج.م' : 'EGP')}
+                              {p.label}
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setManualFeeInputType('percent');
-                                setActiveKeypadTarget('fee');
-                              }}
-                              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
-                                manualFeeInputType === 'percent'
-                                  ? 'bg-amber-600 text-white'
-                                  : 'text-zinc-400 hover:text-white'
-                              }`}
-                            >
-                              %
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Tap-to-edit keypad target button (never opens OS keyboard) */}
-                        <div className="grid grid-cols-2 gap-2 items-center">
-                          <button
-                            type="button"
-                            role="status"
-                            aria-live="polite"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              if (document.activeElement instanceof HTMLElement) {
-                                document.activeElement.blur();
-                              }
-                            }}
-                            onClick={() => setActiveKeypadTarget('fee')}
-                            className={`flex items-center justify-between px-3 py-2 rounded-xl border font-mono text-sm font-bold transition cursor-pointer ${
-                              activeKeypadTarget === 'fee'
-                                ? 'bg-amber-500/15 border-amber-500 text-amber-200 ring-2 ring-amber-500/25'
-                                : 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-zinc-700'
-                            }`}
-                          >
-                            <span className="text-xs text-amber-400">
-                              {manualFeeInputType === 'percent' ? '%' : sourceCurrencySymbol}
-                            </span>
-                            <span className="truncate">{formatDisplayNumber(manualFeeStr)}</span>
-                          </button>
-
-                          <div className="px-3 py-2 rounded-xl bg-zinc-950/90 border border-zinc-800/80 flex items-center justify-between text-xs">
-                            <span className="text-[10px] text-zinc-400 truncate">
-                              {t('calculatedFeeLabel')}
-                            </span>
-                            <span className="font-mono font-bold text-amber-300">
-                              {formatCurrency(calculatedTransferFee, sourceCurrencySymbol)}
-                            </span>
-                          </div>
+                          ))}
                         </div>
                       </div>
-                    )}
-
-                    {/* Summary Breakdown, Balance Warning & Fee Budget Pool when Fee > 0 */}
-                    {calculatedTransferFee > 0 && (
-                      <div className="pt-2 border-t border-zinc-800/80 space-y-2">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="text-zinc-400">{t('totalDeductedWithFee')}:</span>
-                          <span className="font-mono font-bold text-red-300">
-                            {formatCurrency(numericAmount + calculatedTransferFee, sourceCurrencySymbol)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="text-zinc-400">{t('recipientReceivesLabel')}:</span>
-                          <span className="font-mono font-bold text-emerald-300">
-                            {formatCurrency(numericAmount, sourceCurrencySymbol)}
-                          </span>
-                        </div>
-
-                        {exceedsAvailableWithFee && (
-                          <div className="p-2 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center gap-2 text-[11px] text-amber-200">
-                            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                            <span>
-                              {t('insufficientBalanceWithFeeWarning')
-                                .replace(
-                                  '{total}',
-                                  formatCurrency(numericAmount + calculatedTransferFee, sourceCurrencySymbol)
-                                )
-                                .replace(
-                                  '{balance}',
-                                  formatCurrency(availableSourceBalance, sourceCurrencySymbol)
-                                )}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Fee Budget Pool Selector (default 'daily', never a savings withdrawal) */}
-                        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-                          <span className="text-[11px] text-zinc-400">{t('feeBudgetPoolLabel')}:</span>
-                          <div className="inline-flex flex-wrap gap-1 p-0.5 rounded-xl bg-zinc-950 border border-zinc-800">
-                            {(
-                              [
-                                { id: 'daily' as const, label: t('poolDaily') },
-                                { id: 'fixed' as const, label: t('poolFixed') },
-                                { id: 'outings' as const, label: t('poolOutings') },
-                                { id: 'oneoff' as const, label: t('poolOneOff') },
-                              ]
-                            ).map((p) => (
-                              <button
-                                key={p.id}
-                                type="button"
-                                onClick={() => setTransferFeeBudgetPool(p.id)}
-                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
-                                  transferFeeBudgetPool === p.id
-                                    ? 'bg-blue-600 text-white'
-                                    : 'text-zinc-400 hover:text-zinc-200'
-                                }`}
-                              >
-                                {p.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                    }
+                    isArabic={isArabic}
+                    t={t}
+                    formatCurrency={formatCurrency}
+                    formatDisplayNumber={formatDisplayNumber}
+                  />
                 </div>
               )}
             </div>
           )}
 
-          {/* Optional Tax / Extra Fee Input (for Expense & Income) */}
           {(type === 'expense' || type === 'income') && (
-            <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                  <Coins className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{t('taxExtraFeeLabel')}</span>
-                </label>
-                {numericTaxAmount > 0 && (
-                  <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-[11px] font-bold text-amber-300 font-mono">
-                    +{formatCurrency(numericTaxAmount, currencySymbol)}
-                  </span>
-                )}
-              </div>
-              <p className="text-[10px] text-zinc-400">
-                {t('taxExtraFeeDesc')}
-              </p>
-              <div className="relative">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={taxAmountStr}
-                  onChange={(e) => {
-                    const cleaned = e.target.value.replace(/[^0-9.]/g, '');
-                    const parts = cleaned.split('.');
-                    const sanitized = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : cleaned;
-                    setTaxAmountStr(sanitized);
-                  }}
-                  placeholder="0.00"
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white font-mono placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 transition"
-                />
-                {Boolean(taxAmountStr) && (
-                  <button
-                    type="button"
-                    onClick={() => setTaxAmountStr('')}
-                    className="absolute right-2.5 rtl:right-auto rtl:left-2.5 top-1/2 -translate-y-1/2 p-1 text-zinc-500 hover:text-zinc-300"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* Explicit Breakdown Preview if tax > 0 */}
-              {numericTaxAmount > 0 && numericAmount > 0 && (
-                <div className="pt-1.5 border-t border-zinc-800/80 grid grid-cols-3 gap-1.5 text-center font-mono">
-                  <div className="p-1.5 rounded-lg bg-zinc-950/60 border border-zinc-800/60">
-                    <div className="text-[9px] text-zinc-400 font-sans truncate">{t('amountBeforeTax')}</div>
-                    <div className="text-xs font-semibold text-zinc-200 mt-0.5">
-                      {formatCurrency(numericAmount, currencySymbol)}
-                    </div>
-                  </div>
-                  <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                    <div className="text-[9px] text-amber-300/80 font-sans truncate">{t('taxAmount')}</div>
-                    <div className="text-xs font-semibold text-amber-300 mt-0.5">
-                      +{formatCurrency(numericTaxAmount, currencySymbol)}
-                    </div>
-                  </div>
-                  <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
-                    <div className="text-[9px] text-emerald-300/80 font-sans truncate">{t('totalAfterTax')}</div>
-                    <div className="text-xs font-bold text-emerald-300 mt-0.5">
-                      {formatCurrency(numericAmount + numericTaxAmount, currencySymbol)}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <AdvancedTaxFeeInput
+              type={type}
+              mode={transferFeeMode}
+              onModeChange={setTransferFeeMode}
+              inputType={manualFeeInputType}
+              onInputTypeChange={setManualFeeInputType}
+              inputValue={manualFeeStr}
+              calculatedAmount={numericTaxAmount}
+              baseAmount={numericAmount}
+              currencySymbol={currencySymbol}
+              isKeypadActive={activeKeypadTarget === 'fee'}
+              onFocusKeypad={() => setActiveKeypadTarget('fee')}
+              onBlurKeypad={() => setActiveKeypadTarget('amount')}
+              feeConfig={feeConfig}
+              isArabic={isArabic}
+              t={t}
+              formatCurrency={formatCurrency}
+              formatDisplayNumber={formatDisplayNumber}
+            />
           )}
 
           {/* Modern Responsive Recurring Transaction Toggle (Directly ABOVE Description) */}
@@ -3414,10 +3246,26 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             </div>
           )}
 
+          {/* Fee / Tax Keypad Active Banner / Hint */}
+          {activeKeypadTarget === 'fee' && (
+            <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium animate-fadeIn">
+              <span className="truncate">
+                {type === 'transfer' ? t('editingFeeKeypadHint') : (t('editingTaxKeypadHint') || t('editingFeeKeypadHint'))}
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveKeypadTarget('amount')}
+                className="ml-2 rtl:ml-0 rtl:mr-2 px-2 py-0.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-[10px] font-bold text-amber-200 transition cursor-pointer"
+              >
+                {t('transactionAmount') || (isArabic ? 'المبلغ الرئيسي' : 'Main Amount')}
+              </button>
+            </div>
+          )}
+
           {/* Keypad */}
           <Numpad
-            value={type === 'transfer' && activeKeypadTarget === 'fee' ? manualFeeStr : amountStr}
-            onChange={type === 'transfer' && activeKeypadTarget === 'fee' ? setManualFeeStr : setAmountStr}
+            value={activeKeypadTarget === 'fee' ? manualFeeStr : amountStr}
+            onChange={activeKeypadTarget === 'fee' ? setManualFeeStr : setAmountStr}
             lang={settings.language}
           />
 

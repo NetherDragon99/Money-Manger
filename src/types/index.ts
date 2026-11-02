@@ -2,7 +2,8 @@ export type TransactionType = 'expense' | 'income' | 'transfer';
 export type TabType = 'home' | 'budget' | 'insights' | 'accounts' | 'calculator';
 export type AccountRole = 'spending' | 'savings' | 'investment';
 export type SavingsWithdrawalChoice = 'emergency_expense' | 'add_to_spending' | 'just_moving';
-export type TransferFeeMode = 'none' | 'instapay' | 'manual' | 'default_rule';
+export type TaxFeeMode = 'none' | 'instapay' | 'vat14' | 'manual' | 'default_rule';
+export type TransferFeeMode = TaxFeeMode;
 export type ManualFeeInputType = 'amount' | 'percent';
 export type ExpenseBudgetPool = 'daily' | 'fixed' | 'outings' | 'oneoff';
 
@@ -83,6 +84,9 @@ export interface Transaction {
   isIndividuallyEdited?: boolean; // Flag when a generated recurring occurrence was individually edited
   budgetPool?: ExpenseBudgetPool; // Standardized smart budget pool attribution ('daily' | 'fixed' | 'outings' | 'oneoff')
   taxAmount?: number; // Optional tax or extra fee for regular expenses and incomes
+  taxMode?: TaxFeeMode;
+  taxInputType?: ManualFeeInputType;
+  taxRawValue?: number;
   isSalary?: boolean; // Tag for income transactions representing regular salary
   isSavingsAllocation?: boolean; // When true on a transfer, counts principal amount toward cycle's Savings target
   transferFee?: number; // Optional transfer fee (never counted toward Savings target)
@@ -207,6 +211,9 @@ export interface RecurringTransaction {
   transferFeeBudgetPool?: ExpenseBudgetPool;
   budgetPool?: ExpenseBudgetPool;
   taxAmount?: number; // Optional tax or extra fee for regular recurring expenses and incomes
+  taxMode?: TaxFeeMode;
+  taxInputType?: ManualFeeInputType;
+  taxRawValue?: number;
 }
 
 export interface SecuritySettings {

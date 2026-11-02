@@ -4,6 +4,7 @@ import {
   InstaPayFeePreset,
   ManualFeeInputType,
   Transaction,
+  TaxFeeMode,
   TransferFeeMode,
   TransferFeeSettings,
 } from '../types';
@@ -269,4 +270,46 @@ export function buildLinkedTransferFeeTransaction(
     createdAt: existingFeeTx?.createdAt ?? parentTransfer.createdAt + 1,
     updatedAt: Date.now(),
   };
+}
+
+/**
+ * Computes the effective tax or fee amount for any transaction type (expense, income, transfer)
+ * with half-up rounding to 2 decimal places (minor units).
+ */
+export function computeTaxFee(params: {
+  txType: 'expense' | 'income' | 'transfer';
+  baseAmount: number;
+  mode: TaxFeeMode;
+  manualInputType?: ManualFeeInputType;
+  manualRawValue?: number;
+  feeSettings?: Partial<TransferFeeSettings> | null;
+}): number {
+  const { txType, baseAmount, mode, manualInputType = 'amount', manualRawValue = 0, feeSettings } = params;
+  if (!Number.isFinite(baseAmount) || baseAmount <= 0 || mode === 'none') return 0;
+
+  if (txType === 'transfer') {
+    return computeTransferFee({
+      transferAmount: baseAmount,
+      mode: mode as TransferFeeMode,
+      manualInputType,
+      manualRawValue,
+      feeSettings,
+    });
+  }
+
+  // Expense or Income
+  if (mode === 'vat14') {
+    return roundHalfUpToCents((baseAmount * 14) / 100);
+  }
+  if (mode === 'manual') {
+    if (manualInputType === 'percent') {
+      return roundHalfUpToCents((baseAmount * Math.max(0, manualRawValue)) / 100);
+    }
+    return roundHalfUpToCents(Math.max(0, manualRawValue));
+  }
+  if (mode === 'default_rule') {
+    const resolved = resolveTransferFeeSettings(feeSettings);
+    return calculateRuleTransferFee(baseAmount, resolved.defaultRule, resolved.instaPayPreset);
+  }
+  return 0;
 }

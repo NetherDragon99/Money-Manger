@@ -141,7 +141,7 @@ export const TransactionDetailsModal: React.FC = () => {
             </div>
           )}
           <div>
-            <h4 className="text-xl font-bold text-white">
+            <h4 className="text-xl font-bold text-white break-words whitespace-pre-wrap">
               {isTransfer
                 ? (settings.language === 'ar'
                     ? `من ${viewingTx.fromAccountName || account?.name || 'حساب'} إلى ${viewingTx.toAccountName || toAccount?.name || 'حساب'}`
@@ -388,6 +388,18 @@ export const TransactionDetailsModal: React.FC = () => {
               </div>
             </div>
           )
+        )}
+
+        {/* Full Multiline Note Display in Details View */}
+        {Boolean(viewingTx.description && viewingTx.description.trim() !== '') && (
+          <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 space-y-1.5 text-left rtl:text-right">
+            <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider block">
+              {t('addNotes')}
+            </span>
+            <p className="text-sm text-zinc-200 whitespace-pre-wrap break-words leading-relaxed">
+              {viewingTx.description}
+            </p>
+          </div>
         )}
 
         {/* Action Buttons at Bottom */}

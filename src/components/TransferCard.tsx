@@ -256,7 +256,7 @@ export const TransferCard: React.FC<TransferCardProps> = ({
         {hasCustomDescription && (
           <>
             <span className="text-zinc-600">•</span>
-            <span className="text-zinc-300 break-words font-medium">
+            <span className="text-zinc-300 break-words font-medium line-clamp-2">
               {transaction.description}
             </span>
           </>

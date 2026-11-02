@@ -166,7 +166,7 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({
           {/* Center: Title & Subtitle */}
           <div className="min-w-0 text-left rtl:text-right">
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-sm font-bold text-white truncate max-w-[160px] sm:max-w-xs group-hover:text-blue-300 transition">
+              <span className="text-sm font-bold text-white line-clamp-2 break-words group-hover:text-blue-300 transition">
                 {title}
               </span>
               {Boolean(transaction.isFromRecurring || transaction.recurringRuleId) && (
