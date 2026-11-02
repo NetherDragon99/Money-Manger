@@ -249,6 +249,8 @@ export interface FromTodayConfig {
   remainingMoneyMinor?: number; // in minor units
   linkedAccountIds?: string[]; // IDs of accounts linked to fund the Smart Budget
   manualAdjustment?: number; // Extra outside cash adjustment (+/-)
+  startOfDayBudgetMinor?: number;
+  todayLinkedNetOutflowMinor?: number;
 }
 
 export interface SmartBudgetCycleOverride extends Partial<SmartBudgetBaselineConfig> {

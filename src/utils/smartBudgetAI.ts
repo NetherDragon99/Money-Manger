@@ -960,14 +960,14 @@ export async function suggestSalaryAllocation(
 ): Promise<SalaryAllocationSuggestion> {
   const language = params.language || 'en';
   const isArabic = language === 'ar';
-  const savingsMin = Math.max(5, params.savingsMinPercent || 10);
+  const savingsMin = typeof params.savingsMinPercent === 'number' && !isNaN(params.savingsMinPercent) ? Math.max(0, params.savingsMinPercent) : 0;
   const income = Math.max(0, params.plannedIncomeMajor);
   const fixed = Math.max(0, params.fixedObligationsMajor || 0);
 
   // Deterministic baseline calculation
   const fixedRatio = income > 0 ? Math.min(65, Math.round((fixed / income) * 100)) : 35;
   const deterministicFixed = Math.max(20, fixedRatio);
-  const deterministicSavings = Math.max(savingsMin, 20);
+  const deterministicSavings = Math.max(savingsMin, params.savingsMinPercent === 0 ? 0 : 20);
   const remainingForLiving = Math.max(10, 100 - deterministicFixed - deterministicSavings);
   const deterministicOutings = Math.round(remainingForLiving * 0.35);
   const deterministicDaily = 100 - deterministicFixed - deterministicSavings - deterministicOutings;

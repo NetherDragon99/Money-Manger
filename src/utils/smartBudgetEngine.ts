@@ -537,7 +537,7 @@ export function autoDetectSalaryDay(
   return Math.min(31, Math.max(1, detectedDay));
 }
 
-function normalizeCurrencyCodeOrSymbol(curr?: string): string {
+export function normalizeCurrencyCodeOrSymbol(curr?: string): string {
   const c = (curr || 'EGP').trim().toUpperCase();
   if (c === '£' || c === 'EGP' || c === 'LE' || c === 'L.E' || c === 'ج.م' || c === 'ج.م.') {
     return 'EGP';
@@ -618,28 +618,96 @@ export function evaluateSmartBudget(
 
     // Live Account Linkage:
     // Determine which accounts fund the Smart Budget in "From Today" mode.
-    // Default to all active, non-savings accounts if none explicitly specified.
-    const configuredLinkedIds = effectiveConfig.fromTodayConfig?.linkedAccountIds;
-    const nonSavingsAccounts = accounts.filter((a) => a.accountRole !== 'savings');
-    const effectiveLinkedAccounts =
-      configuredLinkedIds && configuredLinkedIds.length > 0
-        ? accounts.filter((a) => configuredLinkedIds.includes(a.id))
+    // Default: all active accounts with Spending role, or non-savings matching primary currency; list other currencies as excluded.
+    const primaryCurrencyAccounts = accounts.filter(
+      (a) => !a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normalizedBaseCurr
+    );
+    const spendingAccounts = primaryCurrencyAccounts.filter((a) => a.accountRole === 'spending');
+    const nonSavingsAccounts = primaryCurrencyAccounts.filter((a) => a.accountRole !== 'savings');
+    const defaultAccounts =
+      spendingAccounts.length > 0
+        ? spendingAccounts
         : nonSavingsAccounts.length > 0
         ? nonSavingsAccounts
-        : accounts;
+        : primaryCurrencyAccounts;
+
+    const configuredLinkedIds = effectiveConfig.fromTodayConfig?.linkedAccountIds;
+    const effectiveLinkedAccounts =
+      configuredLinkedIds && configuredLinkedIds.length > 0
+        ? accounts.filter(
+            (a) =>
+              configuredLinkedIds.includes(a.id) &&
+              (!a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normalizedBaseCurr)
+          )
+        : defaultAccounts;
+
+    // Strict Accounting Invariants (Zero Double-Counting):
+    // For today itself: Today's Allowance must be computed strictly from start-of-day figures:
+    // (current Live Budget + today's net outflow from linked accounts) / remaining days including today.
+    const linkedAccountSet = new Set(effectiveLinkedAccounts.map((a) => a.id));
+    let todayOutflowMinor = 0;
+    let todayInflowMinor = 0;
+
+    for (const tx of transactions) {
+      if (!tx || !tx.date) continue;
+      const cleanTxDate = tx.date.split('T')[0].trim();
+      if (cleanTxDate !== asOfStr) continue;
+
+      if (tx.isAdjustment || tx.isUneditable) continue;
+      const desc = (tx.description || '').toLowerCase();
+      if (desc.includes('manual balance adjustment') || desc.includes('تسوية رصيد')) continue;
+
+      if (tx.type === 'transfer' || Boolean(tx.toAccountId)) {
+        if (!tx.toAccountId || tx.accountId === tx.toAccountId) continue;
+        const fromIsLinked = linkedAccountSet.has(tx.accountId);
+        const toIsLinked = linkedAccountSet.has(tx.toAccountId);
+
+        const principalMinor = Math.max(0, toMinorUnits(tx.amount || 0, minorFactor));
+        const feeMinor = Math.max(0, toMinorUnits(tx.transferFee || 0, minorFactor));
+
+        if (fromIsLinked && toIsLinked) {
+          // Internal transfers between linked accounts = 0 net budget impact.
+          // Only any transfer fee charged to fromAccountId left the linked pool.
+          if (feeMinor > 0) todayOutflowMinor += feeMinor;
+        } else if (fromIsLinked && !toIsLinked) {
+          // Outflow from linked pool to non-linked account
+          todayOutflowMinor += principalMinor + feeMinor;
+        } else if (!fromIsLinked && toIsLinked) {
+          // Inflow to linked pool from non-linked account
+          todayInflowMinor += principalMinor;
+        }
+      } else if (tx.type === 'expense') {
+        if (linkedAccountSet.has(tx.accountId)) {
+          const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
+          const totalMinor = toMinorUnits((tx.amount || 0) + tax, minorFactor);
+          todayOutflowMinor += totalMinor;
+        }
+      } else if (tx.type === 'income') {
+        if (linkedAccountSet.has(tx.accountId)) {
+          const totalMinor = toMinorUnits(tx.amount || 0, minorFactor);
+          todayInflowMinor += totalMinor;
+        }
+      }
+    }
+
+    const todayLinkedNetOutflowMinor = Math.max(0, todayOutflowMinor - todayInflowMinor);
 
     const linkedBalancesSum = effectiveLinkedAccounts.reduce((sum, a) => sum + (a.balance || 0), 0);
     const manualAdj = Number(effectiveConfig.fromTodayConfig?.manualAdjustment) || 0;
-    const liveBudgetMajor = Math.max(0, linkedBalancesSum + manualAdj);
+    const manualAdjMinor = toMinorUnits(manualAdj, minorFactor);
+    const currentLiveBudgetMinor = Math.max(0, toMinorUnits(linkedBalancesSum, minorFactor) + manualAdjMinor);
+    const startOfDayLiveBudgetMinor = Math.max(0, currentLiveBudgetMinor + todayLinkedNetOutflowMinor);
 
-    remainingMoneyMinor = toMinorUnits(liveBudgetMajor, minorFactor);
+    remainingMoneyMinor = startOfDayLiveBudgetMinor;
 
     evaluatedFromTodayConfig = {
       fromDate: fromDateStr,
       linkedAccountIds: effectiveLinkedAccounts.map((a) => a.id),
       manualAdjustment: manualAdj,
-      remainingMoney: liveBudgetMajor,
-      remainingMoneyMinor,
+      remainingMoney: currentLiveBudgetMinor / minorFactor,
+      remainingMoneyMinor: currentLiveBudgetMinor,
+      startOfDayBudgetMinor: startOfDayLiveBudgetMinor,
+      todayLinkedNetOutflowMinor,
     };
   }
 
@@ -953,7 +1021,12 @@ export function evaluateSmartBudget(
   const effectiveDailySpentBeforeTodayMinor = dailySpentBeforeTodayMinor + spilledBeforeTodayMinor;
   let dailyPoolRemainingAtStartOfTodayMinor: number;
 
-  if (rollover === 'sweep_to_savings') {
+  if (calculationMode === 'from_today') {
+    // In "From Today" mode:
+    // startOfDayLiveBudgetMinor was computed from (current live budget + today's net outflow).
+    // Past spending before today is ALREADY reflected in account balances and must NEVER be deducted again.
+    dailyPoolRemainingAtStartOfTodayMinor = dailyMinor;
+  } else if (rollover === 'sweep_to_savings') {
     // Simulate past days: unspent daily allowances were swept into savings at midnight
     let poolSimMinor = Math.max(0, dailyMinor - spilledBeforeTodayMinor);
     for (let i = 0; i < allCycleDates.length; i++) {
@@ -1458,10 +1531,10 @@ export function evaluateSmartBudget(
     },
     anomalies: isPaused ? [] : anomalies,
     rebalanceScenarios: {
-      hasDeficit,
-      deficitMinor: cycleDeficitMinor,
-      deficit: cycleDeficitMajor,
-      scenarios,
+      hasDeficit: isPaused ? false : hasDeficit,
+      deficitMinor: isPaused ? 0 : cycleDeficitMinor,
+      deficit: isPaused ? 0 : cycleDeficitMajor,
+      scenarios: isPaused ? [] : scenarios,
       scenarioA,
       scenarioB,
       scenarioC,

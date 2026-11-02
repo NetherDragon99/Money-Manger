@@ -50,6 +50,7 @@ import {
   resolveCycleOverride,
   SmartBudgetConfig,
   SmartBudgetEvaluation,
+  normalizeCurrencyCodeOrSymbol,
 } from '../utils/smartBudgetEngine';
 import {
   PoolAllocationConfig,
@@ -430,9 +431,20 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   }, [currentOverride?.fromTodayConfig?.manualAdjustment]);
 
   const defaultLinkedAccountIds = useMemo(() => {
-    const nonSavings = accounts.filter((a) => a.accountRole !== 'savings');
-    return (nonSavings.length > 0 ? nonSavings : accounts).map((a) => a.id);
-  }, [accounts]);
+    const normalizedBase = normalizeCurrencyCodeOrSymbol(currency);
+    const primaryAccounts = accounts.filter(
+      (a) => !a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normalizedBase
+    );
+    const spendingAccounts = primaryAccounts.filter((a) => a.accountRole === 'spending');
+    const nonSavings = primaryAccounts.filter((a) => a.accountRole !== 'savings');
+    const target =
+      spendingAccounts.length > 0
+        ? spendingAccounts
+        : nonSavings.length > 0
+        ? nonSavings
+        : primaryAccounts;
+    return target.map((a) => a.id);
+  }, [accounts, currency]);
 
   const activeLinkedAccountIds = useMemo(() => {
     const ids = currentOverride?.fromTodayConfig?.linkedAccountIds;
@@ -944,6 +956,11 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   };
 
   const handleToggleLinkedAccount = (accountId: string) => {
+    const targetAcc = accounts.find((a) => a.id === accountId);
+    if (targetAcc?.currency && normalizeCurrencyCodeOrSymbol(targetAcc.currency) !== normalizeCurrencyCodeOrSymbol(currency)) {
+      showToast(isArabic ? 'لا يمكن ربط حساب بعملة مختلفة عن عملة الميزانية الأساسية' : 'Cannot link account with currency different from budget base currency', 'error');
+      return;
+    }
     let nextIds: string[];
     if (activeLinkedAccountIds.includes(accountId)) {
       nextIds = activeLinkedAccountIds.filter((id) => id !== accountId);
@@ -979,12 +996,20 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     });
   };
 
-  const handleSelectLinkedAccountsPreset = (preset: 'non_savings' | 'all') => {
-    const targetAccounts =
-      preset === 'non_savings'
-        ? accounts.filter((a) => a.accountRole !== 'savings')
-        : accounts;
-    const nextIds = (targetAccounts.length > 0 ? targetAccounts : accounts).map((a) => a.id);
+  const handleSelectLinkedAccountsPreset = (preset: 'spending' | 'non_savings' | 'all') => {
+    const normalizedBase = normalizeCurrencyCodeOrSymbol(currency);
+    const primaryAccounts = accounts.filter(
+      (a) => !a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normalizedBase
+    );
+    let targetAccounts = primaryAccounts;
+    if (preset === 'spending') {
+      const spending = primaryAccounts.filter((a) => a.accountRole === 'spending');
+      if (spending.length > 0) targetAccounts = spending;
+    } else if (preset === 'non_savings') {
+      const nonSavings = primaryAccounts.filter((a) => a.accountRole !== 'savings');
+      if (nonSavings.length > 0) targetAccounts = nonSavings;
+    }
+    const nextIds = (targetAccounts.length > 0 ? targetAccounts : primaryAccounts).map((a) => a.id);
     const nextSum = accounts
       .filter((a) => nextIds.includes(a.id))
       .reduce((sum, a) => sum + (a.balance || 0), 0);
@@ -1697,24 +1722,39 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                               </div>
                             ) : (
                               accounts.map((acc) => {
-                                const isChecked = activeLinkedAccountIds.includes(acc.id);
+                                const isExcludedCurrency = Boolean(
+                                  acc.currency && normalizeCurrencyCodeOrSymbol(acc.currency) !== normalizeCurrencyCodeOrSymbol(currency)
+                                );
+                                const isChecked = !isExcludedCurrency && activeLinkedAccountIds.includes(acc.id);
                                 return (
                                   <label
                                     key={acc.id}
-                                    className="flex items-center justify-between p-2 rounded-lg hover:bg-zinc-800/60 cursor-pointer transition select-none"
+                                    className={`flex items-center justify-between p-2 rounded-lg transition select-none ${
+                                      isExcludedCurrency
+                                        ? 'opacity-40 cursor-not-allowed bg-zinc-950/40'
+                                        : 'hover:bg-zinc-800/60 cursor-pointer'
+                                    }`}
                                   >
                                     <div className="flex items-center gap-2.5 min-w-0">
                                       <input
                                         type="checkbox"
+                                        disabled={isExcludedCurrency}
                                         checked={isChecked}
-                                        onChange={() => handleToggleLinkedAccount(acc.id)}
-                                        className="w-4 h-4 rounded text-blue-600 bg-zinc-800 border-zinc-700 focus:ring-blue-500 cursor-pointer"
+                                        onChange={() => !isExcludedCurrency && handleToggleLinkedAccount(acc.id)}
+                                        className="w-4 h-4 rounded text-blue-600 bg-zinc-800 border-zinc-700 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
                                       />
                                       <span className="text-sm shrink-0">{acc.icon || '💳'}</span>
                                       <div className="min-w-0">
-                                        <p className="text-xs font-semibold text-zinc-200 truncate">
-                                          {acc.name}
-                                        </p>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <p className="text-xs font-semibold text-zinc-200 truncate">
+                                            {acc.name}
+                                          </p>
+                                          {isExcludedCurrency && (
+                                            <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                              {isArabic ? `مستبعد (${acc.currency})` : `Excluded (${acc.currency})`}
+                                            </span>
+                                          )}
+                                        </div>
                                         {acc.accountRole === 'savings' && (
                                           <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
                                             {t('poolSavings')}
