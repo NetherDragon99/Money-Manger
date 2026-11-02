@@ -93,6 +93,7 @@ export async function checkForNewerOfficialRelease(): Promise<StableReleaseCheck
     const stableVersionUrl = new URL('version.json', STABLE_BASE_URL).href;
 
     const res = await fetch(`${stableVersionUrl}?_t=${Date.now()}`, {
+      signal: AbortSignal.timeout(4000),
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Accept: 'application/json' },
     });
@@ -139,6 +140,7 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
     const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
     const versionUrl = `${cleanBase}version.json?_t=${Date.now()}`;
     const res = await fetch(versionUrl, {
+      signal: AbortSignal.timeout(4000),
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Accept: 'application/json' },
     });
@@ -171,6 +173,7 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
   try {
     const branch = IS_BETA_BUILD ? 'beta' : 'main';
     const res = await fetch(`https://api.github.com/repos/${BACKUP_VERSION_ENDPOINT}/commits/${branch}?_t=${Date.now()}`, {
+      signal: AbortSignal.timeout(4000),
       cache: 'no-store',
       headers: { Accept: 'application/vnd.github.v3+json' },
     });

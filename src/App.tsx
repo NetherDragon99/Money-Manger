@@ -132,6 +132,7 @@ import { RemainingBalanceModal } from './components/RemainingBalanceModal';
 import { installPwa } from './utils/pwaInstall';
 import { isStoredSchemaNewer } from './utils/schemaGuard';
 import { SchemaGuardNotice } from './components/SchemaGuardNotice';
+import { BetaInstallBanner } from './components/BetaInstallBanner';
 
 const TABS: TabType[] = ['home', 'budget', 'insights', 'accounts', 'calculator'];
 
@@ -937,6 +938,7 @@ const MainAppContent: React.FC = () => {
         </div>
 
         {/* Slide-over & Popups */}
+        <BetaInstallBanner />
         <Sidebar />
         <TransactionModal />
         <TransactionDetailsModal />

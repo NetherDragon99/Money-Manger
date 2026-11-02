@@ -99,9 +99,9 @@ export default defineConfig(({ command, mode }) => {
           'pwa-512x512.png',
         ],
         manifest: {
-          id: isBeta ? 'mm-beta' : base,
+          id: isBeta ? `${channelScope}` : base,
           name: isBeta ? 'Personal Finance Tracker (Beta)' : 'Personal Finance Tracker',
-          short_name: isBeta ? 'FinanceApp Beta' : 'FinanceApp',
+          short_name: isBeta ? 'FinanceApp (Beta)' : 'FinanceApp',
           description:
             'An offline-first, OLED dark-themed personal finance tracker PWA with running balances, multi-account management, custom cycles, and budgeting.',
           theme_color: '#000000',
@@ -136,14 +136,15 @@ export default defineConfig(({ command, mode }) => {
         },
         workbox: {
           cacheId: isBeta ? 'mm-beta' : undefined,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,json,woff2}'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,json,woff,woff2}'],
           globIgnores: isBeta ? [] : ['beta/**', '**/beta/**'],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-          skipWaiting: false,
+          skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
-          navigateFallback: isDev ? (isBeta ? '/beta/index.html' : '/index.html') : 'index.html',
-          navigateFallbackDenylist: isBeta ? [/^\/api/] : [/^\/api/, /\/beta\//],
+          navigateFallback: isDev ? (isBeta ? '/beta/index.html' : '/index.html') : (existingBase === './' ? 'index.html' : `${base}index.html`),
+          navigateFallbackAllowlist: isBeta ? [/.*beta.*/, /^\.\/.*index\.html/] : [/^(?!.*beta).*$/],
+          navigateFallbackDenylist: isBeta ? [/^\/api/] : [/^\/api/, /.*beta.*/],
           runtimeCaching: [
             {
               urlPattern: isBeta
@@ -173,6 +174,17 @@ export default defineConfig(({ command, mode }) => {
                   maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
                 },
                 networkTimeoutSeconds: 2,
+              },
+            },
+            {
+              urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'google-fonts-cache',
+                expiration: {
+                  maxEntries: 30,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
               },
             },
           ],
