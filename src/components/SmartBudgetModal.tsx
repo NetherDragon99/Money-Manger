@@ -2352,7 +2352,8 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
               {/* What-If Simulator & Rebalance Scenarios (Hidden when paused) */}
               {!isCyclePaused && (
                 <>
-                  {/* What-If Simulator Card */}
+                  {/* What-If Simulator Card (Hidden when Smart Budget is paused) */}
+                  {!isCyclePaused && (
                   <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -2558,6 +2559,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   </div>
                 )}
               </div>
+              )}
 
               {/* Adaptive Rebalance Scenarios Section */}
               <div className="space-y-3">
@@ -3312,21 +3314,21 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                             : 'bg-red-950/40 border-red-500/40 text-red-200'
                         }`}
                       >
-                        <div className="flex items-center justify-between font-bold">
-                          <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 font-bold min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
                             {connectionTestResult.ok ? (
                               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                             ) : (
                               <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
                             )}
-                            <span>
+                            <span className="truncate">
                               {connectionTestResult.ok
                                 ? t('connectionSuccess')
                                 : t('connectionFailed')}
                             </span>
                           </div>
                           {connectionTestResult.source && (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-750 text-zinc-300">
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-750 text-zinc-300 shrink-0 whitespace-nowrap">
                               {connectionTestResult.source === 'personal'
                                 ? t('sourcePersonalKey')
                                 : connectionTestResult.source === 'proxy'

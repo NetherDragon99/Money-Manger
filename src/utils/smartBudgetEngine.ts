@@ -1227,8 +1227,10 @@ export function evaluateSmartBudget(
   // Overall cycle daily deficit is the amount by which daily spending exceeds the daily pool
   const unclampedDailyPoolRemainingMinor = dailyMinor - (dailySpentMinor + totalSpilledToDailyMinor);
   const cycleDeficitMinor = Math.max(0, -unclampedDailyPoolRemainingMinor);
-  const hasDeficit = cycleDeficitMinor > 0;
   const cycleDeficitMajor = toMajorUnits(cycleDeficitMinor, minorFactor);
+  // Deficit exists ONLY when D > 0 and represents a real deficit (at least 0.01 in major units)
+  // to prevent generating "0.00 EGP" rebalance cards.
+  const hasDeficit = cycleDeficitMinor > 0 && cycleDeficitMajor >= 0.01;
 
   // Explicit Funding Sources (capped at their actual remaining balance)
   const unspentOutingsMinor = Math.max(0, outingsMinor - outingsSpentMinor);

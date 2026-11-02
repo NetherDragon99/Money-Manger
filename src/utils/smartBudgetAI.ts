@@ -27,9 +27,18 @@ import { getLocalGeminiApiKey } from './geminiApiKey';
 // NAMED CONSTANTS & MODEL DEFINITIONS
 // ============================================================================
 
-export const GEMINI_MODEL_PRIMARY = 'gemini-1.5-flash';
-export const GEMINI_MODEL_FALLBACK = 'gemini-1.5-flash-8b';
+export const GEMINI_MODEL_PRIMARY = 'gemini-2.5-flash';
+export const GEMINI_MODEL_FALLBACK = 'gemini-flash-latest';
 export const GEMINI_API_TIMEOUT_MS = 8000;
+
+export const DISCOVERED_MODEL_STORAGE_KEY = 'mm_gemini_discovered_model';
+export const DISCOVERED_MODEL_TTL_MS = 24 * 60 * 60 * 1000; // 24 Hours
+export const PRIORITY_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-flash-latest',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
+];
 
 export const AI_CONSENT_STORAGE_KEY = 'mm_gemini_ai_consent';
 export const AI_PROXY_STORAGE_KEY = 'mm_ai_proxy_url';
@@ -348,65 +357,241 @@ function recordFeatureRequest(feature: string): void {
 // CORE GEMINI REST ADAPTER (HYBRID RESOLUTION: PERSONAL -> PROXY -> SHARED -> DETERMINISTIC)
 // ============================================================================
 
-async function executeDirectGeminiCall(
-  model: string,
+// ============================================================================
+// DYNAMIC MODEL DISCOVERY & 24-HOUR CACHING
+// ============================================================================
+
+export interface ModelDiscoveryResult {
+  selectedModel: string;
+  allValidModels: string[];
+  errorStatus?: number;
+  errorMessage?: string;
+}
+
+let inMemoryDiscoveredModel: { keyHash: string; model: string; timestamp: number } | null = null;
+
+function hashApiKeySimple(key: string): string {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash << 5) - hash + key.charCodeAt(i);
+    hash |= 0;
+  }
+  return String(hash);
+}
+
+export function getCachedDiscoveredModel(apiKey: string): string | null {
+  const keyHash = hashApiKeySimple(apiKey);
+  if (inMemoryDiscoveredModel && inMemoryDiscoveredModel.keyHash === keyHash) {
+    if (Date.now() - inMemoryDiscoveredModel.timestamp < DISCOVERED_MODEL_TTL_MS) {
+      return inMemoryDiscoveredModel.model;
+    }
+  }
+  try {
+    const raw = localStorage.getItem(DISCOVERED_MODEL_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.keyHash === keyHash && parsed.model && Date.now() - parsed.timestamp < DISCOVERED_MODEL_TTL_MS) {
+        inMemoryDiscoveredModel = parsed;
+        return parsed.model;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+export function saveCachedDiscoveredModel(apiKey: string, model: string): void {
+  const keyHash = hashApiKeySimple(apiKey);
+  const data = { keyHash, model, timestamp: Date.now() };
+  inMemoryDiscoveredModel = data;
+  try {
+    localStorage.setItem(DISCOVERED_MODEL_STORAGE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+export function clearDiscoveredModelCache(): void {
+  inMemoryDiscoveredModel = null;
+  try {
+    localStorage.removeItem(DISCOVERED_MODEL_STORAGE_KEY);
+  } catch {}
+}
+
+/**
+ * Dynamically queries Google Generative Language API models endpoint with x-goog-api-key header.
+ * Discovers available current models, strips models/ prefix, filters retired & incompatible models,
+ * and selects the first match from PRIORITY_MODELS or fallback flash.
+ */
+export async function discoverGeminiModels(
   apiKey: string,
-  prompt: string,
-  responseSchema?: any
-): Promise<any | null> {
+  forceRefresh = false
+): Promise<ModelDiscoveryResult> {
+  if (!forceRefresh) {
+    const cached = getCachedDiscoveredModel(apiKey);
+    if (cached) {
+      return { selectedModel: cached, allValidModels: [cached] };
+    }
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), GEMINI_API_TIMEOUT_MS);
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-    const generationConfig: Record<string, any> = {
-      temperature: 0.2,
-      responseMimeType: 'application/json',
-    };
-    if (responseSchema) {
-      generationConfig.responseSchema = responseSchema;
-    }
+    let pageToken: string | undefined = undefined;
+    const allFetchedModels: any[] = [];
+    let pageCount = 0;
 
-    const requestBody = {
-      contents: [
-        {
-          parts: [{ text: prompt }],
+    do {
+      pageCount++;
+      let url = 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=100';
+      if (pageToken) {
+        url += `&pageToken=${encodeURIComponent(pageToken)}`;
+      }
+
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'x-goog-api-key': apiKey,
         },
-      ],
-      generationConfig,
-    };
+        signal: controller.signal,
+      });
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
-    });
+      if (!res.ok) {
+        clearTimeout(timeoutId);
+        let errorMsg = '';
+        try {
+          const errData = await res.json();
+          errorMsg = errData?.error?.message || '';
+        } catch {}
+        return {
+          selectedModel: PRIORITY_MODELS[0],
+          allValidModels: [],
+          errorStatus: res.status,
+          errorMessage: errorMsg,
+        };
+      }
+
+      const json = await res.json();
+      if (Array.isArray(json?.models)) {
+        allFetchedModels.push(...json.models);
+      }
+      pageToken = json?.nextPageToken;
+    } while (pageToken && pageCount < 5);
 
     clearTimeout(timeoutId);
 
-    if (res.ok) {
-      const json = await res.json();
-      const candidateText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (candidateText && typeof candidateText === 'string') {
-        const parsed = JSON.parse(candidateText.trim());
-        incrementAIMonthlyUsage();
-        return parsed;
-      }
-    } else {
-      console.warn(`[SmartBudgetAI] Direct call to ${model} returned status ${res.status}`);
+    const EXCLUDED_PATTERNS = ['1.5', 'tuning', 'embedding', 'image', 'tts', 'live', 'vision'];
+    const validNames: string[] = [];
+
+    for (const m of allFetchedModels) {
+      const methods: string[] = Array.isArray(m?.supportedGenerationMethods)
+        ? m.supportedGenerationMethods
+        : [];
+      if (!methods.includes('generateContent')) continue;
+
+      const rawName = (m?.name || '').replace(/^models\//, '');
+      const lower = rawName.toLowerCase();
+
+      const isExcluded = EXCLUDED_PATTERNS.some((pat) => lower.includes(pat));
+      if (isExcluded) continue;
+
+      validNames.push(rawName);
     }
+
+    let chosen: string | undefined = undefined;
+    for (const p of PRIORITY_MODELS) {
+      if (validNames.includes(p)) {
+        chosen = p;
+        break;
+      }
+    }
+
+    if (!chosen) {
+      chosen = validNames.find((name) => name.toLowerCase().includes('flash'));
+    }
+
+    if (!chosen) {
+      chosen = validNames[0] || PRIORITY_MODELS[0];
+    }
+
+    saveCachedDiscoveredModel(apiKey, chosen);
+
+    return {
+      selectedModel: chosen,
+      allValidModels: validNames,
+    };
   } catch (err: any) {
     clearTimeout(timeoutId);
-    console.warn(
-      `[SmartBudgetAI] Direct call to ${model} interrupted or timed out:`,
-      err?.name || 'Error'
-    );
+    return {
+      selectedModel: PRIORITY_MODELS[0],
+      allValidModels: [],
+      errorStatus: err?.name === 'AbortError' ? 408 : 0,
+      errorMessage: err?.message || 'Network error during model discovery',
+    };
+  }
+}
+
+async function executeDirectGeminiCall(
+  apiKey: string,
+  prompt: string,
+  responseSchema?: any
+): Promise<any | null> {
+  let modelResult = await discoverGeminiModels(apiKey, false);
+  let model = modelResult.selectedModel;
+
+  const tryCall = async (modelToUse: string): Promise<{ ok: boolean; status: number; data?: any }> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), GEMINI_API_TIMEOUT_MS);
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent`;
+      const generationConfig: Record<string, any> = {
+        temperature: 0.2,
+        responseMimeType: 'application/json',
+      };
+      if (responseSchema) {
+        generationConfig.responseSchema = responseSchema;
+      }
+      const requestBody = {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig,
+      };
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const json = await res.json();
+        const candidateText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (candidateText && typeof candidateText === 'string') {
+          const parsed = JSON.parse(candidateText.trim());
+          incrementAIMonthlyUsage();
+          return { ok: true, status: 200, data: parsed };
+        }
+      }
+      return { ok: false, status: res.status };
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      return { ok: false, status: 0 };
+    }
+  };
+
+  let callRes = await tryCall(model);
+  // Automatically re-discover once if a generateContent call returns 404
+  if (!callRes.ok && callRes.status === 404) {
+    console.warn(`[SmartBudgetAI] Model ${model} returned 404. Re-discovering models...`);
+    clearDiscoveredModelCache();
+    modelResult = await discoverGeminiModels(apiKey, true);
+    model = modelResult.selectedModel;
+    callRes = await tryCall(model);
   }
 
+  if (callRes.ok && callRes.data) {
+    return callRes.data;
+  }
   return null;
 }
 
@@ -494,44 +679,31 @@ async function callGeminiRest(prompt: string, responseSchema?: any): Promise<any
     return null;
   }
 
-  const modelsToTry = [GEMINI_MODEL_PRIMARY, GEMINI_MODEL_FALLBACK, 'gemini-1.5-pro'];
-
   // --------------------------------------------------------------------------
-  // PRIORITY 1: User's personal key (localStorage mm_gemini_api_key synced at users/${uid}/secrets/gemini)
+  // PRIORITY 1: User's personal key
   // --------------------------------------------------------------------------
   const personalKey = getLocalGeminiApiKey();
   if (personalKey) {
-    for (const model of modelsToTry) {
-      const result = await executeDirectGeminiCall(model, personalKey, prompt, responseSchema);
-      if (result) {
-        return result;
-      }
-    }
+    const result = await executeDirectGeminiCall(personalKey, prompt, responseSchema);
+    if (result) return result;
   }
 
   // --------------------------------------------------------------------------
-  // PRIORITY 2: Optional proxy URL (mm_ai_proxy_url or VITE_AI_PROXY_URL) with Firebase ID token
+  // PRIORITY 2: Optional backend proxy
   // --------------------------------------------------------------------------
   const proxyUrl = getAIProxyUrl();
   if (proxyUrl) {
     const result = await executeProxyGeminiCall(proxyUrl, prompt, responseSchema);
-    if (result) {
-      return result;
-    }
+    if (result) return result;
   }
 
   // --------------------------------------------------------------------------
-  // PRIORITY 3: Shared default key fetched on-demand for signed-in users from RTDB app_config/gemini/apiKey
+  // PRIORITY 3: Shared default key fetched on-demand from RTDB app_config/gemini/apiKey
   // --------------------------------------------------------------------------
   const sharedKey = await getSharedDefaultApiKey();
   if (sharedKey) {
-    for (const model of modelsToTry) {
-      const result = await executeDirectGeminiCall(model, sharedKey, prompt, responseSchema);
-      if (result) {
-        return result;
-      }
-    }
-    // Invalidate session cache if shared key failed
+    const result = await executeDirectGeminiCall(sharedKey, prompt, responseSchema);
+    if (result) return result;
     inMemorySharedApiKey = null;
   }
 
@@ -542,7 +714,7 @@ async function callGeminiRest(prompt: string, responseSchema?: any): Promise<any
 }
 
 // ============================================================================
-// CONNECTION TESTER & DYNAMIC MODEL VALIDATOR
+// CONNECTION TESTER & CLASSIFIED DIAGNOSTIC RESULTS
 // ============================================================================
 
 export interface ConnectionTestResult {
@@ -557,151 +729,205 @@ export interface ConnectionTestResult {
 async function testDirectGeminiKey(
   apiKey: string,
   source: 'personal' | 'shared',
-  modelsToTry: string[],
   isArabic: boolean
 ): Promise<ConnectionTestResult> {
-  let lastStatus = 0;
-  let lastErrorText = '';
+  // Step 1: Discover models dynamically with forceRefresh = true
+  const discovery = await discoverGeminiModels(apiKey, true);
 
-  for (let i = 0; i < modelsToTry.length; i++) {
-    const model = modelsToTry[i];
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), GEMINI_API_TIMEOUT_MS);
+  if (discovery.errorStatus) {
+    const status = discovery.errorStatus;
+    const errMsg = (discovery.errorMessage || '').toLowerCase();
 
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Ping. Output JSON: {"status":"ok"}' }] }],
-          generationConfig: {
-            temperature: 0.1,
-            responseMimeType: 'application/json',
-          },
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      lastStatus = res.status;
-
-      if (res.ok) {
-        return {
-          ok: true,
-          source,
-          modelUsed: model,
-          statusCode: res.status,
-          message: `Connected successfully to Google Gemini (${model}) using ${
-            source === 'personal' ? 'personal API key' : 'shared Firebase key'
-          }!`,
-          messageAr: `تم الاتصال بنجاح بـ Google Gemini (${model}) باستخدام ${
-            source === 'personal' ? 'المفتاح الشخصي' : 'المفتاح المشترك'
-          }!`,
-        };
-      }
-
-      try {
-        const errJson = await res.json();
-        lastErrorText = errJson?.error?.message || '';
-      } catch {}
-
-      // Model not found (404) or server error (500/503) -> dynamically try fallback model
-      if ((res.status === 404 || res.status >= 500) && i < modelsToTry.length - 1) {
-        console.warn(
-          `[SmartBudgetAI] Model ${model} returned ${res.status}. Falling back dynamically to ${modelsToTry[i + 1]}...`
-        );
-        continue;
-      }
-
-      if (res.status === 403) {
-        return {
-          ok: false,
-          source,
-          statusCode: 403,
-          message:
-            'HTTP 403 Forbidden: Key rejected. Note: On localhost or Vite preview, HTTP 403 is expected if your Gemini API key has HTTP referrer restrictions in Google Cloud Console. Remove referrer restrictions in Google Cloud Console or test on your production domain.',
-          messageAr:
-            'خطأ 403 (محظور): تم رفض المفتاح. ملاحظة: عند الاختبار على localhost أو معاينة Vite، يكون هذا الخطأ متوقعاً إذا كانت هناك قيود نطاق (HTTP referrer) على المفتاح في Google Cloud Console. يرجى إزالة قيود النطاق أو الاختبار على النطاق الفعلي.',
-        };
-      }
-
-      if (res.status === 400) {
-        return {
-          ok: false,
-          source,
-          statusCode: 400,
-          message: `HTTP 400 Bad Request: Invalid API key or request payload. ${
-            lastErrorText ? `(${lastErrorText})` : 'Verify your key in Google AI Studio.'
-          }`,
-          messageAr: `خطأ 400 (طلب غير صالح): مفتاح API غير صالح أو البيانات غير صحيحة. ${
-            lastErrorText ? `(${lastErrorText})` : 'يرجى التحقق من المفتاح في Google AI Studio.'
-          }`,
-        };
-      }
-
-      if (res.status === 429) {
-        return {
-          ok: false,
-          source,
-          statusCode: 429,
-          message:
-            'HTTP 429 Too Many Requests: Rate limit exceeded or quota exhausted. Please try again in a few moments or use a key with higher quota.',
-          messageAr:
-            'خطأ 429 (تجاوز معدل الاستخدام): تم استنفاد الحصة أو تجاوز عدد الطلبات المسموح. يرجى المحاولة بعد قليل أو استخدام مفتاح ذي حصة أكبر.',
-        };
-      }
-
-      if (res.status === 404) {
-        return {
-          ok: false,
-          source,
-          statusCode: 404,
-          message: `HTTP 404 Not Found: None of the tested models (${modelsToTry.join(', ')}) are accessible with this key. Verify model availability in your region/account.`,
-          messageAr: `خطأ 404 (غير موجود): تعذر الوصول إلى النماذج (${modelsToTry.join(', ')}) بهذا المفتاح. يرجى التحقق من توفر النماذج لحسابك في Google AI Studio.`,
-        };
-      }
-
+    if (status === 400) {
       return {
         ok: false,
         source,
-        statusCode: res.status,
-        message: `HTTP ${res.status}: Connection test failed. ${
-          lastErrorText || 'Unexpected response from Google Gemini.'
-        }`,
-        messageAr: `خطأ HTTP ${res.status}: فشل اختبار الاتصال. ${
-          lastErrorText || 'استجابة غير متوقعة من Google Gemini.'
-        }`,
-      };
-    } catch (fetchErr: any) {
-      clearTimeout(timeoutId);
-      if (fetchErr.name === 'AbortError') {
-        return {
-          ok: false,
-          source,
-          message: 'Connection timed out after 8 seconds. Google Gemini servers did not respond in time.',
-          messageAr: 'انتهت مهلة الاتصال بعد 8 ثوانٍ. لم تستجب خوادم Google Gemini في الوقت المحدد.',
-        };
-      }
-      return {
-        ok: false,
-        source,
-        message: `Network error: ${fetchErr.message || 'Unable to connect to Google Gemini servers.'}`,
-        messageAr: `خطأ في الشبكة: ${fetchErr.message || 'تعذر الاتصال بخوادم Google Gemini.'}`,
+        statusCode: 400,
+        message: 'HTTP 400 Bad Request: Invalid API key or request payload. Verify your key in Google AI Studio.',
+        messageAr: 'خطأ 400 (طلب غير صالح): مفتاح API غير صالح أو غير مكتمل. يرجى التحقق من المفتاح في Google AI Studio.',
       };
     }
+
+    if (status === 401 || errMsg.includes('access_token_type_unsupported')) {
+      return {
+        ok: false,
+        source,
+        statusCode: 401,
+        message: 'HTTP 401 Unauthorized: ACCESS_TOKEN_TYPE_UNSUPPORTED. Please generate a fresh, direct API key from Google AI Studio (aistudio.google.com).',
+        messageAr: 'خطأ 401 (غير مصرح): نوع رمز الوصول غير مدعوم (ACCESS_TOKEN_TYPE_UNSUPPORTED). يرجى إنشاء مفتاح API مباشر وجديد من Google AI Studio (aistudio.google.com).',
+      };
+    }
+
+    if (status === 403) {
+      return {
+        ok: false,
+        source,
+        statusCode: 403,
+        message: 'HTTP 403 Forbidden: Key rejected due to HTTP referrer restrictions. Note: Testing on localhost or vite preview is blocked by design for restricted keys; it works normally on your published GitHub Pages site.',
+        messageAr: 'خطأ 403 (محظور): تم رفض المفتاح بسبب قيود النطاق (HTTP referrer). ملاحظة: التشغيل على localhost أو معاينة Vite محظور عن قصد للمفاتيح المقيدة؛ سيعمل بشكل طبيعي على موقع GitHub Pages المنشور.',
+      };
+    }
+
+    if (status === 429) {
+      return {
+        ok: false,
+        source,
+        statusCode: 429,
+        message: 'HTTP 429 Too Many Requests: Rate limit exceeded or quota exhausted. Please try again later or use a key with higher quota.',
+        messageAr: 'خطأ 429 (تجاوز معدل الاستخدام): تم استنفاد الحصة أو تجاوز عدد الطلبات المسموح. يرجى المحاولة لاحقاً أو استخدام مفتاح ذي حصة أكبر.',
+      };
+    }
+
+    if (status === 408) {
+      return {
+        ok: false,
+        source,
+        statusCode: 408,
+        message: 'Connection timed out after 8 seconds. Google Gemini servers did not respond in time.',
+        messageAr: 'انتهت مهلة الاتصال بعد 8 ثوانٍ. لم تستجب خوادم Google Gemini في الوقت المحدد.',
+      };
+    }
+
+    return {
+      ok: false,
+      source,
+      statusCode: status,
+      message: `HTTP ${status} Error: ${discovery.errorMessage || 'Unable to connect to Google Gemini'}`,
+      messageAr: `خطأ HTTP ${status}: ${discovery.errorMessage || 'تعذر الاتصال بخدمة Google Gemini'}`,
+    };
   }
 
-  return {
-    ok: false,
-    source,
-    statusCode: lastStatus,
-    message: `Connection failed with status ${lastStatus}.`,
-    messageAr: `فشل الاتصال برمز الحالة ${lastStatus}.`,
-  };
+  // Step 2: Send 1 minimal ping request with zero user data
+  const model = discovery.selectedModel;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GEMINI_API_TIMEOUT_MS);
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Ping. Output JSON: {"status":"ok"}' }] }],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: 'application/json',
+          maxOutputTokens: 10,
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      incrementAIMonthlyUsage();
+      return {
+        ok: true,
+        source,
+        modelUsed: model,
+        statusCode: res.status,
+        message: `Connected successfully to Google Gemini (${model}) using ${
+          source === 'personal' ? 'personal API key' : 'shared Firebase key'
+        }!`,
+        messageAr: `تم الاتصال بنجاح بـ Google Gemini (${model}) باستخدام ${
+          source === 'personal' ? 'المفتاح الشخصي' : 'المفتاح المشترك'
+        }!`,
+      };
+    }
+
+    let errorText = '';
+    try {
+      const errJson = await res.json();
+      errorText = errJson?.error?.message || '';
+    } catch {}
+
+    const errLower = errorText.toLowerCase();
+
+    if (res.status === 404) {
+      const top5 = discovery.allValidModels.slice(0, 5).join(', ') || 'None';
+      const top5Ar = discovery.allValidModels.slice(0, 5).join(', ') || 'لا يوجد';
+      return {
+        ok: false,
+        source,
+        statusCode: 404,
+        message: `HTTP 404 Not Found: Model ${model} is not accessible. Discovered accessible models: ${top5}.`,
+        messageAr: `خطأ 404 (غير موجود): النموذج ${model} غير متاح بهذا المفتاح. النماذج المكتشفة المتاحة: ${top5Ar}.`,
+      };
+    }
+
+    if (res.status === 401 || errLower.includes('access_token_type_unsupported')) {
+      return {
+        ok: false,
+        source,
+        statusCode: 401,
+        message: 'HTTP 401 Unauthorized: ACCESS_TOKEN_TYPE_UNSUPPORTED. Please generate a fresh, direct API key from Google AI Studio (aistudio.google.com).',
+        messageAr: 'خطأ 401 (غير مصرح): نوع رمز الوصول غير مدعوم (ACCESS_TOKEN_TYPE_UNSUPPORTED). يرجى إنشاء مفتاح API مباشر وجديد من Google AI Studio (aistudio.google.com).',
+      };
+    }
+
+    if (res.status === 403) {
+      return {
+        ok: false,
+        source,
+        statusCode: 403,
+        message: 'HTTP 403 Forbidden: Key rejected due to HTTP referrer restrictions. Note: Testing on localhost or vite preview is blocked by design for restricted keys; it works normally on your published GitHub Pages site.',
+        messageAr: 'خطأ 403 (محظور): تم رفض المفتاح بسبب قيود النطاق (HTTP referrer). ملاحظة: التشغيل على localhost أو معاينة Vite محظور عن قصد للمفاتيح المقيدة؛ سيعمل بشكل طبيعي على موقع GitHub Pages المنشور.',
+      };
+    }
+
+    if (res.status === 400) {
+      return {
+        ok: false,
+        source,
+        statusCode: 400,
+        message: `HTTP 400 Bad Request: Invalid API key or request payload. ${
+          errorText ? `(${errorText})` : 'Verify your key in Google AI Studio.'
+        }`,
+        messageAr: `خطأ 400 (طلب غير صالح): مفتاح API غير صالح أو البيانات غير صحيحة. ${
+          errorText ? `(${errorText})` : 'يرجى التحقق من المفتاح في Google AI Studio.'
+        }`,
+      };
+    }
+
+    if (res.status === 429) {
+      return {
+        ok: false,
+        source,
+        statusCode: 429,
+        message: 'HTTP 429 Too Many Requests: Rate limit exceeded or quota exhausted. Please try again later or use a key with higher quota.',
+        messageAr: 'خطأ 429 (تجاوز معدل الاستخدام): تم استنفاد الحصة أو تجاوز عدد الطلبات المسموح. يرجى المحاولة لاحقاً أو استخدام مفتاح ذي حصة أكبر.',
+      };
+    }
+
+    return {
+      ok: false,
+      source,
+      statusCode: res.status,
+      message: `HTTP ${res.status}: Connection test failed. ${errorText || 'Unexpected response from Google Gemini.'}`,
+      messageAr: `خطأ HTTP ${res.status}: فشل اختبار الاتصال. ${errorText || 'استجابة غير متوقعة من Google Gemini.'}`,
+    };
+  } catch (fetchErr: any) {
+    clearTimeout(timeoutId);
+    if (fetchErr.name === 'AbortError') {
+      return {
+        ok: false,
+        source,
+        statusCode: 408,
+        message: 'Connection timed out after 8 seconds. Google Gemini servers did not respond in time.',
+        messageAr: 'انتهت مهلة الاتصال بعد 8 ثوانٍ. لم تستجب خوادم Google Gemini في الوقت المحدد.',
+      };
+    }
+    return {
+      ok: false,
+      source,
+      message: `Network error: ${fetchErr.message || 'Unable to connect to Google Gemini servers.'}`,
+      messageAr: `خطأ في الشبكة: ${fetchErr.message || 'تعذر الاتصال بخوادم Google Gemini.'}`,
+    };
+  }
 }
 
 async function testProxyConnection(
@@ -737,6 +963,7 @@ async function testProxyConnection(
         generationConfig: {
           temperature: 0.1,
           responseMimeType: 'application/json',
+          maxOutputTokens: 10,
         },
       }),
       signal: controller.signal,
@@ -745,6 +972,7 @@ async function testProxyConnection(
     clearTimeout(timeoutId);
 
     if (res.ok) {
+      incrementAIMonthlyUsage();
       return {
         ok: true,
         source: 'proxy',
@@ -813,8 +1041,8 @@ async function testProxyConnection(
 
 /**
  * Tests connection to Google Gemini API following strict resolution order:
- * Priority 1: Personal API Key
- * Priority 2: Backend Proxy
+ * Priority 1: Personal API Key (if non-empty)
+ * Priority 2: Backend Proxy (if configured)
  * Priority 3: Firebase RTDB app_config/gemini/apiKey (requires signed-in user and consent ON)
  * Never fails solely because the personal key is empty!
  */
@@ -841,12 +1069,10 @@ export async function testConnection(language: 'ar' | 'en' = 'en'): Promise<Conn
     };
   }
 
-  const modelsToTry = [GEMINI_MODEL_PRIMARY, GEMINI_MODEL_FALLBACK, 'gemini-1.5-pro'];
-
   // PRIORITY 1: Personal API Key
   const personalKey = getLocalGeminiApiKey();
   if (personalKey) {
-    return testDirectGeminiKey(personalKey, 'personal', modelsToTry, isArabic);
+    return testDirectGeminiKey(personalKey, 'personal', isArabic);
   }
 
   // PRIORITY 2: Backend Proxy
@@ -882,8 +1108,8 @@ export async function testConnection(language: 'ar' | 'en' = 'en'): Promise<Conn
       return {
         ok: false,
         source: 'shared',
-        message: 'Configuration not found: No Gemini API key found in Firebase app_config. Please enter a personal API key.',
-        messageAr: 'لم يتم العثور على التكوين: لا يوجد مفتاح Gemini في إعدادات التطبيق (app_config). يرجى إدخال مفتاح شخصي.',
+        message: 'Key not found: No Gemini API key found in Firebase app_config. Please enter a personal API key.',
+        messageAr: 'لم يتم العثور على المفتاح: لا يوجد مفتاح Gemini في إعدادات التطبيق (app_config). يرجى إدخال مفتاح شخصي.',
       };
     }
     const val = snap.val();
@@ -926,13 +1152,13 @@ export async function testConnection(language: 'ar' | 'en' = 'en'): Promise<Conn
     return {
       ok: false,
       source: 'shared',
-      message: 'No API key configured in Firebase app_config. Please enter a personal Gemini API key in Advanced Settings.',
-      messageAr: 'مفتاح API غير متوفر في إعدادات التطبيق. يرجى إدخال مفتاح شخصي في الإعدادات المتقدمة.',
+      message: 'Key not found: No API key configured in Firebase app_config. Please enter a personal Gemini API key in Advanced Settings.',
+      messageAr: 'لم يتم العثور على المفتاح: مفتاح API غير متوفر في إعدادات التطبيق. يرجى إدخال مفتاح شخصي في الإعدادات المتقدمة.',
     };
   }
 
   inMemorySharedApiKey = sharedKey;
-  return testDirectGeminiKey(sharedKey, 'shared', modelsToTry, isArabic);
+  return testDirectGeminiKey(sharedKey, 'shared', isArabic);
 }
 
 // ============================================================================
@@ -1271,38 +1497,10 @@ export async function evaluatePeriodicHealthAndWhatIf(
       : `Healthy: Your budget pace is on track to comfortably cover all ${daysRem} remaining days at the suggested daily rate.`;
   }
 
-  let whatIfAnalysis: string | undefined = undefined;
-  if (params.whatIfExtraExpenseMinor && params.whatIfExtraExpenseMinor > 0) {
-    const extra = params.whatIfExtraExpenseMinor;
-    const whatPool = params.whatIfPool || 'outings';
-    if (whatPool === 'outings') {
-      const remainingAfter = outingsRem - extra;
-      if (remainingAfter >= 0) {
-        whatIfAnalysis = isArabic
-          ? 'تحليل سيناريو: ميزانية الخروجات المتبقية كافية لتغطية هذا المصروف بالكامل دون أي تأثير على المصروف اليومي الأساسي.'
-          : 'What-If: Your remaining Outings pool easily absorbs this expense with zero impact on your core daily living allowance.';
-      } else {
-        const spill = Math.abs(remainingAfter);
-        const newDailyRem = Math.max(0, dailyRem - spill);
-        const newDailyRate = Math.floor(newDailyRem / daysRem);
-        whatIfAnalysis = isArabic
-          ? `تحليل سيناريو: هذا المصروف سيتجاوز ميزانية الخروجات؛ سيتأثر المصروف اليومي ليصبح المتبقي بمعدل أقل.`
-          : `What-If: This expense exceeds your Outings pool and will reduce your remaining daily allowance.`;
-      }
-    } else {
-      const newDailyRem = Math.max(0, dailyRem - extra);
-      const newRunway = Math.floor(newDailyRem / suggestedRate);
-      whatIfAnalysis = isArabic
-        ? `تحليل سيناريو: خصم هذا المبلغ من المعيشة اليومية سيقلص فترة الأمان المتبقية إلى نحو ${newRunway} يوماً.`
-        : `What-If: Spending this from daily funds reduces your safe runway to approximately ${newRunway} days.`;
-    }
-  }
-
   const deterministicFallback: HealthAndWhatIfAdvice = {
     status,
     runwayDaysRemaining: runwayDays,
     adviceText,
-    whatIfAnalysis,
     source: 'deterministic',
   };
 
@@ -1312,7 +1510,6 @@ export async function evaluatePeriodicHealthAndWhatIf(
     daysRemaining: daysRem,
     dailyRemTier: Math.round(dailyRem / 1000),
     outingsTier: Math.round(outingsRem / 1000),
-    whatIf: params.whatIfExtraExpenseMinor ? Math.round(params.whatIfExtraExpenseMinor / 1000) : 0,
     language,
   });
   const cached = getFromCache<HealthAndWhatIfAdvice>(cacheKey);
@@ -1330,7 +1527,6 @@ Evaluate the health of the user's current budget cycle and provide plain-languag
 - Runway days covered by daily funds: ${runwayDays}
 - Outings funds remaining status: ${outingsRem >= 0 ? 'Surplus' : 'Deficit'}
 - Emergency expenses incurred: ${emergencySpent > 0 ? 'Yes' : 'None'}
-${params.whatIfExtraExpenseMinor ? `- Hypothetical extra expense evaluated in pool: ${params.whatIfPool || 'outings'}` : ''}
 Language for advice: ${isArabic ? 'Arabic' : 'English'}
 
 Rules:
@@ -1366,7 +1562,7 @@ Output schema:
     const st = aiResult.status;
     const rDays = Number(aiResult.runwayDaysRemaining);
     const adv = typeof aiResult.adviceText === 'string' ? aiResult.adviceText.trim() : '';
-    const wIf = typeof aiResult.whatIfAnalysis === 'string' ? aiResult.whatIfAnalysis.trim() : whatIfAnalysis;
+    const wIf = typeof aiResult.whatIfAnalysis === 'string' ? aiResult.whatIfAnalysis.trim() : undefined;
 
     if (['healthy', 'caution', 'critical'].includes(st) && !isNaN(rDays) && adv.length > 0) {
       const validResult: HealthAndWhatIfAdvice = {
