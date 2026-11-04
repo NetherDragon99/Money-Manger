@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   ArrowDown,
@@ -58,29 +58,95 @@ const AccountCard: React.FC<AccountCardProps> = ({
     toggleAccountSelection(acc.id);
   };
 
-  const { handlers } = useLongPress({
-    onLongPress: () => {
+  // Dedicated Long-Press Multi-Select Timer (~500ms) with motion tolerance & click suppression
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isLongPressActiveRef = useRef<boolean>(false);
+  const touchStartCoordsRef = useRef<{ x: number; y: number } | null>(null);
+
+  const startPress = (x: number, y: number) => {
+    isLongPressActiveRef.current = false;
+    touchStartCoordsRef.current = { x, y };
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      isLongPressActiveRef.current = true;
+      try {
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          navigator.vibrate?.(40);
+        }
+      } catch {}
       startAccountMultiSelect(acc.id);
-    },
-    onClick: (e) => {
-      if (isAccountMultiSelect) {
-        handleToggle(e);
-      } else {
-        onOpenDetails();
-      }
-    },
-  });
+    }, 500);
+  };
+
+  const cancelPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    startPress(touch.clientX, touch.clientY);
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartCoordsRef.current || !longPressTimerRef.current) return;
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - touchStartCoordsRef.current.x);
+    const dy = Math.abs(touch.clientY - touchStartCoordsRef.current.y);
+    if (dx > 12 || dy > 12) {
+      cancelPress();
+    }
+  };
+
+  const onTouchEnd = () => {
+    cancelPress();
+  };
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    startPress(e.clientX, e.clientY);
+  };
+
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!touchStartCoordsRef.current || !longPressTimerRef.current) return;
+    const dx = Math.abs(e.clientX - touchStartCoordsRef.current.x);
+    const dy = Math.abs(e.clientY - touchStartCoordsRef.current.y);
+    if (dx > 12 || dy > 12) {
+      cancelPress();
+    }
+  };
+
+  const onMouseUp = () => {
+    cancelPress();
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (isLongPressActiveRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      isLongPressActiveRef.current = false;
+      return;
+    }
+    if (isAccountMultiSelect) {
+      handleToggle(e);
+    } else {
+      onOpenDetails();
+    }
+  };
 
   return (
     <div
-      {...handlers}
-      onClick={(e) => {
-        if (isAccountMultiSelect) {
-          handleToggle(e);
-        } else {
-          handlers.onClick(e);
-        }
-      }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseUp}
+      onClick={handleClick}
       data-no-swipe="true"
       onContextMenu={(e) => {
         e.preventDefault();
@@ -97,7 +163,12 @@ const AccountCard: React.FC<AccountCardProps> = ({
       {/* Dedicated Top Card Header Bar: Separates Reorder Controls from Balance */}
       <div className="flex items-center justify-between pb-2 border-b border-zinc-800/50 mb-3">
         {/* Reorder Arrows with priority index */}
-        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="flex items-center gap-1.5"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
           <span className="text-[10px] font-mono text-zinc-500 mr-0.5">#{index + 1}</span>
           <button
             type="button"
@@ -130,6 +201,8 @@ const AccountCard: React.FC<AccountCardProps> = ({
             <button
               type="button"
               onClick={handleToggle}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
               className={`w-6 h-6 rounded-lg flex items-center justify-center transition border cursor-pointer active:scale-90 ${
                 isSelected
                   ? 'bg-blue-600 border-blue-500 text-white shadow-md'
