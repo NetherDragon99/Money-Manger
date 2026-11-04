@@ -212,6 +212,31 @@ const MainAppContent: React.FC = () => {
   const [updating, setUpdating] = useState(false);
   const { isExitModalOpen, cancelExit, confirmExit, exitHint } = useNavigation();
 
+  const isAnyModalOpen =
+    isSidebarOpen ||
+    isCategoryModalOpen ||
+    isAccountModalOpen ||
+    !!viewingTx ||
+    isAddTxModalOpen ||
+    isPinModalOpen ||
+    isRecurringModalOpen ||
+    isSettingsModalOpen ||
+    isTransferFeesModalOpen ||
+    isEmojiPickerOpen ||
+    isFeaturesModalOpen ||
+    isWhatsNewOpen ||
+    isFilterModalOpen ||
+    isResetPeriodModalOpen ||
+    isUserProfileModalOpen ||
+    isSharedHubModalOpen ||
+    isExitModalOpen ||
+    !!customDialogState ||
+    shareModalState.isOpen ||
+    !!remainingBalanceModalState?.isOpen ||
+    !!selectedAccountId;
+
+  const isMainBarsVisible = !isAnyModalOpen && isBarsVisible;
+
   // Capture PWA beforeinstallprompt event immediately in React state and window.deferredPwaPrompt
   const [deferredPwaPrompt, setDeferredPwaPrompt] = useState<any>(() => {
     if (typeof window !== 'undefined') {
@@ -368,19 +393,23 @@ const MainAppContent: React.FC = () => {
 
   
 
-  // Unified bulletproof scroll tracker (window + container)
+  // Unified bulletproof scroll tracker with reliable upward delta detection
   const lastScrollTopRef = useRef<number>(0);
+  const accumulatedDeltaRef = useRef<number>(0);
 
   useEffect(() => {
     const handleWindowScroll = () => {
+      if (isAnyModalOpen || selectedAccountId) return;
       const currentScrollTop = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
-      const deltaY = currentScrollTop - lastScrollTopRef.current;
+      const prevScrollTop = lastScrollTopRef.current;
+      const deltaY = currentScrollTop - prevScrollTop;
       lastScrollTopRef.current = currentScrollTop;
 
-      if (currentScrollTop <= 25 || deltaY < -2) {
+      if (currentScrollTop <= 30 || deltaY < -1) {
+        accumulatedDeltaRef.current = 0;
         setIsBarsVisible(true);
         setIsHeaderVisible(true);
-      } else if (deltaY > 6 && currentScrollTop > 40) {
+      } else if (deltaY > 8 && currentScrollTop > 45) {
         setIsBarsVisible(false);
         setIsHeaderVisible(false);
       }
@@ -388,11 +417,15 @@ const MainAppContent: React.FC = () => {
 
     window.addEventListener('scroll', handleWindowScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleWindowScroll);
-  }, []);
+  }, [isAnyModalOpen, selectedAccountId]);
 
   const handleScrollCapture = (e: React.UIEvent) => {
+    // Never trigger scroll-hide while a modal, secondary sub-view, or drawer is active
+    if (isAnyModalOpen || selectedAccountId) return;
+
     const target = e.target as HTMLElement;
     if (!target || typeof target.scrollTop !== 'number') return;
+
     // Ignore scrolls originating from inside modal overlays, sidebars, or dropdowns
     if (target.closest?.('[role="dialog"], [data-modal], .modal-container-anim, .overflow-y-auto.fixed, [data-no-header-scroll], aside')) {
       return;
@@ -402,24 +435,49 @@ const MainAppContent: React.FC = () => {
       return;
     }
 
+    // Only respond to primary view tab containers
+    const tabContainer = target.closest?.('[data-tab]');
+    if (!tabContainer && !target.hasAttribute?.('data-tab')) {
+      return;
+    }
+
     const currentScrollTop = target.scrollTop;
-    const deltaY = currentScrollTop - lastScrollTopRef.current;
+    const prevScrollTop = lastScrollTopRef.current;
+    const deltaY = currentScrollTop - prevScrollTop;
     lastScrollTopRef.current = currentScrollTop;
 
-    // Synchronized Header & Navigation Visibility
-    // Immediate Show on Slight Scroll Up (currentScrollTop <= 25 OR deltaY < -2)
-    if (currentScrollTop <= 25 || deltaY < -2) {
+    // Synchronized Header & Navigation Visibility:
+    // 1. Instant restore at top of page or overscroll
+    if (currentScrollTop <= 30) {
+      accumulatedDeltaRef.current = 0;
       setIsBarsVisible(true);
       setIsHeaderVisible(true);
-    } else if (deltaY > 6 && currentScrollTop > 40) {
-      // Hide on Scroll Down (deltaY > 6 AND currentScrollTop > 40)
-      setIsBarsVisible(false);
-      setIsHeaderVisible(false);
+      return;
+    }
+
+    // 2. Upward scroll detection:
+    // When scrolling up (deltaY < -1), instantly restore visibility!
+    if (deltaY < -1) {
+      accumulatedDeltaRef.current = 0;
+      setIsBarsVisible(true);
+      setIsHeaderVisible(true);
+      return;
+    }
+
+    // 3. Downward scroll detection:
+    // Accumulate downward movement to avoid jitter on small taps
+    if (deltaY > 0) {
+      accumulatedDeltaRef.current = Math.max(0, accumulatedDeltaRef.current) + deltaY;
+      if (accumulatedDeltaRef.current > 10 && currentScrollTop > 45) {
+        setIsBarsVisible(false);
+        setIsHeaderVisible(false);
+      }
     }
   };
 
   useEffect(() => {
     lastScrollTopRef.current = 0;
+    accumulatedDeltaRef.current = 0;
     setIsBarsVisible(true);
     setIsHeaderVisible(true);
   }, [currentTab]);
@@ -730,29 +788,6 @@ const MainAppContent: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, [currentTab]);
 
-  const isAnyModalOpen =
-    isSidebarOpen ||
-    isCategoryModalOpen ||
-    isAccountModalOpen ||
-    !!viewingTx ||
-    isAddTxModalOpen ||
-    isPinModalOpen ||
-    isRecurringModalOpen ||
-    isSettingsModalOpen ||
-    isTransferFeesModalOpen ||
-    isEmojiPickerOpen ||
-    isFeaturesModalOpen ||
-    isWhatsNewOpen ||
-    isFilterModalOpen ||
-    isResetPeriodModalOpen ||
-    isUserProfileModalOpen ||
-    isSharedHubModalOpen ||
-    isExitModalOpen ||
-    !!customDialogState ||
-    shareModalState.isOpen ||
-    !!remainingBalanceModalState?.isOpen ||
-    !!selectedAccountId;
-
   // Background Scroll Lock (Safe Hotfix): Locks scrolling without position:fixed or touch-target freezing
   useEffect(() => {
     (window as any).__isAnyModalOpen = isAnyModalOpen;
@@ -854,7 +889,7 @@ const MainAppContent: React.FC = () => {
                 WebkitOverflowScrolling: 'touch',
               }}
             >
-              <HomeView isBarsVisible={isBarsVisible} />
+              <HomeView isBarsVisible={isMainBarsVisible} />
             </div>
 
             {/* Tab 1: Budget */}
@@ -873,7 +908,7 @@ const MainAppContent: React.FC = () => {
                 WebkitOverflowScrolling: 'touch',
               }}
             >
-              <BudgetView isBarsVisible={isBarsVisible} />
+              <BudgetView isBarsVisible={isMainBarsVisible} />
             </div>
 
             {/* Tab 2: Insights */}
@@ -892,7 +927,7 @@ const MainAppContent: React.FC = () => {
                 WebkitOverflowScrolling: 'touch',
               }}
             >
-              <InsightsView isBarsVisible={isBarsVisible} />
+              <InsightsView isBarsVisible={isMainBarsVisible} />
             </div>
 
             {/* Tab 3: Accounts */}
@@ -911,7 +946,7 @@ const MainAppContent: React.FC = () => {
                 WebkitOverflowScrolling: 'touch',
               }}
             >
-              <AccountsView isBarsVisible={isBarsVisible} />
+              <AccountsView isBarsVisible={isMainBarsVisible} />
             </div>
 
             {/* Tab 4: Calculator */}
@@ -930,11 +965,11 @@ const MainAppContent: React.FC = () => {
                 WebkitOverflowScrolling: 'touch',
               }}
             >
-              <CalculatorView isBarsVisible={isBarsVisible} />
+              <CalculatorView isBarsVisible={isMainBarsVisible} />
             </div>
           </div>
           <MultiSelectActionBar />
-          <Navigation isBarsVisible={isBarsVisible} />
+          <Navigation isBarsVisible={isMainBarsVisible} />
         </div>
 
         {/* Slide-over & Popups */}

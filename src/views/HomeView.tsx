@@ -65,7 +65,8 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
   const [showCustomRangePicker, setShowCustomRangePicker] = useState(false);
   const [customTarget, setCustomTarget] = useState<'start' | 'end'>('start');
   const [searchQuery, setSearchQuery] = useState('');
-  const isHeaderVisible = propBarsVisible !== undefined ? propBarsVisible : true;
+  const isHeaderScrollVisible = useHeaderScroll();
+  const isHeaderVisible = isHeaderScrollVisible && (propBarsVisible !== undefined ? propBarsVisible : true);
 
   // Calendar view specific state
   const [calendarMonthOffset, setCalendarMonthOffset] = useState(0);
@@ -311,6 +312,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
       <header
         style={{
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
+          visibility: isHeaderVisible ? 'visible' : 'hidden',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
         className={`fixed top-0 left-0 right-0 max-w-full md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${

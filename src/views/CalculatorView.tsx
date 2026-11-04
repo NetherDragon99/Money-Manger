@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
 import {
@@ -23,7 +23,8 @@ interface HistoryItem {
 
 export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
   const { settings, openAddTxModal, setIsSidebarOpen, showToast, t } = useApp();
-  const isHeaderVisible = propBarsVisible !== undefined ? propBarsVisible : true;
+  const isHeaderScrollVisible = useHeaderScroll();
+  const isHeaderVisible = isHeaderScrollVisible && (propBarsVisible !== undefined ? propBarsVisible : true);
   const [expression, setExpression] = useState('');
   const [result, setResult] = useState<number>(0);
   const [cursorPos, setCursorPos] = useState<number | null>(null);
@@ -109,11 +110,20 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
 
     if (token === '√') {
       // If preceded by a digit or closing parenthesis, insert implicit multiplication
-      if (pos > 0 && /[\d)]/.test(expression[pos - 1])) {
-        tokenToInsert = '×√(';
-      } else {
-        tokenToInsert = '√(';
-      }
+      const isPreceded = pos > 0 && /[\d)]/.test(expression[pos - 1]);
+      const tokenToInsert = isPreceded ? '×√()' : '√()';
+      const next = expression.slice(0, pos) + tokenToInsert + expression.slice(pos);
+      setExpression(next);
+      setCursorPos(pos + tokenToInsert.length - 1);
+      const calculated = evaluateMath(next);
+      if (calculated !== null) setResult(calculated);
+      return;
+    }
+
+    // Step over existing closing parenthesis when typing ')' before it
+    if (token === ')' && pos < expression.length && expression[pos] === ')') {
+      setCursorPos(pos + 1);
+      return;
     }
 
     const next = expression.slice(0, pos) + tokenToInsert + expression.slice(pos);
@@ -201,6 +211,61 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
 
     setCursorPos(Math.min(expression.length, activeCursor + 1));
   };
+
+  // Physical Keyboard Navigation & Input support (Arrow keys, operators, digits, Enter, Escape)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        handleCursorRight();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handleCursorLeft();
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        handleBackspace();
+      } else if (e.key === 'Enter' || e.key === '=') {
+        e.preventDefault();
+        handleEquals();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleClear();
+      } else if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault();
+        handleInput(e.key);
+      } else if (e.key === '.') {
+        e.preventDefault();
+        handleInput('.');
+      } else if (e.key === '+') {
+        e.preventDefault();
+        handleInput('+');
+      } else if (e.key === '-') {
+        e.preventDefault();
+        handleInput('−');
+      } else if (e.key === '*') {
+        e.preventDefault();
+        handleInput('×');
+      } else if (e.key === '/') {
+        e.preventDefault();
+        handleInput('÷');
+      } else if (e.key === '(' || e.key === ')') {
+        e.preventDefault();
+        handleInput(e.key);
+      } else if (e.key === '^' || e.key === '%') {
+        e.preventDefault();
+        handleInput(e.key);
+      } else if (e.key === 's' || e.key === 'r') {
+        e.preventDefault();
+        handleInput('√');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeCursor, expression, openRootsCount, closeParensCount]);
 
   const handleEquals = () => {
     const finalVal = evaluateMath(expression);
@@ -476,6 +541,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
       <header
         style={{
           transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
+          visibility: isHeaderVisible ? 'visible' : 'hidden',
           transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
         className={`sticky top-0 z-20 h-16 md:h-20 landscape:h-12 px-4 md:px-8 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 ${
