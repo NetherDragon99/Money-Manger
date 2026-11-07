@@ -1182,11 +1182,8 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   // ==========================================================================
   // ACTIONS: 100% INSTANT CLIENT-SIDE DETERMINISTIC WHAT-IF SIMULATION
   // ==========================================================================
-  const simulatedExpenseNumber = Math.max(0, parseFloat(whatIfAmount.replace(/,/g, '')) || 0);
-
   const whatIfCalculation = useMemo(() => {
-    if (simulatedExpenseNumber <= 0) return null;
-
+    const simulatedExpenseNumber = Math.max(0, parseFloat(whatIfAmount.replace(/,/g, '')) || 0);
     const remainingDaysInCycle = evaluation.dailyStatus.remainingDaysInCycle;
     const isLastDay = remainingDaysInCycle <= 1;
 
@@ -1236,7 +1233,10 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     let allowanceAfter = allowanceBefore;
     let dailyImpact = 0;
 
-    if (whatIfPool === 'oneoff') {
+    if (simulatedExpenseNumber === 0) {
+      allowanceAfter = allowanceBefore;
+      dailyImpact = 0;
+    } else if (whatIfPool === 'oneoff') {
       allowanceAfter = allowanceBefore;
       dailyImpact = 0;
     } else if (isLastDay) {
@@ -1263,7 +1263,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       allowanceAfter,
       dailyImpact,
     };
-  }, [simulatedExpenseNumber, whatIfPool, evaluation, t]);
+  }, [whatIfAmount, whatIfPool, evaluation, t]);
 
   // ==========================================================================
   // ACTIONS: KEY & CONNECTION TEST
@@ -2085,8 +2085,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
               {/* What-If Simulator & Rebalance Scenarios (Hidden when paused) */}
               {!isCyclePaused && (
                 <>
-                  {/* What-If Simulator Card (Hidden when Smart Budget is paused) */}
-                  {!isCyclePaused && (
+                  {/* What-If Simulator Card */}
                   <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -2292,7 +2291,6 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   </div>
                 )}
               </div>
-              )}
 
               {/* Adaptive Rebalance Scenarios Section */}
               <div className="space-y-3">

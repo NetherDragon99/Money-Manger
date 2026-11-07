@@ -19,6 +19,7 @@ import {
   getMonthCycleRange,
   isTransactionInRange,
   formatCurrency,
+  isManualAdjustment,
 } from '../utils/dateCycle';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
@@ -383,17 +384,17 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     return getMonthCycleRange(new Date(), settings.defaultMonthStartDay, 0);
   }, [settings.defaultMonthStartDay]);
 
-  // Current cycle transactions for expense calculation
+  // Current cycle transactions for expense calculation (excluding manual balance adjustments)
   const cycleExpenseTxs = useMemo(() => {
     return transactions.filter(
-      (tx) => tx.type === 'expense' && isTransactionInRange(tx, cycleRange)
+      (tx) => tx.type === 'expense' && !isManualAdjustment(tx) && isTransactionInRange(tx, cycleRange)
     );
   }, [transactions, cycleRange]);
 
-  // Current cycle transactions for income calculation
+  // Current cycle transactions for income calculation (excluding manual balance adjustments)
   const cycleIncomeTxs = useMemo(() => {
     return transactions.filter(
-      (tx) => tx.type === 'income' && isTransactionInRange(tx, cycleRange)
+      (tx) => tx.type === 'income' && !isManualAdjustment(tx) && isTransactionInRange(tx, cycleRange)
     );
   }, [transactions, cycleRange]);
 

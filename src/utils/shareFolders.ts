@@ -349,6 +349,7 @@ export function buildSanitizedLinkMirror(folder: ShareFolder, token: string): Sa
         note: cleanTx.note,
         balanceBefore: cleanTx.balanceBefore,
         balanceAfter: cleanTx.balanceAfter,
+        delta: cleanTx.delta,
       };
     });
 

@@ -112,6 +112,7 @@ export interface Transaction {
   note?: string;
   balanceBefore?: number;
   balanceAfter?: number;
+  delta?: number;
   sender16Id?: string;
   shareId?: string;
   excludedShareIds?: string[]; // IDs of shared spaces where this transaction was deleted by owner and should not be propagated

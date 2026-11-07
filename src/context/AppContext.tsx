@@ -4086,12 +4086,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           categoryName: 'Manual Adjustment',
           categoryIcon: '⚙️',
           isAdjustment: true,
+          isUneditable: true,
+          balanceBefore: oldBalance,
+          balanceAfter: newBalanceTarget,
+          delta: diff,
           description: `Manual Adjustment: Changed from ${symbol}${oldBalance.toFixed(2)} to ${symbol}${newBalanceTarget.toFixed(2)}`,
           createdAt: nowTs,
           updatedAt: nowTs,
         };
         currentTxs = [...currentTxs, adjustmentTx];
         setTransactions(currentTxs);
+
+        if (auth.currentUser && isSyncUnlockedRef.current) {
+          triggerGranularPush(() => writeGranularDelta(auth.currentUser!.uid, 'transactions', adjustmentTx, isSyncUnlockedRef.current));
+        }
       }
     }
 

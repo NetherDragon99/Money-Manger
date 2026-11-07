@@ -24,6 +24,7 @@ import {
   padZero,
   formatDateToYYYYMMDD,
   getDaysInMonth,
+  isManualAdjustment,
 } from '../utils/dateCycle';
 import { GroupedTransactionList } from '../components/GroupedTransactionList';
 import { MiniDateTimePicker } from '../components/MiniDateTimePicker';
@@ -140,8 +141,8 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
     let exp = 0;
 
     for (const tx of filteredTransactions) {
-      // Internal transfers between any accounts are NEVER counted as expenses or income
-      if (tx.type === 'transfer' || Boolean(tx.toAccountId)) continue;
+      // Internal transfers and manual balance adjustments are NEVER counted as spending/income
+      if (tx.type === 'transfer' || Boolean(tx.toAccountId) || isManualAdjustment(tx)) continue;
       const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
       const effectiveTotal = tx.amount + tax;
       if (tx.type === 'income') {

@@ -24,6 +24,7 @@ import {
   resolveDateRange,
   isTransactionInRange,
   formatCurrency,
+  isManualAdjustment,
 } from '../utils/dateCycle';
 import { exportAccountAsJSON } from '../utils/storage';
 import { GroupedTransactionList } from './GroupedTransactionList';
@@ -128,7 +129,7 @@ export const AccountDetailsView: React.FC = () => {
     if (!account) return { totalIncome: 0, totalExpense: 0 };
 
     for (const tx of filteredTxs) {
-      if (tx.type === 'transfer' || Boolean(tx.toAccountId)) {
+      if (tx.type === 'transfer' || Boolean(tx.toAccountId) || isManualAdjustment(tx)) {
         continue;
       }
       if (tx.type === 'income' && tx.accountId === account.id) {

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { TransferCard } from './TransferCard';
 import { Transaction } from '../types';
 import { useApp } from '../context/AppContext';
-import { formatCurrency, formatTime12h } from '../utils/dateCycle';
+import { formatCurrency, formatTime12h, isManualAdjustment } from '../utils/dateCycle';
 import { getTransferHistoricalBalances } from '../utils/balanceEngine';
 import { Check, RefreshCw } from 'lucide-react';
 import { useLongPress } from '../hooks/useLongPress';
@@ -86,6 +86,96 @@ const TransactionItemBase: React.FC<TransactionItemProps> = ({
           startTxMultiSelect(transaction.id);
         }}
       />
+    );
+  }
+
+  const isAdjustment = Boolean(transaction.isAdjustment || isManualAdjustment(transaction));
+
+  if (isAdjustment) {
+    const adjAccount = fromAccount || accounts.find((a) => a.id === transaction.accountId);
+    const balanceAfter =
+      transaction.balanceAfter !== undefined
+        ? transaction.balanceAfter
+        : (adjAccount?.balance ?? transaction.amount);
+    const delta =
+      transaction.delta !== undefined
+        ? transaction.delta
+        : (transaction.type === 'income' ? transaction.amount : -transaction.amount);
+    const isDeltaPositive = delta > 0;
+    const isDeltaZero = Math.abs(delta) < 0.001;
+    const deltaPillText = isDeltaZero
+      ? formatCurrency(0, currencySymbol, settings.language)
+      : isDeltaPositive
+      ? `+${formatCurrency(Math.abs(delta), currencySymbol, settings.language)}`
+      : `-${formatCurrency(Math.abs(delta), currencySymbol, settings.language)}`;
+
+    const titleText = adjAccount?.name || transaction.categoryName || (settings.language === 'ar' ? 'حساب' : 'Account');
+    const subtitleText = settings.language === 'ar' ? 'تعديل رصيد يدوي' : 'Manual Balance Adjustment';
+
+    return (
+      <div
+        {...handlers}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          startTxMultiSelect(transaction.id);
+        }}
+        role="button"
+        tabIndex={0}
+        className={`flex flex-col p-3 sm:p-3.5 rounded-2xl border transition cursor-pointer group select-none ${
+          isSelected
+            ? 'bg-blue-950/40 border-blue-500/80 shadow-md shadow-blue-950/50'
+            : 'bg-zinc-900/90 hover:bg-zinc-800/90 border-zinc-800/80 active:scale-[0.99]'
+        }`}
+      >
+        <div className="flex items-center justify-between w-full">
+          {/* Left: Checkbox in multi-select mode + Adjustment Icon */}
+          <div className="flex items-center gap-3 min-w-0">
+            {isTxMultiSelect && (
+              <div
+                className={`w-5 h-5 rounded-lg flex items-center justify-center transition border ${
+                  isSelected
+                    ? 'bg-blue-600 border-blue-500 text-white'
+                    : 'bg-zinc-950 border-zinc-700 text-transparent'
+                }`}
+              >
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+              </div>
+            )}
+
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 bg-zinc-800/80 text-zinc-300 border border-zinc-700/60">
+              {adjAccount?.icon || transaction.categoryIcon || '⚙️'}
+            </div>
+
+            {/* Center: Title & Subtitle */}
+            <div className="min-w-0 text-left rtl:text-right">
+              <span className="text-sm font-bold text-white line-clamp-1 break-words group-hover:text-blue-300 transition">
+                {titleText}
+              </span>
+              <div className="text-xs text-zinc-400 truncate mt-0.5">
+                {subtitleText} {timeFormatted ? `• ${timeFormatted}` : ''}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: NEW balance (primary large figure) + signed delta small pill */}
+          <div className="text-right rtl:text-left shrink-0 pl-2 rtl:pr-2 flex flex-col items-end rtl:items-start gap-1">
+            <div className="text-sm sm:text-base font-mono font-bold text-white">
+              {formatCurrency(balanceAfter, currencySymbol, settings.language)}
+            </div>
+            <span
+              className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold border ${
+                isDeltaPositive
+                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                  : isDeltaZero
+                  ? 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                  : 'bg-red-500/15 text-red-400 border-red-500/30'
+              }`}
+            >
+              {deltaPillText}
+            </span>
+          </div>
+        </div>
+      </div>
     );
   }
 

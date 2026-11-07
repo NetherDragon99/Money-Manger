@@ -5,6 +5,7 @@
  */
 
 import { Category, Transaction } from '../types';
+import { isManualAdjustment } from './formatters';
 
 export interface BudgetAlert {
   categoryId: string;
@@ -27,7 +28,7 @@ export function evaluateBudgetAlerts(
   // Group current period expense totals by category (internal transfers are never expenses)
   const spentMap: Record<string, number> = {};
   for (const tx of transactions) {
-    if (tx.type === 'transfer' || Boolean(tx.toAccountId)) continue;
+    if (tx.type === 'transfer' || Boolean(tx.toAccountId) || isManualAdjustment(tx)) continue;
     if (tx.type === 'expense' && tx.categoryId) {
       const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
       spentMap[tx.categoryId] = (spentMap[tx.categoryId] || 0) + (tx.amount + tax);

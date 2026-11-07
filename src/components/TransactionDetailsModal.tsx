@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
 import { X, Trash2, Edit3, ArrowRight, Share2, RefreshCw } from 'lucide-react';
 import { getHistoricalBalance, getTransferHistoricalBalances } from '../utils/balanceEngine';
-import { formatCurrency, formatFullDateTime } from '../utils/dateCycle';
+import { formatCurrency, formatFullDateTime, isManualAdjustment } from '../utils/dateCycle';
 
 export const TransactionDetailsModal: React.FC = () => {
   const {
@@ -78,6 +78,27 @@ export const TransactionDetailsModal: React.FC = () => {
 
   const currencySymbol = settings.currencySymbol || '£';
   const isTransfer = viewingTx.type === 'transfer';
+  const isAdjustment = Boolean(viewingTx.isAdjustment || isManualAdjustment(viewingTx));
+
+  const prevBalance =
+    viewingTx.balanceBefore !== undefined
+      ? viewingTx.balanceBefore
+      : historicalBalances?.balanceBefore ?? 0;
+
+  const newBalance =
+    viewingTx.balanceAfter !== undefined
+      ? viewingTx.balanceAfter
+      : historicalBalances?.balanceAfter ?? (account?.balance ?? 0);
+
+  const delta =
+    viewingTx.delta !== undefined
+      ? viewingTx.delta
+      : viewingTx.type === 'income'
+      ? viewingTx.amount
+      : -viewingTx.amount;
+
+  const isDeltaPositive = delta > 0;
+  const isDeltaZero = Math.abs(delta) < 0.001;
 
   return (
     <div
@@ -137,12 +158,14 @@ export const TransactionDetailsModal: React.FC = () => {
             </div>
           ) : (
             <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-3xl shadow-lg">
-              {viewingTx.categoryIcon || '💵'}
+              {isAdjustment ? '⚙️' : viewingTx.categoryIcon || '💵'}
             </div>
           )}
           <div>
             <h4 className="text-xl font-bold text-white break-words whitespace-pre-wrap">
-              {isTransfer
+              {isAdjustment
+                ? (settings.language === 'ar' ? 'تعديل رصيد يدوي' : 'Manual Balance Adjustment')
+                : isTransfer
                 ? (settings.language === 'ar'
                     ? `من ${viewingTx.fromAccountName || account?.name || 'حساب'} إلى ${viewingTx.toAccountName || toAccount?.name || 'حساب'}`
                     : `From ${viewingTx.fromAccountName || account?.name || 'Account'} → To ${viewingTx.toAccountName || toAccount?.name || 'Account'}`)
@@ -214,7 +237,55 @@ export const TransactionDetailsModal: React.FC = () => {
         </div>
 
         {/* Balance Breakdown: Dual-Account Breakdown for Transfers, Single-Account 3-Box for Income/Expense */}
-        {isTransfer && transferBalances ? (
+        {isAdjustment ? (
+          <div className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 space-y-3">
+            <div className="text-xs font-bold text-zinc-400 uppercase tracking-wider pb-1 border-b border-zinc-800/60">
+              {settings.language === 'ar' ? 'تفاصيل تعديل الرصيد' : 'Balance Adjustment Breakdown'}
+            </div>
+
+            {/* Row 1: Previous Balance */}
+            <div className="flex items-center justify-between py-2 border-b border-zinc-800/50">
+              <div className="text-xs text-zinc-300">
+                <span className="font-semibold">{settings.language === 'ar' ? 'الرصيد السابق' : 'Previous Balance'}</span>
+                <span className="text-[10px] text-zinc-500 ms-1.5">({settings.language === 'ar' ? 'Previous Balance' : 'الرصيد السابق'})</span>
+              </div>
+              <span className="text-sm font-mono font-bold text-zinc-200">
+                {formatCurrency(prevBalance, currencySymbol, settings.language)}
+              </span>
+            </div>
+
+            {/* Row 2: New Balance */}
+            <div className="flex items-center justify-between py-2 border-b border-zinc-800/50">
+              <div className="text-xs text-zinc-300">
+                <span className="font-semibold">{settings.language === 'ar' ? 'الرصيد الجديد' : 'New Balance'}</span>
+                <span className="text-[10px] text-zinc-500 ms-1.5">({settings.language === 'ar' ? 'New Balance' : 'الرصيد الجديد'})</span>
+              </div>
+              <span className="text-sm font-mono font-black text-white">
+                {formatCurrency(newBalance, currencySymbol, settings.language)}
+              </span>
+            </div>
+
+            {/* Row 3: Net Change */}
+            <div className="flex items-center justify-between py-2">
+              <div className="text-xs text-zinc-300">
+                <span className="font-semibold">{settings.language === 'ar' ? 'صافي التغيير' : 'Net Change'}</span>
+                <span className="text-[10px] text-zinc-500 ms-1.5">({settings.language === 'ar' ? 'Net Change' : 'صافي التغيير'})</span>
+              </div>
+              <span
+                className={`text-sm font-mono font-bold ${
+                  isDeltaPositive
+                    ? 'text-emerald-400'
+                    : isDeltaZero
+                    ? 'text-zinc-400'
+                    : 'text-red-400'
+                }`}
+              >
+                {isDeltaPositive ? '+' : isDeltaZero ? '' : '-'}
+                {formatCurrency(Math.abs(delta), currencySymbol, settings.language)}
+              </span>
+            </div>
+          </div>
+        ) : isTransfer && transferBalances ? (
           <div className="space-y-3">
             {/* Source Account (From) Card */}
             <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 space-y-2">

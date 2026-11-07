@@ -13,6 +13,7 @@ import {
   getMonthCycleRange,
   isTransactionInRange,
   formatCurrency,
+  isManualAdjustment,
 } from '../utils/dateCycle';
 import { getLocalizedCurrencySymbol } from '../utils/currencies';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
@@ -342,6 +343,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
 
     for (const tx of transactions) {
       if (isTransactionInRange(tx, currentMonthRange)) {
+        if (isManualAdjustment(tx)) continue;
         if (tx.type === 'income') inc += tx.amount;
         if (tx.type === 'expense') exp += tx.amount;
       }
@@ -362,6 +364,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
     }
     for (const tx of transactions) {
       if (isTransactionInRange(tx, currentMonthRange)) {
+        if (isManualAdjustment(tx)) continue;
         const entry = map.get(tx.accountId);
         if (entry) {
           if (tx.type === 'income') entry.income += tx.amount;

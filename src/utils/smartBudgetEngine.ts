@@ -1014,8 +1014,8 @@ export function evaluateSmartBudget(
     }
     dailyPoolRemainingAtStartOfTodayMinor = poolSimMinor;
   } else {
-    // Default 'spread': Remaining Daily Pool at start of today
-    dailyPoolRemainingAtStartOfTodayMinor = Math.max(0, dailyMinor - effectiveDailySpentBeforeTodayMinor);
+    // Default 'spread': Un-clamped Remaining Daily Pool at start of today
+    dailyPoolRemainingAtStartOfTodayMinor = dailyMinor - effectiveDailySpentBeforeTodayMinor;
   }
 
   // Strict simple division: Allowed Today = (Remaining Daily Spending Pool) / (Remaining Days)
@@ -1181,10 +1181,11 @@ export function evaluateSmartBudget(
   }
 
   // 10. Rebalance Scenarios
-  // Keep un-clamped deficit D for calculations and clamp only for UI display.
   // Overall cycle daily deficit is the amount by which daily spending exceeds the daily pool
   const unclampedDailyPoolRemainingMinor = dailyMinor - (dailySpentMinor + totalSpilledToDailyMinor);
-  const cycleDeficitMinor = Math.max(0, -unclampedDailyPoolRemainingMinor);
+  const dailyDeficitMinor = -unclampedDailyPoolRemainingMinor;
+  const cycleIncomeDeficitMinor = totalCycleSpendMinor - cycleIncomeMinor;
+  const cycleDeficitMinor = Math.max(0, dailyDeficitMinor, cycleIncomeDeficitMinor);
   const cycleDeficitMajor = toMajorUnits(cycleDeficitMinor, minorFactor);
   // Deficit exists ONLY when D > 0 and represents a real deficit (at least 0.01 in major units)
   // to prevent generating "0.00 EGP" rebalance cards.
@@ -1195,17 +1196,22 @@ export function evaluateSmartBudget(
   const unfulfilledSavingsMinor = Math.max(0, savingsMinor - savingsSpentMinor - savingsWithdrawnMinor);
   const unspentBillsMinor = Math.max(0, fixedMinor - fixedSpentMinor);
 
+  const beforeDailyAllowanceMajor = toMajorUnits(
+    remainingDaysInCycle > 1 ? upcomingDailyAllowanceMinor : Math.max(0, todayRemainingMinor),
+    minorFactor
+  );
+
   // Scenario B: Option 1 - Trim Outings
   const canOutingsCover = unspentOutingsMinor >= cycleDeficitMinor;
   const isOutingsAvailable = hasDeficit && canOutingsCover && unspentOutingsMinor > 0;
+  const trimmedFromOutingsMinor = isOutingsAvailable ? cycleDeficitMinor : unspentOutingsMinor;
   let scenB_afterDailyAllowanceMinor = 0;
   if (isOutingsAvailable) {
-    const excessOutingsMinor = unspentOutingsMinor - cycleDeficitMinor;
-    if (remainingDaysInCycle > 1 && sumRemainingWeights > weightToday) {
-      const remWeightsFuture = sumRemainingWeights - weightToday;
-      const nextDayWeight = getWeightForDate(addDays(asOfDate, 1));
-      const allowanceFromExcess = roundHalfUp((excessOutingsMinor * nextDayWeight) / remWeightsFuture);
-      scenB_afterDailyAllowanceMinor = Math.min(plannedDailyAllowanceMinor, allowanceFromExcess);
+    const poolAfterRebalance = dailyPoolRemainingAfterTodayMinor + trimmedFromOutingsMinor;
+    if (remainingDaysInCycle > 1 && poolAfterRebalance > 0) {
+      scenB_afterDailyAllowanceMinor = roundHalfUp(poolAfterRebalance / (remainingDaysInCycle - 1));
+    } else if (poolAfterRebalance > 0) {
+      scenB_afterDailyAllowanceMinor = poolAfterRebalance;
     }
   }
 
@@ -1240,12 +1246,12 @@ export function evaluateSmartBudget(
           ar: `رصيد الخروجات المتاح (${toMajorUnits(unspentOutingsMinor, minorFactor)}) لا يكفي لتغطية العجز (${cycleDeficitMajor}).`,
         }
       : undefined,
-    beforeDailyAllowance: 0,
+    beforeDailyAllowance: beforeDailyAllowanceMajor,
     afterDailyAllowance: toMajorUnits(scenB_afterDailyAllowanceMinor, minorFactor),
     deficitMinor: cycleDeficitMinor,
     deficit: cycleDeficitMajor,
     absorbedFromSavingsMinor: 0,
-    trimmedFromOutingsMinor: isOutingsAvailable ? cycleDeficitMinor : unspentOutingsMinor,
+    trimmedFromOutingsMinor,
     trimmedFromFixedMinor: 0,
     spilledToDailyMinor: 0,
     unabsorbedDeficitMinor: isOutingsAvailable ? 0 : Math.max(0, cycleDeficitMinor - unspentOutingsMinor),
@@ -1254,18 +1260,14 @@ export function evaluateSmartBudget(
   // Scenario C: Option 2 - Use Savings Cushion
   const canSavingsCover = unfulfilledSavingsMinor >= cycleDeficitMinor;
   const isSavingsAvailable = hasDeficit && canSavingsCover && unfulfilledSavingsMinor > 0;
+  const absorbedFromSavingsMinor = isSavingsAvailable ? cycleDeficitMinor : unfulfilledSavingsMinor;
   let scenC_afterDailyAllowanceMinor = 0;
   if (isSavingsAvailable) {
-    const excessSavingsMinor = unfulfilledSavingsMinor - cycleDeficitMinor;
-    if (remainingDaysInCycle > 1 && sumRemainingWeights > weightToday) {
-      const remWeightsFuture = sumRemainingWeights - weightToday;
-      const targetFutureMinor = plannedDailyAllowanceMinor * (remainingDaysInCycle - 1);
-      if (excessSavingsMinor >= targetFutureMinor) {
-        scenC_afterDailyAllowanceMinor = plannedDailyAllowanceMinor;
-      } else {
-        const nextDayWeight = getWeightForDate(addDays(asOfDate, 1));
-        scenC_afterDailyAllowanceMinor = roundHalfUp((excessSavingsMinor * nextDayWeight) / remWeightsFuture);
-      }
+    const poolAfterRebalance = dailyPoolRemainingAfterTodayMinor + absorbedFromSavingsMinor;
+    if (remainingDaysInCycle > 1 && poolAfterRebalance > 0) {
+      scenC_afterDailyAllowanceMinor = roundHalfUp(poolAfterRebalance / (remainingDaysInCycle - 1));
+    } else if (poolAfterRebalance > 0) {
+      scenC_afterDailyAllowanceMinor = poolAfterRebalance;
     }
   }
 
@@ -1300,11 +1302,11 @@ export function evaluateSmartBudget(
           ar: `رصيد التحويش المتاح (${toMajorUnits(unfulfilledSavingsMinor, minorFactor)}) لا يكفي لتغطية العجز (${cycleDeficitMajor}).`,
         }
       : undefined,
-    beforeDailyAllowance: 0,
+    beforeDailyAllowance: beforeDailyAllowanceMajor,
     afterDailyAllowance: toMajorUnits(scenC_afterDailyAllowanceMinor, minorFactor),
     deficitMinor: cycleDeficitMinor,
     deficit: cycleDeficitMajor,
-    absorbedFromSavingsMinor: isSavingsAvailable ? cycleDeficitMinor : unfulfilledSavingsMinor,
+    absorbedFromSavingsMinor,
     trimmedFromOutingsMinor: 0,
     trimmedFromFixedMinor: 0,
     spilledToDailyMinor: 0,
@@ -1314,14 +1316,14 @@ export function evaluateSmartBudget(
   // Scenario A: Option 3 - Use Unspent Bills & Fixed
   const canBillsCover = unspentBillsMinor >= cycleDeficitMinor;
   const isBillsAvailable = hasDeficit && canBillsCover && unspentBillsMinor > 0;
+  const trimmedFromFixedMinor = isBillsAvailable ? cycleDeficitMinor : unspentBillsMinor;
   let scenA_afterDailyAllowanceMinor = 0;
   if (isBillsAvailable) {
-    const excessBillsMinor = unspentBillsMinor - cycleDeficitMinor;
-    if (remainingDaysInCycle > 1 && sumRemainingWeights > weightToday) {
-      const remWeightsFuture = sumRemainingWeights - weightToday;
-      const nextDayWeight = getWeightForDate(addDays(asOfDate, 1));
-      const allowanceFromExcess = roundHalfUp((excessBillsMinor * nextDayWeight) / remWeightsFuture);
-      scenA_afterDailyAllowanceMinor = Math.min(plannedDailyAllowanceMinor, allowanceFromExcess);
+    const poolAfterRebalance = dailyPoolRemainingAfterTodayMinor + trimmedFromFixedMinor;
+    if (remainingDaysInCycle > 1 && poolAfterRebalance > 0) {
+      scenA_afterDailyAllowanceMinor = roundHalfUp(poolAfterRebalance / (remainingDaysInCycle - 1));
+    } else if (poolAfterRebalance > 0) {
+      scenA_afterDailyAllowanceMinor = poolAfterRebalance;
     }
   }
 
@@ -1356,13 +1358,13 @@ export function evaluateSmartBudget(
           ar: `رصيد الفواتير المتاح (${toMajorUnits(unspentBillsMinor, minorFactor)}) لا يكفي لتغطية العجز (${cycleDeficitMajor}).`,
         }
       : undefined,
-    beforeDailyAllowance: 0,
+    beforeDailyAllowance: beforeDailyAllowanceMajor,
     afterDailyAllowance: toMajorUnits(scenA_afterDailyAllowanceMinor, minorFactor),
     deficitMinor: cycleDeficitMinor,
     deficit: cycleDeficitMajor,
     absorbedFromSavingsMinor: 0,
     trimmedFromOutingsMinor: 0,
-    trimmedFromFixedMinor: isBillsAvailable ? cycleDeficitMinor : unspentBillsMinor,
+    trimmedFromFixedMinor,
     spilledToDailyMinor: 0,
     unabsorbedDeficitMinor: isBillsAvailable ? 0 : Math.max(0, cycleDeficitMinor - unspentBillsMinor),
   };

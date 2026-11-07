@@ -45,10 +45,13 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
     return new Set(accounts.filter((a) => !a.isPrivate).map((a) => a.id));
   }, [accounts]);
 
-  // Current month cycle transactions in Public accounts
+  // Current month cycle transactions in Public accounts (excluding manual balance adjustments)
   const cycleTransactions = useMemo(() => {
     return transactions.filter(
-      (tx) => isTransactionInRange(tx, cycleRange) && publicAccountIds.has(tx.accountId)
+      (tx) =>
+        isTransactionInRange(tx, cycleRange) &&
+        publicAccountIds.has(tx.accountId) &&
+        !isManualAdjustment(tx)
     );
   }, [transactions, cycleRange, publicAccountIds]);
 

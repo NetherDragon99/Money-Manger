@@ -7,6 +7,7 @@ import {
   getMonthHeaderTitle,
   getDayHeaderTitle,
   formatCurrency,
+  isManualAdjustment,
 } from '../utils/dateCycle';
 import { useLongPress } from '../hooks/useLongPress';
 
@@ -326,10 +327,12 @@ export const GroupedTransactionList: React.FC<GroupedTransactionListProps> = ({
 
       dayEntry.txs.push(tx);
 
-      // Delta
+      // Delta - exclude manual balance adjustments so day and month totals reflect real activity
       let delta = 0;
-      if (tx.type === 'income') delta = tx.amount;
-      else if (tx.type === 'expense') delta = -tx.amount;
+      if (!isManualAdjustment(tx)) {
+        if (tx.type === 'income') delta = tx.amount;
+        else if (tx.type === 'expense') delta = -tx.amount;
+      }
       // Note: transfer between accounts doesn't affect global net unless viewed in single account, but we can reflect its nominal effect
 
       monthEntry.monthNet += delta;

@@ -94,6 +94,7 @@ import {
   getDayHeaderTitle,
   getMonthHeaderTitle,
   formatTime12h,
+  isManualAdjustment,
 } from '../utils/dateCycle';
 import { useLongPress } from '../hooks/useLongPress';
 
@@ -1040,8 +1041,10 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
       dayEntry.txs.push(tx);
 
       let delta = 0;
-      if (tx.type === 'income') delta = tx.amount;
-      else if (tx.type === 'expense') delta = -tx.amount;
+      if (!isManualAdjustment(tx)) {
+        if (tx.type === 'income') delta = tx.amount;
+        else if (tx.type === 'expense') delta = -tx.amount;
+      }
 
       monthEntry.monthNet += delta;
       dayEntry.dayNet += delta;
