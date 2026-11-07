@@ -3324,7 +3324,9 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                             <span className="truncate">
                               {connectionTestResult.ok
                                 ? t('connectionSuccess')
-                                : t('connectionFailed')}
+                                : (isArabic
+                                    ? connectionTestResult.errorTitleAr || connectionTestResult.errorTitle || t('connectionFailed')
+                                    : connectionTestResult.errorTitle || t('connectionFailed'))}
                             </span>
                           </div>
                           {connectionTestResult.source && (
@@ -3352,6 +3354,46 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                             {isArabic ? connectionTestResult.messageAr : connectionTestResult.message}
                           </div>
                         )}
+
+                        {!connectionTestResult.ok &&
+                          (connectionTestResult.requestPath ||
+                            connectionTestResult.statusCode ||
+                            connectionTestResult.errorDetails) && (
+                            <details className="mt-2 pt-2 border-t border-red-500/20 text-[10px] text-zinc-300">
+                              <summary className="font-semibold text-red-300 hover:text-red-200 cursor-pointer select-none py-1">
+                                {isArabic ? 'عرض التفاصيل التقنية' : 'View Technical Details'}
+                              </summary>
+                              <div
+                                className="mt-1.5 p-2 rounded-xl bg-black/60 border border-red-500/30 font-mono space-y-1 text-left rtl:text-left select-text"
+                                dir="ltr"
+                              >
+                                {connectionTestResult.statusCode && (
+                                  <div>
+                                    <span className="text-zinc-500">Status:</span>{' '}
+                                    <span className="text-amber-400 font-bold">
+                                      {connectionTestResult.statusCode}
+                                    </span>
+                                  </div>
+                                )}
+                                {connectionTestResult.requestPath && (
+                                  <div className="break-all">
+                                    <span className="text-zinc-500">Endpoint:</span>{' '}
+                                    <span className="text-blue-300">
+                                      {connectionTestResult.requestPath}
+                                    </span>
+                                  </div>
+                                )}
+                                {connectionTestResult.errorDetails && (
+                                  <div className="break-all">
+                                    <span className="text-zinc-500">Details:</span>{' '}
+                                    <span className="text-red-400">
+                                      {connectionTestResult.errorDetails}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </details>
+                          )}
                       </div>
                     )}
                   </div>

@@ -529,69 +529,218 @@ export async function discoverGeminiModels(
   }
 }
 
+/**
+ * Strips surrounding quotes and leading "models/" to ensure exact clean model identifier.
+ */
+export function sanitizeGeminiModelName(model: string): string {
+  if (!model) return 'gemini-flash-latest';
+  return String(model)
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/^models\//i, '')
+    .replace(/^["']|["']$/g, '')
+    .trim();
+}
+
+/**
+ * Masks API keys and sensitive tokens in error messages and debug outputs.
+ */
+export function maskSensitiveSecrets(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/(AIzaSy[A-Za-z0-9_-]{4})[A-Za-z0-9_-]{25,}([A-Za-z0-9_-]{4})/g, '$1...$2')
+    .replace(/(key=)[A-Za-z0-9_-]+/gi, '$1***')
+    .replace(/(x-goog-api-key['"]?\s*:\s*['"]?)[A-Za-z0-9_-]+/gi, '$1***');
+}
+
+export interface ExecuteGeminiCallOptions {
+  apiKey: string;
+  model: string;
+  body: any;
+  timeoutMs?: number;
+}
+
+export interface ExecuteGeminiCallResult {
+  ok: boolean;
+  status: number;
+  data?: any;
+  rawJson?: any;
+  error?: string;
+  sanitizedPath: string;
+  cleanModel: string;
+}
+
+/**
+ * ONE shared request function for ALL Gemini AI calls:
+ * - Endpoint: POST https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent
+ *   (Exact literal colon ':', never encodeURIComponent the full string or the colon)
+ * - Sanitize cleanModel: strip any leading 'models/', strip quotes
+ * - Headers: Key ONLY in 'x-goog-api-key', no query param secrets
+ */
+export async function executeGeminiPostRequest(
+  options: ExecuteGeminiCallOptions
+): Promise<ExecuteGeminiCallResult> {
+  const { apiKey, model, body, timeoutMs = GEMINI_API_TIMEOUT_MS } = options;
+  const cleanModel = sanitizeGeminiModelName(model);
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent`;
+  const sanitizedPath = `POST /v1beta/models/${cleanModel}:generateContent`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    let json: any = null;
+    try {
+      json = await res.json();
+    } catch {}
+
+    if (res.ok) {
+      return {
+        ok: true,
+        status: res.status,
+        data: json,
+        rawJson: json,
+        sanitizedPath,
+        cleanModel,
+      };
+    } else {
+      return {
+        ok: false,
+        status: res.status,
+        error: json?.error?.message || `HTTP ${res.status}`,
+        rawJson: json,
+        sanitizedPath,
+        cleanModel,
+      };
+    }
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    return {
+      ok: false,
+      status: err?.name === 'AbortError' ? 408 : 0,
+      error: err?.message || 'Network error',
+      sanitizedPath,
+      cleanModel,
+    };
+  }
+}
+
+/**
+ * Executes a Gemini request with automatic candidate fallback:
+ * If generateContent returns 404, loop through remaining discovered candidates
+ * ('gemini-flash-latest', 'gemini-2.0-flash', etc.) until one works.
+ * Caches the working model upon success.
+ */
+export async function executeGeminiWithFallback(
+  apiKey: string,
+  body: any,
+  timeoutMs: number = GEMINI_API_TIMEOUT_MS,
+  preferredModel?: string
+): Promise<ExecuteGeminiCallResult> {
+  const discovery = await discoverGeminiModels(apiKey, false);
+  const selectedModel = sanitizeGeminiModelName(preferredModel || discovery.selectedModel);
+
+  const candidates: string[] = [];
+  const pushCandidate = (m?: string) => {
+    if (!m) return;
+    const clean = sanitizeGeminiModelName(m);
+    if (clean && !candidates.includes(clean)) {
+      candidates.push(clean);
+    }
+  };
+
+  pushCandidate(selectedModel);
+  pushCandidate('gemini-flash-latest');
+  pushCandidate('gemini-2.5-flash');
+  pushCandidate('gemini-2.0-flash');
+  pushCandidate('gemini-2.5-flash-lite');
+  pushCandidate('gemini-1.5-flash');
+  for (const m of PRIORITY_MODELS) pushCandidate(m);
+  for (const m of discovery.allValidModels) pushCandidate(m);
+
+  let lastResult: ExecuteGeminiCallResult = {
+    ok: false,
+    status: 404,
+    sanitizedPath: `POST /v1beta/models/${selectedModel}:generateContent`,
+    cleanModel: selectedModel,
+    error: `Model ${selectedModel} not found (404)`,
+  };
+
+  for (const candidate of candidates) {
+    const res = await executeGeminiPostRequest({
+      apiKey,
+      model: candidate,
+      body,
+      timeoutMs,
+    });
+
+    if (res.ok) {
+      saveCachedDiscoveredModel(apiKey, candidate);
+      return res;
+    }
+
+    lastResult = res;
+
+    // If 404, try next candidate
+    if (res.status === 404) {
+      console.warn(`[SmartBudgetAI] Model ${candidate} returned 404. Falling back to next candidate...`);
+      continue;
+    }
+
+    // For other errors (400, 401, 403, 429), break immediately as it's an auth/quota issue
+    break;
+  }
+
+  if (lastResult.status === 404) {
+    clearDiscoveredModelCache();
+  }
+
+  return lastResult;
+}
+
 async function executeDirectGeminiCall(
   apiKey: string,
   prompt: string,
   responseSchema?: any
 ): Promise<any | null> {
-  let modelResult = await discoverGeminiModels(apiKey, false);
-  let model = modelResult.selectedModel;
-
-  const tryCall = async (modelToUse: string): Promise<{ ok: boolean; status: number; data?: any }> => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), GEMINI_API_TIMEOUT_MS);
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent`;
-      const generationConfig: Record<string, any> = {
-        temperature: 0.2,
-        responseMimeType: 'application/json',
-      };
-      if (responseSchema) {
-        generationConfig.responseSchema = responseSchema;
-      }
-      const requestBody = {
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig,
-      };
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        const json = await res.json();
-        const candidateText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (candidateText && typeof candidateText === 'string') {
-          const parsed = JSON.parse(candidateText.trim());
-          incrementAIMonthlyUsage();
-          return { ok: true, status: 200, data: parsed };
-        }
-      }
-      return { ok: false, status: res.status };
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      return { ok: false, status: 0 };
-    }
+  const generationConfig: Record<string, any> = {
+    temperature: 0.2,
+    responseMimeType: 'application/json',
+  };
+  if (responseSchema) {
+    generationConfig.responseSchema = responseSchema;
+  }
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig,
   };
 
-  let callRes = await tryCall(model);
-  // Automatically re-discover once if a generateContent call returns 404
-  if (!callRes.ok && callRes.status === 404) {
-    console.warn(`[SmartBudgetAI] Model ${model} returned 404. Re-discovering models...`);
-    clearDiscoveredModelCache();
-    modelResult = await discoverGeminiModels(apiKey, true);
-    model = modelResult.selectedModel;
-    callRes = await tryCall(model);
-  }
+  const callRes = await executeGeminiWithFallback(apiKey, requestBody);
 
   if (callRes.ok && callRes.data) {
-    return callRes.data;
+    const candidateText = callRes.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (candidateText && typeof candidateText === 'string') {
+      try {
+        const parsed = JSON.parse(candidateText.trim());
+        incrementAIMonthlyUsage();
+        return parsed;
+      } catch (e) {
+        console.warn('[SmartBudgetAI] Failed to parse candidate text as JSON:', e);
+      }
+    }
   }
+
   return null;
 }
 
@@ -724,6 +873,10 @@ export interface ConnectionTestResult {
   statusCode?: number;
   message: string;
   messageAr: string;
+  errorTitle?: string;
+  errorTitleAr?: string;
+  requestPath?: string;
+  errorDetails?: string;
 }
 
 async function testDirectGeminiKey(
@@ -736,25 +889,35 @@ async function testDirectGeminiKey(
 
   if (discovery.errorStatus) {
     const status = discovery.errorStatus;
-    const errMsg = (discovery.errorMessage || '').toLowerCase();
+    const errMsg = discovery.errorMessage || '';
+    const errLower = errMsg.toLowerCase();
+    const sanitizedPath = 'GET /v1beta/models?pageSize=100';
 
     if (status === 400) {
       return {
         ok: false,
         source,
         statusCode: 400,
+        errorTitle: 'Invalid API Key',
+        errorTitleAr: 'مفتاح غير صالح',
         message: 'HTTP 400 Bad Request: Invalid API key or request payload. Verify your key in Google AI Studio.',
         messageAr: 'خطأ 400 (طلب غير صالح): مفتاح API غير صالح أو غير مكتمل. يرجى التحقق من المفتاح في Google AI Studio.',
+        requestPath: sanitizedPath,
+        errorDetails: maskSensitiveSecrets(errMsg || 'HTTP 400 Bad Request'),
       };
     }
 
-    if (status === 401 || errMsg.includes('access_token_type_unsupported')) {
+    if (status === 401 || errLower.includes('access_token_type_unsupported')) {
       return {
         ok: false,
         source,
         statusCode: 401,
+        errorTitle: 'Unauthorized Key',
+        errorTitleAr: 'مفتاح غير مصرح',
         message: 'HTTP 401 Unauthorized: ACCESS_TOKEN_TYPE_UNSUPPORTED. Please generate a fresh, direct API key from Google AI Studio (aistudio.google.com).',
         messageAr: 'خطأ 401 (غير مصرح): نوع رمز الوصول غير مدعوم (ACCESS_TOKEN_TYPE_UNSUPPORTED). يرجى إنشاء مفتاح API مباشر وجديد من Google AI Studio (aistudio.google.com).',
+        requestPath: sanitizedPath,
+        errorDetails: maskSensitiveSecrets(errMsg || 'HTTP 401 Unauthorized'),
       };
     }
 
@@ -763,8 +926,12 @@ async function testDirectGeminiKey(
         ok: false,
         source,
         statusCode: 403,
+        errorTitle: 'Restricted Key',
+        errorTitleAr: 'مفتاح مقيد النطاق',
         message: 'HTTP 403 Forbidden: Key rejected due to HTTP referrer restrictions. Note: Testing on localhost or vite preview is blocked by design for restricted keys; it works normally on your published GitHub Pages site.',
         messageAr: 'خطأ 403 (محظور): تم رفض المفتاح بسبب قيود النطاق (HTTP referrer). ملاحظة: التشغيل على localhost أو معاينة Vite محظور عن قصد للمفاتيح المقيدة؛ سيعمل بشكل طبيعي على موقع GitHub Pages المنشور.',
+        requestPath: sanitizedPath,
+        errorDetails: maskSensitiveSecrets(errMsg || 'HTTP 403 Forbidden: Referrer restrictions'),
       };
     }
 
@@ -773,8 +940,12 @@ async function testDirectGeminiKey(
         ok: false,
         source,
         statusCode: 429,
+        errorTitle: 'Quota Exceeded',
+        errorTitleAr: 'تجاوز الحصة المحددة',
         message: 'HTTP 429 Too Many Requests: Rate limit exceeded or quota exhausted. Please try again later or use a key with higher quota.',
         messageAr: 'خطأ 429 (تجاوز معدل الاستخدام): تم استنفاد الحصة أو تجاوز عدد الطلبات المسموح. يرجى المحاولة لاحقاً أو استخدام مفتاح ذي حصة أكبر.',
+        requestPath: sanitizedPath,
+        errorDetails: maskSensitiveSecrets(errMsg || 'HTTP 429 Too Many Requests'),
       };
     }
 
@@ -783,8 +954,12 @@ async function testDirectGeminiKey(
         ok: false,
         source,
         statusCode: 408,
+        errorTitle: 'Connection Timed Out',
+        errorTitleAr: 'انتهت مهلة الاتصال',
         message: 'Connection timed out after 8 seconds. Google Gemini servers did not respond in time.',
         messageAr: 'انتهت مهلة الاتصال بعد 8 ثوانٍ. لم تستجب خوادم Google Gemini في الوقت المحدد.',
+        requestPath: sanitizedPath,
+        errorDetails: 'Timeout waiting for response',
       };
     }
 
@@ -792,142 +967,150 @@ async function testDirectGeminiKey(
       ok: false,
       source,
       statusCode: status,
-      message: `HTTP ${status} Error: ${discovery.errorMessage || 'Unable to connect to Google Gemini'}`,
-      messageAr: `خطأ HTTP ${status}: ${discovery.errorMessage || 'تعذر الاتصال بخدمة Google Gemini'}`,
+      errorTitle: `HTTP ${status} Error`,
+      errorTitleAr: `خطأ ${status}`,
+      message: `HTTP ${status} Error: ${errMsg || 'Unable to connect to Google Gemini'}`,
+      messageAr: `خطأ HTTP ${status}: ${errMsg || 'تعذر الاتصال بخدمة Google Gemini'}`,
+      requestPath: sanitizedPath,
+      errorDetails: maskSensitiveSecrets(errMsg || `HTTP ${status}`),
     };
   }
 
-  // Step 2: Send 1 minimal ping request with zero user data
-  const model = discovery.selectedModel;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), GEMINI_API_TIMEOUT_MS);
+  // Step 2: Send 1 minimal ping request with automatic candidate fallback
+  const pingBody = {
+    contents: [{ parts: [{ text: 'Ping. Output JSON: {"status":"ok"}' }] }],
+    generationConfig: {
+      temperature: 0.1,
+      responseMimeType: 'application/json',
+      maxOutputTokens: 10,
+    },
+  };
 
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: 'Ping. Output JSON: {"status":"ok"}' }] }],
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: 'application/json',
-          maxOutputTokens: 10,
-        },
-      }),
-      signal: controller.signal,
-    });
+  const pingRes = await executeGeminiWithFallback(apiKey, pingBody, GEMINI_API_TIMEOUT_MS, discovery.selectedModel);
 
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      incrementAIMonthlyUsage();
-      return {
-        ok: true,
-        source,
-        modelUsed: model,
-        statusCode: res.status,
-        message: `Connected successfully to Google Gemini (${model}) using ${
-          source === 'personal' ? 'personal API key' : 'shared Firebase key'
-        }!`,
-        messageAr: `تم الاتصال بنجاح بـ Google Gemini (${model}) باستخدام ${
-          source === 'personal' ? 'المفتاح الشخصي' : 'المفتاح المشترك'
-        }!`,
-      };
-    }
-
-    let errorText = '';
-    try {
-      const errJson = await res.json();
-      errorText = errJson?.error?.message || '';
-    } catch {}
-
-    const errLower = errorText.toLowerCase();
-
-    if (res.status === 404) {
-      const top5 = discovery.allValidModels.slice(0, 5).join(', ') || 'None';
-      const top5Ar = discovery.allValidModels.slice(0, 5).join(', ') || 'لا يوجد';
-      return {
-        ok: false,
-        source,
-        statusCode: 404,
-        message: `HTTP 404 Not Found: Model ${model} is not accessible. Discovered accessible models: ${top5}.`,
-        messageAr: `خطأ 404 (غير موجود): النموذج ${model} غير متاح بهذا المفتاح. النماذج المكتشفة المتاحة: ${top5Ar}.`,
-      };
-    }
-
-    if (res.status === 401 || errLower.includes('access_token_type_unsupported')) {
-      return {
-        ok: false,
-        source,
-        statusCode: 401,
-        message: 'HTTP 401 Unauthorized: ACCESS_TOKEN_TYPE_UNSUPPORTED. Please generate a fresh, direct API key from Google AI Studio (aistudio.google.com).',
-        messageAr: 'خطأ 401 (غير مصرح): نوع رمز الوصول غير مدعوم (ACCESS_TOKEN_TYPE_UNSUPPORTED). يرجى إنشاء مفتاح API مباشر وجديد من Google AI Studio (aistudio.google.com).',
-      };
-    }
-
-    if (res.status === 403) {
-      return {
-        ok: false,
-        source,
-        statusCode: 403,
-        message: 'HTTP 403 Forbidden: Key rejected due to HTTP referrer restrictions. Note: Testing on localhost or vite preview is blocked by design for restricted keys; it works normally on your published GitHub Pages site.',
-        messageAr: 'خطأ 403 (محظور): تم رفض المفتاح بسبب قيود النطاق (HTTP referrer). ملاحظة: التشغيل على localhost أو معاينة Vite محظور عن قصد للمفاتيح المقيدة؛ سيعمل بشكل طبيعي على موقع GitHub Pages المنشور.',
-      };
-    }
-
-    if (res.status === 400) {
-      return {
-        ok: false,
-        source,
-        statusCode: 400,
-        message: `HTTP 400 Bad Request: Invalid API key or request payload. ${
-          errorText ? `(${errorText})` : 'Verify your key in Google AI Studio.'
-        }`,
-        messageAr: `خطأ 400 (طلب غير صالح): مفتاح API غير صالح أو البيانات غير صحيحة. ${
-          errorText ? `(${errorText})` : 'يرجى التحقق من المفتاح في Google AI Studio.'
-        }`,
-      };
-    }
-
-    if (res.status === 429) {
-      return {
-        ok: false,
-        source,
-        statusCode: 429,
-        message: 'HTTP 429 Too Many Requests: Rate limit exceeded or quota exhausted. Please try again later or use a key with higher quota.',
-        messageAr: 'خطأ 429 (تجاوز معدل الاستخدام): تم استنفاد الحصة أو تجاوز عدد الطلبات المسموح. يرجى المحاولة لاحقاً أو استخدام مفتاح ذي حصة أكبر.',
-      };
-    }
-
+  if (pingRes.ok) {
+    incrementAIMonthlyUsage();
     return {
-      ok: false,
+      ok: true,
       source,
-      statusCode: res.status,
-      message: `HTTP ${res.status}: Connection test failed. ${errorText || 'Unexpected response from Google Gemini.'}`,
-      messageAr: `خطأ HTTP ${res.status}: فشل اختبار الاتصال. ${errorText || 'استجابة غير متوقعة من Google Gemini.'}`,
-    };
-  } catch (fetchErr: any) {
-    clearTimeout(timeoutId);
-    if (fetchErr.name === 'AbortError') {
-      return {
-        ok: false,
-        source,
-        statusCode: 408,
-        message: 'Connection timed out after 8 seconds. Google Gemini servers did not respond in time.',
-        messageAr: 'انتهت مهلة الاتصال بعد 8 ثوانٍ. لم تستجب خوادم Google Gemini في الوقت المحدد.',
-      };
-    }
-    return {
-      ok: false,
-      source,
-      message: `Network error: ${fetchErr.message || 'Unable to connect to Google Gemini servers.'}`,
-      messageAr: `خطأ في الشبكة: ${fetchErr.message || 'تعذر الاتصال بخوادم Google Gemini.'}`,
+      modelUsed: pingRes.cleanModel,
+      statusCode: pingRes.status,
+      message: `Connected successfully to Google Gemini (${pingRes.cleanModel}) using ${
+        source === 'personal' ? 'personal API key' : 'shared Firebase key'
+      }!`,
+      messageAr: `تم الاتصال بنجاح بـ Google Gemini (${pingRes.cleanModel}) باستخدام ${
+        source === 'personal' ? 'المفتاح الشخصي' : 'المفتاح المشترك'
+      }!`,
     };
   }
+
+  const errStatus = pingRes.status;
+  const rawErr = pingRes.error || '';
+  const errLower = rawErr.toLowerCase();
+
+  if (errStatus === 404) {
+    const top5 = discovery.allValidModels.slice(0, 5).join(', ') || 'gemini-flash-latest, gemini-2.0-flash';
+    return {
+      ok: false,
+      source,
+      statusCode: 404,
+      errorTitle: 'Model not available',
+      errorTitleAr: 'النموذج غير متاح',
+      modelUsed: pingRes.cleanModel,
+      message: `HTTP 404 Not Found: Model ${pingRes.cleanModel} is not accessible. Discovered candidates: ${top5}.`,
+      messageAr: `خطأ 404 (غير موجود): النموذج ${pingRes.cleanModel} غير متاح بهذا المفتاح. النماذج المرشحة: ${top5}.`,
+      requestPath: pingRes.sanitizedPath,
+      errorDetails: maskSensitiveSecrets(rawErr || 'Model not found (404)'),
+    };
+  }
+
+  if (errStatus === 403) {
+    return {
+      ok: false,
+      source,
+      statusCode: 403,
+      errorTitle: 'Restricted Key',
+      errorTitleAr: 'مفتاح مقيد النطاق',
+      modelUsed: pingRes.cleanModel,
+      message: 'HTTP 403 Forbidden: Key rejected due to HTTP referrer restrictions. Note: Testing on localhost or vite preview is blocked by design for restricted keys; it works normally on your published GitHub Pages site.',
+      messageAr: 'خطأ 403 (محظور): تم رفض المفتاح بسبب قيود النطاق (HTTP referrer). ملاحظة: التشغيل على localhost أو معاينة Vite محظور عن قصد للمفاتيح المقيدة؛ سيعمل بشكل طبيعي على موقع GitHub Pages المنشور.',
+      requestPath: pingRes.sanitizedPath,
+      errorDetails: maskSensitiveSecrets(rawErr || 'Forbidden (403): Referrer restrictions'),
+    };
+  }
+
+  if (errStatus === 401 || errLower.includes('access_token_type_unsupported')) {
+    return {
+      ok: false,
+      source,
+      statusCode: 401,
+      errorTitle: 'Unauthorized Key',
+      errorTitleAr: 'مفتاح غير مصرح',
+      modelUsed: pingRes.cleanModel,
+      message: 'HTTP 401 Unauthorized: Invalid API key. Please generate a fresh, direct API key from Google AI Studio (aistudio.google.com).',
+      messageAr: 'خطأ 401 (غير مصرح): مفتاح API غير صالح. يرجى إنشاء مفتاح API مباشر وجديد من Google AI Studio (aistudio.google.com).',
+      requestPath: pingRes.sanitizedPath,
+      errorDetails: maskSensitiveSecrets(rawErr || 'Unauthorized (401)'),
+    };
+  }
+
+  if (errStatus === 400) {
+    return {
+      ok: false,
+      source,
+      statusCode: 400,
+      errorTitle: 'Invalid API Key',
+      errorTitleAr: 'مفتاح غير صالح',
+      modelUsed: pingRes.cleanModel,
+      message: 'HTTP 400 Bad Request: Invalid API key format or malformed request payload. Verify your key in Google AI Studio.',
+      messageAr: 'خطأ 400 (طلب غير صالح): تنسيق المفتاح غير صحيح أو الطلب غير مكتمل. يرجى التحقق من المفتاح في Google AI Studio.',
+      requestPath: pingRes.sanitizedPath,
+      errorDetails: maskSensitiveSecrets(rawErr || 'Bad Request (400)'),
+    };
+  }
+
+  if (errStatus === 429) {
+    return {
+      ok: false,
+      source,
+      statusCode: 429,
+      errorTitle: 'Quota Exceeded',
+      errorTitleAr: 'تجاوز الحصة المحددة',
+      modelUsed: pingRes.cleanModel,
+      message: 'HTTP 429 Too Many Requests: Rate limit exceeded or quota exhausted. Please try again later or use a key with higher quota.',
+      messageAr: 'خطأ 429 (تجاوز معدل الاستخدام): تم استنفاد الحصة أو تجاوز عدد الطلبات المسموح. يرجى المحاولة لاحقاً أو استخدام مفتاح ذي حصة أكبر.',
+      requestPath: pingRes.sanitizedPath,
+      errorDetails: maskSensitiveSecrets(rawErr || 'Too Many Requests (429)'),
+    };
+  }
+
+  if (errStatus === 408) {
+    return {
+      ok: false,
+      source,
+      statusCode: 408,
+      errorTitle: 'Connection Timed Out',
+      errorTitleAr: 'انتهت مهلة الاتصال',
+      modelUsed: pingRes.cleanModel,
+      message: 'Connection timed out after 8 seconds. Google Gemini servers did not respond in time.',
+      messageAr: 'انتهت مهلة الاتصال بعد 8 ثوانٍ. لم تستجب خوادم Google Gemini في الوقت المحدد.',
+      requestPath: pingRes.sanitizedPath,
+      errorDetails: 'Timeout after 8000ms',
+    };
+  }
+
+  return {
+    ok: false,
+    source,
+    statusCode: errStatus,
+    errorTitle: `HTTP ${errStatus || 'Connection'} Error`,
+    errorTitleAr: `خطأ في الاتصال (${errStatus || ''})`,
+    modelUsed: pingRes.cleanModel,
+    message: `HTTP ${errStatus} Error: ${rawErr || 'Unable to connect to Google Gemini'}`,
+    messageAr: `خطأ ${errStatus}: ${rawErr || 'تعذر الاتصال بخدمة Google Gemini'}`,
+    requestPath: pingRes.sanitizedPath,
+    errorDetails: maskSensitiveSecrets(rawErr || `HTTP ${errStatus}`),
+  };
 }
 
 async function testProxyConnection(
@@ -953,6 +1136,8 @@ async function testProxyConnection(
     if (idToken) {
       headers['Authorization'] = `Bearer ${idToken}`;
     }
+
+    const sanitizedProxyPath = `POST ${proxyUrl}`;
 
     const res = await fetch(proxyUrl, {
       method: 'POST',
@@ -988,8 +1173,12 @@ async function testProxyConnection(
         ok: false,
         source: 'proxy',
         statusCode: 401,
+        errorTitle: 'Proxy Unauthorized',
+        errorTitleAr: 'بروكسي غير مصرح',
         message: 'Proxy HTTP 401 Unauthorized: Firebase authentication token missing or invalid. Please sign in.',
         messageAr: 'خطأ 401 في البروكسي (غير مصرح): رمز مصادقة Firebase مفقود أو غير صالح. يرجى تسجيل الدخول.',
+        requestPath: sanitizedProxyPath,
+        errorDetails: 'Firebase authentication token missing or rejected',
       };
     }
 
@@ -998,8 +1187,12 @@ async function testProxyConnection(
         ok: false,
         source: 'proxy',
         statusCode: 403,
+        errorTitle: 'Proxy Forbidden',
+        errorTitleAr: 'بروكسي محظور',
         message: 'Proxy HTTP 403 Forbidden: Daily proxy quota reached or unauthorized user origin.',
         messageAr: 'خطأ 403 في البروكسي (محظور): تم الوصول للحد اليومي لطلبات البروكسي أو المصدر غير مصرح به.',
+        requestPath: sanitizedProxyPath,
+        errorDetails: 'Proxy quota reached or origin unauthorized',
       };
     }
 
@@ -1008,8 +1201,12 @@ async function testProxyConnection(
         ok: false,
         source: 'proxy',
         statusCode: 429,
+        errorTitle: 'Proxy Quota Exceeded',
+        errorTitleAr: 'تجاوز حد البروكسي',
         message: 'Proxy HTTP 429: Too many requests to the proxy server.',
         messageAr: 'خطأ 429 في البروكسي: عدد طلبات كبير جداً على خادم البروكسي.',
+        requestPath: sanitizedProxyPath,
+        errorDetails: 'Proxy rate limit exceeded',
       };
     }
 
@@ -1017,8 +1214,12 @@ async function testProxyConnection(
       ok: false,
       source: 'proxy',
       statusCode: res.status,
+      errorTitle: `Proxy HTTP ${res.status}`,
+      errorTitleAr: `خطأ بروكسي ${res.status}`,
       message: `Proxy HTTP ${res.status}: Proxy request failed.`,
       messageAr: `خطأ HTTP ${res.status} في البروكسي: فشل طلب البروكسي.`,
+      requestPath: sanitizedProxyPath,
+      errorDetails: `Proxy returned HTTP ${res.status}`,
     };
   } catch (err: any) {
     clearTimeout(timeoutId);
@@ -1026,15 +1227,25 @@ async function testProxyConnection(
       return {
         ok: false,
         source: 'proxy',
+        statusCode: 408,
+        errorTitle: 'Proxy Timed Out',
+        errorTitleAr: 'انتهت مهلة البروكسي',
         message: 'Proxy connection timed out after 8 seconds.',
         messageAr: 'انتهت مهلة الاتصال بالبروكسي بعد 8 ثوانٍ.',
+        requestPath: `POST ${proxyUrl}`,
+        errorDetails: 'Proxy request timeout after 8000ms',
       };
     }
     return {
       ok: false,
       source: 'proxy',
+      statusCode: 0,
+      errorTitle: 'Proxy Network Error',
+      errorTitleAr: 'خطأ اتصال بالبروكسي',
       message: `Proxy connection error: ${err?.message || 'Unable to reach proxy endpoint.'}`,
       messageAr: `خطأ اتصال بالبروكسي: ${err?.message || 'تعذر الوصول لنقطة نهاية البروكسي.'}`,
+      requestPath: `POST ${proxyUrl}`,
+      errorDetails: maskSensitiveSecrets(err?.message || 'Network error reaching proxy'),
     };
   }
 }

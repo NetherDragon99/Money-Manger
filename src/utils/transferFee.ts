@@ -308,8 +308,8 @@ export function computeTaxFee(params: {
     return roundHalfUpToCents(Math.max(0, manualRawValue));
   }
   if (mode === 'default_rule') {
-    const resolved = resolveTransferFeeSettings(feeSettings);
-    return calculateRuleTransferFee(baseAmount, resolved.defaultRule, resolved.instaPayPreset);
+    // Default rules are strictly for transfer fees (e.g. InstaPay), not expense/income taxes
+    return 0;
   }
   return 0;
 }

@@ -658,9 +658,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         otherAcc?.accountRole === 'savings' || otherAcc?.accountRole === 'investment'
       );
       setSavingsWithdrawalChoice(undefined);
-      setTransferFeeMode(defaultRuleActive ? 'default_rule' : 'none');
+      // Every NEW transaction (Income, Expense, Transfer) MUST strictly default to "No Tax / Fee" (0.00)
+      setTransferFeeMode('none');
       setManualFeeInputType('amount');
       setManualFeeStr('0');
+      setTaxAmountStr('');
       setTransferFeeBudgetPool('daily');
       const expCats = categories.filter((c) => c.type === 'expense');
       let defaultCat = expCats[0];
@@ -810,23 +812,100 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   }, [effectiveIsOpen, selectedToAccount?.id, selectedToAccount?.accountRole, activeEditingTx]);
 
   const handleTypeSelect = useCallback((newType: TransactionType) => {
+    if (newType === type) return;
     setType(newType);
-    if (newType === 'transfer') {
-      if (transferFeeMode === 'vat14') {
+
+    // Reset or restore tax/fee state when switching transaction types
+    if (activeEditingTx) {
+      if (newType === activeEditingTx.type) {
+        // Restore stored edit values
+        const hasTax = Boolean(activeEditingTx.taxAmount && activeEditingTx.taxAmount > 0);
+        const isTxTransfer = activeEditingTx.type === 'transfer';
+        const initMode: TaxFeeMode = isTxTransfer
+          ? (activeEditingTx.transferFeeMode || (activeEditingTx.transferFee && activeEditingTx.transferFee > 0 ? 'manual' : 'none'))
+          : (activeEditingTx.taxMode || (hasTax ? 'manual' : 'none'));
+        setTransferFeeMode(initMode);
+        setManualFeeInputType(
+          isTxTransfer
+            ? (activeEditingTx.transferFeeInputType || 'amount')
+            : (activeEditingTx.taxInputType || 'amount')
+        );
+        setManualFeeStr(
+          isTxTransfer
+            ? (activeEditingTx.transferFeeRawValue !== undefined
+                ? activeEditingTx.transferFeeRawValue.toString()
+                : activeEditingTx.transferFee && activeEditingTx.transferFee > 0
+                ? activeEditingTx.transferFee.toString()
+                : '0')
+            : (activeEditingTx.taxRawValue !== undefined
+                ? activeEditingTx.taxRawValue.toString()
+                : hasTax
+                ? activeEditingTx.taxAmount!.toString()
+                : '0')
+        );
+        setTaxAmountStr(hasTax ? activeEditingTx.taxAmount!.toString() : '');
+      } else {
+        // Switched away from original type -> reset tax to 0
         setTransferFeeMode('none');
+        setManualFeeInputType('amount');
+        setManualFeeStr('0');
+        setTaxAmountStr('');
       }
+    } else if (editingRecurring) {
+      if (newType === editingRecurring.type) {
+        // Restore stored recurring edit values
+        const r = migrateRecurringRule(editingRecurring);
+        const hasTax = Boolean(r.taxAmount && r.taxAmount > 0);
+        const isRecTransfer = r.type === 'transfer';
+        const recFeeMode: TaxFeeMode = isRecTransfer
+          ? (r.transferFeeMode || (r.transferFee && r.transferFee > 0 ? 'manual' : 'none'))
+          : (r.taxMode || (hasTax ? 'manual' : 'none'));
+        setTransferFeeMode(recFeeMode);
+        setManualFeeInputType(
+          isRecTransfer
+            ? (r.transferFeeInputType || 'amount')
+            : (r.taxInputType || 'amount')
+        );
+        setManualFeeStr(
+          isRecTransfer
+            ? (r.transferFeeRawValue !== undefined
+                ? r.transferFeeRawValue.toString()
+                : r.transferFee && r.transferFee > 0
+                ? r.transferFee.toString()
+                : '0')
+            : (r.taxRawValue !== undefined
+                ? r.taxRawValue.toString()
+                : hasTax
+                ? r.taxAmount!.toString()
+                : '0')
+        );
+        setTaxAmountStr(hasTax ? r.taxAmount!.toString() : '');
+      } else {
+        // Switched away from original recurring type -> reset tax to 0
+        setTransferFeeMode('none');
+        setManualFeeInputType('amount');
+        setManualFeeStr('0');
+        setTaxAmountStr('');
+      }
+    } else {
+      // New transaction: switching tabs MUST strictly reset tax/fee state to 0.00
+      setTransferFeeMode('none');
+      setManualFeeInputType('amount');
+      setManualFeeStr('0');
+      setTaxAmountStr('');
+    }
+
+    setActiveKeypadTarget('amount');
+
+    if (newType === 'transfer') {
       const destination = accounts.find((a) => a.id !== accountId);
       if (destination) {
         setToAccountId(destination.id);
         const destRole = destination.accountRole || 'spending';
         setIsSavingsAllocation(destRole === 'savings' || destRole === 'investment');
       }
-    } else {
-      if (transferFeeMode === 'instapay') {
-        setTransferFeeMode('none');
-      }
     }
-  }, [accounts, accountId, transferFeeMode]);
+  }, [type, activeEditingTx, editingRecurring, accounts, accountId]);
 
   // Swipe & Drag Gesture State
   const modalContainerRef = useRef<HTMLDivElement | null>(null);

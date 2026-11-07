@@ -48,7 +48,7 @@ export const AdvancedTaxFeeInput: React.FC<AdvancedTaxFeeInputProps> = ({
   formatDisplayNumber,
 }) => {
   const isTransfer = type === 'transfer';
-  const hasDefaultRule = Boolean(
+  const hasDefaultRule = isTransfer && Boolean(
     feeConfig?.defaultRule?.enabled && feeConfig.defaultRule.ruleType !== 'none',
   );
 
