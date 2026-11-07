@@ -51,6 +51,7 @@ import {
   SmartBudgetConfig,
   SmartBudgetEvaluation,
   normalizeCurrencyCodeOrSymbol,
+  formatLocalDate,
 } from '../utils/smartBudgetEngine';
 import {
   PoolAllocationConfig,
@@ -228,9 +229,42 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   const [selectedFixedCatIds, setSelectedFixedCatIds] = useState<string[]>(
     baselineSettings.fixedCategoryIds || []
   );
-  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(
-    baselineSettings.includedAccountIds || accounts.map((a) => a.id)
+
+  const [baselineCalculationMode, setBaselineCalculationMode] = useState<'from_today' | 'full_cycle'>(
+    () => baselineSettings.calculationMode || 'from_today'
   );
+
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(() => {
+    if (baselineSettings.includedAccountIds && baselineSettings.includedAccountIds.length > 0) {
+      return baselineSettings.includedAccountIds;
+    }
+    const nonSavings = accounts.filter((a) => a.accountRole !== 'savings');
+    return nonSavings.length > 0
+      ? nonSavings.map((a) => a.id)
+      : accounts.map((a) => a.id);
+  });
+
+  const [isLinkedAccountsOpen, setIsLinkedAccountsOpen] = useState<boolean>(false);
+  const [adjustmentInput, setAdjustmentInput] = useState<string>(() => {
+    const adj = baselineSettings.fromTodayConfig?.manualAdjustment;
+    return adj != null && adj !== 0 ? String(adj) : '';
+  });
+
+  const parsedAdjustment = useMemo(() => {
+    const cleaned = adjustmentInput.replace(/[^0-9.-]/g, '');
+    return parseFloat(cleaned) || 0;
+  }, [adjustmentInput]);
+
+  const linkedAccountsBalanceSum = useMemo(() => {
+    return accounts
+      .filter((a) => selectedAccountIds.includes(a.id))
+      .reduce((sum, a) => sum + (a.balance || 0), 0);
+  }, [accounts, selectedAccountIds]);
+
+  const liveBudget = useMemo(() => {
+    return Math.max(0, Math.round((linkedAccountsBalanceSum + parsedAdjustment) * 100) / 100);
+  }, [linkedAccountsBalanceSum, parsedAdjustment]);
+
   const [weekendMultiplier] = useState<number>(1.5);
   const [isOptimizingWithAI, setIsOptimizingWithAI] = useState<boolean>(false);
   const [aiOptimizationPreview, setAiOptimizationPreview] = useState<{
@@ -264,6 +298,9 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       if (baselineSettings.includedAccountIds) {
         setSelectedAccountIds(baselineSettings.includedAccountIds);
       }
+      if (baselineSettings.calculationMode) {
+        setBaselineCalculationMode(baselineSettings.calculationMode);
+      }
       if (typeof baselineSettings.headsUpThresholdRatio === 'number') {
         setHeadsUpThresholdPercent(Math.round(baselineSettings.headsUpThresholdRatio * 100));
       }
@@ -271,9 +308,11 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   }, [settings.smartBudget?.baseline]);
 
   // Derived income minor units & daily remainder for Baseline Plan
-  const incomeMinor = Math.round(
-    (parseFloat(plannedIncomeInput.replace(/,/g, '')) || 0) * 100
-  );
+  const incomeMinor =
+    baselineCalculationMode === 'from_today'
+      ? Math.round(liveBudget * 100)
+      : Math.round((parseFloat(plannedIncomeInput.replace(/,/g, '')) || 0) * 100);
+
   const dailyMinor = Math.max(
     0,
     incomeMinor -
@@ -282,7 +321,10 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   const dailyPercent =
     incomeMinor > 0
       ? Math.max(0, Math.round(((dailyMinor / incomeMinor) * 100) * 10) / 10)
-      : 0;
+      : Math.max(
+          0,
+          Math.round((100 - (pools.savings.percent + pools.fixed.percent + pools.outings.percent)) * 10) / 10
+        );
 
   // Derived income minor units & daily remainder for Custom Plan (This Month)
   const customIncomeMinor = Math.round(
@@ -345,42 +387,51 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   // ==========================================================================
   const evaluation: SmartBudgetEvaluation = useMemo(() => {
     const draftPlanned = parseFloat(plannedIncomeInput.replace(/,/g, '')) || 0;
-    const savedPlanned = baselineSettings.plannedIncome || draftPlanned;
-    const savedPoolsCfg = baselineSettings.poolsConfig || {
-      savings: {
-        minorUnits: pools.savings.minorUnits,
-        percent: pools.savings.percent,
-        mode: pools.savings.mode,
-      },
-      fixed: {
-        minorUnits: pools.fixed.minorUnits,
-        percent: pools.fixed.percent,
-        mode: pools.fixed.mode,
-      },
-      outings: {
-        minorUnits: pools.outings.minorUnits,
-        percent: pools.outings.percent,
-        mode: pools.outings.mode,
-      },
-    };
+    const effectiveIncome =
+      baselineCalculationMode === 'from_today'
+        ? liveBudget
+        : baselineSettings.plannedIncome || draftPlanned;
+
+    const sMinor = Math.round(incomeMinor * (pools.savings.percent / 100));
+    const fMinor = Math.round(incomeMinor * (pools.fixed.percent / 100));
+    const oMinor = Math.round(incomeMinor * (pools.outings.percent / 100));
+
     const config: SmartBudgetConfig = {
       baseCurrency: currency,
       startDay: globalMonthStartDay,
-      plannedIncome: savedPlanned > 0 ? savedPlanned : undefined,
-      savings: baselineSettings.savings || { type: 'percent', value: pools.savings.percent },
-      plannedFixedObligations:
-        baselineSettings.plannedFixedObligations !== undefined
-          ? baselineSettings.plannedFixedObligations
-          : pools.fixed.minorUnits / 100,
-      outingsBudget:
-        baselineSettings.outingsBudget !== undefined
-          ? baselineSettings.outingsBudget
-          : pools.outings.minorUnits / 100,
+      plannedIncome: effectiveIncome > 0 ? effectiveIncome : undefined,
+      savings: { type: 'percent', value: pools.savings.percent },
+      plannedFixedObligations: fMinor / 100,
+      outingsBudget: oMinor / 100,
       fixedCategoryIds: selectedFixedCatIds,
       includedAccountIds: selectedAccountIds,
+      calculationMode: baselineCalculationMode,
+      fromTodayConfig: {
+        fromDate: formatLocalDate(new Date()),
+        linkedAccountIds: selectedAccountIds,
+        manualAdjustment: parsedAdjustment,
+        remainingMoney: liveBudget,
+        remainingMoneyMinor: Math.round(liveBudget * 100),
+      },
       headsUpThresholdRatio:
         baselineSettings.headsUpThresholdRatio ?? headsUpThresholdPercent / 100,
-      poolsConfig: savedPoolsCfg,
+      poolsConfig: {
+        savings: {
+          minorUnits: sMinor,
+          percent: pools.savings.percent,
+          mode: 'percent',
+        },
+        fixed: {
+          minorUnits: fMinor,
+          percent: pools.fixed.percent,
+          mode: 'percent',
+        },
+        outings: {
+          minorUnits: oMinor,
+          percent: pools.outings.percent,
+          mode: 'percent',
+        },
+      },
       overrides: settings.smartBudget?.overrides,
       adjustments: settings.smartBudget?.adjustments,
       weekdayWeights:
@@ -399,11 +450,18 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     accounts,
     currency,
     globalMonthStartDay,
-    baselineSettings,
+    baselineSettings.plannedIncome,
+    baselineSettings.headsUpThresholdRatio,
     plannedIncomeInput,
-    pools,
+    baselineCalculationMode,
+    liveBudget,
+    incomeMinor,
+    pools.savings.percent,
+    pools.fixed.percent,
+    pools.outings.percent,
     selectedFixedCatIds,
     selectedAccountIds,
+    parsedAdjustment,
     headsUpThresholdPercent,
     settings.smartBudget?.overrides,
     settings.smartBudget?.adjustments,
@@ -412,60 +470,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
   const currentCycleKey = evaluation.cycle.startDate; // YYYY-MM-DD
   const currentOverride = resolveCycleOverride(settings.smartBudget?.overrides, currentCycleKey);
-
-  const activeCycleMode: 'full_cycle' | 'from_today' =
-    currentOverride?.calculationMode ||
-    (evaluation.dailyStatus.cycleDayIndex > 1 ? 'from_today' : 'full_cycle');
-
   const isCyclePaused = Boolean(currentOverride?.isPaused);
-
-  const [isLinkedAccountsOpen, setIsLinkedAccountsOpen] = useState<boolean>(false);
-  const [adjustmentInput, setAdjustmentInput] = useState<string>(() => {
-    const adj = currentOverride?.fromTodayConfig?.manualAdjustment;
-    return adj != null && adj !== 0 ? String(adj) : '';
-  });
-
-  useEffect(() => {
-    const adj = currentOverride?.fromTodayConfig?.manualAdjustment;
-    setAdjustmentInput(adj != null && adj !== 0 ? String(adj) : '');
-  }, [currentOverride?.fromTodayConfig?.manualAdjustment]);
-
-  const defaultLinkedAccountIds = useMemo(() => {
-    const normalizedBase = normalizeCurrencyCodeOrSymbol(currency);
-    const primaryAccounts = accounts.filter(
-      (a) => !a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normalizedBase
-    );
-    const spendingAccounts = primaryAccounts.filter((a) => a.accountRole === 'spending');
-    const nonSavings = primaryAccounts.filter((a) => a.accountRole !== 'savings');
-    const target =
-      spendingAccounts.length > 0
-        ? spendingAccounts
-        : nonSavings.length > 0
-        ? nonSavings
-        : primaryAccounts;
-    return target.map((a) => a.id);
-  }, [accounts, currency]);
-
-  const activeLinkedAccountIds = useMemo(() => {
-    const ids = currentOverride?.fromTodayConfig?.linkedAccountIds;
-    if (ids && ids.length > 0) return ids;
-    return defaultLinkedAccountIds;
-  }, [currentOverride?.fromTodayConfig?.linkedAccountIds, defaultLinkedAccountIds]);
-
-  const linkedAccountsBalanceSum = useMemo(() => {
-    return accounts
-      .filter((a) => activeLinkedAccountIds.includes(a.id))
-      .reduce((sum, a) => sum + (a.balance || 0), 0);
-  }, [accounts, activeLinkedAccountIds]);
-
-  const parsedAdjustment = useMemo(() => {
-    const cleaned = adjustmentInput.replace(/[^0-9.-]/g, '');
-    return parseFloat(cleaned) || 0;
-  }, [adjustmentInput]);
-
-  const liveBudget = useMemo(() => {
-    return Math.max(0, Math.round((linkedAccountsBalanceSum + parsedAdjustment) * 100) / 100);
-  }, [linkedAccountsBalanceSum, parsedAdjustment]);
 
   if (!isOpen) return null;
 
@@ -927,116 +932,43 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   };
 
   const handleSetCalculationMode = (newMode: 'full_cycle' | 'from_today') => {
-    const newOverride: SmartBudgetCycleOverride = {
-      ...(currentOverride || {}),
-      calculationMode: newMode,
-      fromTodayConfig:
-        newMode === 'from_today'
-          ? {
-              fromDate: currentOverride?.fromTodayConfig?.fromDate || evaluation.dailyStatus.asOfDate,
-              linkedAccountIds: activeLinkedAccountIds,
-              manualAdjustment: parsedAdjustment,
-              remainingMoney: liveBudget,
-              remainingMoneyMinor: Math.round(liveBudget * 100),
-            }
-          : undefined,
-    };
-    const newOverrides = {
-      ...(settings.smartBudget?.overrides || {}),
-      [currentCycleKey]: newOverride,
-    };
-    updateSettings({
-      smartBudget: {
-        baseline: settings.smartBudget?.baseline || {},
-        overrides: newOverrides,
-        adjustments: settings.smartBudget?.adjustments,
-        updatedAt: Date.now(),
-      },
-    });
+    setBaselineCalculationMode(newMode);
   };
 
   const handleToggleLinkedAccount = (accountId: string) => {
     const targetAcc = accounts.find((a) => a.id === accountId);
-    if (targetAcc?.currency && normalizeCurrencyCodeOrSymbol(targetAcc.currency) !== normalizeCurrencyCodeOrSymbol(currency)) {
-      showToast(isArabic ? 'لا يمكن ربط حساب بعملة مختلفة عن عملة الميزانية الأساسية' : 'Cannot link account with currency different from budget base currency', 'error');
+    if (
+      targetAcc?.currency &&
+      normalizeCurrencyCodeOrSymbol(targetAcc.currency) !== normalizeCurrencyCodeOrSymbol(currency)
+    ) {
+      showToast(
+        isArabic
+          ? 'لا يمكن ربط حساب بعملة مختلفة عن عملة الميزانية الأساسية'
+          : 'Cannot link account with currency different from budget base currency',
+        'error'
+      );
       return;
     }
-    let nextIds: string[];
-    if (activeLinkedAccountIds.includes(accountId)) {
-      nextIds = activeLinkedAccountIds.filter((id) => id !== accountId);
-    } else {
-      nextIds = [...activeLinkedAccountIds, accountId];
-    }
-    const nextSum = accounts
-      .filter((a) => nextIds.includes(a.id))
-      .reduce((sum, a) => sum + (a.balance || 0), 0);
-    const nextLiveBudget = Math.max(0, Math.round((nextSum + parsedAdjustment) * 100) / 100);
-
-    const newOverride: SmartBudgetCycleOverride = {
-      ...(currentOverride || {}),
-      calculationMode: activeCycleMode,
-      fromTodayConfig: {
-        fromDate: currentOverride?.fromTodayConfig?.fromDate || evaluation.dailyStatus.asOfDate,
-        linkedAccountIds: nextIds,
-        manualAdjustment: parsedAdjustment,
-        remainingMoney: nextLiveBudget,
-        remainingMoneyMinor: Math.round(nextLiveBudget * 100),
-      },
-    };
-    updateSettings({
-      smartBudget: {
-        baseline: settings.smartBudget?.baseline || {},
-        overrides: {
-          ...(settings.smartBudget?.overrides || {}),
-          [currentCycleKey]: newOverride,
-        },
-        adjustments: settings.smartBudget?.adjustments,
-        updatedAt: Date.now(),
-      },
-    });
+    setSelectedAccountIds((prev) =>
+      prev.includes(accountId)
+        ? prev.filter((id) => id !== accountId)
+        : [...prev, accountId]
+    );
   };
 
-  const handleSelectLinkedAccountsPreset = (preset: 'spending' | 'non_savings' | 'all') => {
-    const normalizedBase = normalizeCurrencyCodeOrSymbol(currency);
+  const handleSelectLinkedAccountsPreset = (preset: 'non_savings' | 'all') => {
     const primaryAccounts = accounts.filter(
-      (a) => !a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normalizedBase
+      (a) => !a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normalizeCurrencyCodeOrSymbol(currency)
     );
-    let targetAccounts = primaryAccounts;
-    if (preset === 'spending') {
-      const spending = primaryAccounts.filter((a) => a.accountRole === 'spending');
-      if (spending.length > 0) targetAccounts = spending;
-    } else if (preset === 'non_savings') {
-      const nonSavings = primaryAccounts.filter((a) => a.accountRole !== 'savings');
-      if (nonSavings.length > 0) targetAccounts = nonSavings;
+    let nextIds: string[];
+    if (preset === 'all') {
+      nextIds = primaryAccounts.map((a) => a.id);
+    } else {
+      nextIds = primaryAccounts
+        .filter((a) => a.accountRole !== 'savings')
+        .map((a) => a.id);
     }
-    const nextIds = (targetAccounts.length > 0 ? targetAccounts : primaryAccounts).map((a) => a.id);
-    const nextSum = accounts
-      .filter((a) => nextIds.includes(a.id))
-      .reduce((sum, a) => sum + (a.balance || 0), 0);
-    const nextLiveBudget = Math.max(0, Math.round((nextSum + parsedAdjustment) * 100) / 100);
-
-    const newOverride: SmartBudgetCycleOverride = {
-      ...(currentOverride || {}),
-      calculationMode: activeCycleMode,
-      fromTodayConfig: {
-        fromDate: currentOverride?.fromTodayConfig?.fromDate || evaluation.dailyStatus.asOfDate,
-        linkedAccountIds: nextIds,
-        manualAdjustment: parsedAdjustment,
-        remainingMoney: nextLiveBudget,
-        remainingMoneyMinor: Math.round(nextLiveBudget * 100),
-      },
-    };
-    updateSettings({
-      smartBudget: {
-        baseline: settings.smartBudget?.baseline || {},
-        overrides: {
-          ...(settings.smartBudget?.overrides || {}),
-          [currentCycleKey]: newOverride,
-        },
-        adjustments: settings.smartBudget?.adjustments,
-        updatedAt: Date.now(),
-      },
-    });
+    setSelectedAccountIds(nextIds.length > 0 ? nextIds : primaryAccounts.map((a) => a.id));
   };
 
   const handleAdjustmentChange = (raw: string) => {
@@ -1047,33 +979,6 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     const cleaned = adjustmentInput.replace(/[^0-9.-]/g, '');
     const num = parseFloat(cleaned) || 0;
     setAdjustmentInput(num !== 0 ? String(num) : '');
-
-    const nextLiveBudget = Math.max(0, Math.round((linkedAccountsBalanceSum + num) * 100) / 100);
-
-    if (activeCycleMode === 'from_today') {
-      const newOverride: SmartBudgetCycleOverride = {
-        ...(currentOverride || {}),
-        calculationMode: 'from_today',
-        fromTodayConfig: {
-          fromDate: currentOverride?.fromTodayConfig?.fromDate || evaluation.dailyStatus.asOfDate,
-          linkedAccountIds: activeLinkedAccountIds,
-          manualAdjustment: num,
-          remainingMoney: nextLiveBudget,
-          remainingMoneyMinor: Math.round(nextLiveBudget * 100),
-        },
-      };
-      updateSettings({
-        smartBudget: {
-          baseline: settings.smartBudget?.baseline || {},
-          overrides: {
-            ...(settings.smartBudget?.overrides || {}),
-            [currentCycleKey]: newOverride,
-          },
-          adjustments: settings.smartBudget?.adjustments,
-          updatedAt: Date.now(),
-        },
-      });
-    }
   };
 
   // ==========================================================================
@@ -1145,34 +1050,49 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   // ==========================================================================
   const handleSaveBaseline = () => {
     const planned = parseFloat(plannedIncomeInput.replace(/,/g, '')) || 0;
+    const sMinor = Math.round(incomeMinor * (pools.savings.percent / 100));
+    const fMinor = Math.round(incomeMinor * (pools.fixed.percent / 100));
+    const oMinor = Math.round(incomeMinor * (pools.outings.percent / 100));
+
     const newBaseline: SmartBudgetBaselineConfig = {
       startDay: globalMonthStartDay,
       plannedIncome: planned > 0 ? planned : undefined,
       savings: { type: 'percent', value: pools.savings.percent },
-      plannedFixedObligations: pools.fixed.minorUnits / 100,
-      outingsBudget: pools.outings.minorUnits / 100,
+      plannedFixedObligations: fMinor / 100,
+      outingsBudget: oMinor / 100,
       fixedCategoryIds: selectedFixedCatIds,
       includedAccountIds: selectedAccountIds,
-      headsUpThresholdRatio: Math.min(0.95, Math.max(0.3, headsUpThresholdPercent / 100)),
+      calculationMode: baselineCalculationMode,
+      fromTodayConfig: {
+        fromDate: evaluation.cycle.startDate,
+        linkedAccountIds: selectedAccountIds,
+        manualAdjustment: parsedAdjustment,
+        remainingMoney: liveBudget,
+        remainingMoneyMinor: Math.round(liveBudget * 100),
+      },
+      headsUpThresholdRatio: Math.min(
+        0.95,
+        Math.max(0.3, headsUpThresholdPercent / 100)
+      ),
       weekdayWeights:
         weekendMultiplier !== 1.0
           ? { 4: weekendMultiplier, 5: weekendMultiplier }
           : undefined,
       poolsConfig: {
         savings: {
-          minorUnits: pools.savings.minorUnits,
+          minorUnits: sMinor,
           percent: pools.savings.percent,
-          mode: pools.savings.mode,
+          mode: 'percent',
         },
         fixed: {
-          minorUnits: pools.fixed.minorUnits,
+          minorUnits: fMinor,
           percent: pools.fixed.percent,
-          mode: pools.fixed.mode,
+          mode: 'percent',
         },
         outings: {
-          minorUnits: pools.outings.minorUnits,
+          minorUnits: oMinor,
           percent: pools.outings.percent,
-          mode: pools.outings.mode,
+          mode: 'percent',
         },
       },
     };
@@ -1603,215 +1523,28 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   </button>
                 </div>
 
-                {/* Calculation Mode Selector: Full Cycle vs. From Today */}
-                <div className="pt-2 border-t border-zinc-800/80 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-zinc-300">
-                      {t('calculationMode')}
-                    </span>
-                    <div className="inline-flex p-1 rounded-xl bg-zinc-950 border border-zinc-800">
-                      <button
-                        type="button"
-                        onClick={() => handleSetCalculationMode('from_today')}
-                        className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                          activeCycleMode === 'from_today'
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        {t('modeFromToday')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSetCalculationMode('full_cycle')}
-                        className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                          activeCycleMode === 'full_cycle'
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        {t('modeFullCycle')}
-                      </button>
+                {/* Live Budget Overview Card for This Month */}
+                <div className="pt-2 border-t border-zinc-800/80">
+                  <div className="p-3 sm:p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                        <Zap className="w-4 h-4 text-emerald-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold text-zinc-400 truncate">
+                          {baselineCalculationMode === 'from_today' ? t('moneyLeftForRestOfCycle') : t('plannedIncome')}
+                        </div>
+                        <div className="text-[10px] text-zinc-500 font-mono truncate">
+                          {selectedAccountIds.length} {isArabic ? 'حسابات مربوطة' : 'linked funding accounts'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-end shrink-0">
+                      <div className="text-sm sm:text-base font-extrabold font-mono text-emerald-400">
+                        {formatCurrency(baselineCalculationMode === 'from_today' ? liveBudget : (evaluation.pools.total.income || 0), currency)}
+                      </div>
                     </div>
                   </div>
-
-                  {/* Mode explanation & From Today inputs */}
-                  {activeCycleMode === 'from_today' ? (
-                    <div className="p-3 sm:p-4 rounded-2xl bg-zinc-950/70 border border-blue-500/20 space-y-3.5">
-                      <div className="flex items-center justify-between text-[11px] text-zinc-400 flex-wrap gap-1">
-                        <span>{t('modeFromTodayDesc')}</span>
-                        <span className="font-mono text-blue-300 font-semibold flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                          {evaluation.dailyStatus.asOfDate}
-                        </span>
-                      </div>
-
-                      {/* Live Budget Display Card */}
-                      <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                            <Zap className="w-3.5 h-3.5 text-amber-400" />
-                            {t('moneyLeftForRestOfCycle')}
-                          </span>
-                          <span className="text-xs font-mono font-bold text-emerald-400">
-                            {formatCurrency(liveBudget, currency)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
-                          <span>
-                            {t('sumOfLinkedAccounts')}: {formatCurrency(linkedAccountsBalanceSum, currency)}
-                          </span>
-                          {parsedAdjustment !== 0 && (
-                            <span className={parsedAdjustment > 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                              {parsedAdjustment > 0 ? '+' : ''}{formatCurrency(parsedAdjustment, currency)}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-zinc-500 leading-relaxed pt-0.5">
-                          {t('moneyLeftHelper')}
-                        </p>
-                      </div>
-
-                      {/* Linked Accounts Selector */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
-                            <Wallet className="w-3.5 h-3.5 text-blue-400" />
-                            {t('linkedAccountsLabel')}
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => setIsLinkedAccountsOpen((prev) => !prev)}
-                            className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 font-medium transition cursor-pointer"
-                          >
-                            <span>
-                              {activeLinkedAccountIds.length}/{accounts.length}
-                            </span>
-                            {isLinkedAccountsOpen ? (
-                              <ChevronUp className="w-3.5 h-3.5" />
-                            ) : (
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        </div>
-
-                        {/* Presets */}
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleSelectLinkedAccountsPreset('non_savings')}
-                            className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-750 transition cursor-pointer"
-                          >
-                            {t('selectLinkedAccountsPresetNonSavings')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSelectLinkedAccountsPreset('all')}
-                            className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-750 transition cursor-pointer"
-                          >
-                            {t('selectLinkedAccountsPresetAll')}
-                          </button>
-                        </div>
-
-                        {/* Dropdown list of accounts */}
-                        {isLinkedAccountsOpen && (
-                          <div className="p-2 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-1 max-h-48 overflow-y-auto">
-                            {accounts.length === 0 ? (
-                              <div className="p-2 text-center text-xs text-zinc-500">
-                                {isArabic ? 'لا توجد حسابات' : 'No accounts found'}
-                              </div>
-                            ) : (
-                              accounts.map((acc) => {
-                                const isExcludedCurrency = Boolean(
-                                  acc.currency && normalizeCurrencyCodeOrSymbol(acc.currency) !== normalizeCurrencyCodeOrSymbol(currency)
-                                );
-                                const isChecked = !isExcludedCurrency && activeLinkedAccountIds.includes(acc.id);
-                                return (
-                                  <label
-                                    key={acc.id}
-                                    className={`flex items-center justify-between p-2 rounded-lg transition select-none ${
-                                      isExcludedCurrency
-                                        ? 'opacity-40 cursor-not-allowed bg-zinc-950/40'
-                                        : 'hover:bg-zinc-800/60 cursor-pointer'
-                                    }`}
-                                  >
-                                    <div className="flex items-center gap-2.5 min-w-0">
-                                      <input
-                                        type="checkbox"
-                                        disabled={isExcludedCurrency}
-                                        checked={isChecked}
-                                        onChange={() => !isExcludedCurrency && handleToggleLinkedAccount(acc.id)}
-                                        className="w-4 h-4 rounded text-blue-600 bg-zinc-800 border-zinc-700 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
-                                      />
-                                      <span className="text-sm shrink-0">{acc.icon || '💳'}</span>
-                                      <div className="min-w-0">
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          <p className="text-xs font-semibold text-zinc-200 truncate">
-                                            {acc.name}
-                                          </p>
-                                          {isExcludedCurrency && (
-                                            <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
-                                              {isArabic ? `مستبعد (${acc.currency})` : `Excluded (${acc.currency})`}
-                                            </span>
-                                          )}
-                                        </div>
-                                        {acc.accountRole === 'savings' && (
-                                          <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                                            {t('poolSavings')}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <span
-                                      className={`text-xs font-mono font-semibold shrink-0 ${
-                                        acc.balance >= 0 ? 'text-zinc-300' : 'text-rose-400'
-                                      }`}
-                                    >
-                                      {formatCurrency(acc.balance || 0, acc.currency || currency)}
-                                    </span>
-                                  </label>
-                                );
-                              })
-                            )}
-                          </div>
-                        )}
-
-                        {activeLinkedAccountIds.length === 0 && (
-                          <p className="text-[10px] text-amber-400 leading-relaxed">
-                            {t('noLinkedAccountsWarning')}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Extra Outside Cash (Adjustment) */}
-                      <div className="space-y-1 pt-1 border-t border-zinc-800/80">
-                        <label className="block text-xs font-semibold text-zinc-300">
-                          {t('extraCashAdjustment')}
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={adjustmentInput}
-                            onChange={(e) => handleAdjustmentChange(e.target.value)}
-                            onBlur={handleAdjustmentBlur}
-                            placeholder="0.00"
-                            className="w-full min-h-[40px] px-3.5 py-1.5 pe-12 rounded-xl bg-zinc-900 border border-zinc-750 text-white font-mono text-sm focus:border-blue-500 focus:outline-none"
-                          />
-                          <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 font-mono pointer-events-none">
-                            {currency}
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-zinc-500 leading-relaxed">
-                          {t('extraCashAdjustmentDesc')}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-zinc-400">
-                      {t('modeFullCycleDesc')}
-                    </p>
-                  )}
                 </div>
               </div>
 
@@ -2732,30 +2465,235 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
           {/* =============================================================== */}
           {activeTab === 'baseline' && (
             <div className="space-y-6">
-              {/* Planned Income */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-white mb-1">
-                    {t('plannedIncome')}
-                  </label>
-                  <p className="text-[11px] text-zinc-400 mb-2">{t('plannedIncomeDesc')}</p>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={plannedIncomeInput}
-                    onChange={(e) => handlePlannedIncomeChange(e.target.value, e.target)}
-                    placeholder="e.g. 20000"
-                    className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
-
-                {incomeMinor <= 0 && (
-                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>{t('enterIncomeFirstHint')}</span>
+              {/* Calculation Mode Selector: Full Cycle vs. From Today */}
+              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-bold text-white">
+                      {t('calculationMode')}
+                    </h4>
+                    <p className="text-[11px] text-zinc-400 mt-0.5">
+                      {baselineCalculationMode === 'from_today'
+                        ? t('modeFromTodayDesc')
+                        : t('modeFullCycleDesc')}
+                    </p>
                   </div>
-                )}
+                  <div className="inline-flex p-1 rounded-xl bg-zinc-950 border border-zinc-800">
+                    <button
+                      type="button"
+                      onClick={() => handleSetCalculationMode('from_today')}
+                      className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        baselineCalculationMode === 'from_today'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      {t('modeFromToday')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetCalculationMode('full_cycle')}
+                      className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        baselineCalculationMode === 'full_cycle'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      {t('modeFullCycle')}
+                    </button>
+                  </div>
+                </div>
               </div>
+
+              {/* If From Today mode: Linked Funding Accounts Card */}
+              {baselineCalculationMode === 'from_today' ? (
+                <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                        <Wallet className="w-4 h-4 text-blue-400" />
+                        <span>{t('linkedAccountsLabel')}</span>
+                      </h4>
+                      <p className="text-[11px] text-zinc-400 mt-0.5">
+                        {t('moneyLeftHelper')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsLinkedAccountsOpen((prev) => !prev)}
+                      className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 font-semibold transition cursor-pointer"
+                    >
+                      <span>
+                        {selectedAccountIds.length}/{accounts.length}
+                      </span>
+                      {isLinkedAccountsOpen ? (
+                        <ChevronUp className="w-4 h-4" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Live Budget Display Card */}
+                  <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-amber-400" />
+                        {t('moneyLeftForRestOfCycle')}
+                      </span>
+                      <span className="text-sm font-mono font-bold text-emerald-400">
+                        {formatCurrency(liveBudget, currency)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono">
+                      <span>
+                        {t('sumOfLinkedAccounts')}: {formatCurrency(linkedAccountsBalanceSum, currency)}
+                      </span>
+                      {parsedAdjustment !== 0 && (
+                        <span className={parsedAdjustment > 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                          {parsedAdjustment > 0 ? '+' : ''}{formatCurrency(parsedAdjustment, currency)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick-filter Chips */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectLinkedAccountsPreset('non_savings')}
+                      className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-750 transition cursor-pointer"
+                    >
+                      {t('selectLinkedAccountsPresetNonSavings')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectLinkedAccountsPreset('all')}
+                      className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-750 transition cursor-pointer"
+                    >
+                      {t('selectLinkedAccountsPresetAll')}
+                    </button>
+                  </div>
+
+                  {/* Dropdown list of accounts */}
+                  {isLinkedAccountsOpen && (
+                    <div className="p-2 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-1 max-h-56 overflow-y-auto">
+                      {accounts.length === 0 ? (
+                        <div className="p-2 text-center text-xs text-zinc-500">
+                          {isArabic ? 'لا توجد حسابات' : 'No accounts found'}
+                        </div>
+                      ) : (
+                        accounts.map((acc) => {
+                          const isExcludedCurrency = Boolean(
+                            acc.currency && normalizeCurrencyCodeOrSymbol(acc.currency) !== normalizeCurrencyCodeOrSymbol(currency)
+                          );
+                          const isChecked = !isExcludedCurrency && selectedAccountIds.includes(acc.id);
+                          return (
+                            <label
+                              key={acc.id}
+                              className={`flex items-center justify-between p-2 rounded-xl transition select-none ${
+                                isExcludedCurrency
+                                  ? 'opacity-40 cursor-not-allowed bg-zinc-950/40'
+                                  : 'hover:bg-zinc-900 cursor-pointer'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <input
+                                  type="checkbox"
+                                  disabled={isExcludedCurrency}
+                                  checked={isChecked}
+                                  onChange={() => !isExcludedCurrency && handleToggleLinkedAccount(acc.id)}
+                                  className="w-4 h-4 rounded text-blue-600 bg-zinc-800 border-zinc-700 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
+                                />
+                                <span className="text-sm shrink-0">{acc.icon || '💳'}</span>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <p className="text-xs font-semibold text-zinc-200 truncate">
+                                      {acc.name}
+                                    </p>
+                                    {isExcludedCurrency && (
+                                      <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                        {isArabic ? `مستبعد (${acc.currency})` : `Excluded (${acc.currency})`}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {acc.accountRole === 'savings' && (
+                                    <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                                      {t('poolSavings')}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <span
+                                className={`text-xs font-mono font-semibold shrink-0 ${
+                                  acc.balance >= 0 ? 'text-zinc-300' : 'text-rose-400'
+                                }`}
+                              >
+                                {formatCurrency(acc.balance || 0, acc.currency || currency)}
+                              </span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+
+                  {selectedAccountIds.length === 0 && (
+                    <p className="text-[11px] text-amber-400 leading-relaxed">
+                      {t('noLinkedAccountsWarning')}
+                    </p>
+                  )}
+
+                  {/* Extra Outside Cash (Adjustment) */}
+                  <div className="space-y-1.5 pt-2 border-t border-zinc-800/80">
+                    <label className="block text-xs font-semibold text-zinc-300">
+                      {t('extraCashAdjustment')}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={adjustmentInput}
+                        onChange={(e) => handleAdjustmentChange(e.target.value)}
+                        onBlur={handleAdjustmentBlur}
+                        placeholder="0.00"
+                        className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-blue-500 focus:outline-none"
+                      />
+                      <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 font-mono pointer-events-none">
+                        {currency}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 leading-relaxed">
+                      {t('extraCashAdjustmentDesc')}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* Planned Income for Full Cycle Mode */
+                <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-white mb-1">
+                      {t('plannedIncome')}
+                    </label>
+                    <p className="text-[11px] text-zinc-400 mb-2">{t('plannedIncomeDesc')}</p>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={plannedIncomeInput}
+                      onChange={(e) => handlePlannedIncomeChange(e.target.value, e.target)}
+                      placeholder="e.g. 20000"
+                      className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {incomeMinor <= 0 && (
+                    <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{t('enterIncomeFirstHint')}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* 4-Pool Dual-Input Allocations (Always Totaling 100%) */}
               <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">

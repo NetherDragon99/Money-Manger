@@ -248,6 +248,8 @@ export interface SmartBudgetBaselineConfig {
     fixed: PoolAllocationConfig;
     outings: PoolAllocationConfig;
   };
+  calculationMode?: 'full_cycle' | 'from_today';
+  fromTodayConfig?: FromTodayConfig;
 }
 
 export interface FromTodayConfig {

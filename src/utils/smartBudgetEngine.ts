@@ -695,10 +695,13 @@ export function evaluateSmartBudget(
     const linkedBalancesSum = effectiveLinkedAccounts.reduce((sum, a) => sum + (a.balance || 0), 0);
     const manualAdj = Number(effectiveConfig.fromTodayConfig?.manualAdjustment) || 0;
     const manualAdjMinor = toMinorUnits(manualAdj, minorFactor);
-    const currentLiveBudgetMinor = Math.max(0, toMinorUnits(linkedBalancesSum, minorFactor) + manualAdjMinor);
-    const startOfDayLiveBudgetMinor = Math.max(0, currentLiveBudgetMinor + todayLinkedNetOutflowMinor);
+    const currentLiveBudgetMinor =
+      typeof effectiveConfig.fromTodayConfig?.remainingMoneyMinor === 'number'
+        ? Math.max(0, effectiveConfig.fromTodayConfig.remainingMoneyMinor)
+        : Math.max(0, toMinorUnits(linkedBalancesSum, minorFactor) + manualAdjMinor);
+    const startOfDayLiveBudgetMinor = currentLiveBudgetMinor;
 
-    remainingMoneyMinor = startOfDayLiveBudgetMinor;
+    remainingMoneyMinor = currentLiveBudgetMinor;
 
     evaluatedFromTodayConfig = {
       fromDate: fromDateStr,
@@ -808,74 +811,37 @@ export function evaluateSmartBudget(
       : Math.max(0, toMinorUnits(effectiveConfig.plannedIncome || 0, minorFactor));
 
   // 4. Split Income Into 4 Pools (Minor Units Integer Math with Half-Up Rounding)
-  let savingsMinor = 0;
-  let fixedMinor = 0;
-  let outingsMinor = 0;
+  // Calculate Savings, Bills (Fixed), and Outings via percentages.
+  // Force Daily Spending to be the ABSOLUTE REMAINDER: Daily = Budget - (Savings + Bills + Outings).
+  const savingsPct =
+    effectiveConfig.poolsConfig?.savings?.percent ??
+    (effectiveConfig.savings?.type === 'percent' ? effectiveConfig.savings.value : 0);
+  const fixedPct =
+    effectiveConfig.poolsConfig?.fixed?.percent ??
+    (effectiveConfig.plannedFixedObligations && cycleIncomeMinor > 0
+      ? (toMinorUnits(effectiveConfig.plannedFixedObligations, minorFactor) / cycleIncomeMinor) * 100
+      : 0);
+  const outingsPct =
+    effectiveConfig.poolsConfig?.outings?.percent ??
+    (effectiveConfig.outingsBudget && cycleIncomeMinor > 0
+      ? (toMinorUnits(effectiveConfig.outingsBudget, minorFactor) / cycleIncomeMinor) * 100
+      : 0);
 
-  if (calculationMode === 'from_today') {
-    // In "From Today" mode: applies pool percentages to this remaining amount
-    const savingsPct =
-      effectiveConfig.poolsConfig?.savings?.percent ??
-      (effectiveConfig.savings?.type === 'percent' ? effectiveConfig.savings.value : 0);
-    const fixedPct = effectiveConfig.poolsConfig?.fixed?.percent ?? 0;
-    const outingsPct = effectiveConfig.poolsConfig?.outings?.percent ?? 0;
+  const savingsMinor = Math.min(
+    cycleIncomeMinor,
+    Math.max(0, roundHalfUp(cycleIncomeMinor * (Math.max(0, savingsPct) / 100)))
+  );
+  const fixedMinor = Math.min(
+    Math.max(0, cycleIncomeMinor - savingsMinor),
+    Math.max(0, roundHalfUp(cycleIncomeMinor * (Math.max(0, fixedPct) / 100)))
+  );
+  const outingsMinor = Math.min(
+    Math.max(0, cycleIncomeMinor - savingsMinor - fixedMinor),
+    Math.max(0, roundHalfUp(cycleIncomeMinor * (Math.max(0, outingsPct) / 100)))
+  );
 
-    savingsMinor = roundHalfUp(cycleIncomeMinor * (Math.max(0, savingsPct) / 100));
-    savingsMinor = Math.min(cycleIncomeMinor, Math.max(0, savingsMinor));
-
-    fixedMinor = roundHalfUp(cycleIncomeMinor * (Math.max(0, fixedPct) / 100));
-    fixedMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor), Math.max(0, fixedMinor));
-
-    outingsMinor = roundHalfUp(cycleIncomeMinor * (Math.max(0, outingsPct) / 100));
-    outingsMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor - fixedMinor), Math.max(0, outingsMinor));
-  } else if (effectiveConfig.poolsConfig) {
-    if (effectiveConfig.poolsConfig.savings) {
-      if (effectiveConfig.poolsConfig.savings.mode === 'percent') {
-        savingsMinor = roundHalfUp(cycleIncomeMinor * (effectiveConfig.poolsConfig.savings.percent / 100));
-      } else {
-        savingsMinor = roundHalfUp(effectiveConfig.poolsConfig.savings.minorUnits);
-      }
-    }
-    savingsMinor = Math.min(cycleIncomeMinor, Math.max(0, savingsMinor));
-
-    if (effectiveConfig.poolsConfig.fixed) {
-      if (effectiveConfig.poolsConfig.fixed.mode === 'percent') {
-        fixedMinor = roundHalfUp(cycleIncomeMinor * (effectiveConfig.poolsConfig.fixed.percent / 100));
-      } else {
-        fixedMinor = roundHalfUp(effectiveConfig.poolsConfig.fixed.minorUnits);
-      }
-    }
-    fixedMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor), Math.max(0, fixedMinor));
-
-    if (effectiveConfig.poolsConfig.outings) {
-      if (effectiveConfig.poolsConfig.outings.mode === 'percent') {
-        outingsMinor = roundHalfUp(cycleIncomeMinor * (effectiveConfig.poolsConfig.outings.percent / 100));
-      } else {
-        outingsMinor = roundHalfUp(effectiveConfig.poolsConfig.outings.minorUnits);
-      }
-    }
-    outingsMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor - fixedMinor), Math.max(0, outingsMinor));
-  } else {
-    // Legacy calculation fallback
-    if (effectiveConfig.savings) {
-      if (effectiveConfig.savings.type === 'percent') {
-        savingsMinor = roundHalfUp(cycleIncomeMinor * (Math.max(0, effectiveConfig.savings.value) / 100));
-      } else {
-        savingsMinor = toMinorUnits(Math.max(0, effectiveConfig.savings.value), minorFactor);
-      }
-      savingsMinor = Math.min(cycleIncomeMinor, savingsMinor);
-    }
-
-    const plannedFixedMinor = toMinorUnits(Math.max(0, effectiveConfig.plannedFixedObligations || 0), minorFactor);
-    fixedMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor), plannedFixedMinor);
-
-    const plannedOutingsMinor = toMinorUnits(Math.max(0, effectiveConfig.outingsBudget || 0), minorFactor);
-    outingsMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor - fixedMinor), plannedOutingsMinor);
-  }
-
-  // Pool 4: Daily Safe-to-Spend (absorbs remainder + any Option 2 'add_to_spending' withdrawal adjustments)
-  const baseDailyMinor = Math.max(0, cycleIncomeMinor - savingsMinor - fixedMinor - outingsMinor);
-  const dailyMinor = Math.max(0, baseDailyMinor + dailyPoolAdjustmentMinor);
+  // Daily Spending is the ABSOLUTE REMAINDER: Daily = Budget - (Savings + Bills + Outings)
+  const dailyMinor = Math.max(0, cycleIncomeMinor - (savingsMinor + fixedMinor + outingsMinor));
 
   // 5. Attribute Expenses to Pools ('daily' | 'fixed' | 'outings' | 'oneoff')
   const fixedCategorySet = new Set(effectiveConfig.fixedCategoryIds || []);
@@ -1012,9 +978,10 @@ export function evaluateSmartBudget(
       : allCycleDates;
   const sumActiveWeights = activeDates.reduce((acc, d) => acc + getWeightForDate(d), 0);
 
-  // Planned baseline daily allowance at cycle start (or from_today start, weighted for today)
+  // Planned baseline daily allowance at cycle start (strict simple division)
+  const activeDaysCount = activeDates.length;
   const plannedDailyAllowanceMinor =
-    sumActiveWeights > 0 ? roundHalfUp((dailyMinor * weightToday) / sumActiveWeights) : 0;
+    activeDaysCount > 0 ? roundHalfUp(dailyMinor / activeDaysCount) : 0;
 
   // 7. Calculate Today's Baseline Allowance (Allowed Today = Remaining Daily Pool at start of today ÷ Remaining Days in Cycle including today)
   const rollover = effectiveConfig.rolloverSetting || 'spread';
@@ -1023,7 +990,6 @@ export function evaluateSmartBudget(
 
   if (calculationMode === 'from_today') {
     // In "From Today" mode:
-    // startOfDayLiveBudgetMinor was computed from (current live budget + today's net outflow).
     // Past spending before today is ALREADY reflected in account balances and must NEVER be deducted again.
     dailyPoolRemainingAtStartOfTodayMinor = dailyMinor;
   } else if (rollover === 'sweep_to_savings') {
@@ -1034,10 +1000,8 @@ export function evaluateSmartBudget(
       const dStr = formatLocalDate(d);
       if (dStr >= asOfStr) break;
 
-      const remDatesAtD = allCycleDates.slice(i);
-      const sumWeightsAtD = remDatesAtD.reduce((acc, x) => acc + getWeightForDate(x), 0);
-      const wD = getWeightForDate(d);
-      const allowD = sumWeightsAtD > 0 ? roundHalfUp((Math.max(0, poolSimMinor) * wD) / sumWeightsAtD) : 0;
+      const remDaysAtD = allCycleDates.length - i;
+      const allowD = remDaysAtD > 0 ? roundHalfUp(Math.max(0, poolSimMinor) / remDaysAtD) : 0;
       const spentD = dailySpentByDate[dStr] || 0;
 
       if (spentD <= allowD) {
@@ -1051,13 +1015,14 @@ export function evaluateSmartBudget(
     dailyPoolRemainingAtStartOfTodayMinor = poolSimMinor;
   } else {
     // Default 'spread': Remaining Daily Pool at start of today
-    dailyPoolRemainingAtStartOfTodayMinor = dailyMinor - effectiveDailySpentBeforeTodayMinor;
+    dailyPoolRemainingAtStartOfTodayMinor = Math.max(0, dailyMinor - effectiveDailySpentBeforeTodayMinor);
   }
 
+  // Strict simple division: Allowed Today = (Remaining Daily Spending Pool) / (Remaining Days)
   let todayAllowanceMinor = 0;
-  if (remainingDaysInCycle > 0 && sumRemainingWeights > 0 && dailyPoolRemainingAtStartOfTodayMinor > 0) {
+  if (remainingDaysInCycle > 0 && dailyPoolRemainingAtStartOfTodayMinor > 0) {
     todayAllowanceMinor = roundHalfUp(
-      (dailyPoolRemainingAtStartOfTodayMinor * weightToday) / sumRemainingWeights
+      dailyPoolRemainingAtStartOfTodayMinor / remainingDaysInCycle
     );
   }
 
@@ -1070,17 +1035,13 @@ export function evaluateSmartBudget(
   const effectiveDailySpentMinor = dailySpentMinor + totalSpilledToDailyMinor;
   const effectiveDailyRemainingMinor = dailyMinor - effectiveDailySpentMinor;
 
-  // Daily amount for upcoming days (Y) after absorbing today's spending
+  // Daily amount for upcoming days after absorbing today's spending:
+  // Strict simple division: (Remaining Daily Pool After Today) / (Remaining Upcoming Days)
   let upcomingDailyAllowanceMinor = 0;
-  if (remainingDaysInCycle > 1) {
-    const futureDates = remainingDates.slice(1);
-    const sumFutureWeights = futureDates.reduce((acc, d) => acc + getWeightForDate(d), 0);
-    const nextDayWeight = futureDates.length > 0 ? getWeightForDate(futureDates[0]) : 1.0;
-    if (sumFutureWeights > 0 && dailyPoolRemainingAfterTodayMinor > 0) {
-      upcomingDailyAllowanceMinor = roundHalfUp(
-        (dailyPoolRemainingAfterTodayMinor * nextDayWeight) / sumFutureWeights
-      );
-    }
+  if (remainingDaysInCycle > 1 && dailyPoolRemainingAfterTodayMinor > 0) {
+    upcomingDailyAllowanceMinor = roundHalfUp(
+      dailyPoolRemainingAfterTodayMinor / (remainingDaysInCycle - 1)
+    );
   } else {
     upcomingDailyAllowanceMinor = Math.max(0, todayRemainingMinor);
   }
@@ -1146,15 +1107,12 @@ export function evaluateSmartBudget(
     const newPoolRem = dailyPoolRemainingAtStartOfTodayMinor - todaySpentMinor - additionalDailyImpactMinor;
     if (newPoolRem <= 0 || remainingDaysInCycle <= 1) return 0;
 
-    // Project tomorrow's allowance
+    // Project tomorrow's allowance with strict simple division
     const tomorrowDate = addDays(parseLocalDate(onDateInput), 1);
     const remTomorrow = allCycleDates.filter((d) => formatLocalDate(d) >= formatLocalDate(tomorrowDate));
     if (remTomorrow.length === 0) return 0;
-    const wTomorrow = getWeightForDate(remTomorrow[0]);
-    const sumTomorrowWeights = remTomorrow.reduce((acc, d) => acc + getWeightForDate(d), 0);
-    if (sumTomorrowWeights <= 0) return 0;
 
-    const projectedTomorrowMinor = roundHalfUp((Math.max(0, newPoolRem) * wTomorrow) / sumTomorrowWeights);
+    const projectedTomorrowMinor = roundHalfUp(Math.max(0, newPoolRem) / remTomorrow.length);
     return toMajorUnits(projectedTomorrowMinor, minorFactor);
   };
 
