@@ -1,0 +1,44 @@
+[
+  {
+    "version": "1.1.68",
+    "isBeta": true,
+    "releaseDate": "November 2, 2026",
+    "title": {
+      "en": "Beta Pre-Release: Smart Budget Engine & Rebalance Polish",
+      "ar": "إصدار تجريبي: محرك الميزانية الذكية وتحسينات إعادة التوازن"
+    },
+    "highlights": {
+      "en": [
+        "What-if scenario simulations with live daily allowance feedback",
+        "Deterministic un-clamped rebalancing calculations",
+        "Refined manual balance adjustment ledger tracking"
+      ],
+      "ar": [
+        "محاكاة سيناريوهات المشتروات مع حساب فوري للمصروف اليومي المتبقي",
+        "حسابات إعادة توازن دقيقة ومباشرة للميزانية",
+        "تسجيل محسّن لتعديلات الأرصدة اليدوية مع إظهار الفروقات بدقة"
+      ]
+    }
+  },
+  {
+    "version": "1.1.62",
+    "isBeta": true,
+    "releaseDate": "October 29, 2026",
+    "title": {
+      "en": "Channel-Aware Release Updates and Early Testing Tools",
+      "ar": "تحديثات سجل التغييرات وأدوات التجربة المبكرة"
+    },
+    "highlights": {
+      "en": [
+        "Easier early testing: Preview upcoming features before official releases with one tap",
+        "Clear update tags: See which improvements are early previews and which are official",
+        "Safer channel switching: Try new features with full backup protection whenever you want"
+      ],
+      "ar": [
+        "تجربة أسهل وأسرع: جرب الميزات الجديدة قبل نزولها للكل بضغطة واحدة",
+        "علامات واضحة للتحديثات: اعرف بسهولة إيه الميزات التجريبية وإيه التحديثات الرسمية",
+        "تنقل آمن وسلس: جرب الجديد براحتك مع حماية كاملة لبياناتك ونسخ احتياطي فوري"
+      ]
+    }
+  }
+]

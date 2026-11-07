@@ -10,11 +10,23 @@ import {
   formatVersionLabel,
   isAutoUpdateEnabled,
   setAutoUpdateEnabled,
+  checkForAppUpdates,
+  applyLatestAppUpdate,
+  checkForNewerOfficialRelease,
+  type StableReleaseCheckResult,
 } from '../utils/versionChecker';
+import {
+  applyUpdateSafely,
+  getIsUpdateReady,
+  getLatestPreUpdateSnapshot,
+  restoreFromPreUpdateSnapshot,
+} from '../utils/autoUpdateService';
 import { saveItemToIndexedDB } from '../utils/indexedDB';
 import { exportAllDataAsJSON } from '../utils/storage';
 import { useNavigation } from '../context/NavigationContext';
 import { JoinBetaWarningModal } from './JoinBetaWarningModal';
+import { ExportCustomizeModal } from './ExportCustomizeModal';
+import { ImportCustomizeModal } from './ImportCustomizeModal';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   X,
@@ -33,6 +45,12 @@ import {
   ChevronRight,
   RefreshCw,
   Download,
+  Upload,
+  Folder,
+  RotateCw,
+  Sparkles,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { WeekStartDay } from '../types';
@@ -59,6 +77,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     updateSettings,
     setIsPinModalOpen,
     setIsTransferFeesModalOpen,
+    isExportModalOpen,
+    setIsExportModalOpen,
+    isImportModalOpen,
+    setIsImportModalOpen,
     lockApp,
     showToast,
     accounts,
@@ -89,6 +111,148 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [autoUpdateEnabled, setAutoUpdateState] = useState(() => isAutoUpdateEnabled());
   const [isBetaAvailable, setIsBetaAvailable] = useState<boolean | null>(null);
   const [isJoinBetaModalOpen, setIsJoinBetaModalOpen] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateStep, setUpdateStep] = useState<string | null>(null);
+  const [isUpdateReady, setIsUpdateReady] = useState(() => getIsUpdateReady());
+  const [newerStableInfo, setNewerStableInfo] = useState<StableReleaseCheckResult | null>(null);
+  const [isStableNoticeDismissed, setIsStableNoticeDismissed] = useState(false);
+
+  useEffect(() => {
+    const onUpdateReady = () => setIsUpdateReady(true);
+    window.addEventListener('mm_update_ready', onUpdateReady);
+    return () => window.removeEventListener('mm_update_ready', onUpdateReady);
+  }, []);
+
+  useEffect(() => {
+    if (!IS_BETA_BUILD) return;
+    let active = true;
+    checkForNewerOfficialRelease()
+      .then((res) => {
+        if (!active || !res?.hasNewerStable) return;
+        try {
+          const dismissed = sessionStorage.getItem('mm_dismiss_stable_notice');
+          if (dismissed === res.stableVersion) return;
+        } catch {}
+        setNewerStableInfo(res);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleDismissStableNotice = () => {
+    setIsStableNoticeDismissed(true);
+    try {
+      if (newerStableInfo?.stableVersion) {
+        sessionStorage.setItem('mm_dismiss_stable_notice', newerStableInfo.stableVersion);
+      }
+    } catch {}
+  };
+
+  const handleSwitchToStable = () => {
+    const message = t('confirmSwitchToStable');
+    const confirmed = window.confirm(message);
+    if (confirmed) {
+      try {
+        localStorage.removeItem('mm_join_beta');
+      } catch {}
+      if (newerStableInfo?.stableBaseUrl) {
+        window.location.href = newerStableInfo.stableBaseUrl;
+      }
+    }
+  };
+
+  const handleApplyUpdateNow = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateStep(isArabic ? 'جاري تطبيق التحديث بأمان...' : 'Applying update safely...');
+    try {
+      await applyUpdateSafely({ force: true });
+    } catch (err: any) {
+      setIsCheckingUpdate(false);
+      setUpdateStep(null);
+      showToast(err?.message || 'Failed to apply update', 'error');
+    }
+  };
+
+  const handleManualCheckAndUpdate = async () => {
+    if (isCheckingUpdate) return;
+    setIsCheckingUpdate(true);
+    setUpdateStep(isArabic ? 'جاري فحص التحديثات...' : 'Checking for updates...');
+
+    try {
+      const res = await checkForAppUpdates();
+      if (res.hasUpdate) {
+        setUpdateStep(
+          isArabic
+            ? `تم العثور على إصدار جديد (v${res.latestVersion})! جاري التثبيت...`
+            : `New version (v${res.latestVersion}) found! Installing...`
+        );
+        showToast(
+          isArabic
+            ? `تم توفر إصدار جديد (v${res.latestVersion})! جاري تحديث التطبيق الآن...`
+            : `New version available (v${res.latestVersion})! Updating app now...`,
+          'info'
+        );
+        setTimeout(() => {
+          applyLatestAppUpdate((step) => {
+            if (step === 'service_worker') {
+              setUpdateStep(isArabic ? 'تحديث مشغل الخدمة...' : 'Updating Service Worker...');
+            } else if (step === 'cache_cleanup') {
+              setUpdateStep(isArabic ? 'مسح الذاكرة المؤقتة القديمة...' : 'Clearing outdated caches...');
+            } else if (step === 'reloading') {
+              setUpdateStep(isArabic ? 'إعادة تشغيل التطبيق بالنسخة الجديدة...' : 'Reloading into new version...');
+            }
+          });
+        }, 500);
+      } else {
+        setUpdateStep(null);
+        setIsCheckingUpdate(false);
+        showToast(
+          isArabic
+            ? 'تطبيقك مُحدّث بالكامل إلى أحدث إصدار!'
+            : 'Your app is up to date with the latest version!',
+          'success'
+        );
+      }
+    } catch (err) {
+      console.warn('[SettingsModal] Manual update check error:', err);
+      setUpdateStep(null);
+      setIsCheckingUpdate(false);
+      showToast(
+        isArabic ? 'تعذر فحص التحديثات في الوقت الحالي' : 'Could not check for updates right now',
+        'error'
+      );
+    }
+  };
+
+  const handleRestorePreUpdateSnapshot = async () => {
+    try {
+      const snapshot = await getLatestPreUpdateSnapshot();
+      if (!snapshot) {
+        showToast(t('noPreUpdateSnapshotFound'), 'info');
+        return;
+      }
+
+      const dateStr = new Date(snapshot.timestamp).toLocaleString(isArabic ? 'ar-EG' : 'en-US');
+      const confirmPrompt = `${t('confirmRestorePreUpdateSnapshot')}\n\n${t('snapshotDate')}: ${dateStr}\n${t('snapshotVersion')}: ${snapshot.versionLabel || snapshot.version}`;
+
+      if (window.confirm(confirmPrompt)) {
+        const ok = await restoreFromPreUpdateSnapshot(snapshot.id);
+        if (ok) {
+          showToast(t('preUpdateSnapshotRestored'), 'success');
+          setTimeout(() => {
+            window.location.reload();
+          }, 600);
+        } else {
+          showToast(isArabic ? 'فشلت الاستعادة من النسخة' : 'Failed to restore snapshot', 'error');
+        }
+      }
+    } catch (err) {
+      console.error('[SettingsModal] Error restoring pre-update snapshot:', err);
+      showToast(isArabic ? 'حدث خطأ أثناء الاستعادة' : 'Error during restoration', 'error');
+    }
+  };
 
   useEffect(() => {
     if (!IS_BETA_BUILD) {
@@ -623,12 +787,88 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             )}
           </div>
 
-          {/* Section 6: App Updates & Release Channel Preferences */}
+          {/* Section 6: Data & Backups */}
           <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3.5">
             <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
-              <RefreshCw className="w-4 h-4 text-emerald-400" />
-              <span>{isArabic ? 'تحديثات التطبيق والقناة' : 'App Updates & Channel Preferences'}</span>
+              <Download className="w-4 h-4 text-blue-400" />
+              <span>{isArabic ? 'إدارة البيانات والنسخ الاحتياطي' : 'Data & Backups'}</span>
             </h4>
+
+            {/* Custom Data Export */}
+            <div className="p-3.5 rounded-xl bg-zinc-950/60 border border-zinc-800/60 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
+                  <Download className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h5 className="text-xs font-bold text-white truncate">
+                    {isArabic ? 'تصدير البيانات المخصصة' : 'Custom Data Export'}
+                  </h5>
+                  <p className="text-[10px] text-zinc-400 truncate mt-0.5">
+                    {isArabic ? 'تصدير التقارير والمعاملات' : 'Export reports & transactions'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsExportModalOpen(true)}
+                className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold transition cursor-pointer active:scale-95 shrink-0"
+              >
+                {isArabic ? 'تخصيص' : 'Customize'}
+              </button>
+            </div>
+
+            {/* Custom Data Import */}
+            <div className="p-3.5 rounded-xl bg-zinc-950/60 border border-zinc-800/60 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                  <Upload className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h5 className="text-xs font-bold text-white truncate">
+                    {isArabic ? 'استيراد البيانات المخصص' : 'Custom Data Import'}
+                  </h5>
+                  <p className="text-[10px] text-zinc-400 truncate mt-0.5">
+                    {isArabic ? 'معاينة ودمج أو استبدال الأقسام' : 'Preview, merge, or replace'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsImportModalOpen(true)}
+                className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs font-semibold transition cursor-pointer active:scale-95 shrink-0"
+              >
+                {isArabic ? 'استيراد' : 'Import'}
+              </button>
+            </div>
+
+            {/* Restore from Pre-Update Snapshot */}
+            <button
+              type="button"
+              onClick={handleRestorePreUpdateSnapshot}
+              className="w-full min-h-[44px] flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 hover:bg-zinc-850 active:scale-98 border border-zinc-800/60 text-zinc-300 hover:text-white text-xs font-semibold transition cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-blue-500/15 text-blue-400 flex items-center justify-center shrink-0">
+                  <Folder className="w-3.5 h-3.5" />
+                </div>
+                <span className="truncate">{t('restorePreUpdateSnapshot')}</span>
+              </div>
+              <ChevronRight className={`w-3.5 h-3.5 text-zinc-500 shrink-0 ${isArabic ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
+
+          {/* Section 7: App Updates & Release Channel Preferences */}
+          <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3.5">
+            <div className="flex items-center justify-between min-w-0">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+                <RefreshCw className="w-4 h-4 text-emerald-400" />
+                <span>{isArabic ? 'تحديثات التطبيق والقناة' : 'App Updates & Channel Preferences'}</span>
+              </h4>
+              <span className="text-[10px] text-zinc-400 font-mono">
+                {formatVersionLabel(CURRENT_APP_VERSION)}
+              </span>
+            </div>
 
             {/* Auto-Update Toggle */}
             <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/60">
@@ -707,6 +947,95 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </button>
               )}
             </div>
+
+            {/* Official Stable Release Notice for Beta Channel Users */}
+            {IS_BETA_BUILD && newerStableInfo && !isStableNoticeDismissed && (
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-blue-950/70 to-indigo-950/70 border border-blue-500/40 text-white relative shadow-sm">
+                <button
+                  type="button"
+                  onClick={handleDismissStableNotice}
+                  className="absolute top-2 right-2 rtl:right-auto rtl:left-2 p-1 text-zinc-400 hover:text-white rounded-lg transition cursor-pointer"
+                  title={isArabic ? 'إغلاق' : 'Dismiss'}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+                <div className="flex items-start gap-2.5 pr-6 rtl:pr-0 rtl:pl-6">
+                  <div className="w-7 h-7 rounded-lg bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-400 shrink-0 mt-0.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-blue-200 leading-snug">
+                      {t('newerOfficialReleaseAvailable')}
+                    </p>
+                    <p className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                      v{newerStableInfo.stableVersion}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSwitchToStable}
+                  className="mt-2.5 w-full min-h-[40px] py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-md shadow-blue-600/20 transition cursor-pointer"
+                >
+                  <span>{t('switchToStable')}</span>
+                  <ExternalLink className={`w-3.5 h-3.5 ${isArabic ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+            )}
+
+            {/* Update Ready Notice */}
+            {isUpdateReady && (
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-950/80 to-teal-950/80 border border-emerald-500/40 text-white flex items-center justify-between gap-2 shadow-sm animate-in fade-in">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400 shrink-0">
+                    <Sparkles className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-emerald-200 truncate">
+                      {t('updateReadyTitle')}
+                    </p>
+                    <p className="text-[10px] text-zinc-400 truncate">
+                      {t('updateReadyTapToApply')}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleApplyUpdateNow}
+                  className="min-h-[40px] px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-[11px] font-bold shrink-0 transition cursor-pointer shadow-md shadow-emerald-600/20"
+                >
+                  {t('updateNow')}
+                </button>
+              </div>
+            )}
+
+            {/* In-App Progress Indicator during Update Checking & Applying */}
+            {updateStep && (
+              <div className="p-2.5 rounded-xl bg-purple-950/40 border border-purple-500/30 flex items-center gap-2 text-purple-300 text-[11px] animate-in fade-in">
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0 text-purple-400" />
+                <span className="truncate">{updateStep}</span>
+              </div>
+            )}
+
+            {/* Manual Check & Update Now Button */}
+            <button
+              type="button"
+              disabled={isCheckingUpdate}
+              onClick={handleManualCheckAndUpdate}
+              className="w-full min-h-[44px] flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-750 active:scale-98 border border-zinc-700 text-zinc-200 hover:text-white text-xs font-bold transition cursor-pointer disabled:opacity-50 shadow-sm"
+            >
+              {isCheckingUpdate ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
+                  <span>{isArabic ? 'جارٍ الفحص والتحديث...' : 'Checking & Updating...'}</span>
+                </>
+              ) : (
+                <>
+                  <RotateCw className="w-3.5 h-3.5 text-purple-400" />
+                  <span>{isArabic ? 'فحص وتحديث الآن' : 'Check & Update Now'}</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -763,6 +1092,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         onCancel={() => {
           setPasscodeModal({ isOpen: false, mode: 'disable_lock' });
         }}
+      />
+
+      {/* Persistent Customize Export Modal */}
+      <ExportCustomizeModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+      />
+
+      {/* Persistent Customize Import Modal */}
+      <ImportCustomizeModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
       />
     </div>
   );

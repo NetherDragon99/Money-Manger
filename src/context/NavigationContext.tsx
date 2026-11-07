@@ -110,6 +110,12 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (s.isSettingsModalOpen) {
       stack.push('modal:settings');
     }
+    if (s.isExportModalOpen) {
+      stack.push('modal:export');
+    }
+    if (s.isImportModalOpen) {
+      stack.push('modal:import');
+    }
     if (s.isTransferFeesModalOpen) {
       stack.push('modal:transfer_fees');
     }
@@ -201,6 +207,8 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     app.isRecurringModalOpen,
     app.isSmartBudgetModalOpen,
     app.isSettingsModalOpen,
+    app.isExportModalOpen,
+    app.isImportModalOpen,
     app.isTransferFeesModalOpen,
     app.isUserProfileModalOpen,
     app.isFeaturesModalOpen,
@@ -323,6 +331,14 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       if (s.isTransferFeesModalOpen) {
         s.setIsTransferFeesModalOpen(false);
+        return;
+      }
+      if (s.isImportModalOpen) {
+        s.setIsImportModalOpen(false);
+        return;
+      }
+      if (s.isExportModalOpen) {
+        s.setIsExportModalOpen(false);
         return;
       }
       if (s.isSettingsModalOpen) {

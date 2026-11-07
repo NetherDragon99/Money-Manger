@@ -256,6 +256,10 @@ interface AppContextType {
   setIsSettingsModalOpen: (open: boolean) => void;
   isTransferFeesModalOpen: boolean;
   setIsTransferFeesModalOpen: (open: boolean) => void;
+  isExportModalOpen: boolean;
+  setIsExportModalOpen: (open: boolean) => void;
+  isImportModalOpen: boolean;
+  setIsImportModalOpen: (open: boolean) => void;
 
   // Security & Biometric Lock
   isAppLocked: boolean;
@@ -493,6 +497,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isSmartBudgetModalOpen, setIsSmartBudgetModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isTransferFeesModalOpen, setIsTransferFeesModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isSharedHubModalOpen, setIsSharedHubModalOpen] = useState(false);
   const [isEditingSpace, setIsEditingSpace] = useState(false);
   const [editingShareId, setEditingShareId] = useState<string | null>(null);
@@ -5092,6 +5098,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsSmartBudgetModalOpen,
     setIsSettingsModalOpen,
     setIsTransferFeesModalOpen,
+    setIsExportModalOpen,
+    setIsImportModalOpen,
     setIsSharedHubModalOpen,
     setIsEditingSpace,
     setEditingShareId,
@@ -5203,6 +5211,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isSmartBudgetModalOpen,
       isSettingsModalOpen,
       isTransferFeesModalOpen,
+      isExportModalOpen,
+      isImportModalOpen,
       isSharedHubModalOpen,
       isEditingSpace,
       editingShareId,
@@ -5270,6 +5280,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isSmartBudgetModalOpen,
       isSettingsModalOpen,
       isTransferFeesModalOpen,
+      isExportModalOpen,
+      isImportModalOpen,
       isSharedHubModalOpen,
       isEditingSpace,
       editingShareId,
