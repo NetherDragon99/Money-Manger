@@ -102,7 +102,7 @@ export const BetaInstallBanner: React.FC = () => {
         </div>
         <div className="min-w-0">
           <p className="font-bold text-white text-xs truncate">
-            {isArabic ? 'تثبيت تطبيق بيتا' : 'Install the Beta app'}
+            {isArabic ? 'تثبيت تطبيق بيتا' : 'Install Beta App'}
           </p>
           <p className="text-[10px] text-zinc-400 leading-tight line-clamp-2">
             {isArabic

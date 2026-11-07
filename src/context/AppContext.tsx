@@ -3213,13 +3213,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           phoneNumber: user.phoneNumber || null,
         });
 
+        const boundUid = localStorage.getItem('mm_bound_account_uid');
+        const isDeviceBoundToUser = boundUid === user.uid;
+
+        // If offline: preserve local / cached user session and unlock local sync if bound;
+        // do NOT perform network cloud inspection, V4 sync, or attach RTDB listeners.
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          if (isDeviceBoundToUser) {
+            isSyncUnlockedRef.current = true;
+            setCloudBackupBlocked(false);
+            isCloudHydratedRef.current = true;
+          }
+          return;
+        }
+
         // Fetch user's private Gemini API key from secure secrets path if available
         fetchGeminiApiKeyFromCloud(user.uid).catch((err) => {
           console.warn('[AppContext] fetchGeminiApiKeyFromCloud error:', err);
         });
-
-        const boundUid = localStorage.getItem('mm_bound_account_uid');
-        const isDeviceBoundToUser = boundUid === user.uid;
 
         if (!isDeviceBoundToUser) {
           // STAGE 1: SIGN-IN FREEZE & CLOUD INSPECTION
@@ -3394,8 +3405,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
 
+    const handleOnlineIdentity = () => {
+      const activeUser = auth.currentUser || getCachedAuthUser();
+      if (activeUser) {
+        syncIdentity(activeUser);
+      }
+    };
+    window.addEventListener('online', handleOnlineIdentity);
+
     return () => {
       isMounted = false;
+      window.removeEventListener('online', handleOnlineIdentity);
       if (unsubRemoteBackupRef.current) {
         unsubRemoteBackupRef.current();
         unsubRemoteBackupRef.current = null;

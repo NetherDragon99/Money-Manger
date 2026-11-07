@@ -87,6 +87,7 @@ export function compareVersions(current: string, latest: string): boolean {
 export async function checkForNewerOfficialRelease(): Promise<StableReleaseCheckResult | null> {
   if (!IS_BETA_BUILD) return null;
   if (typeof window === 'undefined') return null;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
 
   try {
     const stableBaseUrl = STABLE_BASE_URL;

@@ -99,7 +99,7 @@ export default defineConfig(({ command, mode }) => {
           'pwa-512x512.png',
         ],
         manifest: {
-          id: isBeta ? `${channelScope}` : base,
+          id: isBeta ? (channelScope === './' ? './beta' : `${channelScope}`) : base,
           name: isBeta ? 'Personal Finance Tracker (Beta)' : 'Personal Finance Tracker',
           short_name: isBeta ? 'FinanceApp (Beta)' : 'FinanceApp',
           description:
@@ -142,7 +142,7 @@ export default defineConfig(({ command, mode }) => {
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
-          navigateFallback: isDev ? (isBeta ? '/beta/index.html' : '/index.html') : (existingBase === './' ? 'index.html' : `${base}index.html`),
+          navigateFallback: `${base}index.html`,
           navigateFallbackAllowlist: isBeta ? [/.*beta.*/, /^\.\/.*index\.html/] : [/^(?!.*beta).*$/],
           navigateFallbackDenylist: isBeta ? [/^\/api/] : [/^\/api/, /.*beta.*/],
           runtimeCaching: [

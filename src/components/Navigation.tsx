@@ -30,8 +30,6 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     isCategoryModalOpen,
     isResetPeriodModalOpen,
     isFilterModalOpen,
-    isSettingsModalOpen,
-    customDialogState,
     shareModalState,
     remainingBalanceModalState,
     activeSharedId,
@@ -65,8 +63,6 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
     isCategoryModalOpen ||
     isResetPeriodModalOpen ||
     isFilterModalOpen ||
-    isSettingsModalOpen ||
-    customDialogState ||
     shareModalState?.isOpen ||
     remainingBalanceModalState?.isOpen ||
     activeSharedId ||

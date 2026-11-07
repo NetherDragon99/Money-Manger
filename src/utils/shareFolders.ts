@@ -4839,6 +4839,7 @@ export function subscribeToActiveSpacesTransactions(): () => void {
   const activeUnsubs = new Map<string, () => void>();
 
   const attachToSpaces = () => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     const allSpaces = loadAllSpacesV3();
     const currentIds = new Set<string>();
 
@@ -5279,6 +5280,14 @@ export function subscribeToMyInbox(
   cleanups.push(() => {
     if (emitTimer) clearTimeout(emitTimer);
   });
+
+  emitCombined();
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return () => {
+      cleanups.forEach((fn) => fn());
+    };
+  }
 
   const subscribeMasterShare = (shareId: string) => {
     const rawShareId = normalizeShareId(shareId);

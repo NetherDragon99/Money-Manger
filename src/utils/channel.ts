@@ -67,6 +67,7 @@ let cachedBetaAvailability: boolean | null = null;
  */
 export async function checkBetaAvailability(forceRefresh = false): Promise<boolean> {
   if (typeof window === 'undefined') return false;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
   if (!forceRefresh && cachedBetaAvailability !== null) {
     return cachedBetaAvailability;
   }

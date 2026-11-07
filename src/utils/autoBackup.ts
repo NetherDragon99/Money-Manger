@@ -1412,7 +1412,7 @@ export function attachV4LiveListeners(
     onManifest?: (settings: any, profile: any, smartBudget?: any) => void;
   }
 ): () => void {
-  if (!uid || !rtdb) return () => {};
+  if (!uid || !rtdb || (typeof navigator !== 'undefined' && !navigator.onLine)) return () => {};
 
   const manRef = ref(rtdb, `shared_accounts/g_manifest_${uid}`);
   const txRef = ref(rtdb, `shared_accounts/g_${uid}_transactions`);
