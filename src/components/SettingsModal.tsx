@@ -8,6 +8,7 @@ import {
 import {
   CURRENT_APP_VERSION,
   formatVersionLabel,
+  formatFullVersionWithBuild,
   isAutoUpdateEnabled,
   setAutoUpdateEnabled,
   checkForAppUpdates,
@@ -866,7 +867,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <span>{isArabic ? 'تحديثات التطبيق والقناة' : 'App Updates & Channel Preferences'}</span>
               </h4>
               <span className="text-[10px] text-zinc-400 font-mono">
-                {formatVersionLabel(CURRENT_APP_VERSION)}
+                {formatFullVersionWithBuild(CURRENT_APP_VERSION)}
               </span>
             </div>
 

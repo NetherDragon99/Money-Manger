@@ -21,7 +21,7 @@ import {
 import { format16DigitId } from '../utils/userId';
 import { isRealPhotoUrl } from '../utils/shareFolders';
 import { installPwa } from '../utils/pwaInstall';
-import { CURRENT_APP_VERSION, formatVersionLabel } from '../utils/versionChecker';
+import { CURRENT_APP_VERSION, formatVersionLabel, formatFullVersionWithBuild } from '../utils/versionChecker';
 import { auth, loginWithGoogle } from '../utils/firebase';
 import { signOut, type User as FirebaseUser } from 'firebase/auth';
 import { evaluateSmartBudget } from '../utils/smartBudgetEngine';
@@ -244,9 +244,30 @@ export const Sidebar: React.FC = () => {
     setCloseDragDelta(0);
   };
 
-  const handleReloadApp = () => {
-    setIsSidebarOpen(false);
-    window.location.reload();
+  const [isRefreshingApp, setIsRefreshingApp] = useState(false);
+
+  const handleReloadApp = async () => {
+    if (isRefreshingApp) return;
+    setIsRefreshingApp(true);
+    try {
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const reg of registrations) {
+          try {
+            await reg.unregister();
+          } catch {}
+        }
+      }
+      if ('caches' in window) {
+        const cacheKeys = await caches.keys();
+        await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+      }
+    } catch (e) {
+      console.warn('Failed to unregister service workers or clear caches:', e);
+    } finally {
+      setIsSidebarOpen(false);
+      window.location.reload();
+    }
   };
 
   const isVisible = isSidebarOpen || openDragProgress !== null;
@@ -728,18 +749,23 @@ export const Sidebar: React.FC = () => {
         <div className="p-3.5 sm:p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0 min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="font-bold text-zinc-300 truncate">
-              {formatVersionLabel(CURRENT_APP_VERSION)}
+              {formatFullVersionWithBuild(CURRENT_APP_VERSION)}
             </span>
           </div>
 
           <button
             type="button"
             onClick={handleReloadApp}
-            className="min-h-[40px] flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition cursor-pointer active:scale-95 shrink-0"
+            disabled={isRefreshingApp}
+            className="min-h-[40px] flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition cursor-pointer active:scale-95 shrink-0 disabled:opacity-50"
             title="Refresh App"
           >
-            <RotateCw className="w-3.5 h-3.5 text-blue-400" />
-            <span className="text-[11px] font-semibold">{isArabic ? 'تحديث التطبيق' : 'Refresh App'}</span>
+            <RotateCw className={`w-3.5 h-3.5 text-blue-400 ${isRefreshingApp ? 'animate-spin' : ''}`} />
+            <span className="text-[11px] font-semibold">
+              {isRefreshingApp
+                ? (isArabic ? 'جاري التحديث...' : 'Refreshing...')
+                : (isArabic ? 'تحديث التطبيق' : 'Refresh App')}
+            </span>
           </button>
         </div>
       </div>

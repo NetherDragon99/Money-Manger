@@ -5,24 +5,40 @@
 
 import { IS_BETA_BUILD, APP_CHANNEL, STABLE_BASE_URL } from './channel';
 
-export const CURRENT_APP_VERSION = '1.1.69';
+export const CURRENT_APP_VERSION = '1.1.70';
+export const BUILD_ID: string =
+  typeof import.meta !== 'undefined' && import.meta.env && (import.meta.env as any).VITE_BUILD_ID
+    ? String((import.meta.env as any).VITE_BUILD_ID).trim()
+    : '';
+
 const BACKUP_VERSION_ENDPOINT = 'NetherDragon99/Money-Manger';
 const AUTO_UPDATE_STORAGE_KEY = 'mm_auto_update_enabled';
 
 /**
  * Centralized version label formatting helper.
  * Driven by IS_BETA_BUILD:
- * - Beta build: returns `Beta vX.Y.Z`
- * - Stable build: returns `vX.Y.Z`
+ * - Beta build: returns `Beta vX.Y.Z` (or `Beta vX.Y.Z · <buildId>` when includeBuildId is true)
+ * - Stable build: returns `vX.Y.Z` (or `vX.Y.Z · <buildId>` when includeBuildId is true)
  * Strips any existing 'Beta', 'beta', or 'v' prefixes to ensure 'Beta' is never doubled.
  */
-export function formatVersionLabel(version: string = CURRENT_APP_VERSION): string {
+export function formatVersionLabel(
+  version: string = CURRENT_APP_VERSION,
+  includeBuildId: boolean = false
+): string {
   if (!version) return IS_BETA_BUILD ? 'Beta' : '';
   const clean = String(version)
     .replace(/^beta\s*/i, '')
     .replace(/^v/i, '')
     .trim();
-  return IS_BETA_BUILD ? `Beta v${clean}` : `v${clean}`;
+  const baseLabel = IS_BETA_BUILD ? `Beta v${clean}` : `v${clean}`;
+  if (includeBuildId && BUILD_ID) {
+    return `${baseLabel} · ${BUILD_ID}`;
+  }
+  return baseLabel;
+}
+
+export function formatFullVersionWithBuild(version: string = CURRENT_APP_VERSION): string {
+  return formatVersionLabel(version, true);
 }
 
 export interface StableReleaseCheckResult {

@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { defineConfig } from 'vite';
@@ -29,7 +30,14 @@ export default defineConfig(({ command, mode }) => {
     : (existingBase === './' ? './index.html' : `${existingBase}index.html`);
 
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
-  const versionString = packageJson.version || '1.1.69';
+  const versionString = packageJson.version || '1.1.70';
+
+  let buildId = 'dev';
+  try {
+    buildId = execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    buildId = 'unknown';
+  }
 
   // The last official stable version this build is based on (beta builds keep their own version).
   let stableVersionString = versionString;
@@ -46,6 +54,7 @@ export default defineConfig(({ command, mode }) => {
     base,
     define: {
       'import.meta.env.VITE_APP_CHANNEL': JSON.stringify(channel),
+      'import.meta.env.VITE_BUILD_ID': JSON.stringify(buildId),
     },
     build: {
       outDir: isBeta ? 'dist/beta' : 'dist',
@@ -78,6 +87,7 @@ export default defineConfig(({ command, mode }) => {
             channel,
             isBeta,
             stableVersion: stableVersionString,
+            buildId,
           };
           this.emitFile({
             type: 'asset',
