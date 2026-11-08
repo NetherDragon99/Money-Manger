@@ -43,6 +43,18 @@ export function normalizeExpenseBudgetPool(
   return isRecurring ? 'fixed' : 'daily';
 }
 
+export function isSavingsOrInvestmentRole(role?: string): boolean {
+  if (!role) return false;
+  const r = role.toLowerCase().trim();
+  return r === 'savings' || r === 'saving' || r === 'investment' || r === 'investing';
+}
+
+export function isSpendingOrCustomiseRole(role?: string): boolean {
+  if (!role) return true; // Default account role in Money-Manger is 'spending'
+  const r = role.toLowerCase().trim();
+  return (r === 'spending' || r === 'customise') && !isSavingsOrInvestmentRole(r);
+}
+
 const SMART_BUDGET_DAILY_NOTIF_STORAGE_KEY = 'mm_sb_daily_notif_cap_v1';
 
 export function canSendSmartBudgetNotificationToday(
@@ -622,13 +634,10 @@ export function evaluateSmartBudget(
     const primaryCurrencyAccounts = accounts.filter(
       (a) => !a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normalizedBaseCurr
     );
-    const spendingAccounts = primaryCurrencyAccounts.filter((a) => a.accountRole === 'spending');
-    const nonSavingsAccounts = primaryCurrencyAccounts.filter((a) => a.accountRole !== 'savings');
+    const spendingAccounts = primaryCurrencyAccounts.filter((a) => isSpendingOrCustomiseRole(a.accountRole));
     const defaultAccounts =
       spendingAccounts.length > 0
         ? spendingAccounts
-        : nonSavingsAccounts.length > 0
-        ? nonSavingsAccounts
         : primaryCurrencyAccounts;
 
     const configuredLinkedIds = effectiveConfig.fromTodayConfig?.linkedAccountIds;
@@ -761,7 +770,7 @@ export function evaluateSmartBudget(
         tx.budgetAdjustment;
 
       const isWithdrawalFromSavingsToSpending =
-        ((fromRole === 'savings' || fromRole === 'investment') && toRole === 'spending') ||
+        (isSavingsOrInvestmentRole(fromRole) && isSpendingOrCustomiseRole(toRole)) ||
         Boolean(tx.savingsWithdrawalChoice) ||
         Boolean(linkedAdj);
 
@@ -810,37 +819,48 @@ export function evaluateSmartBudget(
       ? remainingMoneyMinor
       : Math.max(0, toMinorUnits(effectiveConfig.plannedIncome || 0, minorFactor));
 
-  // 4. Split Income Into 4 Pools (Minor Units Integer Math with Half-Up Rounding)
-  // Calculate Savings, Bills (Fixed), and Outings via percentages.
-  // Force Daily Spending to be the ABSOLUTE REMAINDER: Daily = Budget - (Savings + Bills + Outings).
-  const savingsPct =
-    effectiveConfig.poolsConfig?.savings?.percent ??
-    (effectiveConfig.savings?.type === 'percent' ? effectiveConfig.savings.value : 0);
-  const fixedPct =
-    effectiveConfig.poolsConfig?.fixed?.percent ??
-    (effectiveConfig.plannedFixedObligations && cycleIncomeMinor > 0
-      ? (toMinorUnits(effectiveConfig.plannedFixedObligations, minorFactor) / cycleIncomeMinor) * 100
-      : 0);
-  const outingsPct =
-    effectiveConfig.poolsConfig?.outings?.percent ??
-    (effectiveConfig.outingsBudget && cycleIncomeMinor > 0
-      ? (toMinorUnits(effectiveConfig.outingsBudget, minorFactor) / cycleIncomeMinor) * 100
-      : 0);
+  // 4. Split Income Into 4 Pools (Exact Absolute EGP Minor Units Math)
+  // Savings, Bills (Fixed), and Outings are EXACT absolute numerical amounts.
+  // Daily Spending MUST strictly be the absolute remainder:
+  // Daily Spending = Income - (Exact Savings + Exact Bills + Exact Outings)
 
-  const savingsMinor = Math.min(
-    cycleIncomeMinor,
-    Math.max(0, roundHalfUp(cycleIncomeMinor * (Math.max(0, savingsPct) / 100)))
-  );
-  const fixedMinor = Math.min(
-    Math.max(0, cycleIncomeMinor - savingsMinor),
-    Math.max(0, roundHalfUp(cycleIncomeMinor * (Math.max(0, fixedPct) / 100)))
-  );
-  const outingsMinor = Math.min(
-    Math.max(0, cycleIncomeMinor - savingsMinor - fixedMinor),
-    Math.max(0, roundHalfUp(cycleIncomeMinor * (Math.max(0, outingsPct) / 100)))
-  );
+  // Savings:
+  let rawSavingsMinor = 0;
+  if (effectiveConfig.poolsConfig?.savings?.minorUnits != null) {
+    rawSavingsMinor = Math.max(0, effectiveConfig.poolsConfig.savings.minorUnits);
+  } else if (effectiveConfig.savings?.type === 'fixed') {
+    rawSavingsMinor = Math.max(0, toMinorUnits(effectiveConfig.savings.value, minorFactor));
+  } else if (effectiveConfig.savings?.type === 'percent') {
+    rawSavingsMinor = Math.max(0, roundHalfUp(cycleIncomeMinor * (effectiveConfig.savings.value / 100)));
+  } else if (effectiveConfig.poolsConfig?.savings?.percent != null) {
+    rawSavingsMinor = Math.max(0, roundHalfUp(cycleIncomeMinor * (effectiveConfig.poolsConfig.savings.percent / 100)));
+  }
 
-  // Daily Spending is the ABSOLUTE REMAINDER: Daily = Budget - (Savings + Bills + Outings)
+  // Bills & Fixed:
+  let rawFixedMinor = 0;
+  if (effectiveConfig.poolsConfig?.fixed?.minorUnits != null) {
+    rawFixedMinor = Math.max(0, effectiveConfig.poolsConfig.fixed.minorUnits);
+  } else if (typeof effectiveConfig.plannedFixedObligations === 'number') {
+    rawFixedMinor = Math.max(0, toMinorUnits(effectiveConfig.plannedFixedObligations, minorFactor));
+  } else if (effectiveConfig.poolsConfig?.fixed?.percent != null) {
+    rawFixedMinor = Math.max(0, roundHalfUp(cycleIncomeMinor * (effectiveConfig.poolsConfig.fixed.percent / 100)));
+  }
+
+  // Outings:
+  let rawOutingsMinor = 0;
+  if (effectiveConfig.poolsConfig?.outings?.minorUnits != null) {
+    rawOutingsMinor = Math.max(0, effectiveConfig.poolsConfig.outings.minorUnits);
+  } else if (typeof effectiveConfig.outingsBudget === 'number') {
+    rawOutingsMinor = Math.max(0, toMinorUnits(effectiveConfig.outingsBudget, minorFactor));
+  } else if (effectiveConfig.poolsConfig?.outings?.percent != null) {
+    rawOutingsMinor = Math.max(0, roundHalfUp(cycleIncomeMinor * (effectiveConfig.poolsConfig.outings.percent / 100)));
+  }
+
+  const savingsMinor = Math.min(cycleIncomeMinor, rawSavingsMinor);
+  const fixedMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor), rawFixedMinor);
+  const outingsMinor = Math.min(Math.max(0, cycleIncomeMinor - savingsMinor - fixedMinor), rawOutingsMinor);
+
+  // Daily Spending is strictly the ABSOLUTE REMAINDER: Daily = Budget - (Savings + Bills + Outings)
   const dailyMinor = Math.max(0, cycleIncomeMinor - (savingsMinor + fixedMinor + outingsMinor));
 
   // 5. Attribute Expenses to Pools ('daily' | 'fixed' | 'outings' | 'oneoff')
@@ -1019,11 +1039,15 @@ export function evaluateSmartBudget(
   }
 
   // Strict simple division: Allowed Today = (Remaining Daily Spending Pool) / (Remaining Days)
+  const remainingDays = Math.max(1, remainingDaysInCycle);
+  const poolForTodayMinor =
+    calculationMode === 'from_today'
+      ? dailyMinor
+      : dailyPoolRemainingAtStartOfTodayMinor;
+
   let todayAllowanceMinor = 0;
-  if (remainingDaysInCycle > 0 && dailyPoolRemainingAtStartOfTodayMinor > 0) {
-    todayAllowanceMinor = roundHalfUp(
-      dailyPoolRemainingAtStartOfTodayMinor / remainingDaysInCycle
-    );
+  if (remainingDays > 0 && poolForTodayMinor > 0) {
+    todayAllowanceMinor = roundHalfUp(poolForTodayMinor / remainingDays);
   }
 
   const todaySpentMinor = todayDailySpentMinor + spilledTodayMinor;

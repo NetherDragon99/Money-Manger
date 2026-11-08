@@ -19,6 +19,29 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.2.0',
+    isBeta: true,
+    releaseDate: 'November 8, 2026',
+    title: {
+      en: 'Smart Budget Overhaul & Absolute EGP Allocations',
+      ar: 'تحديث شامل للميزانية الذكية وتوزيع دقيق بالمبالغ النقدية',
+    },
+    highlights: {
+      en: [
+        'Absolute EGP allocations: Set exact fixed amounts for Savings, Bills, and Outings without floating-point percentage math overriding your inputs',
+        'Deterministic daily remainder: The daily spending pool is strictly calculated as the exact remaining balance of your income after allocations',
+        'Accurate daily allowance: Strict, precise division in "From Today" mode gives you the exact remaining daily allowance based on remaining days',
+        'Account role presets: Quick-filter presets now strictly distinguish between spending accounts and savings/investment accounts based on schema roles',
+      ],
+      ar: [
+        'توزيع دقيق بالمبالغ النقدية: إدخال مبالغ ثابتة ومحددة بدقة لأحواض الادخار والفواتير والخروجات دون أي تغييرات ناتجة عن النسب المئوية',
+        'حوض المصروف اليومي كباقي حتمي: حساب حوض المصروف اليومي كالمتبقي الفعلي والصريح من الدخل بعد استقطاع المبالغ المحددة',
+        'حساب دقيق للمصروف اليومي المتبقي: معادلة قسمة دقيقة ومباشرة في وضع "من اليوم" لتحديد المصروف المسموح به لكل يوم متبقٍ في الدورة',
+        'فلاتر أدوار الحسابات: تمييز فوري وصارم بين حسابات الصرف وحسابات الادخار والاستثمار بناءً على الأدوار المحددة لكل حساب',
+      ],
+    },
+  },
+  {
     version: '1.1.70',
     isBeta: true,
     releaseDate: 'November 7, 2026',

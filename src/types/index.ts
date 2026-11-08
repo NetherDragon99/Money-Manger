@@ -1,6 +1,6 @@
 export type TransactionType = 'expense' | 'income' | 'transfer';
 export type TabType = 'home' | 'budget' | 'insights' | 'accounts' | 'calculator';
-export type AccountRole = 'spending' | 'savings' | 'investment';
+export type AccountRole = 'spending' | 'savings' | 'saving' | 'investment' | 'investing' | 'customise';
 export type SavingsWithdrawalChoice = 'emergency_expense' | 'add_to_spending' | 'just_moving';
 export type TaxFeeMode = 'none' | 'instapay' | 'vat14' | 'manual' | 'default_rule';
 export type TransferFeeMode = TaxFeeMode;
