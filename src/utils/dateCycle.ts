@@ -161,6 +161,15 @@ export function resolveDateRange(
   }
 
   switch (filterType) {
+    case 'today': {
+      const d = new Date(now);
+      d.setDate(d.getDate() + offset);
+      const dateStr = formatDateToYYYYMMDD(d);
+      return {
+        startDate: dateStr,
+        endDate: dateStr,
+      };
+    }
     case 'all_time':
       return {
         startDate: '1970-01-01',

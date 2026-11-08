@@ -47,6 +47,8 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
+  RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatNumberWithCommas } from '../utils/formatters';
@@ -63,6 +65,7 @@ import {
 import {
   SmartBudgetBaselineConfig,
   SmartBudgetCycleOverride,
+  SmartBudgetCycleStartMode,
 } from '../types';
 
 interface PoolItemState {
@@ -170,13 +173,19 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     categories,
     recurringTransactions,
     showToast,
+    openTxDetailsModal,
     t,
+    activePoolDrillDown,
+    setActivePoolDrillDown,
   } = useApp();
 
   const isArabic = settings.language === 'ar';
   const currency = settings.currencySymbol || 'EGP';
   const formatCurrency = (amount: number, curr = currency) =>
     `${formatNumberWithCommas(amount, 2)} ${curr}`;
+
+  const inspectPoolKey = activePoolDrillDown;
+  const setInspectPoolKey = setActivePoolDrillDown;
 
   // ==========================================================================
   // WHAT-IF SIMULATOR STATE
@@ -208,9 +217,22 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     baselineSettings.fixedCategoryIds || []
   );
 
-  const [baselineCalculationMode, setBaselineCalculationMode] = useState<'from_today' | 'full_cycle'>(
-    () => baselineSettings.calculationMode || 'from_today'
-  );
+  const [cycleStartMode, setCycleStartMode] = useState<SmartBudgetCycleStartMode>(() => {
+    if (baselineSettings.cycleStartMode) return baselineSettings.cycleStartMode;
+    if (baselineSettings.calculationMode === 'from_today') return 'from_today';
+    return 'app_default';
+  });
+
+  const [customStartDay, setCustomStartDay] = useState<number>(() => {
+    return baselineSettings.customStartDay || 1;
+  });
+
+  const [customStartDate, setCustomStartDate] = useState<string>(() => {
+    return baselineSettings.customStartDate || formatLocalDate(new Date());
+  });
+
+  const baselineCalculationMode: 'from_today' | 'full_cycle' =
+    cycleStartMode === 'from_today' ? 'from_today' : 'full_cycle';
 
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(() => {
     if (baselineSettings.includedAccountIds && baselineSettings.includedAccountIds.length > 0) {
@@ -254,8 +276,16 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       if (baselineSettings.includedAccountIds) {
         setSelectedAccountIds(baselineSettings.includedAccountIds);
       }
-      if (baselineSettings.calculationMode) {
-        setBaselineCalculationMode(baselineSettings.calculationMode);
+      if (baselineSettings.cycleStartMode) {
+        setCycleStartMode(baselineSettings.cycleStartMode);
+      } else if (baselineSettings.calculationMode) {
+        setCycleStartMode(baselineSettings.calculationMode === 'from_today' ? 'from_today' : 'app_default');
+      }
+      if (baselineSettings.customStartDay) {
+        setCustomStartDay(baselineSettings.customStartDay);
+      }
+      if (baselineSettings.customStartDate) {
+        setCustomStartDate(baselineSettings.customStartDate);
       }
       if (typeof baselineSettings.headsUpThresholdRatio === 'number') {
         setHeadsUpThresholdPercent(Math.round(baselineSettings.headsUpThresholdRatio * 100));
@@ -317,6 +347,9 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     const config: SmartBudgetConfig = {
       baseCurrency: currency,
       startDay: globalMonthStartDay,
+      cycleStartMode,
+      customStartDay: cycleStartMode === 'custom' ? customStartDay : undefined,
+      customStartDate: cycleStartMode === 'custom' ? customStartDate : undefined,
       plannedIncome: effectiveIncome > 0 ? effectiveIncome : undefined,
       savings: { type: 'fixed', value: sMinor / 100 },
       plannedFixedObligations: fMinor / 100,
@@ -368,6 +401,9 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     accounts,
     currency,
     globalMonthStartDay,
+    cycleStartMode,
+    customStartDay,
+    customStartDate,
     baselineSettings.plannedIncome,
     baselineSettings.headsUpThresholdRatio,
     plannedIncomeInput,
@@ -748,7 +784,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   };
 
   const handleSetCalculationMode = (newMode: 'full_cycle' | 'from_today') => {
-    setBaselineCalculationMode(newMode);
+    setCycleStartMode(newMode === 'from_today' ? 'from_today' : 'app_default');
   };
 
   const handleToggleLinkedAccount = (accountId: string) => {
@@ -902,6 +938,9 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
     const newBaseline: SmartBudgetBaselineConfig = {
       startDay: globalMonthStartDay,
+      cycleStartMode,
+      customStartDay: cycleStartMode === 'custom' ? customStartDay : undefined,
+      customStartDate: cycleStartMode === 'custom' ? customStartDate : undefined,
       plannedIncome: planned > 0 ? planned : undefined,
       savings: { type: 'fixed', value: sMinor / 100 },
       plannedFixedObligations: fMinor / 100,
@@ -952,7 +991,12 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       },
     });
 
-    showToast(t('saveBudgetPlan') ? t('budgetPlanSavedSuccess') : t('baselineSavedSuccess'), 'success');
+    showToast(
+      isArabic
+        ? 'تم تطبيق وحفظ تغييرات الميزانية بنجاح'
+        : 'Budget settings applied & saved successfully',
+      'success'
+    );
   };
 
   const handleResetToDefaults = () => {
@@ -1085,40 +1129,18 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                 </div>
               )}
 
-              {/* Calculation Mode Selector */}
-              <div className="space-y-2 pt-2 border-t border-zinc-800/80">
+              {/* Cycle Start Mode Selector (4 Options) */}
+              <div className="space-y-2.5 pt-2 border-t border-zinc-800/80">
                 <label className="block text-xs font-semibold text-zinc-300">
-                  {t('calcModeTitle')}
+                  {isArabic ? 'دورة الميزانية وتاريخ البداية' : 'Budget Cycle & Start Mode'}
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {/* 1. App Default Month */}
                   <button
                     type="button"
-                    onClick={() => handleSetCalculationMode('from_today')}
+                    onClick={() => setCycleStartMode('app_default')}
                     className={`p-3 rounded-2xl border text-start transition cursor-pointer ${
-                      baselineCalculationMode === 'from_today'
-                        ? 'bg-blue-500/15 border-blue-500/50 text-white shadow-md'
-                        : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-950'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
-                        <Zap className="w-3.5 h-3.5" />
-                        {t('calcModeFromToday')}
-                      </span>
-                      {baselineCalculationMode === 'from_today' && (
-                        <Check className="w-4 h-4 text-blue-400 shrink-0" />
-                      )}
-                    </div>
-                    <p className="text-[11px] text-zinc-400 leading-relaxed">
-                      {t('calcModeFromTodayDesc')}
-                    </p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSetCalculationMode('full_cycle')}
-                    className={`p-3 rounded-2xl border text-start transition cursor-pointer ${
-                      baselineCalculationMode === 'full_cycle'
+                      cycleStartMode === 'app_default'
                         ? 'bg-blue-500/15 border-blue-500/50 text-white shadow-md'
                         : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-950'
                     }`}
@@ -1126,17 +1148,130 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
                         <Calendar className="w-3.5 h-3.5" />
-                        {t('calcModeFullCycle')}
+                        {isArabic ? 'شهر التطبيق الافتراضي' : 'App Default Month'}
                       </span>
-                      {baselineCalculationMode === 'full_cycle' && (
+                      {cycleStartMode === 'app_default' && (
                         <Check className="w-4 h-4 text-blue-400 shrink-0" />
                       )}
                     </div>
                     <p className="text-[11px] text-zinc-400 leading-relaxed">
-                      {t('calcModeFullCycleDesc')}
+                      {isArabic
+                        ? `يبدأ في يوم ${globalMonthStartDay} من كل شهر وفقاً لإعدادات التطبيق`
+                        : `Starts on day ${globalMonthStartDay} of each month from app settings`}
+                    </p>
+                  </button>
+
+                  {/* 2. Calendar Month (Day 1) */}
+                  <button
+                    type="button"
+                    onClick={() => setCycleStartMode('calendar_month')}
+                    className={`p-3 rounded-2xl border text-start transition cursor-pointer ${
+                      cycleStartMode === 'calendar_month'
+                        ? 'bg-blue-500/15 border-blue-500/50 text-white shadow-md'
+                        : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-950'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5" />
+                        {isArabic ? 'الشهر الميلادي (يوم 1)' : 'Calendar Month (Day 1)'}
+                      </span>
+                      {cycleStartMode === 'calendar_month' && (
+                        <Check className="w-4 h-4 text-blue-400 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      {isArabic
+                        ? 'يبدأ من أول يوم في الشهر (1) وحتى نهايته'
+                        : 'Starts from the 1st of the current month'}
+                    </p>
+                  </button>
+
+                  {/* 3. From Today */}
+                  <button
+                    type="button"
+                    onClick={() => setCycleStartMode('from_today')}
+                    className={`p-3 rounded-2xl border text-start transition cursor-pointer ${
+                      cycleStartMode === 'from_today'
+                        ? 'bg-blue-500/15 border-blue-500/50 text-white shadow-md'
+                        : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-950'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5" />
+                        {isArabic ? 'من اليوم (رصيد حي)' : 'From Today (Live)'}
+                      </span>
+                      {cycleStartMode === 'from_today' && (
+                        <Check className="w-4 h-4 text-blue-400 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      {isArabic
+                        ? 'تتبع الرصيد الحي من تاريخ اليوم وحتى نهاية الدورة'
+                        : 'Tracks live balance from today through cycle end'}
+                    </p>
+                  </button>
+
+                  {/* 4. Custom Day / Date */}
+                  <button
+                    type="button"
+                    onClick={() => setCycleStartMode('custom')}
+                    className={`p-3 rounded-2xl border text-start transition cursor-pointer ${
+                      cycleStartMode === 'custom'
+                        ? 'bg-blue-500/15 border-blue-500/50 text-white shadow-md'
+                        : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-950'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5" />
+                        {isArabic ? 'يوم / تاريخ مخصص' : 'Custom Day / Date'}
+                      </span>
+                      {cycleStartMode === 'custom' && (
+                        <Check className="w-4 h-4 text-blue-400 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      {isArabic
+                        ? 'حدد يوماً معيناً (1-31) أو تاريخ بداية مخصص لهذه الدورة'
+                        : 'Pick a specific start day (1–31) or exact start date'}
                     </p>
                   </button>
                 </div>
+
+                {/* Custom Options Expanded */}
+                {cycleStartMode === 'custom' && (
+                  <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-zinc-300 mb-1">
+                        {isArabic ? 'يوم بداية الدورة (1-31)' : 'Cycle Start Day of Month (1–31)'}
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={31}
+                        value={customStartDay}
+                        onChange={(e) => {
+                          const val = Math.min(31, Math.max(1, parseInt(e.target.value, 10) || 1));
+                          setCustomStartDay(val);
+                        }}
+                        className="w-full min-h-[42px] px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-750 text-white text-xs font-mono focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-zinc-300 mb-1">
+                        {isArabic ? 'تاريخ بداية محدد لهذه الدورة' : 'Exact Start Date for Active Cycle'}
+                      </label>
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="w-full min-h-[42px] px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-750 text-white text-xs font-mono focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Linked Funding Accounts or Planned Income */}
@@ -1514,22 +1649,37 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {/* Pool 1: Savings Card */}
               <div
-                className={`p-4 rounded-3xl bg-zinc-900/80 border border-blue-500/25 space-y-3 ${
+                onClick={() => setInspectPoolKey('savings')}
+                className={`p-4 rounded-3xl bg-zinc-900/80 border border-blue-500/25 space-y-3 cursor-pointer hover:border-blue-500/50 transition ${
                   incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
                 }`}
+                title={isArabic ? 'اضغط لعرض معاملات التحويش' : 'Click to view savings transactions'}
               >
                 <div className="flex items-center justify-between text-xs font-bold text-blue-400">
                   <span className="flex items-center gap-1.5">
                     <PiggyBank className="w-4 h-4" />
                     <span>{t('poolSavings')}</span>
                   </span>
-                  <span className="text-[10px] font-mono bg-blue-500/20 px-2 py-0.5 rounded-full text-blue-300 font-semibold">
-                    {pools.savings.percent}%
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInspectPoolKey('savings');
+                      }}
+                      className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 font-semibold border border-blue-500/30 flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <span>{(evaluation.pools.savings.transactions || []).length} {isArabic ? 'معاملة' : 'txs'}</span>
+                      <ChevronRight className="w-2.5 h-2.5 rtl:rotate-180" />
+                    </button>
+                    <span className="text-[10px] font-mono bg-blue-500/20 px-2 py-0.5 rounded-full text-blue-300 font-semibold">
+                      {pools.savings.percent}%
+                    </span>
+                  </div>
                 </div>
 
                 {/* Target Numerical Input */}
-                <div className="space-y-1">
+                <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
                   <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
                     {t('poolAllocated')}
                   </span>
@@ -1566,12 +1716,16 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   <div className="w-full bg-zinc-800/80 rounded-full h-2 overflow-hidden">
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-400 transition-all duration-300"
-                      style={{ width: `${evaluation.pools.savings.progressPercent}%` }}
+                      style={{ width: `${Math.min(100, Math.max(0, evaluation.pools.savings.progressPercent))}%` }}
                     />
                   </div>
                   <div className="flex items-center justify-between text-[10px] text-zinc-500">
                     <span>{t('netSavedThisCycle')}: {formatCurrency(evaluation.pools.savings.netSaved, currency)}</span>
-                    <span>{t('noMinSavings')}</span>
+                    <span className="font-semibold text-blue-300">
+                      {evaluation.pools.savings.progressPercent >= 100
+                        ? (isArabic ? '✓ تم إكمال الهدف' : '✓ Goal Completed')
+                        : `${evaluation.pools.savings.progressPercent}%`}
+                    </span>
                   </div>
                   {poolHints.savings && (
                     <div className="text-[10px] text-amber-400 font-medium">{poolHints.savings}</div>
@@ -1581,22 +1735,37 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
               {/* Pool 2: Bills & Fixed Obligations Card */}
               <div
-                className={`p-4 rounded-3xl bg-zinc-900/80 border border-purple-500/25 space-y-3 ${
+                onClick={() => setInspectPoolKey('fixed')}
+                className={`p-4 rounded-3xl bg-zinc-900/80 border border-purple-500/25 space-y-3 cursor-pointer hover:border-purple-500/50 transition ${
                   incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
                 }`}
+                title={isArabic ? 'اضغط لعرض معاملات الفواتير والالتزامات' : 'Click to view fixed & bills transactions'}
               >
                 <div className="flex items-center justify-between text-xs font-bold text-purple-400">
                   <span className="flex items-center gap-1.5">
                     <ShoppingBag className="w-4 h-4" />
                     <span>{t('poolFixed')}</span>
                   </span>
-                  <span className="text-[10px] font-mono bg-purple-500/20 px-2 py-0.5 rounded-full text-purple-300 font-semibold">
-                    {pools.fixed.percent}%
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInspectPoolKey('fixed');
+                      }}
+                      className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 font-semibold border border-purple-500/30 flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <span>{(evaluation.pools.fixed.transactions || []).length} {isArabic ? 'معاملة' : 'txs'}</span>
+                      <ChevronRight className="w-2.5 h-2.5 rtl:rotate-180" />
+                    </button>
+                    <span className="text-[10px] font-mono bg-purple-500/20 px-2 py-0.5 rounded-full text-purple-300 font-semibold">
+                      {pools.fixed.percent}%
+                    </span>
+                  </div>
                 </div>
 
                 {/* Target Numerical Input */}
-                <div className="space-y-1">
+                <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
                   <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
                     {t('poolAllocated')}
                   </span>
@@ -1623,7 +1792,10 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                 {detectedRecurringBills > 0 && (
                   <button
                     type="button"
-                    onClick={handleApplyDetectedRecurringBills}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleApplyDetectedRecurringBills();
+                    }}
                     className="min-h-[36px] px-2.5 py-1 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 text-[11px] font-semibold border border-purple-500/30 flex items-center gap-1.5 transition w-full cursor-pointer"
                   >
                     <Sliders className="w-3 h-3 shrink-0" />
@@ -1674,22 +1846,37 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
               {/* Pool 3: Outings Card */}
               <div
-                className={`p-4 rounded-3xl bg-zinc-900/80 border border-amber-500/25 space-y-3 ${
+                onClick={() => setInspectPoolKey('outings')}
+                className={`p-4 rounded-3xl bg-zinc-900/80 border border-amber-500/25 space-y-3 cursor-pointer hover:border-amber-500/50 transition ${
                   incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
                 }`}
+                title={isArabic ? 'اضغط لعرض معاملات الخروجات' : 'Click to view outings transactions'}
               >
                 <div className="flex items-center justify-between text-xs font-bold text-amber-400">
                   <span className="flex items-center gap-1.5">
                     <Coffee className="w-4 h-4" />
                     <span>{t('poolOutings')}</span>
                   </span>
-                  <span className="text-[10px] font-mono bg-amber-500/20 px-2 py-0.5 rounded-full text-amber-300 font-semibold">
-                    {pools.outings.percent}%
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInspectPoolKey('outings');
+                      }}
+                      className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-semibold border border-amber-500/30 flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <span>{(evaluation.pools.outings.transactions || []).length} {isArabic ? 'معاملة' : 'txs'}</span>
+                      <ChevronRight className="w-2.5 h-2.5 rtl:rotate-180" />
+                    </button>
+                    <span className="text-[10px] font-mono bg-amber-500/20 px-2 py-0.5 rounded-full text-amber-300 font-semibold">
+                      {pools.outings.percent}%
+                    </span>
+                  </div>
                 </div>
 
                 {/* Target Numerical Input */}
-                <div className="space-y-1">
+                <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
                   <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
                     {t('poolAllocated')}
                   </span>
@@ -1757,19 +1944,36 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
               </div>
 
               {/* Pool 4: Daily Spending (The Calculated Remainder) */}
-              <div className="p-4 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-zinc-900/90 to-zinc-900 border border-emerald-500/30 space-y-3">
+              <div
+                onClick={() => setInspectPoolKey('daily')}
+                className="p-4 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-zinc-900/90 to-zinc-900 border border-emerald-500/30 space-y-3 cursor-pointer hover:border-emerald-500/50 transition"
+                title={isArabic ? 'اضغط لعرض معاملات المصروف اليومي' : 'Click to view daily transactions'}
+              >
                 <div className="flex items-center justify-between text-xs font-bold text-emerald-400">
                   <span className="flex items-center gap-1.5">
                     <Wallet className="w-4 h-4" />
                     <span>{t('poolDaily')}</span>
                   </span>
-                  <span className="text-[10px] font-mono bg-emerald-500/20 px-2 py-0.5 rounded-full text-emerald-300 font-bold">
-                    {dailyPercent}%
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInspectPoolKey('daily');
+                      }}
+                      className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 font-semibold border border-emerald-500/30 flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <span>{(evaluation.pools.daily.transactions || []).length} {isArabic ? 'معاملة' : 'txs'}</span>
+                      <ChevronRight className="w-2.5 h-2.5 rtl:rotate-180" />
+                    </button>
+                    <span className="text-[10px] font-mono bg-emerald-500/20 px-2 py-0.5 rounded-full text-emerald-300 font-bold">
+                      {dailyPercent}%
+                    </span>
+                  </div>
                 </div>
 
                 {/* Target Calculated Remainder Display */}
-                <div className="space-y-1">
+                <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
                   <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
                     {t('poolAllocated')} ({isArabic ? 'باقي الميزانية الحية' : 'Live Remainder'})
                   </span>
@@ -2221,7 +2425,185 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
             </div>
           </section>
         </div>
+
+        {/* Sticky Action Footer */}
+        <div className="shrink-0 p-4 sm:px-6 border-t border-zinc-800/80 bg-zinc-900/95 backdrop-blur-md flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleSaveBudgetPlan}
+            className="flex-1 min-h-[48px] py-2.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-xl shadow-emerald-950/40 transition cursor-pointer flex items-center justify-center gap-2"
+          >
+            <CheckCircle2 className="w-5 h-5 shrink-0" />
+            <span>{isArabic ? 'تطبيق وحفظ التغييرات' : 'Apply & Save Changes'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleResetToDefaults}
+            className="min-h-[48px] px-4 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold transition cursor-pointer shrink-0 flex items-center justify-center"
+            title={t('resetToDefault')}
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+        </div>
       </div>
+
+      {/* Pool Transactions Inspection Modal */}
+      {inspectPoolKey && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md transition-opacity duration-200"
+          onClick={() => setInspectPoolKey(null)}
+        >
+          <div
+            className="relative w-full max-w-lg max-h-[85vh] flex flex-col rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 border-b border-zinc-800/80 flex items-center justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className={`w-9 h-9 rounded-2xl flex items-center justify-center shrink-0 ${
+                    inspectPoolKey === 'savings'
+                      ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                      : inspectPoolKey === 'fixed'
+                      ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                      : inspectPoolKey === 'outings'
+                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  }`}
+                >
+                  {inspectPoolKey === 'savings' && <PiggyBank className="w-5 h-5" />}
+                  {inspectPoolKey === 'fixed' && <ShoppingBag className="w-5 h-5" />}
+                  {inspectPoolKey === 'outings' && <Coffee className="w-5 h-5" />}
+                  {inspectPoolKey === 'daily' && <Wallet className="w-5 h-5" />}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-white truncate">
+                    {inspectPoolKey === 'savings'
+                      ? (isArabic ? 'معاملات التحويش والادخار' : 'Savings Transactions')
+                      : inspectPoolKey === 'fixed'
+                      ? (isArabic ? 'معاملات الفواتير والالتزامات' : 'Bills & Fixed Transactions')
+                      : inspectPoolKey === 'outings'
+                      ? (isArabic ? 'معاملات الخروجات' : 'Outings Transactions')
+                      : (isArabic ? 'معاملات المصروف اليومي' : 'Daily Spending Transactions')}
+                  </h3>
+                  <div className="text-[11px] text-zinc-400 flex items-center gap-2">
+                    <span>
+                      {(evaluation.pools[inspectPoolKey]?.transactions || []).length}{' '}
+                      {isArabic ? 'معاملة مسجلة' : 'transactions'}
+                    </span>
+                    <span>•</span>
+                    <span className="font-mono text-zinc-300">
+                      {inspectPoolKey === 'savings'
+                        ? `${isArabic ? 'إجمالي المحوّش' : 'Total Saved'}: ${formatCurrency(evaluation.pools.savings.netSaved, currency)}`
+                        : `${isArabic ? 'إجمالي المنصرف' : 'Total Spent'}: ${formatCurrency(evaluation.pools[inspectPoolKey]?.spent || 0, currency)}`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectPoolKey(null)}
+                className="w-8 h-8 rounded-full bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2">
+              {(evaluation.pools[inspectPoolKey]?.transactions || []).length === 0 ? (
+                <div className="py-12 text-center text-zinc-500 text-xs">
+                  {isArabic
+                    ? 'لا توجد معاملات مسجلة في هذا البند خلال دورة الشهر الحالية.'
+                    : 'No transactions marked for this pool in the current cycle.'}
+                </div>
+              ) : (
+                (evaluation.pools[inspectPoolKey]?.transactions || [])
+                  .slice()
+                  .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0))
+                  .map((tx) => {
+                    const fromAcc = accounts.find((a) => a.id === tx.accountId);
+                    const toAcc = accounts.find((a) => a.id === tx.toAccountId);
+                    const isTransfer = tx.type === 'transfer' || Boolean(tx.toAccountId);
+
+                    return (
+                      <div
+                        key={tx.id}
+                        onClick={() => {
+                          setInspectPoolKey(null);
+                          if (typeof openTxDetailsModal === 'function') {
+                            openTxDetailsModal(tx);
+                          }
+                        }}
+                        className="p-3 rounded-2xl bg-zinc-900/70 hover:bg-zinc-800/80 border border-zinc-800/80 flex items-center justify-between gap-3 transition cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-zinc-800 text-sm">
+                            {isTransfer ? (
+                              <RefreshCw className="w-4 h-4 text-emerald-400" />
+                            ) : (
+                              <span>{tx.categoryIcon || '💰'}</span>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-white truncate group-hover:text-blue-400 transition">
+                              {isTransfer
+                                ? `${tx.fromAccountName || fromAcc?.name || 'Account'} → ${tx.toAccountName || toAcc?.name || 'Account'}`
+                                : (tx.description || tx.categoryName || 'Transaction')}
+                            </div>
+                            <div className="text-[10px] text-zinc-400 flex items-center gap-1.5 truncate">
+                              <span>{tx.date}</span>
+                              {tx.note && (
+                                <span className="truncate italic max-w-[120px] text-zinc-500">
+                                  "{tx.note}"
+                                </span>
+                              )}
+                              {tx.isSavingsAllocation && (
+                                <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 font-mono">
+                                  {isArabic ? 'تحويش' : 'Savings'}
+                                </span>
+                              )}
+                              {tx.budgetPool && tx.budgetPool !== 'daily' && (
+                                <span className="px-1.5 py-0.2 rounded-full bg-blue-500/20 text-blue-300 font-mono">
+                                  {tx.budgetPool}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-end shrink-0">
+                          <div
+                            className={`font-mono text-xs font-bold ${
+                              isTransfer
+                                ? 'text-emerald-400'
+                                : tx.type === 'income'
+                                ? 'text-emerald-400'
+                                : 'text-zinc-200'
+                            }`}
+                          >
+                            {isTransfer ? '⇄ ' : tx.type === 'income' ? '+ ' : '- '}
+                            {formatCurrency(tx.amount || 0, currency)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 border-t border-zinc-800/80 bg-zinc-950 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setInspectPoolKey(null)}
+                className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 hover:text-white transition cursor-pointer"
+              >
+                {isArabic ? 'إغلاق' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

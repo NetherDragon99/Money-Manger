@@ -36,11 +36,131 @@ export function normalizeExpenseBudgetPool(
   rawPool?: string | null,
   isRecurring?: boolean
 ): ExpenseBudgetPool {
+  if (rawPool === 'savings') return 'savings';
   if (rawPool === 'emergency' || rawPool === 'oneoff') return 'oneoff';
   if (rawPool === 'fixed') return 'fixed';
   if (rawPool === 'outings') return 'outings';
   if (rawPool === 'daily') return 'daily';
   return isRecurring ? 'fixed' : 'daily';
+}
+
+export function isSavingsTransaction(
+  tx: Transaction,
+  _categories?: any[],
+  _fixedCategoryIds?: string[]
+): boolean {
+  if (!tx) return false;
+  if (tx.isAdjustment || tx.isUneditable) return false;
+  const desc = (tx.description || '').toLowerCase();
+  if (desc.includes('manual balance adjustment') || desc.includes('تسوية رصيد')) return false;
+
+  // (a) Transfer with Savings / Investment Allocation toggle enabled (isSavingsAllocation === true or budgetPool === 'savings')
+  if (tx.type === 'transfer' || Boolean(tx.toAccountId)) {
+    if (
+      tx.isSavingsAllocation === true ||
+      (tx as any).isSavings === true ||
+      (tx as any).isSaving === true ||
+      (tx.budgetPool as string) === 'savings'
+    ) {
+      return true;
+    }
+  }
+
+  // (b) Expense or Transfer explicitly assigned to Savings pool or flagged as saving
+  if (
+    (tx.budgetPool as string) === 'savings' ||
+    tx.isSavingsAllocation === true ||
+    (tx as any).isSavings === true ||
+    (tx as any).isSaving === true
+  ) {
+    return true;
+  }
+
+  // (c) Transaction categorized under a Savings or Investment category and tagged for savings
+  const catName = (tx.categoryName || '').toLowerCase();
+  const note = (tx.note || '').toLowerCase();
+  const isSavingsCat =
+    catName.includes('saving') ||
+    catName.includes('investment') ||
+    catName.includes('ادخار') ||
+    catName.includes('توفير') ||
+    catName.includes('استثمار') ||
+    catName.includes('invest');
+
+  if (isSavingsCat) {
+    if (
+      Boolean(tx.isSavingsAllocation) ||
+      (tx as any).isSavings === true ||
+      (tx as any).isSaving === true ||
+      (tx.budgetPool as string) === 'savings' ||
+      desc.includes('saving') ||
+      desc.includes('ادخار') ||
+      desc.includes('توفير') ||
+      desc.includes('استثمار') ||
+      desc.includes('invest') ||
+      note.includes('saving') ||
+      note.includes('ادخار') ||
+      note.includes('توفير') ||
+      note.includes('استثمار') ||
+      note.includes('invest') ||
+      tx.type === 'transfer'
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function getTransactionBudgetPool(
+  tx: Transaction,
+  fixedCategoryIds?: string[],
+  categories?: any[]
+): 'savings' | 'fixed' | 'outings' | 'daily' | 'oneoff' | null {
+  if (!tx) return null;
+  if (tx.isAdjustment || tx.isUneditable) return null;
+  const desc = (tx.description || '').toLowerCase();
+  if (desc.includes('manual balance adjustment') || desc.includes('تسوية رصيد')) return null;
+
+  // 1. Savings condition
+  if (isSavingsTransaction(tx, categories, fixedCategoryIds)) {
+    return 'savings';
+  }
+
+  // Transfers not tagged for savings do not belong to expense pools
+  if (tx.type === 'transfer' || Boolean(tx.toAccountId)) {
+    return null;
+  }
+
+  // Income transactions do not belong to expense pools
+  if (tx.type === 'income') {
+    return null;
+  }
+
+  // 2. Explicit pool assignment
+  const rawPool = tx.budgetPool as string | undefined;
+  if (rawPool === 'savings') return 'savings';
+  if (rawPool === 'outings') return 'outings';
+  if (rawPool === 'oneoff' || rawPool === 'emergency') return 'oneoff';
+  if (rawPool === 'fixed') return 'fixed';
+  if (rawPool === 'daily') return 'daily';
+
+  // 3. Recurring generated or in fixedCategoryIds
+  const fixedSet = new Set(fixedCategoryIds || []);
+  if (
+    tx.isFromRecurring ||
+    Boolean(tx.recurringRuleId) ||
+    (tx.categoryId && fixedSet.has(tx.categoryId))
+  ) {
+    return 'fixed';
+  }
+
+  // 4. Default for expense transactions
+  if (tx.type === 'expense') {
+    return 'daily';
+  }
+
+  return null;
 }
 
 export function isSavingsOrInvestmentRole(role?: string): boolean {
@@ -102,6 +222,12 @@ export type RolloverSetting = 'spread' | 'sweep_to_savings';
 export interface SmartBudgetConfig {
   /** Day of month cycle starts (1-31, synced to global App Month start day) */
   startDay?: number | 'auto';
+  /** Cycle start mode ('calendar_month' | 'app_default' | 'custom') */
+  cycleStartMode?: 'calendar_month' | 'app_default' | 'custom' | string;
+  /** Custom start day for 'custom' mode */
+  customStartDay?: number;
+  /** Custom cycle start date string 'YYYY-MM-DD' */
+  customStartDate?: string;
   /** Manual planned cycle income in major units */
   plannedIncome?: number;
   /** Savings target configuration */
@@ -161,6 +287,7 @@ export interface PoolSpendingStatus {
   allocated: number;
   spent: number;
   remaining: number;
+  transactions?: Transaction[];
 }
 
 export interface SavingsPoolStatus extends PoolSpendingStatus {
@@ -181,6 +308,7 @@ export interface SavingsPoolStatus extends PoolSpendingStatus {
   /** Remaining emergency credit after offsetting 'oneoff'/'emergency' expenses */
   remainingEmergencyCreditMinor: number;
   remainingEmergencyCredit: number;
+  transactions?: Transaction[];
 }
 
 export type DailyAllowanceState = 'normal' | 'heads_up' | 'true_deficit';
@@ -390,8 +518,39 @@ export function diffCalendarDays(start: Date, end: Date): number {
  */
 export function getSalaryCycleRange(
   refDate: string | Date,
-  startDay: number
+  startDay: number,
+  customStartDate?: string
 ): CycleInfo {
+  if (customStartDate && /^\d{4}-\d{2}-\d{2}$/.test(customStartDate)) {
+    const customStart = parseLocalDate(customStartDate);
+    const configuredStartDay = customStart.getDate();
+    const nextMonth = new Date(customStart.getFullYear(), customStart.getMonth() + 1, 1, 0, 0, 0, 0);
+    const nextMonthClampedDay = clampDayToMonth(nextMonth.getFullYear(), nextMonth.getMonth(), configuredStartDay);
+    const nextCycleStart = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), nextMonthClampedDay, 0, 0, 0, 0);
+    const cycleEnd = new Date(nextCycleStart.getFullYear(), nextCycleStart.getMonth(), nextCycleStart.getDate() - 1, 0, 0, 0, 0);
+    const length = diffCalendarDays(customStart, cycleEnd) + 1;
+
+    const startStr = formatLocalDate(customStart);
+    const endStr = formatLocalDate(cycleEnd);
+
+    const startMonthName = customStart.toLocaleDateString('en-US', { month: 'short' });
+    const endMonthName = cycleEnd.toLocaleDateString('en-US', { month: 'short' });
+    const label =
+      startMonthName === endMonthName
+        ? `${startMonthName} ${customStart.getFullYear()}`
+        : `${startMonthName} - ${endMonthName} ${cycleEnd.getFullYear()}`;
+
+    return {
+      startDate: startStr,
+      endDate: endStr,
+      cycleKey: startStr,
+      startDay: configuredStartDay,
+      effectiveStartDay: configuredStartDay,
+      length,
+      label,
+    };
+  }
+
   const configuredStartDay = Math.min(31, Math.max(1, Math.floor(startDay || 1)));
   const ref = parseLocalDate(refDate);
 
@@ -575,12 +734,23 @@ export function evaluateSmartBudget(
 
   // 1. Resolve Unified Cycle Start Day & Range (1-31 with month-end clamping)
   let cycleStartDay = 1;
-  if (config.startDay === 'auto') {
+  const startMode = config.cycleStartMode;
+  if (startMode === 'calendar_month') {
+    cycleStartDay = 1;
+  } else if (startMode === 'app_default') {
+    cycleStartDay = typeof config.startDay === 'number' ? config.startDay : 1;
+  } else if (startMode === 'custom' && typeof config.customStartDay === 'number') {
+    cycleStartDay = Math.min(31, Math.max(1, Math.floor(config.customStartDay)));
+  } else if (config.startDay === 'auto') {
     cycleStartDay = autoDetectSalaryDay(transactions, 1);
   } else if (typeof config.startDay === 'number') {
     cycleStartDay = Math.min(31, Math.max(1, Math.floor(config.startDay)));
   }
-  const cycle = getSalaryCycleRange(asOfDate, cycleStartDay);
+  const cycle = getSalaryCycleRange(
+    asOfDate,
+    cycleStartDay,
+    startMode === 'custom' ? config.customStartDate : undefined
+  );
   const cycleStart = parseLocalDate(cycle.startDate);
   const cycleEnd = parseLocalDate(cycle.endDate);
 
@@ -724,6 +894,10 @@ export function evaluateSmartBudget(
   }
 
   const cycleTxs: Transaction[] = [];
+  const savingsTransactions: Transaction[] = [];
+  const fixedTransactions: Transaction[] = [];
+  const outingsTransactions: Transaction[] = [];
+  const dailyTransactions: Transaction[] = [];
   let savingsDepositedMinor = 0;
   let savingsWithdrawnMinor = 0;
   let emergencyCreditMinor = 0;
@@ -736,15 +910,29 @@ export function evaluateSmartBudget(
     const cleanTxDate = tx.date.split('T')[0].trim();
     if (cleanTxDate < cycle.startDate || cleanTxDate > cycle.endDate) continue;
 
-    // In 'from_today' mode, count ONLY transactions from today onward over the remaining days
-    if (calculationMode === 'from_today' && cleanTxDate < fromDateStr) continue;
-
     const acc = accountMap.get(tx.accountId);
     if (acc) {
       if (acc.currency && normalizeCurrencyCodeOrSymbol(acc.currency) !== normalizedBaseCurr) {
         excludedCurrenciesSet.add(acc.currency);
         continue;
       }
+    }
+
+    // Skip manual balance adjustments
+    if (tx.isAdjustment || tx.isUneditable) continue;
+    const desc = (tx.description || '').toLowerCase();
+    if (desc.includes('manual balance adjustment') || desc.includes('تسوية رصيد')) continue;
+
+    // Check if this transaction is a Savings deposit (scans ALL transactions in the active cycle)
+    if (isSavingsTransaction(tx, undefined, effectiveConfig.fixedCategoryIds)) {
+      const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
+      const effectiveAmount = (tx.amount || 0) + (tx.type === 'expense' ? tax : 0);
+      const principalMinor = Math.max(0, toMinorUnits(effectiveAmount, minorFactor));
+      if (principalMinor > 0) {
+        savingsDepositedMinor += principalMinor;
+        savingsTransactions.push(tx);
+      }
+      continue;
     }
 
     // Handle internal transfers (never counted as expenses)
@@ -778,6 +966,7 @@ export function evaluateSmartBudget(
         // In all 3 withdrawal cases, net cycle savings progress decreases by the withdrawn principal amount
         const adjMinor = linkedAdj?.amountMinor !== undefined ? linkedAdj.amountMinor : principalMinor;
         savingsWithdrawnMinor += adjMinor;
+        savingsTransactions.push(tx);
 
         const choice = linkedAdj?.choice || tx.savingsWithdrawalChoice || 'just_moving';
         if (choice === 'emergency_expense') {
@@ -788,23 +977,26 @@ export function evaluateSmartBudget(
           dailyPoolAdjustmentMinor += adjMinor;
         }
         // Option 3 ('just_moving'): no impact on spending pools
-      } else if (tx.isSavingsAllocation === true) {
-        // Transfers with Savings / Investment Allocation ON count principal X toward Savings target
+      } else if (
+        tx.isSavingsAllocation === true ||
+        (tx as any).isSavings === true ||
+        (tx as any).isSaving === true ||
+        tx.budgetPool === 'savings'
+      ) {
         savingsDepositedMinor += principalMinor;
+        savingsTransactions.push(tx);
       }
 
       continue;
     }
 
+    // For non-savings expenses: in 'from_today' mode, count ONLY transactions from today onward over remaining days
+    if (calculationMode === 'from_today' && cleanTxDate < fromDateStr) continue;
+
     if (acc) {
       if (includedAccountSet && !includedAccountSet.has(acc.id)) continue;
       if (acc.isPrivate && !effectiveConfig.includePrivateAccounts) continue;
     }
-
-    // Skip manual balance adjustments
-    if (tx.isAdjustment || tx.isUneditable) continue;
-    const desc = (tx.description || '').toLowerCase();
-    if (desc.includes('manual balance adjustment') || desc.includes('تسوية رصيد')) continue;
 
     if (tx.type === 'expense') {
       cycleTxs.push({ ...tx, date: cleanTxDate });
@@ -899,6 +1091,7 @@ export function evaluateSmartBudget(
     // 2. Recurring generated or fixed-category -> 'fixed' (Bills & Fixed)
     // 3. Default -> 'daily' (Daily Spending)
     if (rawPool === 'outings') {
+      outingsTransactions.push(tx);
       outingsSpentMinor += amtMinor;
       if (txDate < asOfStr) outingsSpentBeforeTodayMinor += amtMinor;
       const catId = tx.categoryId || 'uncategorized';
@@ -910,14 +1103,17 @@ export function evaluateSmartBudget(
     } else if (rawPool === 'oneoff' || rawPool === 'emergency') {
       // 'oneoff' (One-off / Exceptional) expenses NEVER reduce the daily allowance
       // and are offset first by emergency credits from savings withdrawals.
+      savingsTransactions.push(tx);
       const coveredByCredit = Math.min(amtMinor, remainingEmergencyCreditMinor);
       remainingEmergencyCreditMinor -= coveredByCredit;
       const uncoveredExceptionalMinor = amtMinor - coveredByCredit;
       savingsSpentMinor += uncoveredExceptionalMinor;
     } else if (rawPool === 'fixed') {
+      fixedTransactions.push(tx);
       fixedSpentMinor += amtMinor;
       if (txDate < asOfStr) fixedSpentBeforeTodayMinor += amtMinor;
     } else if (rawPool === 'daily') {
+      dailyTransactions.push(tx);
       dailySpentMinor += amtMinor;
       dailySpentByDate[txDate] = (dailySpentByDate[txDate] || 0) + amtMinor;
       if (txDate === asOfStr) todayDailySpentMinor += amtMinor;
@@ -933,10 +1129,12 @@ export function evaluateSmartBudget(
       Boolean(tx.recurringRuleId) ||
       (tx.categoryId && fixedCategorySet.has(tx.categoryId))
     ) {
+      fixedTransactions.push(tx);
       fixedSpentMinor += amtMinor;
       if (txDate < asOfStr) fixedSpentBeforeTodayMinor += amtMinor;
     } else {
       // Default to daily
+      dailyTransactions.push(tx);
       dailySpentMinor += amtMinor;
       dailySpentByDate[txDate] = (dailySpentByDate[txDate] || 0) + amtMinor;
       if (txDate === asOfStr) todayDailySpentMinor += amtMinor;
@@ -1411,16 +1609,17 @@ export function evaluateSmartBudget(
     }));
 
   // 11. Compile Complete Evaluation
-  const netSavedMinor = savingsDepositedMinor - savingsWithdrawnMinor;
+  const netSavedMinor = Math.max(0, savingsDepositedMinor - savingsWithdrawnMinor);
   const savingsProgressPercent =
     savingsMinor > 0
-      ? Math.min(100, Math.max(0, roundHalfUp((Math.max(0, netSavedMinor) / savingsMinor) * 100)))
+      ? Math.min(100, Math.max(0, roundHalfUp((netSavedMinor / savingsMinor) * 100)))
       : netSavedMinor > 0
       ? 100
       : 0;
 
   const totalSpentMinor = savingsSpentMinor + fixedSpentMinor + outingsSpentMinor + dailySpentMinor;
   const totalRemMinor = cycleIncomeMinor - totalSpentMinor;
+  const savingsRemainingMinor = Math.max(0, savingsMinor - netSavedMinor);
 
   return {
     cycle,
@@ -1433,10 +1632,10 @@ export function evaluateSmartBudget(
       savings: {
         allocatedMinor: savingsMinor,
         spentMinor: savingsSpentMinor,
-        remainingMinor: savingsMinor - savingsSpentMinor,
+        remainingMinor: savingsRemainingMinor,
         allocated: toMajorUnits(savingsMinor, minorFactor),
         spent: toMajorUnits(savingsSpentMinor, minorFactor),
-        remaining: toMajorUnits(savingsMinor - savingsSpentMinor, minorFactor),
+        remaining: toMajorUnits(savingsRemainingMinor, minorFactor),
         depositedMinor: savingsDepositedMinor,
         withdrawnMinor: savingsWithdrawnMinor,
         netSavedMinor,
@@ -1448,6 +1647,7 @@ export function evaluateSmartBudget(
         emergencyCredit: toMajorUnits(emergencyCreditMinor, minorFactor),
         remainingEmergencyCreditMinor,
         remainingEmergencyCredit: toMajorUnits(remainingEmergencyCreditMinor, minorFactor),
+        transactions: savingsTransactions,
       },
       fixed: {
         allocatedMinor: fixedMinor,
@@ -1456,6 +1656,7 @@ export function evaluateSmartBudget(
         allocated: toMajorUnits(fixedMinor, minorFactor),
         spent: toMajorUnits(fixedSpentMinor, minorFactor),
         remaining: toMajorUnits(fixedMinor - fixedSpentMinor, minorFactor),
+        transactions: fixedTransactions,
       },
       outings: {
         allocatedMinor: outingsMinor,
@@ -1464,6 +1665,7 @@ export function evaluateSmartBudget(
         allocated: toMajorUnits(outingsMinor, minorFactor),
         spent: toMajorUnits(outingsSpentMinor, minorFactor),
         remaining: toMajorUnits(outingsMinor - outingsSpentMinor, minorFactor),
+        transactions: outingsTransactions,
       },
       daily: {
         allocatedMinor: dailyMinor,
@@ -1472,6 +1674,7 @@ export function evaluateSmartBudget(
         allocated: toMajorUnits(dailyMinor, minorFactor),
         spent: toMajorUnits(effectiveDailySpentMinor, minorFactor),
         remaining: toMajorUnits(effectiveDailyRemainingMinor, minorFactor),
+        transactions: dailyTransactions,
       },
       total: {
         incomeMinor: cycleIncomeMinor,

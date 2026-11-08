@@ -794,14 +794,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     if (prevDestIdRef.current === currentDestId) return;
     prevDestIdRef.current = currentDestId;
 
-    // If editing an existing transfer and destination hasn't changed from the original, keep its saved flag
-    if (
-      activeEditingTx &&
-      activeEditingTx.type === 'transfer' &&
-      activeEditingTx.toAccountId === currentDestId &&
-      activeEditingTx.isSavingsAllocation !== undefined
-    ) {
-      setIsSavingsAllocation(Boolean(activeEditingTx.isSavingsAllocation));
+    // If editing an existing transfer, preserve and reflect its saved toggle state accurately
+    if (activeEditingTx && activeEditingTx.type === 'transfer') {
+      if (activeEditingTx.isSavingsAllocation !== undefined) {
+        setIsSavingsAllocation(Boolean(activeEditingTx.isSavingsAllocation));
+        return;
+      }
+      if ((activeEditingTx.budgetPool as string) === 'savings') {
+        setIsSavingsAllocation(true);
+        return;
+      }
       return;
     }
 
@@ -899,8 +901,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       const destination = accounts.find((a) => a.id !== accountId);
       if (destination) {
         setToAccountId(destination.id);
-        const destRole = destination.accountRole || 'spending';
-        setIsSavingsAllocation(destRole === 'savings' || destRole === 'investment');
+        if (activeEditingTx && activeEditingTx.type === 'transfer' && activeEditingTx.isSavingsAllocation !== undefined) {
+          setIsSavingsAllocation(Boolean(activeEditingTx.isSavingsAllocation));
+        } else {
+          const destRole = destination.accountRole || 'spending';
+          setIsSavingsAllocation(destRole === 'savings' || destRole === 'investment');
+        }
       }
     }
   }, [type, activeEditingTx, editingRecurring, accounts, accountId]);
@@ -1502,7 +1508,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
 
     const effectiveWithdrawalChoice =
-      type === 'transfer' && isSavingsWithdrawal
+      type === 'transfer' && isSavingsWithdrawal && !isSavingsAllocation
         ? (chosenWithdrawalChoice || savingsWithdrawalChoice || 'just_moving')
         : undefined;
 
@@ -1523,9 +1529,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       categoryName: type === 'transfer' ? undefined : selectedCategory?.name,
       categoryIcon: type === 'transfer' ? undefined : selectedCategory?.icon,
       description: description.trim(),
-      budgetPool: type === 'expense' ? budgetPool : undefined,
+      budgetPool: type === 'expense' ? budgetPool : (type === 'transfer' && isSavingsAllocation ? 'savings' : undefined),
       isSalary: type === 'income' ? isSalary : undefined,
-      isSavingsAllocation: type === 'transfer' ? isSavingsAllocation : undefined,
+      isSavingsAllocation: type === 'transfer' ? Boolean(isSavingsAllocation) : undefined,
       savingsWithdrawalChoice: effectiveWithdrawalChoice,
       transferFee: type === 'transfer' && calculatedTransferFee > 0 ? calculatedTransferFee : undefined,
       transferFeeMode: type === 'transfer' ? transferFeeMode : undefined,
@@ -1562,8 +1568,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         advancedSchedule: advConfig,
         useWeekdayFilter: advConfig?.useWeekdayFilter,
         useMonthDayFilter: advConfig?.useMonthDayFilter,
-        budgetPool: type === 'expense' ? budgetPool : undefined,
-        isSavingsAllocation: type === 'transfer' ? isSavingsAllocation : undefined,
+        budgetPool: type === 'expense' ? budgetPool : (type === 'transfer' && isSavingsAllocation ? 'savings' : undefined),
+        isSavingsAllocation: type === 'transfer' ? Boolean(isSavingsAllocation) : undefined,
         savingsWithdrawalChoice: effectiveWithdrawalChoice,
         transferFee: type === 'transfer' && calculatedTransferFee > 0 ? calculatedTransferFee : undefined,
         transferFeeMode: type === 'transfer' ? transferFeeMode : undefined,
@@ -1610,8 +1616,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           advancedSchedule: advConfig,
           useWeekdayFilter: advConfig?.useWeekdayFilter,
           useMonthDayFilter: advConfig?.useMonthDayFilter,
-          budgetPool: type === 'expense' ? budgetPool : undefined,
-          isSavingsAllocation: type === 'transfer' ? isSavingsAllocation : undefined,
+          budgetPool: type === 'expense' ? budgetPool : (type === 'transfer' && isSavingsAllocation ? 'savings' : undefined),
+          isSavingsAllocation: type === 'transfer' ? Boolean(isSavingsAllocation) : undefined,
           savingsWithdrawalChoice: effectiveWithdrawalChoice,
           transferFee: type === 'transfer' && calculatedTransferFee > 0 ? calculatedTransferFee : undefined,
           transferFeeMode: type === 'transfer' ? transferFeeMode : undefined,
@@ -1677,7 +1683,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   const handleSave = () => {
     if (!canSave) return;
-    if (!isSharedMode && !editingRecurring && type === 'transfer' && isSavingsWithdrawal && !savingsWithdrawalChoice) {
+    if (!isSharedMode && !editingRecurring && type === 'transfer' && isSavingsWithdrawal && !isSavingsAllocation && !savingsWithdrawalChoice) {
       setShowWithdrawalPrompt(true);
       return;
     }
@@ -2144,48 +2150,46 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               {/* Savings / Investment Allocation Toggle & Withdrawal 3-Choice Selector */}
               {!isSharedMode && !isTransferSameAccount && (
                 <div className="mt-3 space-y-2.5">
-                  {/* Savings / Investment Allocation Toggle */}
-                  {!isSavingsWithdrawal && (
-                    <button
-                      type="button"
-                      onClick={() => setIsSavingsAllocation((prev) => !prev)}
-                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl border text-left rtl:text-right transition cursor-pointer ${
-                        isSavingsAllocation
-                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200 shadow-sm'
-                          : 'bg-zinc-900/80 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0 pr-2 rtl:pr-0 rtl:pl-2">
-                        <div
-                          className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 transition ${
-                            isSavingsAllocation
-                              ? 'bg-emerald-600 text-white shadow'
-                              : 'bg-zinc-800 text-zinc-400'
-                          }`}
-                        >
-                          <PiggyBank className="w-4 h-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-xs font-bold text-white truncate">
-                            {t('savingsInvestmentAllocation')}
-                          </div>
-                          <div className="text-[10px] text-zinc-400 truncate">
-                            {t('savingsInvestmentAllocationDesc')}
-                          </div>
-                        </div>
-                      </div>
+                  {/* Savings / Investment Allocation Toggle - Always visible on every Transfer */}
+                  <button
+                    type="button"
+                    onClick={() => setIsSavingsAllocation((prev) => !prev)}
+                    className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl border text-left rtl:text-right transition cursor-pointer ${
+                      isSavingsAllocation
+                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200 shadow-sm'
+                        : 'bg-zinc-900/80 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 pr-2 rtl:pr-0 rtl:pl-2">
                       <div
-                        className={`w-10 h-5.5 rounded-full p-0.5 transition-colors shrink-0 flex items-center ${
-                          isSavingsAllocation ? 'bg-emerald-600 justify-end' : 'bg-zinc-800 justify-start'
+                        className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 transition ${
+                          isSavingsAllocation
+                            ? 'bg-emerald-600 text-white shadow'
+                            : 'bg-zinc-800 text-zinc-400'
                         }`}
                       >
-                        <div className="w-4.5 h-4.5 rounded-full bg-white shadow-md transform transition" />
+                        <PiggyBank className="w-4 h-4" />
                       </div>
-                    </button>
-                  )}
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-white truncate">
+                          {t('savingsInvestmentAllocation')}
+                        </div>
+                        <div className="text-[10px] text-zinc-400 truncate">
+                          {t('savingsInvestmentAllocationDesc')}
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      className={`w-10 h-5.5 rounded-full p-0.5 transition-colors shrink-0 flex items-center ${
+                        isSavingsAllocation ? 'bg-emerald-600 justify-end' : 'bg-zinc-800 justify-start'
+                      }`}
+                    >
+                      <div className="w-4.5 h-4.5 rounded-full bg-white shadow-md transform transition" />
+                    </div>
+                  </button>
 
-                  {/* Inline 3-Choice Withdrawal Selector when transferring OUT of 'savings'/'investment' to 'spending' */}
-                  {isSavingsWithdrawal && (
+                  {/* Inline 3-Choice Withdrawal Selector when transferring OUT of 'savings'/'investment' to 'spending' AND not tagged as savings */}
+                  {isSavingsWithdrawal && !isSavingsAllocation && (
                     <div className="p-3 rounded-2xl bg-amber-950/20 border border-amber-500/30 space-y-2">
                       <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
                         <ShieldAlert className="w-4 h-4 shrink-0 text-amber-400" />

@@ -106,6 +106,9 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     if (s.isSmartBudgetModalOpen) {
       stack.push('modal:smart_budget');
+      if (s.activePoolDrillDown) {
+        stack.push(`modal:budget_pool_drilldown:${s.activePoolDrillDown}`);
+      }
     }
     if (s.isSettingsModalOpen) {
       stack.push('modal:settings');
@@ -283,6 +286,10 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       if (s.viewingTx) {
         s.closeTxDetailsModal();
+        return;
+      }
+      if (s.activePoolDrillDown) {
+        s.setActivePoolDrillDown(null);
         return;
       }
 

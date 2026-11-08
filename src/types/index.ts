@@ -5,7 +5,7 @@ export type SavingsWithdrawalChoice = 'emergency_expense' | 'add_to_spending' | 
 export type TaxFeeMode = 'none' | 'instapay' | 'vat14' | 'manual' | 'default_rule';
 export type TransferFeeMode = TaxFeeMode;
 export type ManualFeeInputType = 'amount' | 'percent';
-export type ExpenseBudgetPool = 'daily' | 'fixed' | 'outings' | 'oneoff';
+export type ExpenseBudgetPool = 'daily' | 'fixed' | 'outings' | 'oneoff' | 'savings';
 
 export interface InstaPayFeePreset {
   ratePercent: number; // default 0.1
@@ -121,6 +121,7 @@ export interface Transaction {
 export type WeekStartDay = 'saturday' | 'sunday' | 'monday';
 
 export type PeriodFilterType =
+  | 'today'
   | 'app_month'
   | 'all_time'
   | 'this_week'
@@ -144,6 +145,7 @@ export interface AdvancedFilter {
   maxAmount?: number;
   type: 'all' | 'expense' | 'income' | 'transfer';
   searchQuery?: string;
+  budgetPools?: ('daily' | 'fixed' | 'outings' | 'savings')[];
 }
 
 export interface UserProfile {
@@ -230,6 +232,8 @@ export interface PoolAllocationConfig {
   mode: 'percent' | 'amount';
 }
 
+export type SmartBudgetCycleStartMode = 'app_default' | 'calendar_month' | 'from_today' | 'custom';
+
 export interface SmartBudgetBaselineConfig {
   startDay?: number | 'auto';
   plannedIncome?: number;
@@ -251,6 +255,9 @@ export interface SmartBudgetBaselineConfig {
   };
   calculationMode?: 'full_cycle' | 'from_today';
   fromTodayConfig?: FromTodayConfig;
+  cycleStartMode?: SmartBudgetCycleStartMode;
+  customStartDay?: number;
+  customStartDate?: string;
 }
 
 export interface FromTodayConfig {
@@ -270,6 +277,9 @@ export interface SmartBudgetCycleOverride extends Partial<SmartBudgetBaselineCon
   calculationMode?: 'full_cycle' | 'from_today';
   fromTodayConfig?: FromTodayConfig;
   isPaused?: boolean;
+  cycleStartMode?: SmartBudgetCycleStartMode;
+  customStartDay?: number;
+  customStartDate?: string;
 }
 
 export interface SmartBudgetSettings {

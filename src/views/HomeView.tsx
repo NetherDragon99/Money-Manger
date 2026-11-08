@@ -29,7 +29,7 @@ import {
 import { GroupedTransactionList } from '../components/GroupedTransactionList';
 import { MiniDateTimePicker } from '../components/MiniDateTimePicker';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
-import { evaluateSmartBudget } from '../utils/smartBudgetEngine';
+import { evaluateSmartBudget, getTransactionBudgetPool } from '../utils/smartBudgetEngine';
 import { useHeaderScroll } from '../hooks/useHeaderScroll';
 import { useLongPress } from '../hooks/useLongPress';
 import { matchesTransactionSearch } from '../utils/searchUtils';
@@ -49,6 +49,7 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
     customDateRange,
     setCustomDateRange,
     advancedFilter,
+    clearAdvancedFilter,
     setIsSidebarOpen,
     setIsResetPeriodModalOpen,
     setIsFilterModalOpen,
@@ -116,6 +117,12 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
       // 4. Category filter
       if (advancedFilter.categoryIds.length > 0) {
         if (!tx.categoryId || !advancedFilter.categoryIds.includes(tx.categoryId)) return false;
+      }
+
+      // 4b. Budget Pool filter
+      if (advancedFilter.budgetPools && advancedFilter.budgetPools.length > 0) {
+        const pool = getTransactionBudgetPool(tx, settings.smartBudget?.baseline?.fixedCategoryIds, categories);
+        if (!pool || !advancedFilter.budgetPools.includes(pool as any)) return false;
       }
 
       // 5. Amount Min / Max
@@ -278,34 +285,45 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
       return settings.language === 'ar' ? 'منذ إعادة الضبط' : 'Since Reset';
     }
     switch (periodFilter) {
-      case 'app_month':
-        return t('appMonth');
-      case 'all_time':
-        return t('allTime');
+      case 'today':
+        return t('today');
       case 'this_week':
         return t('thisWeek');
+      case 'app_month':
+        return isArabic ? 'الشهر الحالي (دورة التطبيق)' : 'This Month (App Cycle)';
+      case 'calendar_month':
+      case 'this_month':
+        return isArabic ? 'الشهر الميلادي' : 'Calendar Month';
+      case 'custom':
+        return isArabic ? 'نطاق مخصص' : 'Custom Date Range';
+      case 'all_time':
+        return t('allTime');
       case 'last_week':
         return t('lastWeek');
-      case 'this_month':
-        return t('thisMonth');
       case 'last_month':
         return t('lastMonth');
-      case 'calendar_month':
-        return t('calendarMonth');
-      case 'custom':
-        return t('customRange');
       default:
-        return t('appMonth');
+        return isArabic ? 'الشهر الحالي (دورة التطبيق)' : 'This Month (App Cycle)';
     }
   };
 
   const hasActiveAdvancedFilter =
     advancedFilter.accountIds.length > 0 ||
     advancedFilter.categoryIds.length > 0 ||
+    (advancedFilter.budgetPools && advancedFilter.budgetPools.length > 0) ||
     advancedFilter.minAmount !== undefined ||
     advancedFilter.maxAmount !== undefined ||
     advancedFilter.type !== 'all' ||
     Boolean(advancedFilter.searchQuery && advancedFilter.searchQuery.trim() !== '');
+
+  const activeFiltersCount =
+    advancedFilter.accountIds.length +
+    advancedFilter.categoryIds.length +
+    (advancedFilter.budgetPools?.length || 0) +
+    (advancedFilter.minAmount !== undefined ? 1 : 0) +
+    (advancedFilter.maxAmount !== undefined ? 1 : 0) +
+    (advancedFilter.type !== 'all' ? 1 : 0) +
+    (advancedFilter.searchQuery && advancedFilter.searchQuery.trim() !== '' ? 1 : 0);
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
@@ -363,13 +381,12 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
               >
                 {(
                   [
-                    'app_month',
-                    'this_month',
-                    'last_month',
+                    'today',
                     'this_week',
-                    'last_week',
-                    'all_time',
+                    'app_month',
+                    'calendar_month',
                     'custom',
+                    'all_time',
                   ] as PeriodFilterType[]
                 ).map((pKey) => (
                   <button
@@ -388,13 +405,12 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
                       periodFilter === pKey ? 'text-blue-400 font-bold bg-zinc-800/50' : 'text-zinc-300'
                     }`}
                   >
-                    {pKey === 'app_month' && t('appMonth')}
-                    {pKey === 'this_month' && t('thisMonth')}
-                    {pKey === 'last_month' && t('lastMonth')}
+                    {pKey === 'today' && t('today')}
                     {pKey === 'this_week' && t('thisWeek')}
-                    {pKey === 'last_week' && t('lastWeek')}
+                    {pKey === 'app_month' && (isArabic ? 'الشهر الحالي (دورة التطبيق)' : 'This Month (App Cycle)')}
+                    {pKey === 'calendar_month' && (isArabic ? 'الشهر الميلادي' : 'Calendar Month')}
+                    {pKey === 'custom' && (isArabic ? 'نطاق مخصص' : 'Custom Date Range')}
                     {pKey === 'all_time' && t('allTime')}
-                    {pKey === 'custom' && t('customRange')}
                   </button>
                 ))}
               </div>
@@ -425,18 +441,20 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
             <RotateCcw className="w-4 h-4" />
           </button>
 
-          {/* Advanced Filter Button (🌪️ Filter) */}
+          {/* Advanced Filter Button (Filter Funnel) */}
           <button
             type="button"
             onClick={() => setIsFilterModalOpen(true)}
             title={t('filter')}
-            className={`relative p-2 rounded-full hover:bg-zinc-800 transition ${
+            className={`relative p-2 rounded-full hover:bg-zinc-800 transition cursor-pointer ${
               hasActiveAdvancedFilter ? 'text-blue-400' : 'text-zinc-400 hover:text-white'
             }`}
           >
             <Filter className="w-4 h-4" />
             {hasActiveAdvancedFilter && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-500" />
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-blue-500 text-[10px] font-bold text-white flex items-center justify-center shadow">
+                {activeFiltersCount}
+              </span>
             )}
           </button>
         </div>
@@ -590,6 +608,50 @@ export const HomeView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible:
               className="text-xs text-blue-400 hover:text-white underline cursor-pointer"
             >
               {settings.language === 'ar' ? 'إلغاء البحث' : 'Clear search'}
+            </button>
+          </div>
+        )}
+
+        {/* Active Filters Summary Banner with Quick Reset Filters Action */}
+        {hasActiveAdvancedFilter && (
+          <div className="flex items-center justify-between px-3.5 py-2.5 rounded-2xl bg-blue-950/40 border border-blue-900/50 text-xs text-blue-200 animate-in fade-in">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold flex items-center gap-1.5 text-blue-300">
+                <Filter className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                <span>{isArabic ? `فلاتر نشطة (${activeFiltersCount}):` : `Active Filters (${activeFiltersCount}):`}</span>
+              </span>
+              {advancedFilter.type !== 'all' && (
+                <span className="px-2 py-0.5 rounded-lg bg-blue-500/20 text-blue-300 text-[11px] font-medium">
+                  {t(advancedFilter.type)}
+                </span>
+              )}
+              {advancedFilter.budgetPools && advancedFilter.budgetPools.map((pool) => (
+                <span key={pool} className="px-2 py-0.5 rounded-lg bg-indigo-500/20 text-indigo-300 text-[11px] font-medium">
+                  {pool === 'savings' ? t('poolSavings') : pool === 'fixed' ? t('poolFixed') : pool === 'outings' ? t('poolOutings') : t('poolDaily')}
+                </span>
+              ))}
+              {advancedFilter.accountIds.length > 0 && (
+                <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[11px] font-medium">
+                  {isArabic ? `${advancedFilter.accountIds.length} حسابات` : `${advancedFilter.accountIds.length} accounts`}
+                </span>
+              )}
+              {advancedFilter.categoryIds.length > 0 && (
+                <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[11px] font-medium">
+                  {isArabic ? `${advancedFilter.categoryIds.length} فئات` : `${advancedFilter.categoryIds.length} categories`}
+                </span>
+              )}
+              {(advancedFilter.minAmount !== undefined || advancedFilter.maxAmount !== undefined) && (
+                <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[11px] font-mono">
+                  {advancedFilter.minAmount ?? 0} - {advancedFilter.maxAmount ?? '∞'} {currencySymbol}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={clearAdvancedFilter}
+              className="text-xs font-bold text-blue-400 hover:text-white underline cursor-pointer shrink-0 ms-2"
+            >
+              {isArabic ? 'إعادة تعيين الفلاتر' : 'Reset Filters'}
             </button>
           </div>
         )}

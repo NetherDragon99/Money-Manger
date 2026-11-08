@@ -2,7 +2,7 @@ import { parseFormattedNumber } from '../utils/formatters';
 import React, { useState, useMemo } from 'react';
 import { navigateBack } from '../context/NavigationContext';
 import { useApp } from '../context/AppContext';
-import { X, Filter, Check, Search } from 'lucide-react';
+import { X, Filter, Check, Search, PiggyBank, Receipt, Sparkles, Coffee } from 'lucide-react';
 import { AdvancedFilter } from '../types';
 
 export const AdvancedFilterModal: React.FC = () => {
@@ -62,6 +62,17 @@ export const AdvancedFilterModal: React.FC = () => {
       return {
         ...prev,
         categoryIds: exists ? prev.categoryIds.filter((x) => x !== id) : [...prev.categoryIds, id],
+      };
+    });
+  };
+
+  const toggleBudgetPool = (pool: 'daily' | 'outings' | 'fixed' | 'savings') => {
+    setLocalFilter((prev) => {
+      const current = prev.budgetPools || [];
+      const exists = current.includes(pool);
+      return {
+        ...prev,
+        budgetPools: exists ? current.filter((p) => p !== pool) : [...current, pool],
       };
     });
   };
@@ -166,6 +177,41 @@ export const AdvancedFilterModal: React.FC = () => {
                   {type === 'all' ? t('allTypes') : t(type)}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Budget Pool Filter */}
+          <div>
+            <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">
+              {isArabic ? 'حوض الميزانية' : 'Budget Pool'}
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  { id: 'daily', label: t('poolDaily'), icon: <Coffee className="w-3.5 h-3.5" /> },
+                  { id: 'outings', label: t('poolOutings'), icon: <Sparkles className="w-3.5 h-3.5" /> },
+                  { id: 'fixed', label: t('poolFixed'), icon: <Receipt className="w-3.5 h-3.5" /> },
+                  { id: 'savings', label: t('poolSavings'), icon: <PiggyBank className="w-3.5 h-3.5" /> },
+                ] as const
+              ).map((p) => {
+                const isSelected = localFilter.budgetPools?.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => toggleBudgetPool(p.id)}
+                    className={`flex items-center gap-1.5 py-2 px-3 text-xs font-semibold rounded-xl border transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-600 border-blue-500 text-white shadow-sm'
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800/80 hover:text-white'
+                    }`}
+                  >
+                    {p.icon}
+                    <span>{p.label}</span>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

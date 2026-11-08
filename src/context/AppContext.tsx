@@ -250,6 +250,8 @@ interface AppContextType {
   setIsPinModalOpen: (open: boolean) => void;
   isSmartBudgetModalOpen: boolean;
   setIsSmartBudgetModalOpen: (open: boolean) => void;
+  activePoolDrillDown: 'savings' | 'fixed' | 'outings' | 'daily' | null;
+  setActivePoolDrillDown: (pool: 'savings' | 'fixed' | 'outings' | 'daily' | null) => void;
   isSettingsModalOpen: boolean;
   setIsSettingsModalOpen: (open: boolean) => void;
   isTransferFeesModalOpen: boolean;
@@ -466,6 +468,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     maxAmount: undefined,
     type: 'all',
     searchQuery: undefined,
+    budgetPools: [],
   });
 
   // Modals
@@ -493,6 +496,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isSmartBudgetModalOpen, setIsSmartBudgetModalOpen] = useState(false);
+  const [activePoolDrillDown, setActivePoolDrillDown] = useState<'savings' | 'fixed' | 'outings' | 'daily' | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isTransferFeesModalOpen, setIsTransferFeesModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -3539,6 +3543,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       maxAmount: undefined,
       type: 'all',
       searchQuery: undefined,
+      budgetPools: [],
     });
   };
 
@@ -5086,6 +5091,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsRecurringModalOpen,
     setIsPinModalOpen,
     setIsSmartBudgetModalOpen,
+    setActivePoolDrillDown,
     setIsSettingsModalOpen,
     setIsTransferFeesModalOpen,
     setIsExportModalOpen,
@@ -5199,6 +5205,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isRecurringModalOpen,
       isPinModalOpen,
       isSmartBudgetModalOpen,
+      activePoolDrillDown,
       isSettingsModalOpen,
       isTransferFeesModalOpen,
       isExportModalOpen,
@@ -5268,6 +5275,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isRecurringModalOpen,
       isPinModalOpen,
       isSmartBudgetModalOpen,
+      activePoolDrillDown,
       isSettingsModalOpen,
       isTransferFeesModalOpen,
       isExportModalOpen,

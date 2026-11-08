@@ -19,6 +19,31 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.2.2',
+    isBeta: true,
+    releaseDate: 'November 8, 2026',
+    title: {
+      en: 'Home Filters, Budget Cycle Modes, Savings Tracking & Pool Details',
+      ar: 'فلاتر الرئيسية ودورات الميزانية وتتبع التحويش وتفاصيل الأحواض',
+    },
+    highlights: {
+      en: [
+        'Restored Home filters: Complete date range selector (Today, This Week, Cycle, Calendar Month, Custom, All Time) and advanced filter funnel with active filter badges and quick reset',
+        'Flexible budget cycle start: Choose between App Default Month, Calendar Month, Live From Today, or a custom start day and date',
+        'Instant Apply action: Sticky button to save and apply your budget configurations with real-time recalculations',
+        'Accurate savings tracking: Fixed savings progress bar and totals to automatically capture and reflect all savings transfers and allocations',
+        'Interactive budget pool cards: Tap any pool card to inspect all tagged transactions for the current cycle with instant detail view',
+      ],
+      ar: [
+        'استعادة فلاتر الصفحة الرئيسية: محدد نطاق زمني شامل وفلتر متقدم مع شارات الفلاتر النشطة وخيار إعادة الضبط السريع',
+        'خيارات مرنة لبداية دورة الميزانية: الاختيار بين شهر التطبيق الافتراضي أو الشهر الميلادي أو المتابعة من اليوم أو تحديد يوم وتاريخ مخصص',
+        'تطبيق وحفظ فوري: زر مثبت لتطبيق وحفظ تغييرات الميزانية وإعادة الحساب فورياً',
+        'تتبع دقيق للمدخرات: إصلاح شريط تقدم التحويش لحساب كافة تحويلات وتخصيصات الادخار بشكل فوري وصحيح',
+        'أحواض ميزانية تفاعلية: إمكانية الضغط على أي حوض ميزانية لعرض كافة المعاملات المرتبطة به خلال الدورة الحالية مع إمكانية تعديلها',
+      ],
+    },
+  },
+  {
     version: '1.2.1',
     isBeta: true,
     releaseDate: 'November 8, 2026',
