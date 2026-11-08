@@ -113,8 +113,6 @@ import {
   flushGranularDirtyQueue,
   pullLatestRemoteState,
 } from '../utils/autoBackup';
-import { fetchGeminiApiKeyFromCloud, removeLocalGeminiApiKeyOnSignOut } from '../utils/geminiApiKey';
-import { clearInMemorySharedApiKey } from '../utils/smartBudgetAI';
 
 export type SyncStatus = 'syncing' | 'online' | 'offline' | 'awaiting_choice' | 'local_only';
 
@@ -3175,7 +3173,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         localStorage.removeItem('mm_cached_authenticated_user');
         localStorage.removeItem('google_drive_access_token');
         clearUserIdentityState();
-        clearInMemorySharedApiKey();
         lastRestoredUidRef.current = null;
         isCloudHydratedRef.current = false;
         isSyncUnlockedRef.current = false;
@@ -3232,11 +3229,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }
           return;
         }
-
-        // Fetch user's private Gemini API key from secure secrets path if available
-        fetchGeminiApiKeyFromCloud(user.uid).catch((err) => {
-          console.warn('[AppContext] fetchGeminiApiKeyFromCloud error:', err);
-        });
 
         if (!isDeviceBoundToUser) {
           // STAGE 1: SIGN-IN FREEZE & CLOUD INSPECTION
@@ -4326,8 +4318,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // 2. Perform low-level auth & storage cleanup
       await logoutUser();
       clearUserIdentityState();
-      removeLocalGeminiApiKeyOnSignOut();
-      clearInMemorySharedApiKey();
 
       // 3. Reset internal cloud hydration and conflict refs
       lastRestoredUidRef.current = null;

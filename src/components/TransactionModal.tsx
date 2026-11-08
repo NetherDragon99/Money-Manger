@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
-import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw, Trash2, Sparkles, CheckCircle2, AlertTriangle, AlertCircle, Check, PiggyBank, ShieldAlert, Wallet, Zap, Coins } from 'lucide-react';
+import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw, Trash2, CheckCircle2, AlertTriangle, AlertCircle, Check, PiggyBank, ShieldAlert, Wallet, Zap, Coins } from 'lucide-react';
 import { TransactionType, RecurringFrequency, RecurringTransaction, AdvancedScheduleConfig, Transaction, SavingsWithdrawalChoice, TaxFeeMode, TransferFeeMode, ManualFeeInputType, ExpenseBudgetPool } from '../types';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatDisplayNumber } from '../utils/dateCycle';
 import { calculateNextDueDate, getScheduleSummaryText, migrateRecurringRule, normalizeHHMM, normalizeTimesList, getNextNOccurrences, OccurrencePreviewItem } from '../utils/recurring';
 import { evaluateSmartBudget, SmartBudgetEvaluation, parseLocalDate, normalizeExpenseBudgetPool, canSendSmartBudgetNotificationToday, markSmartBudgetNotificationSentToday } from '../utils/smartBudgetEngine';
-import { classifyExpenseContext } from '../utils/smartBudgetAI';
 import { computeTransferFee, computeTaxFee, resolveTransferFeeSettings } from '../utils/transferFee';
 import { AdvancedTaxFeeInput } from './AdvancedTaxFeeInput';
 import { Numpad } from './Numpad';
@@ -217,7 +216,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [manualFeeStr, setManualFeeStr] = useState<string>('0');
   const [transferFeeBudgetPool, setTransferFeeBudgetPool] = useState<ExpenseBudgetPool>('daily');
   const [activeKeypadTarget, setActiveKeypadTarget] = useState<'amount' | 'fee'>('amount');
-  const [isClassifyingPool, setIsClassifyingPool] = useState<boolean>(false);
   const [showDateTimePicker, setShowDateTimePicker] = useState<boolean>(false);
   const [pickerTab, setPickerTab] = useState<'date' | 'time'>('date');
   const [accountDropdownOpen, setAccountDropdownOpen] = useState<'single' | 'from' | 'to' | null>(null);
@@ -1402,38 +1400,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     };
   }, [type, smartBudgetEval, isDateInCycle, effectiveExpenseAmount, budgetPool, date]);
 
-  const handleClassifyWithAI = async () => {
-    if (isClassifyingPool) return;
-    setIsClassifyingPool(true);
-    try {
-      const selectedCat = categories.find((c) => c.id === categoryId);
-      const res = await classifyExpenseContext({
-        note: description,
-        categoryName: selectedCat?.name,
-        amount: numericAmount,
-        language: isArabic ? 'ar' : 'en',
-      });
-      userManuallyPickedPoolRef.current = true;
-      const isOneOff = res.context === 'oneoff' || res.context === 'emergency';
-      if (res.context === 'outings') {
-        setBudgetPool('outings');
-      } else if (isOneOff) {
-        setBudgetPool('oneoff');
-      } else {
-        setBudgetPool(isRecurring ? 'fixed' : 'daily');
-      }
-      showToast(
-        isArabic
-          ? `تم التصنيف ذكياً: ${res.context === 'outings' ? t('poolOutings') : isOneOff ? t('poolOneOff') : isRecurring ? t('poolFixed') : t('poolDaily')}`
-          : `Classified as ${res.context === 'outings' ? t('poolOutings') : isOneOff ? t('poolOneOff') : isRecurring ? t('poolFixed') : t('poolDaily')}`,
-        'info'
-      );
-    } catch (err) {
-      console.warn('AI classification error:', err);
-    } finally {
-      setIsClassifyingPool(false);
-    }
-  };
   const isTransferSameAccount = type === 'transfer' && accountId === toAccountId;
   const canSave = numericAmount > 0 && !isTransferSameAccount && isModified && !isFilterEmpty;
 
@@ -3121,20 +3087,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
               }}
               placeholder={t('addNotes')}
-              className={`w-full ${type === 'expense' ? 'pl-4 pr-11 rtl:pl-11 rtl:pr-4' : 'px-4'} py-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition resize-none overflow-y-auto leading-relaxed`}
+              className="w-full px-4 py-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition resize-none overflow-y-auto leading-relaxed"
               style={{ maxHeight: '144px' }}
             />
-            {type === 'expense' && (
-              <button
-                type="button"
-                disabled={isClassifyingPool}
-                onClick={handleClassifyWithAI}
-                title={isArabic ? 'تصنيف بحوض الميزانية المناسب بالذكاء الاصطناعي' : 'Classify into budget pool with AI'}
-                className="absolute right-2.5 rtl:right-auto rtl:left-2.5 top-2.5 p-1.5 rounded-xl text-indigo-400 hover:text-indigo-300 hover:bg-zinc-800 transition cursor-pointer disabled:opacity-50"
-              >
-                <Sparkles className={`w-4 h-4 ${isClassifyingPool ? 'animate-spin' : ''}`} />
-              </button>
-            )}
           </div>
 
           {/* Budget Pool Selector for Expense Transactions (4 Standardized Pools) */}
@@ -3144,17 +3099,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 <span className="text-xs font-semibold text-zinc-400">
                   {t('budgetPoolLabel')}
                 </span>
-                <button
-                  type="button"
-                  disabled={isClassifyingPool}
-                  onClick={handleClassifyWithAI}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 disabled:opacity-50 transition cursor-pointer"
-                >
-                  <Sparkles className={`w-3.5 h-3.5 ${isClassifyingPool ? 'animate-spin' : ''}`} />
-                  <span>
-                    {isClassifyingPool ? t('classifyingPool') : t('classifyWithAIBtn')}
-                  </span>
-                </button>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">

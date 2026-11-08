@@ -1,49 +1,54 @@
 /**
- * Smart Budget Hub Modal
+ * Smart Budget Hub Modal - Unified Vertical View
  *
- * Full-featured interactive interface for the 4-Pool Smart Budget engine & AI advisor:
- * 1. "This Month & Rebalance": Today's Safe-to-Spend meter, 4 pool status cards, health check banner,
- *    instant deterministic What-If simulator with AI option, and 3 adaptive rebalance scenario cards
- *    that override only the current cycle without modifying baseline.
- * 2. "Baseline Plan": Cycle start day, planned income, 4-pool sliders totaling exactly 100% with
- *    locked savings minimum, fixed-category multi-picker, account inclusion, and AI optimization preview.
- * 3. "AI Advisor & Secrets": Private Gemini API key management (masked view, test connection, clear key),
- *    privacy disclosure, explicit consent toggle, and monthly usage metrics.
+ * Single scrollable vertical interface for the 4-Pool Smart Budget engine:
+ * 1. Global Settings & Funding:
+ *    - Pause Smart Budget for this month toggle
+ *    - Calculation Mode ("From Today" vs "Full Cycle")
+ *    - Linked Funding Accounts (with Live Budget total, Non-Savings Only / All Accounts role filters)
+ *    - Extra outside cash (Adjustment) input
+ * 2. Daily Allowance Tracker (The Dashboard):
+ *    - The ALLOWED TODAY card (Allowed, Spent, Remaining for today, status pill, progress bar)
+ * 3. Budget Pool Allocations & Progress:
+ *    - 4 Combined Cards: Savings, Bills & Fixed, Outings, Daily Spending
+ *    - Allows user to input the EXACT absolute target amount (EGP), and immediately below displays
+ *      the real-time remaining balance, spent amount, and cycle progress bar.
+ *    - Percentages remain as read-only labels.
+ *    - Daily Spending remains the absolute calculated remainder: Live Budget - (Savings + Bills + Outings).
+ * 4. Bills & Fixed Categories Setup:
+ *    - Multi-select category chips automatically counted under Bills & Fixed.
+ * 5. Tools & Alerts:
+ *    - What-If Expense Simulator (100% local, deterministic math)
+ *    - Rebalance Options (shown only if there is a deficit)
+ *    - Heads-up Alert Threshold slider
+ * 6. Actions:
+ *    - A single prominent "Save Budget Plan" button.
  *
  * Accessibility & Responsiveness:
  * - Safe at 320px width, dark mode native, RTL compliant.
  * - Touch targets >= 44px on all interactive elements.
- * - Registered in navigation history stack so hardware Back closes it.
+ * - 100% local deterministic math with zero experimental AI dependencies.
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   X,
-  Sparkles,
   Calendar,
   Sliders,
   Shield,
-  AlertTriangle,
   AlertCircle,
   CheckCircle2,
-  TrendingUp,
-  TrendingDown,
-  RefreshCw,
   Wallet,
   PiggyBank,
   Coffee,
   ShoppingBag,
-  HelpCircle,
   RotateCcw,
-  KeyRound,
-  Trash2,
   Zap,
   Check,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { navigateBack } from '../context/NavigationContext';
 import { formatNumberWithCommas } from '../utils/formatters';
 import {
   evaluateSmartBudget,
@@ -56,31 +61,9 @@ import {
   isSavingsOrInvestmentRole,
 } from '../utils/smartBudgetEngine';
 import {
-  PoolAllocationConfig,
   SmartBudgetBaselineConfig,
   SmartBudgetCycleOverride,
 } from '../types';
-import {
-  hasAIConsent,
-  setAIConsent,
-  getAIMonthlyUsage,
-  AI_CONSENT_DISCLOSURE,
-  suggestSalaryAllocation,
-  clearAICache,
-  hasAIAccess,
-  isManagedBackendOrProxyAvailable,
-  testConnection,
-  ConnectionTestResult,
-  requestSmartBudgetAdvice,
-  SmartBudgetAdviceResult,
-} from '../utils/smartBudgetAI';
-import {
-  getLocalGeminiApiKey,
-  maskGeminiApiKey,
-  saveGeminiApiKey,
-  clearGeminiApiKey,
-} from '../utils/geminiApiKey';
-import { auth } from '../utils/firebase';
 
 interface PoolItemState {
   minorUnits: number;
@@ -178,8 +161,6 @@ interface SmartBudgetModalProps {
   onClose: () => void;
 }
 
-type TabKey = 'thisMonth' | 'baseline' | 'aiAdvisor';
-
 export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onClose }) => {
   const {
     settings,
@@ -197,17 +178,14 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   const formatCurrency = (amount: number, curr = currency) =>
     `${formatNumberWithCommas(amount, 2)} ${curr}`;
 
-  // Active Hub Tab
-  const [activeTab, setActiveTab] = useState<TabKey>('thisMonth');
-
   // ==========================================================================
-  // TAB 1: THIS MONTH & REBALANCE STATE
+  // WHAT-IF SIMULATOR STATE
   // ==========================================================================
   const [whatIfAmount, setWhatIfAmount] = useState<string>('');
   const [whatIfPool, setWhatIfPool] = useState<'daily' | 'outings' | 'fixed' | 'oneoff'>('outings');
 
   // ==========================================================================
-  // TAB 2: BASELINE PLAN DRAFT STATE & 4-POOL ALLOCATION
+  // CONFIGURATION STATE
   // ==========================================================================
   const baselineSettings = settings.smartBudget?.baseline || {};
   const globalMonthStartDay = Math.min(31, Math.max(1, Math.floor(settings.defaultMonthStartDay || 1)));
@@ -223,7 +201,6 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     outings: string | null;
   }>({ savings: null, fixed: null, outings: null });
 
-  const savingsMinPercent = 0;
   const [headsUpThresholdPercent, setHeadsUpThresholdPercent] = useState<number>(() =>
     Math.round(((baselineSettings.headsUpThresholdRatio ?? 0.7) * 100))
   );
@@ -267,30 +244,8 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   }, [linkedAccountsBalanceSum, parsedAdjustment]);
 
   const [weekendMultiplier] = useState<number>(1.5);
-  const [isOptimizingWithAI, setIsOptimizingWithAI] = useState<boolean>(false);
-  const [aiOptimizationPreview, setAiOptimizationPreview] = useState<{
-    savings: number;
-    fixed: number;
-    outings: number;
-    daily: number;
-    explanation: string;
-  } | null>(null);
 
-  // ==========================================================================
-  // SINGLE-MONTH CUSTOM PLAN STATE (KEYED BY CYCLE START DATE YYYY-MM-DD)
-  // ==========================================================================
-  const [isEditingCustomPlan, setIsEditingCustomPlan] = useState<boolean>(false);
-  const [customIncomeInput, setCustomIncomeInput] = useState<string>('');
-  const [customPools, setCustomPools] = useState<PoolsState>(() =>
-    initPoolsFromSettings(baselineSettings, baselineSettings.plannedIncome || 0)
-  );
-  const [customPoolHints, setCustomPoolHints] = useState<{
-    savings: string | null;
-    fixed: string | null;
-    outings: string | null;
-  }>({ savings: null, fixed: null, outings: null });
-
-  // Synchronize baseline state from settings
+  // Synchronize state when baseline settings change externally
   useEffect(() => {
     if (baselineSettings) {
       if (baselineSettings.fixedCategoryIds) {
@@ -308,7 +263,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     }
   }, [settings.smartBudget?.baseline]);
 
-  // Derived income minor units & daily remainder for Baseline Plan
+  // Derived income minor units & daily remainder
   const incomeMinor =
     baselineCalculationMode === 'from_today'
       ? Math.round(liveBudget * 100)
@@ -327,20 +282,6 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
           Math.round((100 - (pools.savings.percent + pools.fixed.percent + pools.outings.percent)) * 10) / 10
         );
 
-  // Derived income minor units & daily remainder for Custom Plan (This Month)
-  const customIncomeMinor = Math.round(
-    (parseFloat(customIncomeInput.replace(/,/g, '')) || 0) * 100
-  );
-  const customDailyMinor = Math.max(
-    0,
-    customIncomeMinor -
-      (customPools.savings.minorUnits + customPools.fixed.minorUnits + customPools.outings.minorUnits)
-  );
-  const customDailyPercent =
-    customIncomeMinor > 0
-      ? Math.max(0, Math.round(((customDailyMinor / customIncomeMinor) * 100) * 10) / 10)
-      : 0;
-
   // Monthly recurring expenses detection
   const detectedRecurringBills = useMemo(() => {
     if (!recurringTransactions || recurringTransactions.length === 0) return 0;
@@ -357,34 +298,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   }, [recurringTransactions]);
 
   // ==========================================================================
-  // TAB 3: AI ADVISOR & SECRETS STATE
-  // ==========================================================================
-  const [aiConsentEnabled, setAiConsentEnabled] = useState<boolean>(() => hasAIConsent());
-  const [storedApiKey, setStoredApiKey] = useState<string | null>(() => getLocalGeminiApiKey());
-  const [inputApiKey, setInputApiKey] = useState<string>('');
-  const [isEditingKey, setIsEditingKey] = useState<boolean>(false);
-  const [monthlyUsage, setMonthlyUsage] = useState(() => getAIMonthlyUsage());
-  const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
-  const [connectionTestResult, setConnectionTestResult] = useState<ConnectionTestResult | null>(null);
-  const [hasAIAccessState, setHasAIAccessState] = useState<boolean>(false);
-  const [managedAiAvailable, setManagedAiAvailable] = useState<boolean>(() =>
-    isManagedBackendOrProxyAvailable()
-  );
-  const [showAdvancedKeySection, setShowAdvancedKeySection] = useState<boolean>(false);
-  const [adviceData, setAdviceData] = useState<SmartBudgetAdviceResult | null>(null);
-  const [isLoadingAdvice, setIsLoadingAdvice] = useState<boolean>(false);
-
-  // Refresh AI key & metrics when tab opens
-  useEffect(() => {
-    setStoredApiKey(getLocalGeminiApiKey());
-    setAiConsentEnabled(hasAIConsent());
-    setMonthlyUsage(getAIMonthlyUsage());
-    hasAIAccess().then(setHasAIAccessState);
-    setManagedAiAvailable(isManagedBackendOrProxyAvailable());
-  }, [activeTab]);
-
-  // ==========================================================================
-  // EVALUATION & CURRENT CYCLE KEY (KEYED BY YYYY-MM-DD START DATE)
+  // EVALUATION & CURRENT CYCLE KEY
   // ==========================================================================
   const evaluation: SmartBudgetEvaluation = useMemo(() => {
     const draftPlanned = parseFloat(plannedIncomeInput.replace(/,/g, '')) || 0;
@@ -440,7 +354,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       adjustments: settings.smartBudget?.adjustments,
       weekdayWeights:
         weekendMultiplier !== 1.0
-          ? { 4: weekendMultiplier, 5: weekendMultiplier } // Thu/Fri for Middle East weekend
+          ? { 4: weekendMultiplier, 5: weekendMultiplier }
           : undefined,
     };
     return evaluateSmartBudget(
@@ -479,7 +393,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   if (!isOpen) return null;
 
   // ==========================================================================
-  // DUAL-INPUT REBALANCER (PERCENT SLIDER + COMMAS AMOUNT INPUT)
+  // INPUT FORMATTERS & HANDLERS
   // ==========================================================================
   const formatIncomeWithCaret = (
     rawInput: string,
@@ -585,12 +499,6 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     const newIncome = formatIncomeWithCaret(valStr, inputEl || null, setPlannedIncomeInput);
     const newMinor = Math.round(newIncome * 100);
     setPools((prev) => recomputePoolsForNewIncome(prev, newMinor));
-  };
-
-  const handleCustomIncomeChange = (valStr: string, inputEl?: HTMLInputElement | null) => {
-    const newIncome = formatIncomeWithCaret(valStr, inputEl || null, setCustomIncomeInput);
-    const newMinor = Math.round(newIncome * 100);
-    setCustomPools((prev) => recomputePoolsForNewIncome(prev, newMinor));
   };
 
   const applyDualAmountChange = (
@@ -715,24 +623,6 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   const handleAmountBlur = (poolKey: 'savings' | 'fixed' | 'outings') =>
     applyDualAmountBlur(poolKey, incomeMinor, setPools);
 
-  const handleCustomAmountChange = (
-    poolKey: 'savings' | 'fixed' | 'outings',
-    rawInput: string,
-    inputEl: HTMLInputElement | null
-  ) =>
-    applyDualAmountChange(
-      poolKey,
-      rawInput,
-      inputEl,
-      customIncomeMinor,
-      customPools,
-      setCustomPools,
-      setCustomPoolHints
-    );
-
-  const handleCustomAmountBlur = (poolKey: 'savings' | 'fixed' | 'outings') =>
-    applyDualAmountBlur(poolKey, customIncomeMinor, setCustomPools);
-
   const handleApplyDetectedRecurringBills = () => {
     if (detectedRecurringBills <= 0) return;
     const detectedMinor = Math.round(detectedRecurringBills * 100);
@@ -834,7 +724,6 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       },
     });
 
-    setIsEditingCustomPlan(false);
     showToast(t('scenarioRevertedSuccess'), 'info');
   };
 
@@ -908,81 +797,101 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     setAdjustmentInput(num !== 0 ? String(num) : '');
   };
 
-  // ==========================================================================
-  // ACTIONS: SINGLE-MONTH CUSTOM PLAN (KEYED BY CYCLE START DATE YYYY-MM-DD)
-  // ==========================================================================
-  const handleOpenCustomPlanEditor = () => {
-    const effectiveSrc = currentOverride
-      ? { ...baselineSettings, ...currentOverride }
-      : baselineSettings;
-    const initInc =
-      effectiveSrc.plannedIncome ||
-      evaluation.pools.total.income ||
-      parseFloat(plannedIncomeInput.replace(/,/g, '')) ||
-      0;
-    setCustomIncomeInput(initInc > 0 ? formatNumberWithCommas(initInc, 2) : '');
-    setCustomPools(initPoolsFromSettings(effectiveSrc, initInc));
-    setCustomPoolHints({ savings: null, fixed: null, outings: null });
-    setIsEditingCustomPlan(true);
-  };
-
-  const handleSaveCustomPlan = () => {
-    const customInc = parseFloat(customIncomeInput.replace(/,/g, '')) || 0;
-    const sMinor = customPools.savings.minorUnits;
-    const fMinor = customPools.fixed.minorUnits;
-    const oMinor = customPools.outings.minorUnits;
-    const sPct = customIncomeMinor > 0 ? Math.round(((sMinor / customIncomeMinor) * 100) * 10) / 10 : 0;
-    const fPct = customIncomeMinor > 0 ? Math.round(((fMinor / customIncomeMinor) * 100) * 10) / 10 : 0;
-    const oPct = customIncomeMinor > 0 ? Math.round(((oMinor / customIncomeMinor) * 100) * 10) / 10 : 0;
-
-    const newOverride: SmartBudgetCycleOverride = {
-      plannedIncome: customInc > 0 ? customInc : undefined,
-      savings: { type: 'fixed', value: sMinor / 100 },
-      plannedFixedObligations: fMinor / 100,
-      outingsBudget: oMinor / 100,
-      poolsConfig: {
-        savings: {
-          minorUnits: sMinor,
-          percent: sPct,
-          mode: 'amount',
-        },
-        fixed: {
-          minorUnits: fMinor,
-          percent: fPct,
-          mode: 'amount',
-        },
-        outings: {
-          minorUnits: oMinor,
-          percent: oPct,
-          mode: 'amount',
-        },
-      },
-      isCustomPlan: true,
-      appliedAt: Date.now(),
-    };
-
-    const newOverrides = {
-      ...(settings.smartBudget?.overrides || {}),
-      [currentCycleKey]: newOverride,
-    };
-
-    updateSettings({
-      smartBudget: {
-        baseline: settings.smartBudget?.baseline || {},
-        overrides: newOverrides,
-        adjustments: settings.smartBudget?.adjustments,
-        updatedAt: Date.now(),
-      },
-    });
-
-    setIsEditingCustomPlan(false);
-    showToast(t('customPlanSavedSuccess'), 'success');
+  const handleToggleFixedCategory = (catId: string) => {
+    setSelectedFixedCatIds((prev) =>
+      prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId]
+    );
   };
 
   // ==========================================================================
-  // ACTIONS: SAVE BASELINE
+  // WHAT-IF SIMULATOR CALCULATION (100% LOCAL DETERMINISTIC MATH)
   // ==========================================================================
-  const handleSaveBaseline = () => {
+  const whatIfCalculation = useMemo(() => {
+    const simulatedExpenseNumber = Math.max(0, parseFloat(whatIfAmount.replace(/,/g, '')) || 0);
+    const remainingDaysInCycle = evaluation.dailyStatus.remainingDaysInCycle;
+    const isLastDay = remainingDaysInCycle <= 1;
+
+    let poolName = t('poolDaily');
+    let poolBefore = evaluation.pools.daily.remaining;
+    let poolAfter = poolBefore - simulatedExpenseNumber;
+    let spilloverToDaily = simulatedExpenseNumber;
+    let isCoveredByEmergency = false;
+
+    if (whatIfPool === 'outings') {
+      poolName = t('poolOutings');
+      poolBefore = evaluation.pools.outings.remaining;
+      poolAfter = poolBefore - simulatedExpenseNumber;
+      if (poolBefore > 0) {
+        spilloverToDaily = Math.max(0, simulatedExpenseNumber - poolBefore);
+      } else {
+        spilloverToDaily = simulatedExpenseNumber;
+      }
+    } else if (whatIfPool === 'fixed') {
+      poolName = t('poolFixed');
+      poolBefore = evaluation.pools.fixed.remaining;
+      poolAfter = poolBefore - simulatedExpenseNumber;
+      if (poolBefore > 0) {
+        spilloverToDaily = Math.max(0, simulatedExpenseNumber - poolBefore);
+      } else {
+        spilloverToDaily = simulatedExpenseNumber;
+      }
+    } else if (whatIfPool === 'daily') {
+      poolName = t('poolDaily');
+      poolBefore = evaluation.pools.daily.remaining;
+      poolAfter = poolBefore - simulatedExpenseNumber;
+      spilloverToDaily = simulatedExpenseNumber;
+    } else if (whatIfPool === 'oneoff') {
+      poolName = t('poolOneOff');
+      const emergencyCredit = evaluation.pools.savings.remainingEmergencyCredit;
+      poolBefore = emergencyCredit;
+      poolAfter = Math.max(0, emergencyCredit - simulatedExpenseNumber);
+      spilloverToDaily = 0;
+      isCoveredByEmergency = true;
+    }
+
+    const allowanceBefore = isLastDay
+      ? Math.max(0, evaluation.dailyStatus.todayRemaining)
+      : evaluation.dailyStatus.upcomingDailyAllowance;
+
+    let allowanceAfter = allowanceBefore;
+    let dailyImpact = 0;
+
+    if (simulatedExpenseNumber === 0) {
+      allowanceAfter = allowanceBefore;
+      dailyImpact = 0;
+    } else if (whatIfPool === 'oneoff') {
+      allowanceAfter = allowanceBefore;
+      dailyImpact = 0;
+    } else if (isLastDay) {
+      allowanceAfter = Math.max(0, allowanceBefore - spilloverToDaily);
+      dailyImpact = allowanceAfter - allowanceBefore;
+    } else {
+      allowanceAfter = evaluation.projectedDailyAllowanceAfterSpend(
+        simulatedExpenseNumber,
+        whatIfPool,
+        evaluation.dailyStatus.asOfDate
+      );
+      dailyImpact = allowanceAfter - allowanceBefore;
+    }
+
+    return {
+      poolName,
+      poolBefore,
+      poolAfter,
+      spilloverToDaily,
+      isCoveredByEmergency,
+      isLastDay,
+      remainingDaysInCycle,
+      allowanceBefore,
+      allowanceAfter,
+      dailyImpact,
+    };
+  }, [whatIfAmount, whatIfPool, evaluation, t]);
+
+  // ==========================================================================
+  // ACTIONS: SAVE BUDGET PLAN
+  // ==========================================================================
+  const handleSaveBudgetPlan = () => {
     const planned = parseFloat(plannedIncomeInput.replace(/,/g, '')) || 0;
     const sMinor = pools.savings.minorUnits;
     const fMinor = pools.fixed.minorUnits;
@@ -1043,298 +952,38 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       },
     });
 
-    showToast(t('baselineSavedSuccess'), 'success');
+    showToast(t('saveBudgetPlan') ? t('budgetPlanSavedSuccess') : t('baselineSavedSuccess'), 'success');
   };
 
-  // ==========================================================================
-  // ACTIONS: AI OPTIMIZE BASELINE (Seamless AI or Deterministic Fallback)
-  // ==========================================================================
-  const handleAskAIToOptimize = async () => {
-    setIsOptimizingWithAI(true);
-    try {
-      const fixedTotal = categories
-        .filter((c) => selectedFixedCatIds.includes(c.id))
-        .reduce((sum, c) => sum + (c.budgetLimit || 0), 0);
-
-      const income =
-        parseFloat(plannedIncomeInput.replace(/,/g, '')) ||
-        evaluation.pools.total.income ||
-        15000;
-
-      const suggestion = await suggestSalaryAllocation({
-        plannedIncomeMajor: income,
-        fixedObligationsMajor: fixedTotal,
-        savingsMinPercent,
-        language: isArabic ? 'ar' : 'en',
-      });
-
-      setAiOptimizationPreview({
-        savings: suggestion.savingsPercent,
-        fixed: suggestion.fixedPercent,
-        outings: suggestion.outingsPercent,
-        daily: suggestion.dailyPercent,
-        explanation: suggestion.explanation,
-      });
-    } catch {
-      showToast(t('errorOccurred'), 'error');
-    } finally {
-      setIsOptimizingWithAI(false);
-    }
-  };
-
-  const handleApplyAIOptimization = () => {
-    if (!aiOptimizationPreview) return;
-    const sPct = aiOptimizationPreview.savings;
-    const fPct = aiOptimizationPreview.fixed;
-    const oPct = aiOptimizationPreview.outings;
-
-    const sMinor = Math.round(incomeMinor * (sPct / 100));
-    const fMinor = Math.round(incomeMinor * (fPct / 100));
-    const oMinor = Math.round(incomeMinor * (oPct / 100));
+  const handleResetToDefaults = () => {
+    const incMinor = Math.round(liveBudget * 100);
+    const sMinor = Math.round(incMinor * 0.2);
+    const fMinor = Math.round(incMinor * 0.4);
+    const oMinor = Math.round(incMinor * 0.15);
 
     setPools({
       savings: {
         minorUnits: sMinor,
-        percent: sPct,
-        mode: 'percent',
+        percent: 20,
+        mode: 'amount',
         amountText: formatNumberWithCommas(sMinor / 100, 2),
       },
       fixed: {
         minorUnits: fMinor,
-        percent: fPct,
-        mode: 'percent',
+        percent: 40,
+        mode: 'amount',
         amountText: formatNumberWithCommas(fMinor / 100, 2),
       },
       outings: {
         minorUnits: oMinor,
-        percent: oPct,
-        mode: 'percent',
+        percent: 15,
+        mode: 'amount',
         amountText: formatNumberWithCommas(oMinor / 100, 2),
       },
     });
-    setAiOptimizationPreview(null);
-    showToast(t('updatedSuccess'), 'success');
-  };
-
-  // ==========================================================================
-  // ACTIONS: 100% INSTANT CLIENT-SIDE DETERMINISTIC WHAT-IF SIMULATION
-  // ==========================================================================
-  const whatIfCalculation = useMemo(() => {
-    const simulatedExpenseNumber = Math.max(0, parseFloat(whatIfAmount.replace(/,/g, '')) || 0);
-    const remainingDaysInCycle = evaluation.dailyStatus.remainingDaysInCycle;
-    const isLastDay = remainingDaysInCycle <= 1;
-
-    let poolName = t('poolDaily');
-    let poolBefore = evaluation.pools.daily.remaining;
-    let poolAfter = poolBefore - simulatedExpenseNumber;
-    let spilloverToDaily = simulatedExpenseNumber;
-    let isCoveredByEmergency = false;
-
-    if (whatIfPool === 'outings') {
-      poolName = t('poolOutings');
-      poolBefore = evaluation.pools.outings.remaining;
-      poolAfter = poolBefore - simulatedExpenseNumber;
-      if (poolBefore > 0) {
-        spilloverToDaily = Math.max(0, simulatedExpenseNumber - poolBefore);
-      } else {
-        spilloverToDaily = simulatedExpenseNumber;
-      }
-    } else if (whatIfPool === 'fixed') {
-      poolName = t('poolFixed');
-      poolBefore = evaluation.pools.fixed.remaining;
-      poolAfter = poolBefore - simulatedExpenseNumber;
-      if (poolBefore > 0) {
-        spilloverToDaily = Math.max(0, simulatedExpenseNumber - poolBefore);
-      } else {
-        spilloverToDaily = simulatedExpenseNumber;
-      }
-    } else if (whatIfPool === 'daily') {
-      poolName = t('poolDaily');
-      poolBefore = evaluation.pools.daily.remaining;
-      poolAfter = poolBefore - simulatedExpenseNumber;
-      spilloverToDaily = simulatedExpenseNumber;
-    } else if (whatIfPool === 'oneoff') {
-      poolName = t('poolOneOff');
-      const emergencyCredit = evaluation.pools.savings.remainingEmergencyCredit;
-      poolBefore = emergencyCredit;
-      poolAfter = Math.max(0, emergencyCredit - simulatedExpenseNumber);
-      spilloverToDaily = 0;
-      isCoveredByEmergency = true;
-    }
-
-    // Daily allowance before & after
-    const allowanceBefore = isLastDay
-      ? Math.max(0, evaluation.dailyStatus.todayRemaining)
-      : evaluation.dailyStatus.upcomingDailyAllowance;
-
-    let allowanceAfter = allowanceBefore;
-    let dailyImpact = 0;
-
-    if (simulatedExpenseNumber === 0) {
-      allowanceAfter = allowanceBefore;
-      dailyImpact = 0;
-    } else if (whatIfPool === 'oneoff') {
-      allowanceAfter = allowanceBefore;
-      dailyImpact = 0;
-    } else if (isLastDay) {
-      allowanceAfter = Math.max(0, allowanceBefore - spilloverToDaily);
-      dailyImpact = allowanceAfter - allowanceBefore;
-    } else {
-      allowanceAfter = evaluation.projectedDailyAllowanceAfterSpend(
-        simulatedExpenseNumber,
-        whatIfPool,
-        evaluation.dailyStatus.asOfDate
-      );
-      dailyImpact = allowanceAfter - allowanceBefore;
-    }
-
-    return {
-      poolName,
-      poolBefore,
-      poolAfter,
-      spilloverToDaily,
-      isCoveredByEmergency,
-      isLastDay,
-      remainingDaysInCycle,
-      allowanceBefore,
-      allowanceAfter,
-      dailyImpact,
-    };
-  }, [whatIfAmount, whatIfPool, evaluation, t]);
-
-  // ==========================================================================
-  // ACTIONS: KEY & CONNECTION TEST
-  // ==========================================================================
-  const handleSaveKey = async () => {
-    const clean = inputApiKey.trim();
-    if (!clean) return;
-    await saveGeminiApiKey(clean, auth.currentUser?.uid);
-    setStoredApiKey(clean);
-    setInputApiKey('');
-    setIsEditingKey(false);
-    showToast(t('apiKeySavedSuccess'), 'success');
-  };
-
-  const handleClearKey = async () => {
-    await clearGeminiApiKey(auth.currentUser?.uid);
-    setStoredApiKey(null);
-    setInputApiKey('');
-    setIsEditingKey(false);
-    showToast(t('apiKeyClearedSuccess'), 'info');
-  };
-
-  const handleTestConnection = async () => {
-    setIsTestingConnection(true);
-    setConnectionTestResult(null);
-    try {
-      const res = await testConnection(isArabic ? 'ar' : 'en');
-      setConnectionTestResult(res);
-      if (res.ok) {
-        showToast(t('connectionSuccess'), 'success');
-      } else {
-        showToast(isArabic ? res.messageAr : res.message, 'error');
-      }
-    } catch (err: any) {
-      const fallbackRes: ConnectionTestResult = {
-        ok: false,
-        source: 'personal',
-        message: err?.message || 'Connection test failed',
-        messageAr: 'فشل اختبار الاتصال',
-      };
-      setConnectionTestResult(fallbackRes);
-      showToast(t('connectionFailed'), 'error');
-    } finally {
-      setIsTestingConnection(false);
-      setMonthlyUsage(getAIMonthlyUsage());
-    }
-  };
-
-  const handleGetAdvice = async () => {
-    if (!aiConsentEnabled) {
-      showToast(t('aiAdvisorConsentRequired'), 'error');
-      return;
-    }
-    setIsLoadingAdvice(true);
-    try {
-      const todayStr = evaluation.dailyStatus.asOfDate;
-      const baseCurr = evaluation.baseCurrency;
-      const cycleStart = evaluation.cycle.startDate;
-      const cycleEnd = evaluation.cycle.endDate;
-      const isFromToday = evaluation.calculationMode === 'from_today';
-      const effectiveStart = isFromToday ? (evaluation.fromTodayConfig?.fromDate || todayStr) : cycleStart;
-
-      // Group cycle transactions by category (excluding transfers)
-      // Send ONLY aggregated numbers (category names capped at 30 chars, category totals, count, pool)
-      // ZERO notes, ZERO emails, ZERO account IDs/names
-      const catMap = new Map<string, { name: string; total: number; count: number; pool: string }>();
-
-      (transactions || []).forEach((tx) => {
-        if (!tx || !tx.date || tx.type !== 'expense' || tx.isAdjustment || tx.isUneditable) return;
-        const d = tx.date.split('T')[0].trim();
-        if (d < effectiveStart || d > cycleEnd) return;
-        const acc = accounts.find((a) => a.id === tx.accountId);
-        if (acc?.currency && acc.currency !== baseCurr) return;
-
-        const catId = tx.categoryId || 'uncategorized';
-        const cat = categories.find((c) => c.id === catId);
-        const rawName = cat?.name || (catId === 'uncategorized' ? (isArabic ? 'غير مصنف' : 'Uncategorized') : catId);
-        const sanitizedName = rawName.slice(0, 30).trim() || 'Category';
-
-        let pool = 'daily';
-        if (selectedFixedCatIds.includes(catId)) {
-          pool = 'fixed';
-        } else if ((cat as any)?.isOuting || /outing|entertainment|restaurant|خروج|ترفيه|مطعم/i.test(rawName)) {
-          pool = 'outings';
-        }
-
-        const existing = catMap.get(catId);
-        if (existing) {
-          existing.total += (tx.amount || 0);
-          existing.count += 1;
-        } else {
-          catMap.set(catId, {
-            name: sanitizedName,
-            total: tx.amount || 0,
-            count: 1,
-            pool,
-          });
-        }
-      });
-
-      const categoryList = Array.from(catMap.values())
-        .map((item) => ({
-          categoryName: item.name,
-          amountMajor: Math.round(item.total * 100) / 100,
-          count: item.count,
-          pool: item.pool,
-        }))
-        .sort((a, b) => b.amountMajor - a.amountMajor)
-        .slice(0, 10);
-
-      const hasDeficit = evaluation.rebalanceScenarios.hasDeficit;
-      const deficitOrSurplus = hasDeficit
-        ? -Math.abs(evaluation.rebalanceScenarios.deficit)
-        : Math.max(0, evaluation.pools.daily.remaining);
-
-      const advice = await requestSmartBudgetAdvice({
-        categoryTotals: categoryList,
-        cycleDeficitOrSurplusMajor: deficitOrSurplus,
-        isDeficit: hasDeficit,
-        remainingDays: evaluation.dailyStatus.remainingDaysInCycle,
-        totalCycleIncomeMajor: evaluation.pools.total.income,
-        totalCycleSpentMajor: evaluation.pools.total.spent,
-        currency,
-        language: isArabic ? 'ar' : 'en',
-      });
-
-      setAdviceData(advice);
-      showToast(t('updatedSuccess'), 'success');
-    } catch {
-      showToast(t('errorOccurred'), 'error');
-    } finally {
-      setIsLoadingAdvice(false);
-      setMonthlyUsage(getAIMonthlyUsage());
-    }
+    setHeadsUpThresholdPercent(70);
+    setPoolHints({ savings: null, fixed: null, outings: null });
+    showToast(t('resetToDefault'), 'info');
   };
 
   return (
@@ -1351,7 +1000,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
         <div className="p-4 sm:p-5 border-b border-zinc-800/80 flex items-center justify-between shrink-0 bg-zinc-900/60">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-emerald-950/40">
-              <Sparkles className="w-5 h-5 stroke-[2.5]" />
+              <Wallet className="w-5 h-5 stroke-[2.5]" />
             </div>
             <div className="min-w-0">
               <h3 className="text-base sm:text-lg font-bold text-white truncate">
@@ -1365,139 +1014,66 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
           <button
             type="button"
             onClick={onClose}
-            className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-zinc-850 hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center transition-colors shrink-0"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-zinc-850 hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center transition-colors shrink-0 cursor-pointer"
             aria-label="Close"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* 3-Tab Selector Bar */}
-        <div className="flex items-center border-b border-zinc-800/80 bg-zinc-900/40 px-2 sm:px-4 shrink-0 overflow-x-auto no-scrollbar">
-          <button
-            type="button"
-            onClick={() => setActiveTab('thisMonth')}
-            className={`min-h-[44px] px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap shrink-0 ${
-              activeTab === 'thisMonth'
-                ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <Calendar className="w-4 h-4" />
-            <span>{t('tabThisMonth')}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('baseline')}
-            className={`min-h-[44px] px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap shrink-0 ${
-              activeTab === 'baseline'
-                ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <Sliders className="w-4 h-4" />
-            <span>{t('tabBaseline')}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('aiAdvisor')}
-            className={`min-h-[44px] px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap shrink-0 ${
-              activeTab === 'aiAdvisor'
-                ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <Shield className="w-4 h-4" />
-            <span>{t('tabAIAdvisor')}</span>
-          </button>
-        </div>
-
-        {/* Modal Content Scroll Area */}
+        {/* Unified Scrollable Layout */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 min-w-0">
           {/* =============================================================== */}
-          {/* TAB 1: THIS MONTH & REBALANCE */}
+          {/* SECTION 1: GLOBAL SETTINGS & FUNDING */}
           {/* =============================================================== */}
-          {activeTab === 'thisMonth' && (
-            <div className="space-y-6">
-              {/* Active Cycle Controls: Mode (From Today vs Full Cycle) & Pause Toggle */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/80 border border-zinc-800 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Calendar className="w-4 h-4 text-blue-400 shrink-0" />
-                      <h4 className="text-xs sm:text-sm font-bold text-white truncate">
-                        {evaluation.cycle.label}
-                      </h4>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700">
-                        {currentCycleKey}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-zinc-400 mt-1">
-                      {isArabic
-                        ? `اليوم ${evaluation.dailyStatus.cycleDayIndex} من ${evaluation.dailyStatus.cycleLength} · متبقي ${evaluation.dailyStatus.remainingDaysInCycle} يوماً`
-                        : `Day ${evaluation.dailyStatus.cycleDayIndex} of ${evaluation.dailyStatus.cycleLength} · ${evaluation.dailyStatus.remainingDaysInCycle} days left`}
-                    </p>
-                  </div>
-
-                  {/* Pause Smart Budget for this month toggle */}
-                  <button
-                    type="button"
-                    onClick={handleToggleCyclePause}
-                    className={`min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs font-bold border transition flex items-center gap-2 cursor-pointer ${
-                      isCyclePaused
-                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
-                        : 'bg-zinc-800 hover:bg-zinc-750 text-zinc-300 border-zinc-700'
-                    }`}
-                  >
-                    <Shield className={`w-3.5 h-3.5 ${isCyclePaused ? 'text-amber-400' : 'text-zinc-400'}`} />
-                    <span>
-                      {isCyclePaused
-                        ? t('smartBudgetPausedBadge')
-                        : t('pauseSmartBudgetThisMonth')}
+          <section className="space-y-4">
+            {/* Cycle Info Banner & Pause Toggle */}
+            <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/80 border border-zinc-800 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Calendar className="w-4 h-4 text-blue-400 shrink-0" />
+                    <h4 className="text-xs sm:text-sm font-bold text-white truncate">
+                      {evaluation.cycle.label}
+                    </h4>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700">
+                      {currentCycleKey}
                     </span>
-                  </button>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 mt-1">
+                    {isArabic
+                      ? `اليوم ${evaluation.dailyStatus.cycleDayIndex} من ${evaluation.dailyStatus.cycleLength} · متبقي ${evaluation.dailyStatus.remainingDaysInCycle} يوماً`
+                      : `Day ${evaluation.dailyStatus.cycleDayIndex} of ${evaluation.dailyStatus.cycleLength} · ${evaluation.dailyStatus.remainingDaysInCycle} days left`}
+                  </p>
                 </div>
 
-                {/* Live Budget Overview Card for This Month */}
-                <div className="pt-2 border-t border-zinc-800/80">
-                  <div className="p-3 sm:p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 flex items-center justify-between">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
-                        <Zap className="w-4 h-4 text-emerald-400" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-semibold text-zinc-400 truncate">
-                          {baselineCalculationMode === 'from_today' ? t('moneyLeftForRestOfCycle') : t('plannedIncome')}
-                        </div>
-                        <div className="text-[10px] text-zinc-500 font-mono truncate">
-                          {selectedAccountIds.length} {isArabic ? 'حسابات مربوطة' : 'linked funding accounts'}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-end shrink-0">
-                      <div className="text-sm sm:text-base font-extrabold font-mono text-emerald-400">
-                        {formatCurrency(baselineCalculationMode === 'from_today' ? liveBudget : (evaluation.pools.total.income || 0), currency)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                {/* Pause Smart Budget for this month toggle */}
+                <button
+                  type="button"
+                  onClick={handleToggleCyclePause}
+                  className={`min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs font-bold border transition flex items-center gap-2 cursor-pointer ${
+                    isCyclePaused
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                      : 'bg-zinc-800 hover:bg-zinc-750 text-zinc-300 border-zinc-700'
+                  }`}
+                >
+                  <Shield className={`w-3.5 h-3.5 ${isCyclePaused ? 'text-amber-400' : 'text-zinc-400'}`} />
+                  <span>
+                    {isCyclePaused
+                      ? t('smartBudgetPausedBadge')
+                      : t('pauseSmartBudgetThisMonth')}
+                  </span>
+                </button>
               </div>
 
-              {/* Paused Status Banner */}
+              {/* Paused state message */}
               {isCyclePaused && (
-                <div className="p-4 sm:p-5 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-start justify-between gap-3 flex-wrap sm:flex-nowrap">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <Shield className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="text-sm font-bold text-amber-300">
-                        {t('smartBudgetPausedBadge')}
-                      </h4>
-                      <p className="text-xs text-amber-200/90 mt-1 leading-relaxed">
-                        {t('smartBudgetPausedMessage')}
-                      </p>
-                    </div>
+                <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span className="text-xs text-amber-200 leading-relaxed">
+                      {t('smartBudgetPausedMessage')}
+                    </span>
                   </div>
                   <button
                     type="button"
@@ -1509,935 +1085,99 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                 </div>
               )}
 
-              {/* Calm Daily Allowance Card (Hidden when Smart Budget is paused) */}
-              {!isCyclePaused && (
-                <div
-                  className={`p-4 sm:p-5 rounded-3xl border shadow-xl relative overflow-hidden transition-colors ${
-                    evaluation.dailyStatus.allowanceState === 'true_deficit'
-                      ? 'bg-gradient-to-br from-red-950/50 via-zinc-900 to-zinc-900/90 border-red-500/40'
-                      : evaluation.dailyStatus.allowanceState === 'heads_up'
-                        ? 'bg-gradient-to-br from-amber-950/50 via-zinc-900 to-zinc-900/90 border-amber-500/40'
-                        : 'bg-gradient-to-br from-emerald-950/60 via-zinc-900 to-zinc-900/90 border-emerald-500/30'
-                  }`}
-                >
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                  <span
-                    className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
-                      evaluation.dailyStatus.allowanceState === 'true_deficit'
-                        ? 'text-red-400'
-                        : evaluation.dailyStatus.allowanceState === 'heads_up'
-                          ? 'text-amber-400'
-                          : 'text-emerald-400'
+              {/* Calculation Mode Selector */}
+              <div className="space-y-2 pt-2 border-t border-zinc-800/80">
+                <label className="block text-xs font-semibold text-zinc-300">
+                  {t('calcModeTitle')}
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => handleSetCalculationMode('from_today')}
+                    className={`p-3 rounded-2xl border text-start transition cursor-pointer ${
+                      baselineCalculationMode === 'from_today'
+                        ? 'bg-blue-500/15 border-blue-500/50 text-white shadow-md'
+                        : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-950'
                     }`}
                   >
-                    <Wallet className="w-4 h-4" />
-                    <span>{t('safeToSpendToday')}</span>
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                        evaluation.dailyStatus.allowanceState === 'true_deficit'
-                          ? 'bg-red-500/20 text-red-300 border-red-500/30'
-                          : evaluation.dailyStatus.allowanceState === 'heads_up'
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                      }`}
-                    >
-                      {evaluation.dailyStatus.allowanceState === 'true_deficit'
-                        ? t('stateTrueDeficitBadge')
-                        : evaluation.dailyStatus.allowanceState === 'heads_up'
-                          ? t('stateHeadsUpBadge')
-                          : t('stateNormalBadge')}
-                    </span>
-                    <span className="text-[11px] font-mono font-semibold text-zinc-400 bg-zinc-850 px-2 py-0.5 rounded-full border border-zinc-750">
-                      {isArabic
-                        ? `اليوم ${evaluation.dailyStatus.cycleDayIndex} من ${evaluation.dailyStatus.cycleLength} · متبقي ${evaluation.dailyStatus.remainingDaysInCycle} يوماً`
-                        : `Day ${evaluation.dailyStatus.cycleDayIndex} of ${evaluation.dailyStatus.cycleLength} · ${evaluation.dailyStatus.remainingDaysInCycle} days left`}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 3 Prominent Daily Metrics: Allowed Today, Spent Today, Remaining Today */}
-                <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">
-                  <div className="p-2.5 sm:p-3 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 min-w-0">
-                    <div className="text-[10px] sm:text-[11px] font-semibold text-zinc-400 truncate mb-0.5">
-                      {t('todayAllowance')}
-                    </div>
-                    <div className="text-sm sm:text-lg font-extrabold font-mono text-white truncate">
-                      {formatCurrency(evaluation.dailyStatus.todayAllowance, currency)}
-                    </div>
-                  </div>
-
-                  <div className="p-2.5 sm:p-3 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 min-w-0">
-                    <div className="text-[10px] sm:text-[11px] font-semibold text-zinc-400 truncate mb-0.5">
-                      {t('todaySpent')}
-                    </div>
-                    <div className="text-sm sm:text-lg font-extrabold font-mono text-zinc-200 truncate">
-                      {formatCurrency(evaluation.dailyStatus.todaySpent, currency)}
-                    </div>
-                  </div>
-
-                  <div className="p-2.5 sm:p-3 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 min-w-0">
-                    <div className="text-[10px] sm:text-[11px] font-semibold text-zinc-400 truncate mb-0.5">
-                      {t('todayRemaining')}
-                    </div>
-                    <div
-                      className={`text-sm sm:text-lg font-extrabold font-mono truncate ${
-                        evaluation.dailyStatus.allowanceState === 'true_deficit'
-                          ? 'text-red-400'
-                          : evaluation.dailyStatus.todayRemaining < 0
-                            ? 'text-amber-300'
-                            : 'text-emerald-400'
-                      }`}
-                    >
-                      {formatCurrency(
-                        Math.max(0, evaluation.dailyStatus.todayRemaining),
-                        currency
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5" />
+                        {t('calcModeFromToday')}
+                      </span>
+                      {baselineCalculationMode === 'from_today' && (
+                        <Check className="w-4 h-4 text-blue-400 shrink-0" />
                       )}
                     </div>
-                  </div>
-                </div>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      {t('calcModeFromTodayDesc')}
+                    </p>
+                  </button>
 
-                {/* Progress bar */}
-                <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden mb-2">
-                  <div
-                    className={`h-full rounded-full transition-all duration-300 ${
-                      evaluation.dailyStatus.allowanceState === 'true_deficit'
-                        ? 'bg-red-500'
-                        : evaluation.dailyStatus.allowanceState === 'heads_up' ||
-                            evaluation.dailyStatus.overBudgetBy > 0
-                          ? 'bg-amber-400'
-                          : 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                  <button
+                    type="button"
+                    onClick={() => handleSetCalculationMode('full_cycle')}
+                    className={`p-3 rounded-2xl border text-start transition cursor-pointer ${
+                      baselineCalculationMode === 'full_cycle'
+                        ? 'bg-blue-500/15 border-blue-500/50 text-white shadow-md'
+                        : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-950'
                     }`}
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        Math.max(
-                          0,
-                          (evaluation.dailyStatus.todaySpent /
-                            Math.max(1, evaluation.dailyStatus.todayAllowance)) *
-                            100
-                        )
-                      )}%`,
-                    }}
-                  />
-                </div>
-
-                {/* Calm Absorption Message when today's spending exceeds today's allowance while monthly Daily pool still has funds */}
-                {evaluation.dailyStatus.overBudgetBy > 0 &&
-                  evaluation.dailyStatus.allowanceState !== 'true_deficit' && (
-                    <div className="mt-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 leading-relaxed flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                      <span>
-                        {t('calmOverTodayMessage')
-                          .replace(
-                            '{over}',
-                            formatCurrency(evaluation.dailyStatus.overBudgetBy, currency)
-                          )
-                          .replace(
-                            '{nextDaily}',
-                            formatCurrency(
-                              evaluation.dailyStatus.upcomingDailyAllowance,
-                              currency
-                            )
-                          )}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5" />
+                        {t('calcModeFullCycle')}
                       </span>
-                    </div>
-                  )}
-
-                {/* True Deficit Message only when monthly Daily pool is exhausted or total cycle spending exceeds planned income */}
-                {evaluation.dailyStatus.allowanceState === 'true_deficit' && (
-                  <div className="mt-2.5 p-3 rounded-2xl bg-red-500/15 border border-red-500/30 text-xs text-red-200 leading-relaxed flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                    <span>
-                      {t('overBudgetBy')}:{' '}
-                      <strong className="font-mono">
-                        {formatCurrency(
-                          Math.max(
-                            evaluation.dailyStatus.overBudgetBy,
-                            Math.abs(Math.min(0, evaluation.pools.daily.remaining))
-                          ),
-                          currency
-                        )}
-                      </strong>
-                    </span>
-                  </div>
-                )}
-              </div>
-              )}
-
-              {/* Single-Month Override: Custom Plan for This Month (`استثناء لشهر معين`) */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h4 className="text-xs sm:text-sm font-bold text-white">
-                        {t('customPlanThisMonthTitle')}
-                      </h4>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700">
-                        {currentCycleKey}
-                      </span>
-                      {currentOverride && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                          {t('customPlanActiveBadge')}
-                        </span>
+                      {baselineCalculationMode === 'full_cycle' && (
+                        <Check className="w-4 h-4 text-blue-400 shrink-0" />
                       )}
                     </div>
-                    <p className="text-[11px] text-zinc-400 mt-0.5">
-                      {t('customPlanThisMonthDesc')}
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      {t('calcModeFullCycleDesc')}
                     </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {!isEditingCustomPlan && (
-                      <button
-                        type="button"
-                        onClick={handleOpenCustomPlanEditor}
-                        className="min-h-[38px] px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-emerald-300 text-xs font-bold border border-emerald-500/30 transition"
-                      >
-                        {currentOverride ? t('editCustomPlanBtn') : t('createCustomPlanBtn')}
-                      </button>
-                    )}
-                    {currentOverride && (
-                      <button
-                        type="button"
-                        onClick={handleRevertToBaseline}
-                        className="min-h-[38px] px-3 py-1.5 rounded-xl bg-zinc-850 hover:bg-zinc-800 text-amber-300 text-xs font-bold border border-amber-500/30 flex items-center gap-1.5 transition"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>{t('revertToBaseline')}</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {isEditingCustomPlan && (
-                  <div className="pt-3 border-t border-zinc-800 space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-white mb-1">
-                        {t('plannedIncome')} ({currentCycleKey})
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={customIncomeInput}
-                        onChange={(e) => handleCustomIncomeChange(e.target.value, e.target)}
-                        placeholder="0.00"
-                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-emerald-500 focus:outline-none"
-                      />
-                    </div>
-
-                    {/* Custom Pool 1: Savings */}
-                    <div
-                      className={`p-3 rounded-2xl bg-zinc-950/80 border border-blue-500/20 space-y-2 ${
-                        customIncomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
-                      }`}
-                    >
-                      <div className="flex items-center justify-between text-xs font-bold text-blue-400">
-                        <span>{t('poolSavings')}</span>
-                        <span className="font-mono bg-blue-500/20 px-2 py-0.5 rounded-full text-blue-300">{customPools.savings.percent}%</span>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={customPools.savings.amountText}
-                          disabled={customIncomeMinor <= 0}
-                          onChange={(e) =>
-                            handleCustomAmountChange('savings', e.target.value, e.target)
-                          }
-                          onBlur={() => handleCustomAmountBlur('savings')}
-                          placeholder="0.00"
-                          className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-sm focus:border-blue-500 focus:outline-none"
-                        />
-                        <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-mono pointer-events-none">
-                          {currency}
-                        </span>
-                      </div>
-                      {customPoolHints.savings && (
-                        <div className="text-[10px] text-amber-400">{customPoolHints.savings}</div>
-                      )}
-                    </div>
-
-                    {/* Custom Pool 2: Bills & Fixed */}
-                    <div
-                      className={`p-3 rounded-2xl bg-zinc-950/80 border border-purple-500/20 space-y-2 ${
-                        customIncomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
-                      }`}
-                    >
-                      <div className="flex items-center justify-between text-xs font-bold text-purple-400">
-                        <span>{t('poolFixed')}</span>
-                        <span className="font-mono bg-purple-500/20 px-2 py-0.5 rounded-full text-purple-300">{customPools.fixed.percent}%</span>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={customPools.fixed.amountText}
-                          disabled={customIncomeMinor <= 0}
-                          onChange={(e) =>
-                            handleCustomAmountChange('fixed', e.target.value, e.target)
-                          }
-                          onBlur={() => handleCustomAmountBlur('fixed')}
-                          placeholder="0.00"
-                          className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-sm focus:border-purple-500 focus:outline-none"
-                        />
-                        <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-mono pointer-events-none">
-                          {currency}
-                        </span>
-                      </div>
-                      {customPoolHints.fixed && (
-                        <div className="text-[10px] text-amber-400">{customPoolHints.fixed}</div>
-                      )}
-                    </div>
-
-                    {/* Custom Pool 3: Outings */}
-                    <div
-                      className={`p-3 rounded-2xl bg-zinc-950/80 border border-amber-500/20 space-y-2 ${
-                        customIncomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
-                      }`}
-                    >
-                      <div className="flex items-center justify-between text-xs font-bold text-amber-400">
-                        <span>{t('poolOutings')}</span>
-                        <span className="font-mono bg-amber-500/20 px-2 py-0.5 rounded-full text-amber-300">{customPools.outings.percent}%</span>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={customPools.outings.amountText}
-                          disabled={customIncomeMinor <= 0}
-                          onChange={(e) =>
-                            handleCustomAmountChange('outings', e.target.value, e.target)
-                          }
-                          onBlur={() => handleCustomAmountBlur('outings')}
-                          placeholder="0.00"
-                          className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-sm focus:border-amber-500 focus:outline-none"
-                        />
-                        <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-mono pointer-events-none">
-                          {currency}
-                        </span>
-                      </div>
-                      {customPoolHints.outings && (
-                        <div className="text-[10px] text-amber-400">{customPoolHints.outings}</div>
-                      )}
-                    </div>
-
-                    {/* Custom Pool 4: Daily Remainder */}
-                    <div className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex items-center justify-between">
-                      <div>
-                        <div className="text-xs font-bold text-emerald-400">{t('poolDaily')}</div>
-                        <div className="text-[10px] text-zinc-400">{customDailyPercent}%</div>
-                      </div>
-                      <div className="text-base font-extrabold font-mono text-white">
-                        {formatCurrency(customDailyMinor / 100, currency)}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={handleSaveCustomPlan}
-                        disabled={customIncomeMinor <= 0}
-                        className="flex-1 min-h-[42px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition disabled:opacity-40"
-                      >
-                        {t('saveCustomPlanBtn')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingCustomPlan(false)}
-                        className="min-h-[42px] px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-zinc-300 font-bold text-xs transition"
-                      >
-                        {t('cancel')}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* 4 Budget Pool Cards Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Savings Pool */}
-                <div className="p-3.5 rounded-2xl bg-zinc-900/80 border border-blue-500/20 space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold text-blue-400">
-                    <span className="flex items-center gap-1.5">
-                      <PiggyBank className="w-4 h-4" />
-                      <span>{t('poolSavings')}</span>
-                    </span>
-                    <span className="text-[10px] font-mono bg-blue-500/20 px-1.5 py-0.5 rounded text-blue-300">
-                      {Math.round(
-                        (evaluation.pools.savings.allocated /
-                          Math.max(1, evaluation.pools.total.income)) *
-                          100
-                      )}
-                      %
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-baseline font-mono text-sm">
-                    <span className="text-zinc-400 text-xs">{t('netSavedThisCycle')}:</span>
-                    <span className="font-bold text-white">
-                      {formatCurrency(evaluation.pools.savings.netSaved, currency)}{' '}
-                      <span className="text-zinc-500 text-xs font-normal">
-                        / {formatCurrency(evaluation.pools.savings.allocated, currency)}
-                      </span>
-                    </span>
-                  </div>
-                  {/* Savings Progress Bar */}
-                  <div className="space-y-1">
-                    <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-400 transition-all duration-300"
-                        style={{ width: `${evaluation.pools.savings.progressPercent}%` }}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-zinc-400">
-                      <span>{t('savingsProgress')}: {evaluation.pools.savings.progressPercent}%</span>
-                      <span>
-                        {t('poolRemaining')}: {formatCurrency(evaluation.pools.savings.remaining, currency)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Fixed Obligations Pool */}
-                <div className="p-3.5 rounded-2xl bg-zinc-900/80 border border-purple-500/20 space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold text-purple-400">
-                    <span className="flex items-center gap-1.5">
-                      <ShoppingBag className="w-4 h-4" />
-                      <span>{t('poolFixed')}</span>
-                    </span>
-                    <span className="text-[10px] font-mono bg-purple-500/20 px-1.5 py-0.5 rounded text-purple-300">
-                      {Math.round(
-                        (evaluation.pools.fixed.allocated /
-                          Math.max(1, evaluation.pools.total.income)) *
-                          100
-                      )}
-                      %
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-baseline font-mono text-sm">
-                    <span className="text-zinc-400 text-xs">{t('poolRemaining')}:</span>
-                    <span className="font-bold text-white">
-                      {formatCurrency(evaluation.pools.fixed.remaining, currency)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Outings Pool */}
-                <div className="p-3.5 rounded-2xl bg-zinc-900/80 border border-amber-500/20 space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold text-amber-400">
-                    <span className="flex items-center gap-1.5">
-                      <Coffee className="w-4 h-4" />
-                      <span>{t('poolOutings')}</span>
-                    </span>
-                    <span className="text-[10px] font-mono bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300">
-                      {Math.round(
-                        (evaluation.pools.outings.allocated /
-                          Math.max(1, evaluation.pools.total.income)) *
-                          100
-                      )}
-                      %
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-baseline font-mono text-sm">
-                    <span className="text-zinc-400 text-xs">{t('poolRemaining')}:</span>
-                    <span
-                      className={`font-bold ${
-                        evaluation.pools.outings.remaining < 0 ? 'text-red-400' : 'text-white'
-                      }`}
-                    >
-                      {formatCurrency(evaluation.pools.outings.remaining, currency)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Daily Living Pool */}
-                <div className="p-3.5 rounded-2xl bg-zinc-900/80 border border-emerald-500/20 space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold text-emerald-400">
-                    <span className="flex items-center gap-1.5">
-                      <Wallet className="w-4 h-4" />
-                      <span>{t('poolDaily')}</span>
-                    </span>
-                    <span className="text-[10px] font-mono bg-emerald-500/20 px-1.5 py-0.5 rounded text-emerald-300">
-                      {Math.round(
-                        (evaluation.pools.daily.allocated /
-                          Math.max(1, evaluation.pools.total.income)) *
-                          100
-                      )}
-                      %
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-baseline font-mono text-sm">
-                    <span className="text-zinc-400 text-xs">{t('poolRemaining')}:</span>
-                    <span
-                      className={`font-bold ${
-                        evaluation.pools.daily.remaining < 0 ? 'text-red-400' : 'text-white'
-                      }`}
-                    >
-                      {formatCurrency(evaluation.pools.daily.remaining, currency)}
-                    </span>
-                  </div>
+                  </button>
                 </div>
               </div>
 
-              {/* What-If Simulator & Rebalance Scenarios (Hidden when paused) */}
-              {!isCyclePaused && (
-                <>
-                  {/* What-If Simulator Card */}
-                  <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Zap className="w-4.5 h-4.5 text-amber-400" />
-                        <h4 className="text-xs sm:text-sm font-bold text-white">
-                          {t('whatIfSimulatorTitle')}
-                        </h4>
-                      </div>
-                    </div>
-                <p className="text-xs text-zinc-400">{t('whatIfSimulatorDesc')}</p>
-
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
-                      {t('whatIfAmount')}
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        value={whatIfAmount}
-                        onChange={(e) => setWhatIfAmount(e.target.value)}
-                        placeholder="e.g. 500"
-                        className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-emerald-500 focus:outline-none"
-                      />
-                      <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-mono pointer-events-none">
-                        {currency}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-zinc-400 mb-1.5">
-                      {t('whatIfPool')}
-                    </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setWhatIfPool('daily')}
-                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                          whatIfPool === 'daily'
-                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        <Wallet className="w-3.5 h-3.5 shrink-0" />
-                        <span className="truncate">{t('poolDaily')}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setWhatIfPool('outings')}
-                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                          whatIfPool === 'outings'
-                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        <Coffee className="w-3.5 h-3.5 shrink-0" />
-                        <span className="truncate">{t('poolOutings')}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setWhatIfPool('fixed')}
-                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                          whatIfPool === 'fixed'
-                            ? 'bg-purple-500/20 border-purple-500/50 text-purple-300'
-                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
-                        <span className="truncate">{t('poolFixed')}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setWhatIfPool('oneoff')}
-                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                          whatIfPool === 'oneoff'
-                            ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
-                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        <Shield className="w-3.5 h-3.5 shrink-0" />
-                        <span className="truncate">{t('poolOneOff')}</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 100% Instant Deterministic Math Results Display */}
-                {whatIfCalculation && (
-                  <div className="pt-2 border-t border-zinc-800 space-y-3">
-                    {/* Last Day of Cycle Notice */}
-                    {whatIfCalculation.isLastDay && (
-                      <div className="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-xs text-blue-200 flex items-center gap-2">
-                        <Calendar className="w-4 h-4 text-blue-400 shrink-0" />
-                        <span>{t('lastDayCycleNotice')}</span>
-                      </div>
-                    )}
-
-                    {/* Math Cards Grid: Pool Before->After & Daily Allowance Before->After */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {/* Card 1: Selected Pool Before -> After */}
-                      <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800/80 space-y-2">
-                        <div className="flex items-center justify-between text-xs font-semibold text-zinc-400">
-                          <span>{t('whatIfPoolBeforeAfter')}: {whatIfCalculation.poolName}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm font-mono">
-                          <span className="text-zinc-300">
-                            {formatCurrency(whatIfCalculation.poolBefore, currency)}
-                          </span>
-                          <span className="text-zinc-500 text-xs">→</span>
-                          <span
-                            className={`font-bold ${
-                              whatIfCalculation.poolAfter < 0
-                                ? 'text-red-400'
-                                : 'text-emerald-400'
-                            }`}
-                          >
-                            {formatCurrency(whatIfCalculation.poolAfter, currency)}
-                          </span>
-                        </div>
-
-                        {/* Spillover note if pool is exhausted */}
-                        {whatIfCalculation.spilloverToDaily > 0 && whatIfPool !== 'daily' && (
-                          <p className="text-[10px] text-amber-300 leading-relaxed pt-1 border-t border-zinc-900">
-                            {t('spilloverToDailyNote').replace(
-                              '{over}',
-                              formatCurrency(whatIfCalculation.spilloverToDaily, currency)
-                            )}
-                          </p>
-                        )}
-
-                        {/* One-off covered note */}
-                        {whatIfCalculation.isCoveredByEmergency && (
-                          <p className="text-[10px] text-emerald-300 leading-relaxed pt-1 border-t border-zinc-900">
-                            {t('coveredByEmergencyCredit')}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Card 2: Projected Daily Allowance Before -> After */}
-                      <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800/80 space-y-2">
-                        <div className="flex items-center justify-between text-xs font-semibold text-zinc-400">
-                          <span>{t('whatIfDailyBeforeAfter')}</span>
-                          <span className="text-[10px] font-mono text-zinc-500">
-                            {whatIfCalculation.isLastDay
-                              ? isArabic ? 'اليوم الأخير' : 'Last Day'
-                              : isArabic
-                              ? `على مدى ${Math.max(1, whatIfCalculation.remainingDaysInCycle - 1)} يوماً`
-                              : `Over ${Math.max(1, whatIfCalculation.remainingDaysInCycle - 1)} days`}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm font-mono">
-                          <span className="text-zinc-300">
-                            {formatCurrency(whatIfCalculation.allowanceBefore, currency)}
-                          </span>
-                          <span className="text-zinc-500 text-xs">→</span>
-                          <span
-                            className={`font-bold ${
-                              whatIfCalculation.allowanceAfter < whatIfCalculation.allowanceBefore
-                                ? whatIfCalculation.allowanceAfter <= 0
-                                  ? 'text-red-400'
-                                  : 'text-amber-300'
-                                : 'text-emerald-400'
-                            }`}
-                          >
-                            {formatCurrency(whatIfCalculation.allowanceAfter, currency)}
-                          </span>
-                        </div>
-
-                        {/* Exact Daily Impact Pill */}
-                        <div className="pt-1 border-t border-zinc-900 flex items-center justify-between">
-                          <span className="text-[10px] text-zinc-400">
-                            {t('whatIfDailyImpact')}:
-                          </span>
-                          {whatIfCalculation.dailyImpact === 0 ? (
-                            <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                              {t('noDailyImpact')}
-                            </span>
-                          ) : (
-                            <span
-                              className={`text-[11px] font-mono font-bold ${
-                                whatIfCalculation.allowanceAfter <= 0
-                                  ? 'text-red-400'
-                                  : 'text-amber-400'
-                              }`}
-                            >
-                              {whatIfCalculation.isLastDay
-                                ? t('lastDayDailyImpact').replace(
-                                    '{amount}',
-                                    formatCurrency(Math.abs(whatIfCalculation.dailyImpact), currency)
-                                  )
-                                : `-${formatCurrency(Math.abs(whatIfCalculation.dailyImpact), currency)} ${t('perDay')}`}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Adaptive Rebalance Scenarios Section */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-xs sm:text-sm font-bold text-white">
-                      {t('scenariosTitle')}
-                    </h4>
-                    <p className="text-[11px] text-zinc-400">{t('scenariosDesc')}</p>
-                  </div>
-                  {currentOverride?.appliedScenario && (
-                    <button
-                      type="button"
-                      onClick={handleRevertToBaseline}
-                      className="min-h-[44px] px-3 py-1.5 rounded-xl bg-zinc-850 hover:bg-zinc-800 text-amber-300 text-xs font-bold border border-amber-500/30 flex items-center gap-1.5 transition"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>{t('revertToBaseline')}</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* Rebalance Section Body: If NO deficit, show calm budget on track card. If deficit exists (D > 0), show What caused overspend + Rebalance Cards */}
-                {!evaluation.rebalanceScenarios.hasDeficit ? (
-                  <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-center space-y-2">
-                    <div className="w-10 h-10 mx-auto rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                      <CheckCircle2 className="w-5 h-5" />
-                    </div>
-                    <h5 className="text-xs font-bold text-white">
-                      {t('budgetBalancedTitle')}
-                    </h5>
-                    <p className="text-[11px] text-zinc-400 max-w-sm mx-auto">
-                      {t('budgetBalancedDesc')}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {/* What caused the overspend summary */}
-                    <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <TrendingDown className="w-4 h-4 text-amber-400" />
-                        <h5 className="text-xs font-bold text-white">
-                          {t('whatCausedOverspend')}
-                        </h5>
-                      </div>
-                      <p className="text-[11px] text-zinc-400">
-                        {t('whatCausedOverspendDesc')}
-                      </p>
-
-                      {topOverspendCategories.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                          {topOverspendCategories.map((item, idx) => (
-                            <div
-                              key={item.categoryId || idx}
-                              className="p-3 rounded-xl bg-zinc-950 border border-zinc-850 flex items-center justify-between sm:flex-col sm:items-start sm:justify-center gap-2"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-base shrink-0 select-none">
-                                  {item.icon || '📁'}
-                                </span>
-                                <div className="min-w-0">
-                                  <p className="text-xs font-bold text-zinc-200 truncate">
-                                    {item.name}
-                                  </p>
-                                  <p className="text-[10px] text-zinc-500">
-                                    {item.pool === 'outings' ? t('poolOutings') : t('poolDaily')} • {item.count} {isArabic ? 'معاملات' : 'txs'}
-                                  </p>
-                                </div>
-                              </div>
-                              <span className="font-mono text-xs font-bold text-red-400 shrink-0">
-                                {formatCurrency(item.amount, currency)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-zinc-500 italic py-2">
-                          {t('noOverspendCategories')}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Rebalance Scenario Cards (Capped at actual remaining funding sources) */}
-                    <div className="space-y-3">
-                      {evaluation.rebalanceScenarios.scenarios.map((scenario) => {
-                        const isScenarioActive =
-                          currentOverride?.appliedScenario === scenario.id ||
-                          (scenario.id === 'B' && currentOverride?.appliedScenario === 'outings') ||
-                          (scenario.id === 'C' && currentOverride?.appliedScenario === 'savings') ||
-                          (scenario.id === 'A' && currentOverride?.appliedScenario === 'fixed');
-
-                        return (
-                          <div
-                            key={scenario.id}
-                            className={`p-4 rounded-2xl border transition ${
-                              isScenarioActive
-                                ? 'bg-emerald-950/30 border-emerald-500'
-                                : 'bg-zinc-900/70 border-zinc-800'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-1.5">
-                              <span className="text-xs font-bold text-white">
-                                {scenario.name[isArabic ? 'ar' : 'en']}
-                              </span>
-                              {isScenarioActive && (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                  {t('activeCurrently')}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-zinc-400 mb-2.5">
-                              {scenario.description[isArabic ? 'ar' : 'en']}
-                            </p>
-
-                            {/* Funding Source Pill */}
-                            <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-lg bg-zinc-950/80 border border-zinc-850 mb-3">
-                              <span className="text-zinc-400">
-                                {t('fundingSource')}:{' '}
-                                <span className="text-zinc-200 font-semibold">
-                                  {scenario.sourceName[isArabic ? 'ar' : 'en']}
-                                </span>
-                              </span>
-                              <span className="font-mono text-zinc-300">
-                                {t('availableBalance').replace(
-                                  '{amount}',
-                                  formatCurrency(scenario.sourceAvailable, currency)
-                                )}
-                              </span>
-                            </div>
-
-                            {/* Before & After Display */}
-                            <div className="flex items-center justify-between text-xs font-mono mb-3 p-2.5 rounded-xl bg-zinc-950">
-                              <span className="text-red-400 font-semibold">
-                                {t('beforeDaily')}:{' '}
-                                {t('overByAmount').replace(
-                                  '{amount}',
-                                  formatCurrency(scenario.deficit, currency)
-                                )}
-                              </span>
-                              <span className="text-emerald-400 font-bold">
-                                {t('afterDaily')}: {formatCurrency(scenario.afterDailyAllowance, currency)}
-                              </span>
-                            </div>
-
-                            <button
-                              type="button"
-                              disabled={!scenario.isAvailable}
-                              onClick={() => handleApplyScenario(scenario.id)}
-                              className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                            >
-                              {scenario.isAvailable
-                                ? t('applyToCurrentMonth')
-                                : scenario.unavailableReason?.[isArabic ? 'ar' : 'en'] ||
-                                  t('scenarioUnavailable')}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-              </>
-            )}
-            </div>
-          )}
-
-          {/* =============================================================== */}
-          {/* TAB 2: BASELINE PLAN */}
-          {/* =============================================================== */}
-          {activeTab === 'baseline' && (
-            <div className="space-y-6">
-              {/* Calculation Mode Selector: Full Cycle vs. From Today */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h4 className="text-xs sm:text-sm font-bold text-white">
-                      {t('calculationMode')}
-                    </h4>
-                    <p className="text-[11px] text-zinc-400 mt-0.5">
-                      {baselineCalculationMode === 'from_today'
-                        ? t('modeFromTodayDesc')
-                        : t('modeFullCycleDesc')}
-                    </p>
-                  </div>
-                  <div className="inline-flex p-1 rounded-xl bg-zinc-950 border border-zinc-800">
-                    <button
-                      type="button"
-                      onClick={() => handleSetCalculationMode('from_today')}
-                      className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        baselineCalculationMode === 'from_today'
-                          ? 'bg-blue-600 text-white shadow-sm'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      {t('modeFromToday')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSetCalculationMode('full_cycle')}
-                      className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        baselineCalculationMode === 'full_cycle'
-                          ? 'bg-blue-600 text-white shadow-sm'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      {t('modeFullCycle')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* If From Today mode: Linked Funding Accounts Card */}
+              {/* Linked Funding Accounts or Planned Income */}
               {baselineCalculationMode === 'from_today' ? (
-                <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
-                  <div className="flex items-center justify-between">
+                <div className="space-y-3 pt-2 border-t border-zinc-800/80">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-                        <Wallet className="w-4 h-4 text-blue-400" />
-                        <span>{t('linkedAccountsLabel')}</span>
+                      <h4 className="text-xs font-bold text-white">
+                        {t('linkedFundingAccountsTitle')}
                       </h4>
-                      <p className="text-[11px] text-zinc-400 mt-0.5">
-                        {t('moneyLeftHelper')}
+                      <p className="text-[11px] text-zinc-400">
+                        {t('linkedFundingAccountsDesc')}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setIsLinkedAccountsOpen((prev) => !prev)}
-                      className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 font-semibold transition cursor-pointer"
+                      className="min-h-[38px] px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-zinc-300 text-xs font-bold border border-zinc-700 flex items-center gap-1.5 transition cursor-pointer"
                     >
                       <span>
-                        {selectedAccountIds.length}/{accounts.length}
+                        {t('includedAccountsCount').replace(
+                          '{count}',
+                          String(selectedAccountIds.length)
+                        )}
                       </span>
                       {isLinkedAccountsOpen ? (
-                        <ChevronUp className="w-4 h-4" />
+                        <ChevronUp className="w-3.5 h-3.5" />
                       ) : (
-                        <ChevronDown className="w-4 h-4" />
+                        <ChevronDown className="w-3.5 h-3.5" />
                       )}
                     </button>
                   </div>
 
-                  {/* Live Budget Display Card */}
-                  <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-1.5">
+                  {/* Live Budget Banner */}
+                  <div className="p-3.5 rounded-2xl bg-zinc-950/90 border border-zinc-800 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
                         <Zap className="w-3.5 h-3.5 text-amber-400" />
                         {t('moneyLeftForRestOfCycle')}
                       </span>
-                      <span className="text-sm font-mono font-bold text-emerald-400">
+                      <span className="text-base font-mono font-extrabold text-emerald-400">
                         {formatCurrency(liveBudget, currency)}
                       </span>
                     </div>
@@ -2570,7 +1310,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                 </div>
               ) : (
                 /* Planned Income for Full Cycle Mode */
-                <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
+                <div className="space-y-3 pt-2 border-t border-zinc-800/80">
                   <div>
                     <label className="block text-xs font-bold text-white mb-1">
                       {t('plannedIncome')}
@@ -2594,34 +1334,205 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   )}
                 </div>
               )}
+            </div>
+          </section>
 
-              {/* 4-Pool Dual-Input Allocations (Always Totaling 100%) */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs sm:text-sm font-bold text-white">
-                    {t('poolSlidersTitle')}
-                  </h4>
-                  <span className="text-[11px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                    {t('mustTotal100')}
+          {/* =============================================================== */}
+          {/* SECTION 2: DAILY ALLOWANCE TRACKER (THE DASHBOARD) */}
+          {/* =============================================================== */}
+          {!isCyclePaused && (
+            <section className="space-y-3">
+              <div
+                className={`p-4 sm:p-5 rounded-3xl border shadow-xl relative overflow-hidden transition-colors ${
+                  evaluation.dailyStatus.allowanceState === 'true_deficit'
+                    ? 'bg-gradient-to-br from-red-950/50 via-zinc-900 to-zinc-900/90 border-red-500/40'
+                    : evaluation.dailyStatus.allowanceState === 'heads_up'
+                      ? 'bg-gradient-to-br from-amber-950/50 via-zinc-900 to-zinc-900/90 border-amber-500/40'
+                      : 'bg-gradient-to-br from-emerald-950/60 via-zinc-900 to-zinc-900/90 border-emerald-500/30'
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <span
+                    className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                      evaluation.dailyStatus.allowanceState === 'true_deficit'
+                        ? 'text-red-400'
+                        : evaluation.dailyStatus.allowanceState === 'heads_up'
+                          ? 'text-amber-400'
+                          : 'text-emerald-400'
+                    }`}
+                  >
+                    <Wallet className="w-4 h-4" />
+                    <span>{t('safeToSpendToday')}</span>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        evaluation.dailyStatus.allowanceState === 'true_deficit'
+                          ? 'bg-red-500/20 text-red-300 border-red-500/30'
+                          : evaluation.dailyStatus.allowanceState === 'heads_up'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                      }`}
+                    >
+                      {evaluation.dailyStatus.allowanceState === 'true_deficit'
+                        ? t('stateTrueDeficitBadge')
+                        : evaluation.dailyStatus.allowanceState === 'heads_up'
+                          ? t('stateHeadsUpBadge')
+                          : t('stateNormalBadge')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3 Prominent Daily Metrics: Allowed Today, Spent Today, Remaining Today */}
+                <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">
+                  <div className="p-2.5 sm:p-3 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 min-w-0">
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-zinc-400 truncate mb-0.5">
+                      {t('todayAllowance')}
+                    </div>
+                    <div className="text-sm sm:text-lg font-extrabold font-mono text-white truncate">
+                      {formatCurrency(evaluation.dailyStatus.todayAllowance, currency)}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 sm:p-3 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 min-w-0">
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-zinc-400 truncate mb-0.5">
+                      {t('todaySpent')}
+                    </div>
+                    <div className="text-sm sm:text-lg font-extrabold font-mono text-zinc-200 truncate">
+                      {formatCurrency(evaluation.dailyStatus.todaySpent, currency)}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 sm:p-3 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 min-w-0">
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-zinc-400 truncate mb-0.5">
+                      {t('todayRemaining')}
+                    </div>
+                    <div
+                      className={`text-sm sm:text-lg font-extrabold font-mono truncate ${
+                        evaluation.dailyStatus.allowanceState === 'true_deficit'
+                          ? 'text-red-400'
+                          : evaluation.dailyStatus.todayRemaining < 0
+                            ? 'text-amber-300'
+                            : 'text-emerald-400'
+                      }`}
+                    >
+                      {formatCurrency(
+                        Math.max(0, evaluation.dailyStatus.todayRemaining),
+                        currency
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden mb-2">
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 ${
+                      evaluation.dailyStatus.allowanceState === 'true_deficit'
+                        ? 'bg-red-500'
+                        : evaluation.dailyStatus.allowanceState === 'heads_up' ||
+                            evaluation.dailyStatus.overBudgetBy > 0
+                          ? 'bg-amber-400'
+                          : 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                    }`}
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.max(
+                          0,
+                          (evaluation.dailyStatus.todaySpent /
+                            Math.max(1, evaluation.dailyStatus.todayAllowance)) *
+                            100
+                        )
+                      )}%`,
+                    }}
+                  />
+                </div>
+
+                {/* Calm Absorption Message */}
+                {evaluation.dailyStatus.overBudgetBy > 0 &&
+                  evaluation.dailyStatus.allowanceState !== 'true_deficit' && (
+                    <div className="mt-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 leading-relaxed flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <span>
+                        {t('calmOverTodayMessage')
+                          .replace(
+                            '{over}',
+                            formatCurrency(evaluation.dailyStatus.overBudgetBy, currency)
+                          )
+                          .replace(
+                            '{nextDaily}',
+                            formatCurrency(
+                              evaluation.dailyStatus.upcomingDailyAllowance,
+                              currency
+                            )
+                          )}
+                      </span>
+                    </div>
+                  )}
+
+                {/* True Deficit Message */}
+                {evaluation.dailyStatus.allowanceState === 'true_deficit' && (
+                  <div className="mt-2.5 p-3 rounded-2xl bg-red-500/15 border border-red-500/30 text-xs text-red-200 leading-relaxed flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                    <span>
+                      {t('overBudgetBy')}:{' '}
+                      <strong className="font-mono">
+                        {formatCurrency(
+                          Math.max(
+                            evaluation.dailyStatus.overBudgetBy,
+                            Math.abs(Math.min(0, evaluation.pools.daily.remaining))
+                          ),
+                          currency
+                        )}
+                      </strong>
+                    </span>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* =============================================================== */}
+          {/* SECTION 3: BUDGET POOL ALLOCATIONS & PROGRESS */}
+          {/* =============================================================== */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-white">
+                  {t('budgetPoolsAndProgressTitle') || t('poolSlidersTitle')}
+                </h4>
+                <p className="text-[11px] text-zinc-400">
+                  {t('budgetPoolsAndProgressDesc') || t('poolSlidersDesc')}
+                </p>
+              </div>
+              <span className="text-[11px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                {t('mustTotal100')}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* Pool 1: Savings Card */}
+              <div
+                className={`p-4 rounded-3xl bg-zinc-900/80 border border-blue-500/25 space-y-3 ${
+                  incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs font-bold text-blue-400">
+                  <span className="flex items-center gap-1.5">
+                    <PiggyBank className="w-4 h-4" />
+                    <span>{t('poolSavings')}</span>
+                  </span>
+                  <span className="text-[10px] font-mono bg-blue-500/20 px-2 py-0.5 rounded-full text-blue-300 font-semibold">
+                    {pools.savings.percent}%
                   </span>
                 </div>
 
-                {/* Pool 1: Savings (Amount Input) */}
-                <div
-                  className={`p-3.5 rounded-2xl bg-zinc-950/70 border border-blue-500/20 space-y-2.5 ${
-                    incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
-                  }`}
-                >
-                  <div className="flex items-center justify-between text-xs font-bold text-blue-400">
-                    <span className="flex items-center gap-1.5">
-                      <PiggyBank className="w-4 h-4" />
-                      <span>{t('poolSavings')}</span>
-                    </span>
-                    <span className="text-[10px] font-mono bg-blue-500/20 px-2 py-0.5 rounded-full text-blue-300 font-semibold">
-                      {pools.savings.percent}%
-                    </span>
-                  </div>
-
+                {/* Target Numerical Input */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                    {t('poolAllocated')}
+                  </span>
                   <div className="relative">
                     <input
                       type="text"
@@ -2633,39 +1544,62 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       }
                       onBlur={() => handleAmountBlur('savings')}
                       placeholder="0.00"
-                      className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-sm focus:border-blue-500 focus:outline-none"
+                      className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-blue-500 focus:outline-none"
                     />
                     <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-mono pointer-events-none">
                       {currency}
                     </span>
                   </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-zinc-500">
-                    <span>{t('noMinSavings')}</span>
-                    {poolHints.savings && (
-                      <span className="text-amber-400 font-medium">
-                        {poolHints.savings}
-                      </span>
-                    )}
-                  </div>
                 </div>
 
-                {/* Pool 2: Bills & Fixed Obligations (Amount Input) */}
-                <div
-                  className={`p-3.5 rounded-2xl bg-zinc-950/70 border border-purple-500/20 space-y-2.5 ${
-                    incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
-                  }`}
-                >
-                  <div className="flex items-center justify-between text-xs font-bold text-purple-400">
-                    <span className="flex items-center gap-1.5">
-                      <ShoppingBag className="w-4 h-4" />
-                      <span>{t('poolFixed')}</span>
-                    </span>
-                    <span className="text-[10px] font-mono bg-purple-500/20 px-2 py-0.5 rounded-full text-purple-300 font-semibold">
-                      {pools.fixed.percent}%
+                {/* Real-Time Cycle Progress & Remaining */}
+                <div className="space-y-1.5 pt-1 border-t border-zinc-800/60">
+                  <div className="flex justify-between items-baseline font-mono text-xs">
+                    <span className="text-zinc-400">{t('poolRemaining')}:</span>
+                    <span className="font-bold text-white">
+                      {formatCurrency(evaluation.pools.savings.remaining, currency)}{' '}
+                      <span className="text-zinc-500 text-[11px] font-normal">
+                        / {formatCurrency(evaluation.pools.savings.allocated, currency)}
+                      </span>
                     </span>
                   </div>
+                  <div className="w-full bg-zinc-800/80 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-400 transition-all duration-300"
+                      style={{ width: `${evaluation.pools.savings.progressPercent}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-zinc-500">
+                    <span>{t('netSavedThisCycle')}: {formatCurrency(evaluation.pools.savings.netSaved, currency)}</span>
+                    <span>{t('noMinSavings')}</span>
+                  </div>
+                  {poolHints.savings && (
+                    <div className="text-[10px] text-amber-400 font-medium">{poolHints.savings}</div>
+                  )}
+                </div>
+              </div>
 
+              {/* Pool 2: Bills & Fixed Obligations Card */}
+              <div
+                className={`p-4 rounded-3xl bg-zinc-900/80 border border-purple-500/25 space-y-3 ${
+                  incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs font-bold text-purple-400">
+                  <span className="flex items-center gap-1.5">
+                    <ShoppingBag className="w-4 h-4" />
+                    <span>{t('poolFixed')}</span>
+                  </span>
+                  <span className="text-[10px] font-mono bg-purple-500/20 px-2 py-0.5 rounded-full text-purple-300 font-semibold">
+                    {pools.fixed.percent}%
+                  </span>
+                </div>
+
+                {/* Target Numerical Input */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                    {t('poolAllocated')}
+                  </span>
                   <div className="relative">
                     <input
                       type="text"
@@ -2677,55 +1611,88 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       }
                       onBlur={() => handleAmountBlur('fixed')}
                       placeholder="0.00"
-                      className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-sm focus:border-purple-500 focus:outline-none"
+                      className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-purple-500 focus:outline-none"
                     />
                     <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-mono pointer-events-none">
                       {currency}
                     </span>
                   </div>
-
-                  {/* Detected recurring bills button */}
-                  {detectedRecurringBills > 0 && (
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        onClick={handleApplyDetectedRecurringBills}
-                        className="min-h-[44px] px-3 py-2 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 text-xs font-semibold border border-purple-500/30 flex items-center gap-2 transition w-full sm:w-auto"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                        <span>
-                          {t('useDetectedRecurringBills').replace(
-                            '{amount}',
-                            formatCurrency(detectedRecurringBills, currency)
-                          )}
-                        </span>
-                      </button>
-                    </div>
-                  )}
-
-                  {poolHints.fixed && (
-                    <div className="text-[10px] text-amber-400 font-medium">
-                      {poolHints.fixed}
-                    </div>
-                  )}
                 </div>
 
-                {/* Pool 3: Outings (Amount Input) */}
-                <div
-                  className={`p-3.5 rounded-2xl bg-zinc-950/70 border border-amber-500/20 space-y-2.5 ${
-                    incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
-                  }`}
-                >
-                  <div className="flex items-center justify-between text-xs font-bold text-amber-400">
-                    <span className="flex items-center gap-1.5">
-                      <Coffee className="w-4 h-4" />
-                      <span>{t('poolOutings')}</span>
+                {/* Detected recurring bills helper button */}
+                {detectedRecurringBills > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleApplyDetectedRecurringBills}
+                    className="min-h-[36px] px-2.5 py-1 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 text-[11px] font-semibold border border-purple-500/30 flex items-center gap-1.5 transition w-full cursor-pointer"
+                  >
+                    <Sliders className="w-3 h-3 shrink-0" />
+                    <span className="truncate">
+                      {t('useDetectedRecurringBills').replace(
+                        '{amount}',
+                        formatCurrency(detectedRecurringBills, currency)
+                      )}
                     </span>
-                    <span className="text-[10px] font-mono bg-amber-500/20 px-2 py-0.5 rounded-full text-amber-300 font-semibold">
-                      {pools.outings.percent}%
+                  </button>
+                )}
+
+                {/* Real-Time Cycle Progress & Remaining */}
+                <div className="space-y-1.5 pt-1 border-t border-zinc-800/60">
+                  <div className="flex justify-between items-baseline font-mono text-xs">
+                    <span className="text-zinc-400">{t('poolRemaining')}:</span>
+                    <span className="font-bold text-white">
+                      {formatCurrency(evaluation.pools.fixed.remaining, currency)}{' '}
+                      <span className="text-zinc-500 text-[11px] font-normal">
+                        / {formatCurrency(evaluation.pools.fixed.allocated, currency)}
+                      </span>
                     </span>
                   </div>
+                  <div className="w-full bg-zinc-800/80 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-purple-500 to-indigo-400 transition-all duration-300"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.max(
+                            0,
+                            evaluation.pools.fixed.allocated > 0
+                              ? (evaluation.pools.fixed.spent / evaluation.pools.fixed.allocated) * 100
+                              : 0
+                          )
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-zinc-500">
+                    <span>{t('poolSpent')}: {formatCurrency(evaluation.pools.fixed.spent, currency)}</span>
+                    {poolHints.fixed && (
+                      <span className="text-amber-400 font-medium">{poolHints.fixed}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
 
+              {/* Pool 3: Outings Card */}
+              <div
+                className={`p-4 rounded-3xl bg-zinc-900/80 border border-amber-500/25 space-y-3 ${
+                  incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs font-bold text-amber-400">
+                  <span className="flex items-center gap-1.5">
+                    <Coffee className="w-4 h-4" />
+                    <span>{t('poolOutings')}</span>
+                  </span>
+                  <span className="text-[10px] font-mono bg-amber-500/20 px-2 py-0.5 rounded-full text-amber-300 font-semibold">
+                    {pools.outings.percent}%
+                  </span>
+                </div>
+
+                {/* Target Numerical Input */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                    {t('poolAllocated')}
+                  </span>
                   <div className="relative">
                     <input
                       type="text"
@@ -2737,538 +1704,522 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       }
                       onBlur={() => handleAmountBlur('outings')}
                       placeholder="0.00"
-                      className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono text-sm focus:border-amber-500 focus:outline-none"
+                      className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-amber-500 focus:outline-none"
                     />
                     <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-mono pointer-events-none">
                       {currency}
                     </span>
                   </div>
-
-                  {poolHints.outings && (
-                    <div className="text-[10px] text-amber-400 font-medium">
-                      {poolHints.outings}
-                    </div>
-                  )}
                 </div>
 
-                {/* Pool 4: Daily Spending (Automatic Remainder, Read-Only) */}
-                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-950/40 via-zinc-950 to-zinc-950 border border-emerald-500/30 space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold text-emerald-400">
-                    <span className="flex items-center gap-1.5">
-                      <Wallet className="w-4 h-4" />
-                      <span>{t('poolDaily')}</span>
-                    </span>
-                    <span className="text-[10px] font-mono bg-emerald-500/20 px-2 py-0.5 rounded-full text-emerald-300 font-bold">
-                      {dailyPercent}%
+                {/* Real-Time Cycle Progress & Remaining */}
+                <div className="space-y-1.5 pt-1 border-t border-zinc-800/60">
+                  <div className="flex justify-between items-baseline font-mono text-xs">
+                    <span className="text-zinc-400">{t('poolRemaining')}:</span>
+                    <span
+                      className={`font-bold ${
+                        evaluation.pools.outings.remaining < 0 ? 'text-red-400' : 'text-white'
+                      }`}
+                    >
+                      {formatCurrency(evaluation.pools.outings.remaining, currency)}{' '}
+                      <span className="text-zinc-500 text-[11px] font-normal">
+                        / {formatCurrency(evaluation.pools.outings.allocated, currency)}
+                      </span>
                     </span>
                   </div>
+                  <div className="w-full bg-zinc-800/80 rounded-full h-2 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        evaluation.pools.outings.remaining < 0
+                          ? 'bg-red-500'
+                          : 'bg-gradient-to-r from-amber-500 to-yellow-400'
+                      }`}
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.max(
+                            0,
+                            evaluation.pools.outings.allocated > 0
+                              ? (evaluation.pools.outings.spent / evaluation.pools.outings.allocated) * 100
+                              : 0
+                          )
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-zinc-500">
+                    <span>{t('poolSpent')}: {formatCurrency(evaluation.pools.outings.spent, currency)}</span>
+                    {poolHints.outings && (
+                      <span className="text-amber-400 font-medium">{poolHints.outings}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
 
-                  <div className="flex items-baseline justify-between py-1">
-                    <span className="text-xs text-zinc-400 font-medium">
-                      {t('poolAllocated')}:
+              {/* Pool 4: Daily Spending (The Calculated Remainder) */}
+              <div className="p-4 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-zinc-900/90 to-zinc-900 border border-emerald-500/30 space-y-3">
+                <div className="flex items-center justify-between text-xs font-bold text-emerald-400">
+                  <span className="flex items-center gap-1.5">
+                    <Wallet className="w-4 h-4" />
+                    <span>{t('poolDaily')}</span>
+                  </span>
+                  <span className="text-[10px] font-mono bg-emerald-500/20 px-2 py-0.5 rounded-full text-emerald-300 font-bold">
+                    {dailyPercent}%
+                  </span>
+                </div>
+
+                {/* Target Calculated Remainder Display */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                    {t('poolAllocated')} ({isArabic ? 'باقي الميزانية الحية' : 'Live Remainder'})
+                  </span>
+                  <div className="flex items-center justify-between min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-950 border border-emerald-500/30">
+                    <span className="text-xs text-zinc-400">
+                      {isArabic ? 'المتبقي تلقائياً' : 'Calculated remainder'}
                     </span>
-                    <span className="text-xl sm:text-2xl font-extrabold font-mono text-white">
+                    <span className="text-base font-extrabold font-mono text-white">
                       {formatCurrency(dailyMinor / 100, currency)}
                     </span>
                   </div>
+                </div>
 
-                  <div className="text-[11px] text-emerald-400/90 font-medium bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20">
-                    {t('dailyRemainderHint')}
+                {/* Real-Time Cycle Progress & Remaining */}
+                <div className="space-y-1.5 pt-1 border-t border-zinc-800/60">
+                  <div className="flex justify-between items-baseline font-mono text-xs">
+                    <span className="text-zinc-400">{t('poolRemaining')}:</span>
+                    <span
+                      className={`font-bold ${
+                        evaluation.pools.daily.remaining < 0 ? 'text-red-400' : 'text-white'
+                      }`}
+                    >
+                      {formatCurrency(evaluation.pools.daily.remaining, currency)}{' '}
+                      <span className="text-zinc-500 text-[11px] font-normal">
+                        / {formatCurrency(evaluation.pools.daily.allocated, currency)}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="w-full bg-zinc-800/80 rounded-full h-2 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        evaluation.pools.daily.remaining < 0
+                          ? 'bg-red-500'
+                          : 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                      }`}
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.max(
+                            0,
+                            evaluation.pools.daily.allocated > 0
+                              ? (evaluation.pools.daily.spent / evaluation.pools.daily.allocated) * 100
+                              : 0
+                          )
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
+                    <span>{t('poolSpent')}: {formatCurrency(evaluation.pools.daily.spent, currency)}</span>
+                    <span className="text-emerald-400 font-semibold">
+                      {evaluation.dailyStatus.upcomingDailyAllowance > 0
+                        ? `${formatCurrency(evaluation.dailyStatus.upcomingDailyAllowance, currency)} / ${isArabic ? 'يوم' : 'day'}`
+                        : ''}
+                    </span>
                   </div>
                 </div>
-
-                {/* Ask AI to Optimize Button & Preview */}
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={handleAskAIToOptimize}
-                    disabled={isOptimizingWithAI}
-                    className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-emerald-300 font-bold text-xs flex items-center justify-center gap-2 border border-emerald-500/30 transition disabled:opacity-50"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>{isOptimizingWithAI ? t('optimizing') : t('askAIToOptimize')}</span>
-                  </button>
-
-                  {aiOptimizationPreview && (
-                    <div className="mt-3 p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 space-y-3">
-                      <div className="text-xs text-emerald-200 leading-relaxed">
-                        {aiOptimizationPreview.explanation}
-                      </div>
-                      <div className="grid grid-cols-4 gap-2 text-center text-xs font-mono font-bold">
-                        <div className="p-2 rounded bg-zinc-950/60 text-blue-300">
-                          {aiOptimizationPreview.savings}%
-                        </div>
-                        <div className="p-2 rounded bg-zinc-950/60 text-purple-300">
-                          {aiOptimizationPreview.fixed}%
-                        </div>
-                        <div className="p-2 rounded bg-zinc-950/60 text-amber-300">
-                          {aiOptimizationPreview.outings}%
-                        </div>
-                        <div className="p-2 rounded bg-zinc-950/60 text-emerald-300">
-                          {aiOptimizationPreview.daily}%
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleApplyAIOptimization}
-                        className="w-full min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
-                      >
-                        {t('applyAIAllocation')}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Fixed Categories Selection */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-3">
-                <h4 className="text-xs sm:text-sm font-bold text-white">
-                  {t('fixedCategoriesPicker')}
-                </h4>
-                <p className="text-[11px] text-zinc-400">{t('fixedCategoriesDesc')}</p>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {categories.map((cat) => {
-                    const isSelected = selectedFixedCatIds.includes(cat.id);
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedFixedCatIds((prev) =>
-                            isSelected ? prev.filter((id) => id !== cat.id) : [...prev, cat.id]
-                          );
-                        }}
-                        className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 ${
-                          isSelected
-                            ? 'bg-purple-500/20 border-purple-500/50 text-purple-200'
-                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        <span>{cat.icon || '📁'}</span>
-                        <span>{cat.name}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-purple-400" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Configurable Heads-up Alert Threshold */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs sm:text-sm font-bold text-white">
-                    {t('headsUpThresholdLabel')}
-                  </h4>
-                  <span className="text-xs font-mono font-bold text-amber-300 bg-amber-500/15 px-2.5 py-0.5 rounded-full border border-amber-500/30">
-                    {headsUpThresholdPercent}%
-                  </span>
-                </div>
-                <p className="text-[11px] text-zinc-400">{t('headsUpThresholdDesc')}</p>
-                <input
-                  type="range"
-                  min={50}
-                  max={90}
-                  step={5}
-                  value={headsUpThresholdPercent}
-                  onChange={(e) => setHeadsUpThresholdPercent(parseInt(e.target.value, 10))}
-                  className="w-full accent-amber-500 cursor-pointer min-h-[44px]"
-                />
-              </div>
-
-              {/* Save Baseline Button */}
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={handleSaveBaseline}
-                  className="w-full min-h-[48px] px-4 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm shadow-xl shadow-emerald-950/40 transition active:scale-[0.99]"
-                >
-                  {t('saveBaselinePlan')}
-                </button>
               </div>
             </div>
-          )}
+          </section>
 
           {/* =============================================================== */}
-          {/* TAB 3: AI ADVISOR & SECRETS */}
+          {/* SECTION 4: BILLS & FIXED CATEGORIES SETUP */}
           {/* =============================================================== */}
-          {activeTab === 'aiAdvisor' && (
-            <div className="space-y-6">
-              {/* Consent Toggle & Disclosure Card */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="min-w-0 me-3">
-                    <h4 className="text-xs sm:text-sm font-bold text-white">
-                      {t('aiConsentToggle')}
-                    </h4>
-                    <p className="text-[11px] text-zinc-400">{t('aiConsentToggleDesc')}</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input
-                      type="checkbox"
-                      checked={aiConsentEnabled}
-                      onChange={(e) => {
-                        const next = e.target.checked;
-                        setAiConsentEnabled(next);
-                        setAIConsent(next);
-                        showToast(t('updatedSuccess'), 'info');
-                      }}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
+          <section className="p-4 sm:p-5 rounded-3xl bg-zinc-900/80 border border-zinc-800 space-y-3">
+            <div>
+              <h4 className="text-xs sm:text-sm font-bold text-white">
+                {t('fixedCategoriesPicker')}
+              </h4>
+              <p className="text-[11px] text-zinc-400 mt-0.5">
+                {t('fixedCategoriesDesc')}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-1 max-h-48 overflow-y-auto">
+              {categories.length === 0 ? (
+                <div className="p-2 text-xs text-zinc-500">
+                  {isArabic ? 'لا توجد فئات' : 'No categories found'}
+                </div>
+              ) : (
+                categories.map((cat) => {
+                  const isSelected = selectedFixedCatIds.includes(cat.id);
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => handleToggleFixedCategory(cat.id)}
+                      className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-2 cursor-pointer ${
+                        isSelected
+                          ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow'
+                          : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200 hover:border-zinc-700'
+                      }`}
+                    >
+                      <span>{cat.icon || '📁'}</span>
+                      <span>{cat.name}</span>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-purple-400 shrink-0" />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
+          {/* =============================================================== */}
+          {/* SECTION 5: TOOLS & ALERTS */}
+          {/* =============================================================== */}
+          <section className="space-y-4">
+            {/* What-If Expense Simulator Card */}
+            <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/80 border border-zinc-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <h4 className="text-xs sm:text-sm font-bold text-white">
+                    {t('whatIfSimulatorTitle')}
+                  </h4>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-400">{t('whatIfSimulatorDesc')}</p>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
+                    {t('whatIfAmount')}
                   </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={whatIfAmount}
+                      onChange={(e) => setWhatIfAmount(e.target.value)}
+                      placeholder="e.g. 500"
+                      className="w-full min-h-[44px] px-3.5 py-2 pe-12 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                    />
+                    <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-mono pointer-events-none">
+                      {currency}
+                    </span>
+                  </div>
                 </div>
 
-                {/* Disclosure text */}
-                <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-300 leading-relaxed space-y-2">
-                  <p className="font-bold text-zinc-200">
-                    {AI_CONSENT_DISCLOSURE[isArabic ? 'ar' : 'en'].title}
-                  </p>
-                  <p>{AI_CONSENT_DISCLOSURE[isArabic ? 'ar' : 'en'].description}</p>
-                  <p className="text-emerald-400 font-medium">
-                    {AI_CONSENT_DISCLOSURE[isArabic ? 'ar' : 'en'].disclaimer}
-                  </p>
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1.5">
+                    {t('whatIfPool')}
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setWhatIfPool('daily')}
+                      className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        whatIfPool === 'daily'
+                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Wallet className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{t('poolDaily')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setWhatIfPool('outings')}
+                      className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        whatIfPool === 'outings'
+                          ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Coffee className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{t('poolOutings')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setWhatIfPool('fixed')}
+                      className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        whatIfPool === 'fixed'
+                          ? 'bg-purple-500/20 border-purple-500/50 text-purple-300'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{t('poolFixed')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setWhatIfPool('oneoff')}
+                      className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        whatIfPool === 'oneoff'
+                          ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Shield className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{t('poolOneOff')}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* Private Gemini Key Management (Hidden behind Advanced Settings when proxy/backend key is available) */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
-                {managedAiAvailable && !storedApiKey && (
-                  <div className="p-3.5 rounded-2xl bg-emerald-950/25 border border-emerald-500/30 flex items-start gap-3">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <span className="text-xs font-bold text-emerald-300 block">
-                        {t('managedAiActiveBadge')}
-                      </span>
-                      <p className="text-[11px] text-zinc-300 leading-relaxed">
-                        {t('managedAiActiveDesc')}
+              {/* Instant Deterministic Math Results Display */}
+              {whatIfCalculation && (
+                <div className="pt-2 border-t border-zinc-800 space-y-3">
+                  {whatIfCalculation.isLastDay && (
+                    <div className="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-xs text-blue-200 flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span>{t('lastDayCycleNotice')}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Card 1: Selected Pool Before -> After */}
+                    <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800/80 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-semibold text-zinc-400">
+                        <span>{t('whatIfPoolBeforeAfter')}: {whatIfCalculation.poolName}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm font-mono">
+                        <span className="text-zinc-300">
+                          {formatCurrency(whatIfCalculation.poolBefore, currency)}
+                        </span>
+                        <span className="text-zinc-500 text-xs">→</span>
+                        <span
+                          className={`font-bold ${
+                            whatIfCalculation.poolAfter < 0
+                              ? 'text-red-400'
+                              : 'text-emerald-400'
+                          }`}
+                        >
+                          {formatCurrency(whatIfCalculation.poolAfter, currency)}
+                        </span>
+                      </div>
+                      {whatIfCalculation.poolAfter < 0 && (
+                        <p className="text-[10px] text-amber-400">
+                          {t('poolExceededNotice')}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Card 2: Daily Allowance Before -> After */}
+                    <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800/80 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-semibold text-zinc-400">
+                        <span>{t('whatIfDailyAllowanceBeforeAfter')}</span>
+                        {whatIfCalculation.dailyImpact !== 0 && (
+                          <span
+                            className={`text-[10px] font-mono font-bold ${
+                              whatIfCalculation.dailyImpact < 0
+                                ? 'text-red-400'
+                                : 'text-emerald-400'
+                            }`}
+                          >
+                            {whatIfCalculation.dailyImpact > 0 ? '+' : ''}
+                            {formatCurrency(whatIfCalculation.dailyImpact, currency)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-sm font-mono">
+                        <span className="text-zinc-300">
+                          {formatCurrency(whatIfCalculation.allowanceBefore, currency)}
+                        </span>
+                        <span className="text-zinc-500 text-xs">→</span>
+                        <span
+                          className={`font-bold ${
+                            whatIfCalculation.allowanceAfter < whatIfCalculation.allowanceBefore
+                              ? 'text-amber-300'
+                              : 'text-emerald-400'
+                          }`}
+                        >
+                          {formatCurrency(whatIfCalculation.allowanceAfter, currency)}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-zinc-500">
+                        {isArabic
+                          ? `لكل يوم من الـ ${whatIfCalculation.remainingDaysInCycle} يوماً المتبقية`
+                          : `Per day for the remaining ${whatIfCalculation.remainingDaysInCycle} days`}
                       </p>
                     </div>
                   </div>
-                )}
-
-                {managedAiAvailable && !storedApiKey && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAdvancedKeySection((prev) => !prev)}
-                    className="w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl bg-zinc-950/70 hover:bg-zinc-950 border border-zinc-800 flex items-center justify-between text-xs font-semibold text-zinc-300 transition"
-                  >
-                    <span className="flex items-center gap-2 min-w-0 truncate">
-                      <KeyRound className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span className="truncate">{t('advancedPersonalApiKeyToggle')}</span>
-                    </span>
-                    {showAdvancedKeySection ? (
-                      <ChevronUp className="w-4 h-4 text-zinc-400 shrink-0" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 text-zinc-400 shrink-0" />
-                    )}
-                  </button>
-                )}
-
-                {(!managedAiAvailable || Boolean(storedApiKey) || showAdvancedKeySection) && (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="min-w-0">
-                        <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
-                          <KeyRound className="w-4 h-4 text-emerald-400" />
-                          <span>{t('geminiApiKeyLabel')}</span>
-                        </h4>
-                        <p className="text-[11px] text-zinc-400">{t('geminiApiKeyDesc')}</p>
-                      </div>
-                    </div>
-
-                    {storedApiKey && !isEditingKey ? (
-                      <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between">
-                        <span className="font-mono text-sm tracking-wider text-emerald-300">
-                          {maskGeminiApiKey(storedApiKey)}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setIsEditingKey(true)}
-                            className="min-h-[44px] px-3 py-1.5 rounded-xl bg-zinc-850 hover:bg-zinc-800 text-xs font-bold text-zinc-200 transition"
-                          >
-                            {t('edit')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleClearKey}
-                            className="min-h-[44px] px-3 py-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/50 text-red-300 text-xs font-bold border border-red-500/30 flex items-center gap-1 transition"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>{t('clearApiKeyBtn')}</span>
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <input
-                          type="password"
-                          value={inputApiKey}
-                          onChange={(e) => setInputApiKey(e.target.value)}
-                          placeholder={t('geminiApiKeyPlaceholder')}
-                          className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-emerald-500 focus:outline-none"
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={handleSaveKey}
-                            disabled={!inputApiKey.trim()}
-                            className="flex-1 min-h-[44px] px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition disabled:opacity-40"
-                          >
-                            {t('saveApiKeyBtn')}
-                          </button>
-                          {storedApiKey && (
-                            <button
-                              type="button"
-                              onClick={() => setIsEditingKey(false)}
-                              className="min-h-[44px] px-4 py-2.5 rounded-xl bg-zinc-850 text-zinc-300 font-bold text-xs transition"
-                            >
-                              {t('cancel')}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Test Connection Button */}
-                {(storedApiKey || hasAIAccessState || managedAiAvailable || Boolean(auth.currentUser)) && (
-                  <div className="pt-1 space-y-3">
-                    <button
-                      type="button"
-                      onClick={handleTestConnection}
-                      disabled={isTestingConnection}
-                      className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-zinc-200 font-bold text-xs flex items-center justify-center gap-2 border border-zinc-700 transition disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isTestingConnection ? 'animate-spin' : ''}`} />
-                      <span>{isTestingConnection ? t('testingConnection') : t('testConnectionBtn')}</span>
-                    </button>
-
-                    {connectionTestResult && (
-                      <div
-                        className={`p-3.5 rounded-2xl border text-xs leading-relaxed space-y-1.5 transition-all ${
-                          connectionTestResult.ok
-                            ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
-                            : 'bg-red-950/40 border-red-500/40 text-red-200'
-                        }`}
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2 font-bold min-w-0">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            {connectionTestResult.ok ? (
-                              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                            ) : (
-                              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-                            )}
-                            <span className="truncate">
-                              {connectionTestResult.ok
-                                ? t('connectionSuccess')
-                                : (isArabic
-                                    ? connectionTestResult.errorTitleAr || connectionTestResult.errorTitle || t('connectionFailed')
-                                    : connectionTestResult.errorTitle || t('connectionFailed'))}
-                            </span>
-                          </div>
-                          {connectionTestResult.source && (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-750 text-zinc-300 shrink-0 whitespace-nowrap">
-                              {connectionTestResult.source === 'personal'
-                                ? t('sourcePersonalKey')
-                                : connectionTestResult.source === 'proxy'
-                                ? t('sourceBackendProxy')
-                                : t('sourceSharedKey')}
-                            </span>
-                          )}
-                        </div>
-
-                        {connectionTestResult.modelUsed && (
-                          <div className="text-[11px] text-zinc-400 font-mono">
-                            Model: {connectionTestResult.modelUsed}
-                            {connectionTestResult.statusCode ? ` • HTTP ${connectionTestResult.statusCode}` : ''}
-                          </div>
-                        )}
-
-                        {(!connectionTestResult.ok || connectionTestResult.message) && (
-                          <div className={`text-[11px] font-medium leading-normal break-words pt-1 ${
-                            connectionTestResult.ok ? 'text-emerald-300/90' : 'text-red-300'
-                          }`}>
-                            {isArabic ? connectionTestResult.messageAr : connectionTestResult.message}
-                          </div>
-                        )}
-
-                        {!connectionTestResult.ok &&
-                          (connectionTestResult.requestPath ||
-                            connectionTestResult.statusCode ||
-                            connectionTestResult.errorDetails) && (
-                            <details className="mt-2 pt-2 border-t border-red-500/20 text-[10px] text-zinc-300">
-                              <summary className="font-semibold text-red-300 hover:text-red-200 cursor-pointer select-none py-1">
-                                {isArabic ? 'عرض التفاصيل التقنية' : 'View Technical Details'}
-                              </summary>
-                              <div
-                                className="mt-1.5 p-2 rounded-xl bg-black/60 border border-red-500/30 font-mono space-y-1 text-left rtl:text-left select-text"
-                                dir="ltr"
-                              >
-                                {connectionTestResult.statusCode && (
-                                  <div>
-                                    <span className="text-zinc-500">Status:</span>{' '}
-                                    <span className="text-amber-400 font-bold">
-                                      {connectionTestResult.statusCode}
-                                    </span>
-                                  </div>
-                                )}
-                                {connectionTestResult.requestPath && (
-                                  <div className="break-all">
-                                    <span className="text-zinc-500">Endpoint:</span>{' '}
-                                    <span className="text-blue-300">
-                                      {connectionTestResult.requestPath}
-                                    </span>
-                                  </div>
-                                )}
-                                {connectionTestResult.errorDetails && (
-                                  <div className="break-all">
-                                    <span className="text-zinc-500">Details:</span>{' '}
-                                    <span className="text-red-400">
-                                      {connectionTestResult.errorDetails}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            </details>
-                          )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* AI Budget Advisor Card */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="min-w-0">
-                    <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>{t('aiBudgetAdvisorTitle')}</span>
-                    </h4>
-                    <p className="text-[11px] text-zinc-400 mt-0.5">
-                      {t('aiBudgetAdvisorDesc')}
-                    </p>
-                  </div>
                 </div>
+              )}
+            </div>
 
-                {!aiConsentEnabled ? (
-                  <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30 text-amber-200 text-xs space-y-2">
-                    <div className="flex items-center gap-2 font-semibold">
-                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                      <span>{t('aiAdvisorConsentRequired')}</span>
+            {/* Rebalance Options (Shown ONLY if there is a deficit) */}
+            {evaluation.rebalanceScenarios.hasDeficit && (
+              <div className="p-4 sm:p-5 rounded-3xl bg-red-950/20 border border-red-500/30 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4.5 h-4.5 text-red-400 shrink-0" />
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-bold text-white">
+                        {t('rebalanceTitle')}
+                      </h4>
+                      <p className="text-[11px] text-zinc-400">
+                        {t('rebalanceSubtitle')}
+                      </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAiConsentEnabled(true);
-                        setAIConsent(true);
-                        showToast(t('updatedSuccess'), 'info');
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold transition flex items-center gap-1.5"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>{t('enableConsentBtn')}</span>
-                    </button>
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    <button
-                      type="button"
-                      onClick={handleGetAdvice}
-                      disabled={isLoadingAdvice}
-                      className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/40 transition disabled:opacity-50"
-                    >
-                      <Sparkles className={`w-4 h-4 ${isLoadingAdvice ? 'animate-spin' : ''}`} />
-                      <span>{isLoadingAdvice ? t('analyzingBudget') : (adviceData ? t('refreshAdviceBtn') : t('getAdviceBtn'))}</span>
-                    </button>
-
-                    {adviceData && (
-                      <div className="p-4 rounded-2xl bg-zinc-950 border border-emerald-500/30 space-y-3.5">
-                        {/* Headline & Source Badge */}
-                        <div className="flex items-center justify-between gap-2">
-                          <h5 className="text-xs sm:text-sm font-bold text-emerald-300">
-                            {adviceData.headline}
-                          </h5>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
-                              adviceData.source === 'ai'
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                : 'bg-zinc-800 text-zinc-300 border border-zinc-700'
-                            }`}>
-                              {adviceData.source === 'ai' ? 'Gemini AI' : 'Smart Engine'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Top Observation */}
-                        <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80 space-y-1">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1">
-                            <TrendingUp className="w-3 h-3 text-emerald-400" />
-                            <span>{t('keyObservation')}</span>
-                          </span>
-                          <p className="text-xs text-zinc-200 leading-relaxed">
-                            {adviceData.topObservation}
-                          </p>
-                        </div>
-
-                        {/* Actionable Advice List */}
-                        {adviceData.actionableAdvice && adviceData.actionableAdvice.length > 0 && (
-                          <div className="space-y-2">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3 text-teal-400" />
-                              <span>{t('actionableRecommendations')}</span>
-                            </span>
-                            <div className="space-y-1.5">
-                              {adviceData.actionableAdvice.map((rec, idx) => (
-                                <div
-                                  key={idx}
-                                  className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/60 flex items-start gap-2 text-xs text-zinc-300 leading-relaxed"
-                                >
-                                  <span className="text-emerald-400 font-bold shrink-0 mt-0.5">•</span>
-                                  <span>{rec}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Data Protection Disclaimer */}
-                        <div className="pt-1 flex items-center gap-1.5 text-[10px] text-zinc-500">
-                          <Shield className="w-3 h-3 text-zinc-400 shrink-0" />
-                          <span>{t('dataProtectionSummary')}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Usage Metrics & Cache Management */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-3">
-                <div className="flex items-center justify-between text-xs font-semibold">
-                  <span className="text-zinc-400">{t('aiMonthlyRequestsLabel')}:</span>
-                  <span className="font-mono text-white font-bold">
-                    {monthlyUsage.count} ({monthlyUsage.month})
+                  <span className="text-xs font-mono font-extrabold text-red-400 bg-red-500/10 px-2.5 py-1 rounded-full border border-red-500/20">
+                    -{formatCurrency(evaluation.rebalanceScenarios.deficit, currency)}
                   </span>
                 </div>
 
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      clearAICache();
-                      showToast(t('cacheClearedSuccess'), 'info');
-                    }}
-                    className="w-full min-h-[44px] px-4 py-2 rounded-xl bg-zinc-850 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs font-medium border border-zinc-800 transition"
-                  >
-                    {t('clearCacheBtn')}
-                  </button>
+                {/* Top 3 Overspend Categories */}
+                {topOverspendCategories.length > 0 && (
+                  <div className="p-3 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2">
+                    <div className="text-[11px] font-semibold text-zinc-400">
+                      {isArabic ? 'أكثر الفئات المسببة لزيادة الصرف:' : 'Top overspend categories:'}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {topOverspendCategories.map((c, i) => (
+                        <div key={i} className="flex items-center justify-between p-2 rounded-xl bg-zinc-900 border border-zinc-800/60 text-xs">
+                          <span className="flex items-center gap-1.5 truncate">
+                            <span>{c.icon}</span>
+                            <span className="text-zinc-200 truncate">{c.name}</span>
+                          </span>
+                          <span className="font-mono font-bold text-red-400 shrink-0">
+                            {formatCurrency(c.amount, currency)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3 Rebalance Scenario Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Scenario A: Trim Bills */}
+                  <div className="p-3.5 rounded-2xl bg-zinc-950 border border-purple-500/20 flex flex-col justify-between space-y-3">
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-bold text-purple-400 flex items-center gap-1.5">
+                        <ShoppingBag className="w-3.5 h-3.5" />
+                        {t('scenarioATitle')}
+                      </span>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        {t('scenarioADesc')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyScenario('scenario_a')}
+                      className="w-full min-h-[38px] py-1.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition cursor-pointer"
+                    >
+                      {t('applyScenarioBtn')}
+                    </button>
+                  </div>
+
+                  {/* Scenario B: Absorb via Savings */}
+                  <div className="p-3.5 rounded-2xl bg-zinc-950 border border-blue-500/20 flex flex-col justify-between space-y-3">
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                        <PiggyBank className="w-3.5 h-3.5" />
+                        {t('scenarioBTitle')}
+                      </span>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        {t('scenarioBDesc')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyScenario('scenario_b')}
+                      className="w-full min-h-[38px] py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition cursor-pointer"
+                    >
+                      {t('applyScenarioBtn')}
+                    </button>
+                  </div>
+
+                  {/* Scenario C: Reduce Daily Allowance */}
+                  <div className="p-3.5 rounded-2xl bg-zinc-950 border border-emerald-500/20 flex flex-col justify-between space-y-3">
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                        <Wallet className="w-3.5 h-3.5" />
+                        {t('scenarioCTitle')}
+                      </span>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        {t('scenarioCDesc')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyScenario('scenario_c')}
+                      className="w-full min-h-[38px] py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer"
+                    >
+                      {t('applyScenarioBtn')}
+                    </button>
+                  </div>
                 </div>
+
+                {/* Revert override button if active */}
+                {currentOverride && (
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleRevertToBaseline}
+                      className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-300 text-xs font-bold border border-amber-500/30 flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>{t('revertToBaseline')}</span>
+                    </button>
+                  </div>
+                )}
               </div>
+            )}
+
+            {/* Heads-up Alert Threshold Slider Card */}
+            <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/80 border border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-white">
+                <span className="flex items-center gap-1.5">
+                  <Sliders className="w-4 h-4 text-emerald-400" />
+                  <span>{t('headsUpThresholdLabel')}</span>
+                </span>
+                <span className="font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  {headsUpThresholdPercent}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={30}
+                max={95}
+                step={5}
+                value={headsUpThresholdPercent}
+                onChange={(e) => setHeadsUpThresholdPercent(parseInt(e.target.value, 10))}
+                className="w-full accent-emerald-500 cursor-pointer min-h-[44px]"
+              />
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                {t('headsUpThresholdDesc')}
+              </p>
             </div>
-          )}
+          </section>
+
+          {/* =============================================================== */}
+          {/* SECTION 6: ACTIONS */}
+          {/* =============================================================== */}
+          <section className="pt-2 pb-4 space-y-3 border-t border-zinc-800/80">
+            <button
+              type="button"
+              onClick={handleSaveBudgetPlan}
+              className="w-full min-h-[50px] py-3 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-xl shadow-emerald-950/40 transition cursor-pointer flex items-center justify-center gap-2"
+            >
+              <CheckCircle2 className="w-5 h-5" />
+              <span>{t('saveBudgetPlan')}</span>
+            </button>
+
+            <div className="flex items-center justify-center">
+              <button
+                type="button"
+                onClick={handleResetToDefaults}
+                className="text-xs text-zinc-400 hover:text-zinc-200 transition underline underline-offset-4 cursor-pointer"
+              >
+                {t('resetToDefault')}
+              </button>
+            </div>
+          </section>
         </div>
       </div>
     </div>

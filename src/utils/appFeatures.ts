@@ -19,6 +19,29 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.2.1',
+    isBeta: true,
+    releaseDate: 'November 8, 2026',
+    title: {
+      en: 'Unified Smart Budget View & 100% Local Math Engine',
+      ar: 'واجهة موحدة للميزانية الذكية ومحرك حسابات محلي 100%',
+    },
+    highlights: {
+      en: [
+        'Unified vertical Smart Budget: Merged tabbed views into a single seamless vertical layout combining global settings, daily allowance tracker, live pool progress, and rebalance tools',
+        'Complete removal of experimental AI features: Eradicated all external AI dependencies to guarantee 100% offline, private, and deterministic financial calculations',
+        'Single centralized save: One "Save Budget Plan" button persists your entire budget configuration and rules instantly',
+        'Live pool tracking: Real-time spending and remaining balances for Savings, Bills, Outings, and Daily Spending',
+      ],
+      ar: [
+        'واجهة موحدة للميزانية الذكية: دمج التبويبات في واجهة عمودية واحدة تجمع الإعدادات العامة ومتتبع المصروف اليومي وتقدم الأحواض وأدوات إعادة التوازن',
+        'إزالة كاملة للذكاء الاصطناعي التجريبي: حذف كافة الاعتماديات الخارجية لضمان خصوصية وحسابات مالية محلية وحتمية 100% بدون إنترنت',
+        'زر حفظ موحد: زر "حفظ خطة الميزانية" لحفظ كافة إعدادات وتوزيعات الميزانية بنقرة واحدة',
+        'متابعة حية لأحواض الميزانية: عرض فوري ومباشر للمصروف والمتبقي في أحواض التحويش والفواتير والخروجات والمصروف اليومي',
+      ],
+    },
+  },
+  {
     version: '1.2.0',
     isBeta: true,
     releaseDate: 'November 8, 2026',

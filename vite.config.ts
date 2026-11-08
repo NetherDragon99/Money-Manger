@@ -30,7 +30,7 @@ export default defineConfig(({ command, mode }) => {
     : (existingBase === './' ? './index.html' : `${existingBase}index.html`);
 
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
-  const versionString = packageJson.version || '1.2.0';
+  const versionString = packageJson.version || '1.2.1';
 
   let buildId = 'dev';
   try {
