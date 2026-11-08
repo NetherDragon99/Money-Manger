@@ -21,8 +21,8 @@
  *    - What-If Expense Simulator (100% local, deterministic math)
  *    - Rebalance Options (shown only if there is a deficit)
  *    - Heads-up Alert Threshold slider
- * 6. Actions:
- *    - A single prominent "Save Budget Plan" button.
+ * 6. Sticky Action Footer:
+ *    - Master sticky "Apply & Save Changes" button with quick reset to defaults.
  *
  * Accessibility & Responsiveness:
  * - Safe at 320px width, dark mode native, RTL compliant.
@@ -2398,30 +2398,6 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
               <p className="text-[11px] text-zinc-400 leading-relaxed">
                 {t('headsUpThresholdDesc')}
               </p>
-            </div>
-          </section>
-
-          {/* =============================================================== */}
-          {/* SECTION 6: ACTIONS */}
-          {/* =============================================================== */}
-          <section className="pt-2 pb-4 space-y-3 border-t border-zinc-800/80">
-            <button
-              type="button"
-              onClick={handleSaveBudgetPlan}
-              className="w-full min-h-[50px] py-3 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-xl shadow-emerald-950/40 transition cursor-pointer flex items-center justify-center gap-2"
-            >
-              <CheckCircle2 className="w-5 h-5" />
-              <span>{t('saveBudgetPlan')}</span>
-            </button>
-
-            <div className="flex items-center justify-center">
-              <button
-                type="button"
-                onClick={handleResetToDefaults}
-                className="text-xs text-zinc-400 hover:text-zinc-200 transition underline underline-offset-4 cursor-pointer"
-              >
-                {t('resetToDefault')}
-              </button>
             </div>
           </section>
         </div>

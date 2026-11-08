@@ -5,7 +5,7 @@
 
 import { IS_BETA_BUILD, APP_CHANNEL, STABLE_BASE_URL } from './channel';
 
-export const CURRENT_APP_VERSION = '1.2.2';
+export const CURRENT_APP_VERSION = '2.0.0';
 export const BUILD_ID: string =
   typeof import.meta !== 'undefined' && import.meta.env && (import.meta.env as any).VITE_BUILD_ID
     ? String((import.meta.env as any).VITE_BUILD_ID).trim()

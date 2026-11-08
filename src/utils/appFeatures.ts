@@ -19,8 +19,40 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.0.0',
+    isBeta: false,
+    releaseDate: 'November 8, 2026',
+    title: {
+      en: 'Version 2.0.0 Major Update: Smart Budget Overhaul, 100% Local Math Engine & Offline PWA',
+      ar: 'التحديث الشامل للإصدار 2.0.0: إعادة هيكلة الميزانية الذكية، محرك حسابات محلي 100% وموثوقية تامة بدون إنترنت',
+    },
+    highlights: {
+      en: [
+        'Unified Smart Budget Hub: A seamless vertical experience merging live daily allowance tracking, customizable cycle start dates, and 4-pool financial allocations',
+        'Deterministic Local Math Engine: Eradicated experimental external services in favor of 100% private, instant, and deterministic financial calculations',
+        'Absolute Currency Allocations: Set exact fixed amounts for Savings, Bills, and Outings with automatic calculation of your remaining daily allowance',
+        'Interactive Budget Pool Cards: Tap any budget pool card to view, inspect, and manage its tagged transactions for the active cycle',
+        'Accurate Savings Tracking: Automatic progress bar and live total updates capturing all savings transfers and tagged allocations',
+        'Full Offline PWA Reliability: Uninterrupted offline access to all accounts, transactions, and analytics with instant background syncing',
+        'Restored Home & Filter Controls: Quick-access date range selectors, comprehensive filter funnels, and active filter badges',
+        'Flexible Transaction Fees & Taxes: Easily add taxes, commissions, or percent-based charges with an auto-expanding notes area',
+      ],
+      ar: [
+        'واجهة موحدة للميزانية الذكية: تجربة عمودية متكاملة تجمع متتبع المصروف اليومي الحي، وتواريخ بداية مرنة للدورة، وإدارة أحواض الميزانية الأربعة',
+        'محرك حسابات محلي وحتمي 100%: استبعاد كافة الاعتماديات الخارجية لضمان خصوصية مطلقة وحسابات مالية فورية وحتمية دون اتصال بالإنترنت',
+        'توزيع نقد دقيق بالمبالغ: تحديد مبالغ ثابتة لأحواض الادخار والفواتير والخروجات مع حساب فوري لمصروفك اليومي المتبقي',
+        'أحواض ميزانية تفاعلية: إمكانية النقر على أي حوض ميزانية لعرض كافة المعاملات المرتبطة به خلال الدورة الحالية وتفاصيلها',
+        'تتبع دقيق للمدخرات: تحديث تلقائي لشريط التقدم وإجمالي المبالغ المحوشة لكل تحويلات وتخصيصات الادخار',
+        'موثوقية كاملة بدون إنترنت: استخدام سلس لجميع الحسابات والمعاملات والأدوات أوفلاين مع مزامنة فورية عند الاتصال',
+        'فلاتر رئيسية وتحكم متطور: محدد نطاق زمني شامل وفلتر متقدم مع شارات الفلاتر النشطة وخيار إعادة الضبط السريع',
+        'حساب مرن للرسوم والضرائب: إضافة الضرائب ورسوم التحويل كنسبة مئوية أو مبلغ ثابت مع مساحة ملاحظات واسعة',
+      ],
+    },
+  },
+  {
     version: '1.2.2',
     isBeta: true,
+    rolledUpInto: '2.0.0',
     releaseDate: 'November 8, 2026',
     title: {
       en: 'Home Filters, Budget Cycle Modes, Savings Tracking & Pool Details',
@@ -46,6 +78,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
     version: '1.2.1',
     isBeta: true,
+    rolledUpInto: '2.0.0',
     releaseDate: 'November 8, 2026',
     title: {
       en: 'Unified Smart Budget View & 100% Local Math Engine',
@@ -69,6 +102,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
     version: '1.2.0',
     isBeta: true,
+    rolledUpInto: '2.0.0',
     releaseDate: 'November 8, 2026',
     title: {
       en: 'Smart Budget Overhaul & Absolute EGP Allocations',
@@ -92,6 +126,7 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
     version: '1.1.70',
     isBeta: true,
+    rolledUpInto: '2.0.0',
     releaseDate: 'November 7, 2026',
     title: {
       en: 'Complete Offline Reliability, Live Linked Budgeting and Refined Controls',
