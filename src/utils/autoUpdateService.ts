@@ -84,6 +84,54 @@ export function reconcileBetaChannelStartup(): void {
   } catch {}
 }
 
+/**
+ * Cross-channel cache cleanup: when the Beta app opens, stale Stable-only caches
+ * are evicted (and vice-versa). This guarantees the browser never serves a
+ * previous-channel's stale assets when the user switches between Stable and Beta.
+ *
+ * Rules:
+ * - Beta build  → delete any cache whose name does NOT contain 'beta'
+ *                 and does NOT match a known cross-channel shared name.
+ * - Stable build → delete any cache whose name contains 'beta'.
+ * Only runs when Cache Storage is available and skips on errors silently.
+ */
+export async function purgeOtherChannelCaches(): Promise<void> {
+  if (typeof window === 'undefined' || !('caches' in window)) return;
+  // Throttle: only run once per browser session to avoid startup latency
+  const SESSION_KEY = `mm_cache_purge_done_${IS_BETA_BUILD ? 'beta' : 'stable'}`;
+  try {
+    if (sessionStorage.getItem(SESSION_KEY) === '1') return;
+  } catch { /* ignore */ }
+
+  try {
+    const allCacheNames = await caches.keys();
+    const toDelete: string[] = allCacheNames.filter((name) => {
+      const lower = name.toLowerCase();
+      if (IS_BETA_BUILD) {
+        // Keep beta caches, delete obsolete stable-only caches
+        // e.g. 'solv-stable', 'solv-stable-google-fonts', 'solv-stable-avatars'
+        const isStaleStable =
+          (lower.includes('solv-stable') || lower.includes('mm-stable')) &&
+          !lower.includes('beta');
+        return isStaleStable;
+      } else {
+        // Keep stable caches, delete beta caches
+        // e.g. 'solv-beta', 'solv-beta-google-fonts', 'solv-beta-avatars'
+        return lower.includes('solv-beta') || lower.includes('mm-beta');
+      }
+    });
+
+    if (toDelete.length > 0) {
+      console.log(`[AutoUpdate] Purging ${toDelete.length} other-channel cache(s):`, toDelete);
+      await Promise.all(toDelete.map((n) => caches.delete(n).catch(() => {})));
+    }
+
+    try { sessionStorage.setItem(SESSION_KEY, '1'); } catch { /* ignore */ }
+  } catch (err) {
+    console.warn('[AutoUpdate] Cross-channel cache purge skipped:', err);
+  }
+}
+
 function dispatchToast(message: string, type: 'success' | 'error' | 'info' = 'info') {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(

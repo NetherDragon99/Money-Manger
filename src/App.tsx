@@ -156,6 +156,13 @@ import { installPwa } from './utils/pwaInstall';
 import { isStoredSchemaNewer } from './utils/schemaGuard';
 import { SchemaGuardNotice } from './components/SchemaGuardNotice';
 import { BetaInstallBanner } from './components/BetaInstallBanner';
+import { reconcileBetaChannelStartup, purgeOtherChannelCaches } from './utils/autoUpdateService';
+
+// Run channel reconciliation and cross-channel cache cleanup immediately at module load
+// (before any React tree mounts) so the right SW scope is active from the first paint.
+reconcileBetaChannelStartup();
+purgeOtherChannelCaches().catch(() => {});
+
 
 const TABS: TabType[] = ['home', 'budget', 'insights', 'accounts', 'calculator'];
 

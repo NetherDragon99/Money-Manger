@@ -30,24 +30,27 @@ export default defineConfig(({ command, mode }) => {
     : (existingBase === './' ? './index.html' : `${existingBase}index.html`);
 
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
-  const versionString = packageJson.version || '2.0.1';
+
+  // Beta builds use the full package.json version (e.g. 2.0.1).
+  // Stable builds ALWAYS use stableVersion from version.json (e.g. 2.0.0) so
+  // beta patch bumps NEVER change what stable users see.
+  let rootVersionJson: Record<string, string> = {};
+  try {
+    rootVersionJson = JSON.parse(fs.readFileSync(path.resolve('version.json'), 'utf-8'));
+  } catch { /* ignore */ }
+
+  const betaVersionString: string = packageJson.version || '2.0.1';
+  const stableVersionString: string = rootVersionJson.stableVersion || packageJson.version || '2.0.0';
+  // The build-time version shown in the app:
+  // - Stable: stableVersion (2.0.0)
+  // - Beta:   full package version (2.0.1, 2.0.2, …)
+  const versionString: string = isBeta ? betaVersionString : stableVersionString;
 
   let buildId = 'dev';
   try {
     buildId = execSync('git rev-parse --short HEAD').toString().trim();
   } catch {
     buildId = 'unknown';
-  }
-
-  // The last official stable version this build is based on (beta builds keep their own version).
-  let stableVersionString = versionString;
-  if (isBeta) {
-    try {
-      const rootVersion = JSON.parse(fs.readFileSync(path.resolve('version.json'), 'utf-8'));
-      if (rootVersion?.stableVersion) stableVersionString = String(rootVersion.stableVersion);
-    } catch {
-      // keep fallback
-    }
   }
 
   return {

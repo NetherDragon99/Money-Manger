@@ -138,11 +138,21 @@ function verifyTarget(dirPath, isBeta) {
     }
   }
 
-  // 7. Verify version.json channel & version match package.json
+  // 7. Verify version.json channel & version consistency.
+  // Beta builds use package.json version; Stable builds use stableVersion from root version.json.
+  // Both are allowed to differ intentionally — verify only isBeta flag and version format.
   const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+  const rootVerJson = fs.existsSync(path.join(rootDir, 'version.json'))
+    ? JSON.parse(fs.readFileSync(path.join(rootDir, 'version.json'), 'utf8'))
+    : {};
   const verJson = JSON.parse(fs.readFileSync(path.join(absDir, 'version.json'), 'utf8'));
-  if (verJson.version !== pkg.version) {
-    fail(label, `dist version.json (${verJson.version}) does not match package.json (${pkg.version}).`);
+
+  // Beta must match package.json version; Stable must match stableVersion from root version.json
+  const expectedVersion = isBeta
+    ? pkg.version
+    : (rootVerJson.stableVersion || pkg.version);
+  if (verJson.version !== expectedVersion) {
+    fail(label, `dist version.json (${verJson.version}) does not match expected ${isBeta ? 'package.json' : 'stableVersion'} (${expectedVersion}).`);
   }
   if (Boolean(verJson.isBeta) !== Boolean(isBeta)) {
     fail(label, `dist version.json isBeta (${verJson.isBeta}) does not match channel (${label}).`);

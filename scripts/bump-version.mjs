@@ -52,8 +52,10 @@ if (!/^\d+\.\d+\.\d+$/.test(nextVersion)) {
 
 const channel = explicitChannel || ver.channel || 'beta';
 const isBeta = channel === 'beta';
+// When bumping the Beta, preserve the last known stableVersion (never overwrite it
+// with the beta patch number). Fall back to '2.0.0' — the last official stable release.
 const stableVersion = isBeta
-  ? (ver.stableVersion && ver.stableVersion !== currentVersion ? ver.stableVersion : '1.1.61')
+  ? (ver.stableVersion && ver.stableVersion !== currentVersion ? ver.stableVersion : '2.0.0')
   : nextVersion;
 
 pkg.version = nextVersion;
