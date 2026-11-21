@@ -19,6 +19,25 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.0.2',
+    isBeta: true,
+    releaseDate: 'November 21, 2026',
+    title: {
+      en: 'Version 2.0.2 Beta: Cleaner App Name & Smoother Channel Switching',
+      ar: 'إصدار 2.0.2 التجريبي: اسم أنظف للتطبيق وتبديل أسهل بين النسخ',
+    },
+    highlights: {
+      en: [
+        'Clean App Name Everywhere: The app always appears simply as "solv" on your home screen, browser tab, and during installation — the Beta badge now appears only beside the version number.',
+        'Cleaner Switching Between Official & Beta: Opening either version automatically clears leftovers from the other so you always see the latest screens right away.',
+      ],
+      ar: [
+        'اسم نظيف للتطبيق في كل مكان: بيظهر التطبيق دايماً باسم "solv" بس على الشاشة الرئيسية وعند التثبيت، وكلمة Beta بتظهر بس جنب رقم الإصدار.',
+        'تبديل أنظف بين النسخة الرسمية والبيتا: أول ما تفتح أي نسخة بتمسح بقايا النسخة التانية تلقائياً عشان تشوف آخر التحديثات على طول.',
+      ],
+    },
+  },
+  {
     version: '2.0.1',
     isBeta: true,
     releaseDate: 'November 21, 2026',

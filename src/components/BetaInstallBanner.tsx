@@ -102,12 +102,12 @@ export const BetaInstallBanner: React.FC = () => {
         </div>
         <div className="min-w-0">
           <p className="font-bold text-white text-xs truncate">
-            {isArabic ? 'تثبيت solv بيتا' : 'Install solv Beta'}
+            {isArabic ? 'تثبيت solv' : 'Install solv'}
           </p>
           <p className="text-[10px] text-zinc-400 leading-tight line-clamp-2">
             {isArabic
-              ? 'يظل إصدار solv بيتا مفتوحاً ومستقلاً ويعمل بدون إنترنت عند تثبيته.'
-              : 'solv Beta stays open and works offline when installed as its own app.'}
+              ? 'يظل solv مفتوحاً ومستقلاً ويعمل بدون إنترنت عند تثبيته على جهازك.'
+              : 'solv stays open and works offline when installed on your device.'}
           </p>
         </div>
       </div>

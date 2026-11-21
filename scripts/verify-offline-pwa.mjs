@@ -115,12 +115,13 @@ function verifyTarget(dirPath, isBeta) {
   }
 
   // 6. Verify manifest.webmanifest branding, icons, and channel ID
+  // Strict branding rule: App name is ALWAYS exactly "solv" (never "solv (Beta)" or "solv Beta")
   const manifest = JSON.parse(fs.readFileSync(path.join(absDir, 'manifest.webmanifest'), 'utf8'));
-  if (!manifest.name || !manifest.name.toLowerCase().startsWith('solv')) {
-    fail(label, `Manifest name must start with "solv", got "${manifest.name}".`);
+  if (manifest.name !== 'solv') {
+    fail(label, `Manifest name must be exactly "solv" (never include Beta), got "${manifest.name}".`);
   }
-  if (!manifest.short_name || !manifest.short_name.toLowerCase().startsWith('solv')) {
-    fail(label, `Manifest short_name must start with "solv", got "${manifest.short_name}".`);
+  if (manifest.short_name !== 'solv') {
+    fail(label, `Manifest short_name must be exactly "solv" (never include Beta), got "${manifest.short_name}".`);
   }
   if (manifest.display !== 'standalone') {
     fail(label, `Manifest display must be "standalone", got "${manifest.display}".`);
@@ -158,13 +159,13 @@ function verifyTarget(dirPath, isBeta) {
     fail(label, `dist version.json isBeta (${verJson.isBeta}) does not match channel (${label}).`);
   }
 
-  // 8. Verify index.html contains manifest link and solv title
+  // 8. Verify index.html contains manifest link and exact solv title (never including Beta)
   const html = fs.readFileSync(path.join(absDir, 'index.html'), 'utf8');
   if (!html.includes('manifest.webmanifest')) {
     fail(label, 'index.html is missing <link rel="manifest" href="...manifest.webmanifest">.');
   }
-  if (!/<title>\s*solv/i.test(html)) {
-    fail(label, 'index.html <title> must start with "solv".');
+  if (!/<title>\s*solv\s*<\/title>/i.test(html)) {
+    fail(label, 'index.html <title> must be exactly "solv" (never include Beta).');
   }
 
   console.log(

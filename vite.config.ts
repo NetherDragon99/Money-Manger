@@ -71,16 +71,12 @@ export default defineConfig(({ command, mode }) => {
       {
         name: 'html-version-transform',
         transformIndexHtml(html: string) {
-          const appName = isBeta ? 'solv (Beta)' : 'solv';
-          const shortName = isBeta ? 'solv Beta' : 'solv';
+          // Strict branding rule: App name is ALWAYS "solv" on both Stable and Beta.
+          // "Beta" appears ONLY beside the version label (e.g., "Beta v2.0.2").
           const versionLabel = isBeta ? `Beta v${versionString}` : `v${versionString}`;
           let res = html.replace(/%APP_VERSION%/g, versionString);
           res = res.replace(/%BOOT_VERSION_LABEL%/g, versionLabel);
           res = res.replace(/Beta v%APP_VERSION%/g, versionLabel);
-          if (isBeta) {
-            res = res.replace(/<title>solv<\/title>/g, `<title>${appName}</title>`);
-            res = res.replace(/content="solv"/g, `content="${shortName}"`);
-          }
           return res;
         },
       },
@@ -109,8 +105,8 @@ export default defineConfig(({ command, mode }) => {
         includeManifestIcons: false,
         manifest: {
           id: isBeta ? (channelScope === './' ? './beta' : `${channelScope}`) : base,
-          name: isBeta ? 'solv (Beta)' : 'solv',
-          short_name: isBeta ? 'solv Beta' : 'solv',
+          name: 'solv',
+          short_name: 'solv',
           description:
             'solv — an offline-first, OLED dark-themed personal finance & smart budget PWA with multi-account management, custom cycles, and live future-impact insights.',
           theme_color: '#000000',

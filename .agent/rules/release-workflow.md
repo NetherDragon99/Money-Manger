@@ -49,3 +49,8 @@ Apply these rules on **EVERY** task in this repository without exception:
         - `https://netherdragon99.github.io/Money-Manger/version.json` (must match official Stable version)
         - `https://netherdragon99.github.io/Money-Manger/beta/version.json` (must match latest Beta version & `buildId`)
      4. Only report deployment success after both live endpoints confirm the exact expected versions.
+
+7. **Strict `solv` App Name — Never Append "Beta" to the App Name**:
+   - Even on Beta builds, the word **"Beta"** MUST ONLY appear next to the **version number** (e.g., `Beta v2.0.1`), NEVER inside or next to the application name.
+   - `manifest.name`, `manifest.short_name`, HTML `<title>`, `apple-mobile-web-app-title`, `application-name`, boot/splash screen title, and PWA install prompts/banners MUST always use the clean app name **`solv`** (NEVER `solv (Beta)` or `solv Beta`).
+   - Channel separation for PWA installation is maintained via `manifest.id`, `start_url`, `scope`, and `workbox.cacheId` (`solv-beta` vs `solv-stable`), NOT by renaming the app.
