@@ -4,10 +4,11 @@
  */
 
 import { AppData } from '../types';
+import { CURRENT_APP_VERSION } from './versionChecker';
 
 export function downloadOfflineAppBundle(currentData: AppData, lang: 'en' | 'ar' = 'en'): void {
   const isArabic = lang === 'ar';
-  const title = isArabic ? 'متتبع الميزانية والمصروفات الشخصية' : 'Personal Finance Tracker';
+  const title = isArabic ? 'solv — متتبع الميزانية والمصروفات' : 'solv — Smart Finance';
 
   const htmlContent = `<!doctype html>
 <html lang="${lang}" dir="${isArabic ? 'rtl' : 'ltr'}">
@@ -85,7 +86,7 @@ export function downloadOfflineAppBundle(currentData: AppData, lang: 'en' | 'ar'
   </head>
   <body>
     <div class="card">
-      <div class="badge">OFFLINE STANDALONE PWA v1.1.6</div>
+      <div class="badge">OFFLINE STANDALONE PWA v${CURRENT_APP_VERSION}</div>
       <h1>${title}</h1>
       <p>${isArabic ? 'حزمة التطبيق الكاملة بدون إنترنت محفوظة محلياً على جهازك مع دعم التخزين الدائم IndexedDB.' : 'Your complete standalone application package saved directly on your device storage with permanent IndexedDB sync.'}</p>
       
@@ -154,7 +155,7 @@ export function downloadOfflineAppBundle(currentData: AppData, lang: 'en' | 'ar'
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'Personal_Finance_Tracker_v1.1.6.html';
+  a.download = `solv_offline_backup_v${CURRENT_APP_VERSION}.html`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

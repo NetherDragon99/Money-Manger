@@ -4,6 +4,7 @@ import {
   STABLE_BASE_URL,
   BETA_BASE_URL,
   switchChannelWithHistoryUnwind,
+  setPreferredChannel,
 } from '../utils/channel';
 import {
   CURRENT_APP_VERSION,
@@ -155,9 +156,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const message = t('confirmSwitchToStable');
     const confirmed = window.confirm(message);
     if (confirmed) {
-      try {
-        localStorage.removeItem('mm_join_beta');
-      } catch {}
+      setPreferredChannel('stable');
       if (newerStableInfo?.stableBaseUrl) {
         window.location.href = newerStableInfo.stableBaseUrl;
       }
@@ -312,9 +311,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         return;
       }
 
-      try {
-        localStorage.setItem('mm_join_beta', 'true');
-      } catch {}
+      setPreferredChannel('beta');
       updateSettings({ joinBeta: true });
 
       showToast(t('switchingToBetaToast'), 'info');
@@ -335,9 +332,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const message = t('confirmLeaveBeta');
     const confirmed = window.confirm(message);
     if (confirmed) {
-      try {
-        localStorage.removeItem('mm_join_beta');
-      } catch {}
+      setPreferredChannel('stable');
       updateSettings({ joinBeta: false });
       showToast(t('leavingBetaToast'), 'info');
       const frames = typeof getPushedFramesCount === 'function' ? getPushedFramesCount() : 1;

@@ -7,9 +7,8 @@ import { installPwa } from '../utils/pwaInstall';
 
 export const PWAInstallButton: React.FC<{ compact?: boolean; deferredPrompt?: any }> = ({
   compact = false,
-  deferredPrompt,
 }) => {
-  const { isInstalled } = usePWAInstall();
+  const { isInstalled, offlineStatus } = usePWAInstall();
   const { settings, showToast } = useApp();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
@@ -37,8 +36,8 @@ export const PWAInstallButton: React.FC<{ compact?: boolean; deferredPrompt?: an
       } else {
         showToast(
           settings.language === 'ar'
-            ? 'تطبيقك مُحدّث بالكامل إلى أحدث إصدار!'
-            : 'Your app is up to date with the latest version!',
+            ? 'تطبيق solv مُحدّث بالكامل إلى أحدث إصدار!'
+            : 'solv is up to date with the latest version!',
           'success'
         );
       }
@@ -57,8 +56,8 @@ export const PWAInstallButton: React.FC<{ compact?: boolean; deferredPrompt?: an
             <Check className="w-4 h-4 shrink-0" />
             <span>
               {settings.language === 'ar'
-                ? 'مثبت على الشاشة الرئيسية (بدون شريط متصفح)'
-                : 'Installed on Home Screen (Standalone)'}
+                ? 'solv مثبت (جاهز للأوفلاين ✓)'
+                : 'solv Installed (Offline Ready ✓)'}
             </span>
           </div>
           <button
@@ -68,19 +67,27 @@ export const PWAInstallButton: React.FC<{ compact?: boolean; deferredPrompt?: an
             aria-label="Check for updates"
             className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${checkingUpdate ? 'animate-spin text-blue-400' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${checkingUpdate ? 'animate-spin text-emerald-400' : ''}`} />
           </button>
         </div>
       ) : (
         <button
           type="button"
           onClick={handleInstallToHomeScreen}
-          className={`flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-medium shadow-lg shadow-blue-900/30 transition cursor-pointer ${
+          className={`flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-semibold shadow-lg shadow-emerald-950/40 transition cursor-pointer ${
             compact ? 'px-3 py-1.5 text-xs' : 'w-full py-2.5 text-sm'
           }`}
         >
           <Download className="w-4 h-4 shrink-0" />
-          <span>{settings.language === 'ar' ? 'تثبيت التطبيق' : 'Install App'}</span>
+          <span>
+            {settings.language === 'ar'
+              ? offlineStatus.isReady
+                ? 'تثبيت solv (جاهز للأوفلاين)'
+                : 'تثبيت تطبيق solv'
+              : offlineStatus.isReady
+              ? 'Install solv (Offline Ready)'
+              : 'Install solv'}
+          </span>
         </button>
       )}
     </div>

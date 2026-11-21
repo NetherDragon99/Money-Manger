@@ -1,7 +1,7 @@
 import { SwipeableTabs } from '../components/SwipeableTabs';
 import { isManualAdjustment } from '../utils/formatters';
-import React, { useState, useMemo, useRef } from 'react';
-import { useApp } from '../context/AppContext';
+import React, { useState, useMemo, useRef, memo } from 'react';
+import { useAppData, useAppActions } from '../context/AppContext';
 import {
   ArrowDown,
   ArrowUp,
@@ -15,7 +15,6 @@ import {
   isTransactionInRange,
   formatCurrency,
 } from '../utils/dateCycle';
-import { useHeaderScroll } from '../hooks/useHeaderScroll';
 
 import {
   getCategoryChartColor,
@@ -26,11 +25,9 @@ import {
 // Export for backwards compatibility
 export const DONUT_COLORS = [...CURATED_CHART_PALETTE];
 
-export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
-  const { accounts, transactions, settings, setIsSidebarOpen, t } = useApp();
-
-  const isHeaderScrollVisible = useHeaderScroll();
-  const isHeaderVisible = isHeaderScrollVisible && (propBarsVisible !== undefined ? propBarsVisible : true);
+const InsightsViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
+  const { accounts, transactions, settings, t } = useAppData();
+  const { setIsSidebarOpen } = useAppActions();
 
   const [activeAnalysisType, setActiveAnalysisType] = useState<'expense' | 'income'>('expense');
   const [showAllCategories, setShowAllCategories] = useState<boolean>(false);
@@ -202,17 +199,8 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
-      {/* 1. Standardized Top Header Across All Views (Item 2) */}
-      <header
-        style={{
-          transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
-          visibility: isHeaderVisible ? 'visible' : 'hidden',
-          transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
-        className={`fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
-          isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-      >
+      {/* 1. Standardized Top Header Across All Views */}
+      <header className="app-auto-header fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/95 border-b border-zinc-800/80 flex items-center justify-between">
         <div className="flex items-center gap-2">
           {/* Universal Sidebar Menu Button (☰) */}
           <button
@@ -592,3 +580,5 @@ export const InsightsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
   </div>
   );
 };
+
+export const InsightsView = memo(InsightsViewBase);

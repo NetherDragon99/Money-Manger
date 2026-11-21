@@ -6,6 +6,8 @@ export type TaxFeeMode = 'none' | 'instapay' | 'vat14' | 'manual' | 'default_rul
 export type TransferFeeMode = TaxFeeMode;
 export type ManualFeeInputType = 'amount' | 'percent';
 export type ExpenseBudgetPool = 'daily' | 'fixed' | 'outings' | 'oneoff' | 'savings';
+export type OneOffFundingSource = 'daily' | 'savings' | 'outings';
+export type SmartBudgetPoolKey = 'savings' | 'fixed' | 'outings' | 'oneoff' | 'daily';
 
 export interface InstaPayFeePreset {
   ratePercent: number; // default 0.1
@@ -129,6 +131,8 @@ export type PeriodFilterType =
   | 'this_month'
   | 'last_month'
   | 'calendar_month'
+  | '3_months'
+  | 'this_year'
   | 'custom';
 
 export interface DateRange {
@@ -145,8 +149,15 @@ export interface AdvancedFilter {
   maxAmount?: number;
   type: 'all' | 'expense' | 'income' | 'transfer';
   searchQuery?: string;
-  budgetPools?: ('daily' | 'fixed' | 'outings' | 'savings')[];
+  budgetPools?: ('daily' | 'fixed' | 'outings' | 'oneoff' | 'savings')[];
+  sortBy?: TransactionSortBy;
+  recurringFilter?: 'all' | 'recurring' | 'non_recurring';
+  hasNotesOnly?: boolean;
+  hasTaxOrFeeOnly?: boolean;
+  accountVisibility?: 'all' | 'public' | 'private';
 }
+
+export type TransactionSortBy = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc';
 
 export interface UserProfile {
   name: string;
@@ -252,7 +263,10 @@ export interface SmartBudgetBaselineConfig {
     savings: PoolAllocationConfig;
     fixed: PoolAllocationConfig;
     outings: PoolAllocationConfig;
+    oneoff?: PoolAllocationConfig;
   };
+  oneOffBudget?: number;
+  oneOffFundingSource?: OneOffFundingSource;
   calculationMode?: 'full_cycle' | 'from_today';
   fromTodayConfig?: FromTodayConfig;
   cycleStartMode?: SmartBudgetCycleStartMode;
@@ -262,8 +276,8 @@ export interface SmartBudgetBaselineConfig {
 
 export interface FromTodayConfig {
   fromDate: string; // YYYY-MM-DD
-  remainingMoney?: number; // in major units (calculated from linked accounts + manualAdjustment)
-  remainingMoneyMinor?: number; // in minor units
+  remainingMoney?: number; // in major units (calculated dynamically from linked accounts + manualAdjustment)
+  remainingMoneyMinor?: number; // deprecated snapshot field (engine always recalculates live)
   linkedAccountIds?: string[]; // IDs of accounts linked to fund the Smart Budget
   manualAdjustment?: number; // Extra outside cash adjustment (+/-)
   startOfDayBudgetMinor?: number;
@@ -280,6 +294,9 @@ export interface SmartBudgetCycleOverride extends Partial<SmartBudgetBaselineCon
   cycleStartMode?: SmartBudgetCycleStartMode;
   customStartDay?: number;
   customStartDate?: string;
+  manualProgressAdjustments?: Partial<Record<SmartBudgetPoolKey, number>>;
+  oneOffBudget?: number;
+  oneOffFundingSource?: OneOffFundingSource;
 }
 
 export interface SmartBudgetSettings {

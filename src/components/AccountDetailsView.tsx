@@ -1,12 +1,9 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { useApp } from '../context/AppContext';
+import React, { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
+import { useAppData, useAppUI, useAppActions } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
 import {
   ArrowLeft,
   MoreVertical,
-  ChevronLeft,
-  ChevronRight,
-  ChevronDown,
   Edit,
   Download,
   Upload,
@@ -18,26 +15,35 @@ import {
   X,
   Share2,
 } from 'lucide-react';
-import { matchesTransactionSearch } from '../utils/searchUtils';
-import { PeriodFilterType, DateRange } from '../types';
+import { AdvancedFilter, PeriodFilterType, DateRange } from '../types';
 import {
   resolveDateRange,
   isTransactionInRange,
   formatCurrency,
   isManualAdjustment,
+  DEFAULT_ADVANCED_FILTER,
+  applyAdvancedTransactionFilter,
+  countActiveAdvancedFilters,
 } from '../utils/dateCycle';
+import { getTransactionBudgetPool } from '../utils/smartBudgetEngine';
 import { exportAccountAsJSON } from '../utils/storage';
 import { GroupedTransactionList } from './GroupedTransactionList';
 import { getAccountTransactions } from '../utils/balanceEngine';
-import { MiniDateTimePicker } from './MiniDateTimePicker';
+import { TransactionFilterBar } from './TransactionFilterBar';
+import { AdvancedFilterModal } from './AdvancedFilterModal';
 
-export const AccountDetailsView: React.FC = () => {
+const AccountDetailsViewBase: React.FC = () => {
   const {
-    selectedAccountId,
     accounts,
     categories,
     transactions,
     settings,
+    accountsById,
+    categoriesById,
+    t,
+  } = useAppData();
+  const { selectedAccountId } = useAppUI();
+  const {
     openEditAccountModal,
     deleteAccount,
     deleteAccountWithBalanceTransfer,
@@ -47,31 +53,26 @@ export const AccountDetailsView: React.FC = () => {
     importSingleAccountData,
     showToast,
     showConfirm,
-    t,
-  } = useApp();
+  } = useAppActions();
 
   const account = useMemo(() => {
-    return accounts.find((a) => a.id === selectedAccountId);
-  }, [accounts, selectedAccountId]);
+    return selectedAccountId ? accountsById.get(selectedAccountId) : undefined;
+  }, [accountsById, selectedAccountId]);
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const periodDropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!menuOpen && !periodDropdownOpen) return;
+    if (!menuOpen) return;
     const handleOutside = (e: MouseEvent | TouchEvent) => {
       if (menuOpen && menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
       }
-      if (periodDropdownOpen && periodDropdownRef.current && !periodDropdownRef.current.contains(e.target as Node)) {
-        setPeriodDropdownOpen(false);
-      }
     };
     document.addEventListener('pointerdown', handleOutside);
     return () => document.removeEventListener('pointerdown', handleOutside);
-  }, [menuOpen, periodDropdownOpen]);
+  }, [menuOpen]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [periodType, setPeriodType] = useState<PeriodFilterType>('app_month');
   const [periodOffset, setPeriodOffset] = useState(0);
@@ -79,8 +80,19 @@ export const AccountDetailsView: React.FC = () => {
     startDate: new Date().toISOString().slice(0, 10),
     endDate: new Date().toISOString().slice(0, 10),
   });
-  const [showCustomModal, setShowCustomModal] = useState(false);
-  const [customTarget, setCustomTarget] = useState<'start' | 'end'>('start');
+  const [accAdvancedFilter, setAccAdvancedFilter] = useState<AdvancedFilter>(() => ({
+    ...DEFAULT_ADVANCED_FILTER,
+  }));
+  const [isAccFilterOpen, setIsAccFilterOpen] = useState(false);
+
+  // Isolate filter & duration state cleanly whenever user opens a different account
+  useEffect(() => {
+    setPeriodType('app_month');
+    setPeriodOffset(0);
+    setAccAdvancedFilter({ ...DEFAULT_ADVANCED_FILTER });
+    setIsAccFilterOpen(false);
+    setSearchQuery('');
+  }, [selectedAccountId]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -102,6 +114,7 @@ export const AccountDetailsView: React.FC = () => {
   }, [periodType, settings.weekStartDay, effectiveMonthStart, periodOffset, customRange]);
 
   const currencySymbol = settings.currencySymbol || '£';
+  const fixedCategoryIds = settings.smartBudget?.baseline?.fixedCategoryIds;
 
   // Account's transactions
   const accountAllTxs = useMemo(() => {
@@ -109,18 +122,43 @@ export const AccountDetailsView: React.FC = () => {
     return getAccountTransactions(account.id, transactions);
   }, [account, transactions]);
 
-  // Filtered by Period and Search Query
+  // Scoped by Duration first (drives scoped AdvancedFilterModal categories & slider)
+  const durationTxs = useMemo(() => {
+    return accountAllTxs.filter((tx) => isTransactionInRange(tx, activeDateRange));
+  }, [accountAllTxs, activeDateRange]);
+
+  // Then filtered by Account Advanced Filters + Search Query + Sort
   const filteredTxs = useMemo(() => {
-    const periodFiltered = accountAllTxs.filter((tx) => isTransactionInRange(tx, activeDateRange));
-    if (!searchQuery.trim()) return periodFiltered;
-    return periodFiltered.filter((tx) =>
-      matchesTransactionSearch(tx, searchQuery, {
-        accounts,
-        categories,
-        currencySymbol,
-      })
-    );
-  }, [accountAllTxs, activeDateRange, searchQuery, accounts, categories, currencySymbol]);
+    return applyAdvancedTransactionFilter(durationTxs, accAdvancedFilter, {
+      accounts,
+      accountsById,
+      categories,
+      currencySymbol,
+      searchQuery,
+      resolveBudgetPool: (tx) => getTransactionBudgetPool(tx, fixedCategoryIds, categories),
+    });
+  }, [
+    durationTxs,
+    accAdvancedFilter,
+    accounts,
+    accountsById,
+    categories,
+    currencySymbol,
+    searchQuery,
+    fixedCategoryIds,
+  ]);
+
+  const activeAccFilterCount = useMemo(
+    () => countActiveAdvancedFilters(accAdvancedFilter, { hideAccounts: true }),
+    [accAdvancedFilter]
+  );
+
+  const handleOpenAccFilter = useCallback(() => setIsAccFilterOpen(true), []);
+  const handleCloseAccFilter = useCallback(() => setIsAccFilterOpen(false), []);
+  const handleClearAccFilter = useCallback(
+    () => setAccAdvancedFilter({ ...DEFAULT_ADVANCED_FILTER }),
+    []
+  );
 
   // Income & Expense for period (internal transfers between any accounts are never counted as expenses)
   const { totalIncome, totalExpense } = useMemo(() => {
@@ -195,19 +233,6 @@ export const AccountDetailsView: React.FC = () => {
     }
   };
 
-  // Period title text
-  const getPeriodLabel = () => {
-    if (periodType === 'app_month') return t('appMonth');
-    if (periodType === 'this_month') return t('thisMonth');
-    if (periodType === 'calendar_month') return t('calendarMonth');
-    if (periodType === 'last_month') return t('lastMonth');
-    if (periodType === 'this_week') return t('thisWeek');
-    if (periodType === 'last_week') return t('lastWeek');
-    if (periodType === 'all_time') return t('allTime');
-    if (periodType === 'custom') return `${activeDateRange.startDate} - ${activeDateRange.endDate}`;
-    return t('appMonth');
-  };
-
   const roleBadgeLabel =
     account.accountRole === 'savings'
       ? t('roleSavings')
@@ -227,7 +252,7 @@ export const AccountDetailsView: React.FC = () => {
       />
 
       {/* Header: Left Back Arrow, Center Account Icon + Name, Right Three-dots Menu */}
-      <header className="sticky top-0 z-40 bg-black/90 backdrop-blur-md px-4 py-3.5 flex items-center justify-between border-b border-zinc-800/80">
+      <header className="sticky top-0 z-40 bg-black/95 px-4 py-3.5 flex items-center justify-between border-b border-zinc-800/80">
         <button
           type="button"
           onClick={() => navigateBack()}
@@ -320,149 +345,26 @@ export const AccountDetailsView: React.FC = () => {
 
       {/* Main Container */}
       <div className="flex-1 px-4 py-4 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto space-y-4">
-        {/* Period Selector Sub-Header: < This Month ▾ > */}
-        <div className="flex items-center justify-between px-2">
-          <button
-            type="button"
-            onClick={() => setPeriodOffset((p) => p - 1)}
-            className="p-2 rounded-full hover:bg-zinc-900 text-zinc-400 hover:text-white transition"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-
-          <div ref={periodDropdownRef} className="relative">
-            <button
-              type="button"
-              onClick={() => setPeriodDropdownOpen(!periodDropdownOpen)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-xs font-semibold text-zinc-200 transition"
-            >
-              <span>{getPeriodLabel()}</span>
-              {periodOffset !== 0 && (
-                <span className="text-[10px] text-blue-400 font-mono">
-                  ({periodOffset > 0 ? `+${periodOffset}` : periodOffset})
-                </span>
-              )}
-              <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
-            </button>
-
-            {periodDropdownOpen && (
-              <div
-                onClick={(e) => e.stopPropagation()}
-                className="absolute left-1/2 -translate-x-1/2 mt-1 w-48 rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl py-1.5 z-40 text-xs"
-              >
-                {(
-                  [
-                    'app_month',
-                    'this_month',
-                    'last_month',
-                    'this_week',
-                    'last_week',
-                    'all_time',
-                    'custom',
-                  ] as const
-                ).map((pType) => (
-                  <button
-                    key={pType}
-                    type="button"
-                    onClick={() => {
-                      setPeriodDropdownOpen(false);
-                      setPeriodOffset(0);
-                      if (pType === 'custom') {
-                        setShowCustomModal(true);
-                      } else {
-                        setPeriodType(pType);
-                      }
-                    }}
-                    className={`w-full text-left px-4 py-2 hover:bg-zinc-800 transition ${
-                      periodType === pType ? 'text-blue-400 font-bold bg-zinc-800/40' : 'text-zinc-300'
-                    }`}
-                  >
-                    {pType === 'app_month' && t('appMonth')}
-                    {pType === 'this_month' && t('thisMonth')}
-                    {pType === 'last_month' && t('lastMonth')}
-                    {pType === 'this_week' && t('thisWeek')}
-                    {pType === 'last_week' && t('lastWeek')}
-                    {pType === 'all_time' && t('allTime')}
-                    {pType === 'custom' && t('customRange')}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setPeriodOffset((p) => p + 1)}
-            className="p-2 rounded-full hover:bg-zinc-900 text-zinc-400 hover:text-white transition"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Custom Date Range Popover */}
-        {showCustomModal && (
-          <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3 animate-in fade-in">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-white uppercase">{t('customRange')}</span>
-              <button
-                type="button"
-                onClick={() => setShowCustomModal(false)}
-                className="text-xs text-zinc-400 hover:text-white"
-              >
-                Close
-              </button>
-            </div>
-            <div className="flex rounded-xl bg-zinc-950 p-1 border border-zinc-800">
-              <button
-                type="button"
-                onClick={() => setCustomTarget('start')}
-                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition ${
-                  customTarget === 'start'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                Start: {customRange.startDate}
-              </button>
-              <button
-                type="button"
-                onClick={() => setCustomTarget('end')}
-                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition ${
-                  customTarget === 'end'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                End: {customRange.endDate}
-              </button>
-            </div>
-            <MiniDateTimePicker
-              date={customTarget === 'start' ? customRange.startDate : customRange.endDate}
-              time="00:00"
-              hasTime={false}
-              onDateChange={(newD) => {
-                if (customTarget === 'start') {
-                  setCustomRange((prev) => ({ ...prev, startDate: newD }));
-                } else {
-                  setCustomRange((prev) => ({ ...prev, endDate: newD }));
-                }
-              }}
-              onTimeChange={() => {}}
-              onToggleHasTime={() => {}}
-              lang={settings.language}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setPeriodType('custom');
-                setShowCustomModal(false);
-              }}
-              className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition shadow-lg shadow-blue-900/30"
-            >
-              {t('apply')}
-            </button>
-          </div>
-        )}
+        {/* Independent Scoped Duration & Filter Bar */}
+        <TransactionFilterBar
+          periodFilter={periodType}
+          onPeriodChange={setPeriodType}
+          periodOffset={periodOffset}
+          onPeriodOffsetChange={setPeriodOffset}
+          customDateRange={customRange}
+          onCustomDateRangeChange={setCustomRange}
+          advancedFilter={accAdvancedFilter}
+          onUpdateAdvancedFilter={setAccAdvancedFilter}
+          onClearAdvancedFilter={handleClearAccFilter}
+          onOpenFilterModal={handleOpenAccFilter}
+          activeAdvancedCount={activeAccFilterCount}
+          resolvedDateRange={activeDateRange}
+          categoriesById={categoriesById}
+          accountsById={accountsById}
+          language={settings.language}
+          currency={currencySymbol}
+          hideAccountChips={true}
+        />
 
         {/* Summary Block */}
         <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800/80 shadow-2xl relative overflow-hidden">
@@ -512,7 +414,7 @@ export const AccountDetailsView: React.FC = () => {
                 ? 'البحث في المعاملات (الملاحظات، التصنيف، المبلغ)...'
                 : 'Search transactions (notes, category, amount)...'
             }
-            className="w-full pl-10 pr-10 rtl:pl-10 rtl:pr-10 py-2.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
+            className="w-full pl-10 pr-10 rtl:pl-10 rtl:pr-10 py-2.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition"
           />
           {searchQuery && (
             <button
@@ -534,10 +436,25 @@ export const AccountDetailsView: React.FC = () => {
           </div>
           <GroupedTransactionList
             transactions={filteredTxs}
+            sortBy={accAdvancedFilter.sortBy}
             emptyMessage={searchQuery ? (settings.language === 'ar' ? 'لا توجد نتائج بحث مطابقة' : 'No matching search results') : (settings.language === 'ar' ? `لا توجد معاملات في هذه الفترة لـ ${account.name}` : `No transactions in this period for ${account.name}`)}
           />
         </div>
       </div>
+
+      {/* Scoped Account Filter Modal (reflects only this account + active duration) */}
+      {isAccFilterOpen && (
+        <AdvancedFilterModal
+          isOpen={isAccFilterOpen}
+          onClose={handleCloseAccFilter}
+          scopedTransactions={durationTxs}
+          initialFilter={accAdvancedFilter}
+          onApplyFilter={setAccAdvancedFilter}
+          onClearFilter={handleClearAccFilter}
+          hideAccountPicker={true}
+          hideAccountVisibility={true}
+        />
+      )}
 
       {/* Floating Action Button (+): Pre-selects this specific account, responsive container */}
       <div className="fixed bottom-6 md:bottom-8 right-4 md:right-8 rtl:right-auto rtl:left-4 md:rtl:left-8 end-4 md:end-8 pointer-events-none z-40">
@@ -545,11 +462,13 @@ export const AccountDetailsView: React.FC = () => {
           type="button"
           onClick={() => openAddTxModal(account.id)}
           aria-label="Add Transaction"
-          className="pointer-events-auto w-14 h-14 md:w-16 md:h-16 rounded-full bg-blue-600 hover:bg-blue-500 active:scale-95 text-white flex items-center justify-center shadow-2xl shadow-blue-900/60 transition cursor-pointer border border-blue-400/40"
+          className="pointer-events-auto w-14 h-14 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-black flex items-center justify-center shadow-2xl shadow-emerald-950/60 transition cursor-pointer border border-emerald-400/40"
         >
-          <Plus className="w-7 h-7 md:w-8 md:h-8 stroke-[2.5]" />
+          <Plus className="w-7 h-7 md:w-8 md:h-8 stroke-[2.75]" />
         </button>
       </div>
     </div>
   );
 };
+
+export const AccountDetailsView = memo(AccountDetailsViewBase);

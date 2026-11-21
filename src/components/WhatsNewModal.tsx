@@ -3,9 +3,10 @@ import { navigateBack } from '../context/NavigationContext';
 import { useApp } from '../context/AppContext';
 import { Sparkles, CheckCircle2, ArrowRight, X } from 'lucide-react';
 import { CURRENT_APP_VERSION } from '../utils/versionChecker';
+import { channelKey } from '../utils/channel';
 import { ReleaseNote } from '../types';
 
-const LAST_SEEN_KEY = 'last_seen_app_version';
+const LAST_SEEN_KEY = channelKey('last_seen_app_version');
 
 export const WhatsNewModal: React.FC = () => {
   const { settings, isWhatsNewOpen, setIsWhatsNewOpen } = useApp();
@@ -62,23 +63,23 @@ export const WhatsNewModal: React.FC = () => {
     <div
       onClick={handleDismiss}
       onTouchMove={(e) => e.stopPropagation()}
-      className={`fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/75 backdrop-blur-md overscroll-contain transition-all duration-200 ${
+      className={`fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 overscroll-contain transition-all duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-md max-h-[92dvh] overflow-y-auto my-auto flex flex-col rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-blue-500/40 p-6 shadow-2xl text-white space-y-5 relative overscroll-contain transition-all duration-200 ${
+        className={`w-full max-w-md max-h-[92dvh] overflow-y-auto my-auto flex flex-col rounded-3xl bg-zinc-950 border border-emerald-500/35 p-6 shadow-2xl text-white space-y-5 relative overscroll-contain transition-all duration-200 ${
           isClosing ? 'modal-container-closing' : 'modal-container-anim'
         }`}
       >
         {/* Subtle decorative glow */}
-        <div className="absolute -top-16 -right-16 w-36 h-36 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -top-16 -right-16 w-36 h-36 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
 
         {/* Header Badge & Close Button */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-blue-600/30 border border-blue-500 flex items-center justify-center text-blue-400 shadow-lg shadow-blue-900/30">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center text-emerald-400 shadow-lg shadow-emerald-950/40">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
@@ -86,11 +87,11 @@ export const WhatsNewModal: React.FC = () => {
                 <h3 className="text-base font-black text-white">
                   {isArabic ? 'ما الجديد في هذا التحديث' : "What's New in This Update"}
                 </h3>
-                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white shadow-sm">
+                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-sm">
                   v{latestNote.version}
                 </span>
               </div>
-              <p className="text-xs text-blue-400/90 font-medium">
+              <p className="text-xs text-emerald-400/90 font-medium">
                 {isArabic ? latestNote.title.ar : latestNote.title.en}
               </p>
             </div>
@@ -124,7 +125,7 @@ export const WhatsNewModal: React.FC = () => {
           <button
             type="button"
             onClick={handleDismiss}
-            className="w-full py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-98 text-white font-bold text-sm shadow-xl shadow-blue-900/40 flex items-center justify-center gap-2 transition cursor-pointer"
+            className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white font-bold text-sm shadow-xl shadow-emerald-950/40 flex items-center justify-center gap-2 transition cursor-pointer"
           >
             <span>{isArabic ? 'رائع، فهمت!' : 'Awesome, Got It!'}</span>
             <ArrowRight className="w-4 h-4" />

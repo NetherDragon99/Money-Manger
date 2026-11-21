@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import { installPwa, isStandaloneApp } from '../utils/pwaInstall';
+import {
+  installPwa,
+  isStandaloneApp,
+  getOfflineReadinessStatus,
+  warmAndVerifyOfflineCache,
+  type OfflineReadinessStatus,
+} from '../utils/pwaInstall';
 
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(() => {
@@ -11,6 +17,11 @@ export function usePWAInstall() {
   });
   const [isInstalled, setIsInstalled] = useState(() => isStandaloneApp());
   const [isIOS, setIsIOS] = useState(false);
+  const [offlineStatus, setOfflineStatus] = useState<OfflineReadinessStatus>({
+    isReady: false,
+    cachedCount: 0,
+    swActive: false,
+  });
 
   useEffect(() => {
     setIsInstalled(isStandaloneApp());
@@ -20,6 +31,14 @@ export function usePWAInstall() {
       /iphone|ipad|ipod/.test(userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     setIsIOS(isIOSDevice);
+
+    const refreshOfflineStatus = () => {
+      getOfflineReadinessStatus()
+        .then(setOfflineStatus)
+        .catch(() => {});
+    };
+
+    refreshOfflineStatus();
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
@@ -50,6 +69,11 @@ export function usePWAInstall() {
     window.addEventListener('appinstalled', handleAppInstalled);
     window.addEventListener('app-installed-event', handleAppInstalled);
     window.addEventListener('pwa-install-ready', handleEarlyPromptReady);
+    window.addEventListener('solv_offline_ready', refreshOfflineStatus);
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('controllerchange', refreshOfflineStatus);
+    }
 
     const win = window as any;
     if (win.deferredPwaPrompt || win.deferredPWAInstallPrompt) {
@@ -61,11 +85,21 @@ export function usePWAInstall() {
       window.removeEventListener('appinstalled', handleAppInstalled);
       window.removeEventListener('app-installed-event', handleAppInstalled);
       window.removeEventListener('pwa-install-ready', handleEarlyPromptReady);
+      window.removeEventListener('solv_offline_ready', refreshOfflineStatus);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('controllerchange', refreshOfflineStatus);
+      }
     };
   }, []);
 
   const install = async () => {
     return installPwa();
+  };
+
+  const refreshCache = async () => {
+    const status = await warmAndVerifyOfflineCache();
+    setOfflineStatus(status);
+    return status;
   };
 
   return {
@@ -78,5 +112,7 @@ export function usePWAInstall() {
     isIOS,
     install,
     deferredPrompt,
+    offlineStatus,
+    refreshCache,
   };
 }

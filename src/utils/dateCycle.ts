@@ -1,5 +1,6 @@
-import { WeekStartDay, PeriodFilterType, DateRange, Transaction } from '../types';
+import { WeekStartDay, PeriodFilterType, DateRange, Transaction, AdvancedFilter, Account, Category } from '../types';
 import { getLocalizedCurrencySymbol } from './currencies';
+import { matchesTransactionSearch } from './searchUtils';
 
 export function padZero(num: number): string {
   return num < 10 ? `0${num}` : `${num}`;
@@ -196,6 +197,21 @@ export function resolveDateRange(
       const { startDate, endDate } = getMonthCycleRange(now, 1, offset);
       return { startDate, endDate };
     }
+    case '3_months': {
+      const startCycle = getMonthCycleRange(now, 1, offset * 3 - 2);
+      const endCycle = getMonthCycleRange(now, 1, offset * 3);
+      return {
+        startDate: startCycle.startDate,
+        endDate: endCycle.endDate,
+      };
+    }
+    case 'this_year': {
+      const targetYear = now.getFullYear() + offset;
+      return {
+        startDate: `${targetYear}-01-01`,
+        endDate: `${targetYear}-12-31`,
+      };
+    }
     case 'custom':
       if (customRange && customRange.startDate && customRange.endDate) {
         return customRange;
@@ -238,6 +254,181 @@ export {
   handleNumericInputChange,
   isManualAdjustment,
 } from './formatters';
+
+export const DEFAULT_ADVANCED_FILTER: AdvancedFilter = {
+  accountIds: [],
+  categoryIds: [],
+  minAmount: undefined,
+  maxAmount: undefined,
+  type: 'all',
+  searchQuery: undefined,
+  budgetPools: [],
+  sortBy: 'date_desc',
+  recurringFilter: 'all',
+  hasNotesOnly: false,
+  hasTaxOrFeeOnly: false,
+  accountVisibility: 'all',
+};
+
+export function countActiveAdvancedFilters(
+  filter: AdvancedFilter,
+  options?: { hideAccounts?: boolean }
+): number {
+  const hideAccounts = Boolean(options?.hideAccounts);
+  return (
+    (hideAccounts ? 0 : filter.accountIds.length) +
+    filter.categoryIds.length +
+    (filter.budgetPools?.length || 0) +
+    (filter.minAmount !== undefined || filter.maxAmount !== undefined ? 1 : 0) +
+    (filter.type !== 'all' ? 1 : 0) +
+    (filter.searchQuery && filter.searchQuery.trim() !== '' ? 1 : 0) +
+    (filter.recurringFilter && filter.recurringFilter !== 'all' ? 1 : 0) +
+    (filter.hasNotesOnly ? 1 : 0) +
+    (filter.hasTaxOrFeeOnly ? 1 : 0) +
+    (!hideAccounts && filter.accountVisibility && filter.accountVisibility !== 'all' ? 1 : 0) +
+    (filter.sortBy && filter.sortBy !== 'date_desc' ? 1 : 0)
+  );
+}
+
+export interface FilterExecutionContext {
+  accounts?: Account[];
+  accountsById?: Map<string, Account>;
+  categories?: Category[];
+  currencySymbol?: string;
+  searchQuery?: string;
+  resolveBudgetPool?: (tx: Transaction) => string | null;
+}
+
+export function getEffectiveTransactionAmount(tx: Transaction): number {
+  const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
+  return (tx.amount || 0) + (tx.type === 'expense' || tx.type === 'income' ? tax : 0);
+}
+
+/**
+ * Applies all advanced transaction filters + sorting consistently for both HomeView and AccountDetailsView.
+ */
+export function applyAdvancedTransactionFilter(
+  transactions: Transaction[],
+  filter: AdvancedFilter,
+  ctx: FilterExecutionContext = {}
+): Transaction[] {
+  const accMap =
+    ctx.accountsById ||
+    new Map((ctx.accounts || []).map((a) => [a.id, a]));
+  const combinedQuery = (ctx.searchQuery || filter.searchQuery || '').trim();
+  const hasPoolFilter = Boolean(filter.budgetPools && filter.budgetPools.length > 0);
+  const poolSet = hasPoolFilter ? new Set(filter.budgetPools) : null;
+  const accountSet = filter.accountIds.length > 0 ? new Set(filter.accountIds) : null;
+  const categorySet = filter.categoryIds.length > 0 ? new Set(filter.categoryIds) : null;
+
+  const filtered = transactions.filter((tx) => {
+    // 1. Type filter
+    if (filter.type !== 'all' && tx.type !== filter.type) return false;
+
+    // 2. Account filter
+    if (accountSet) {
+      const matchesAcc =
+        accountSet.has(tx.accountId) || (tx.toAccountId && accountSet.has(tx.toAccountId));
+      if (!matchesAcc) return false;
+    }
+
+    // 3. Account visibility filter (all / public / private)
+    if (filter.accountVisibility && filter.accountVisibility !== 'all') {
+      const acc = accMap.get(tx.accountId);
+      const toAcc = tx.toAccountId ? accMap.get(tx.toAccountId) : undefined;
+      if (filter.accountVisibility === 'public') {
+        if (acc?.isPrivate && (!toAcc || toAcc.isPrivate)) return false;
+      } else if (filter.accountVisibility === 'private') {
+        if (!acc?.isPrivate && !toAcc?.isPrivate) return false;
+      }
+    }
+
+    // 4. Category filter
+    if (categorySet) {
+      if (!tx.categoryId || !categorySet.has(tx.categoryId)) return false;
+    }
+
+    // 5. Budget pool filter
+    if (poolSet && ctx.resolveBudgetPool) {
+      const pool = ctx.resolveBudgetPool(tx);
+      if (!pool || !poolSet.has(pool as any)) return false;
+    }
+
+    // 6. Recurring vs Non-Recurring filter
+    if (filter.recurringFilter === 'recurring') {
+      if (!tx.isFromRecurring && !tx.recurringRuleId) return false;
+    } else if (filter.recurringFilter === 'non_recurring') {
+      if (tx.isFromRecurring || tx.recurringRuleId) return false;
+    }
+
+    // 7. Notes / Description toggle
+    if (filter.hasNotesOnly) {
+      const hasNote = Boolean((tx.description && tx.description.trim()) || (tx.note && tx.note.trim()));
+      if (!hasNote) return false;
+    }
+
+    // 8. Tax / Transfer Fee toggle
+    if (filter.hasTaxOrFeeOnly) {
+      const hasTaxFee = Boolean(
+        (tx.taxAmount && tx.taxAmount > 0) ||
+        (tx.transferFee && tx.transferFee > 0) ||
+        tx.feeOfTransferId
+      );
+      if (!hasTaxFee) return false;
+    }
+
+    // 9. Amount Min / Max (uses effective displayed amount including tax so slider bounds & filter match 1:1)
+    const amt = getEffectiveTransactionAmount(tx);
+    if (filter.minAmount !== undefined && amt < filter.minAmount) return false;
+    if (filter.maxAmount !== undefined && amt > filter.maxAmount) return false;
+
+    // 10. Search Query
+    if (combinedQuery) {
+      if (
+        !matchesTransactionSearch(tx, combinedQuery, {
+          accounts: ctx.accounts,
+          categories: ctx.categories,
+          currencySymbol: ctx.currencySymbol,
+        })
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  const sortBy = filter.sortBy || 'date_desc';
+  if (sortBy === 'date_asc') {
+    return [...filtered].sort(
+      (a, b) =>
+        (a.date || '').localeCompare(b.date || '') ||
+        (a.time || '00:00').localeCompare(b.time || '00:00') ||
+        (a.createdAt || 0) - (b.createdAt || 0)
+    );
+  }
+  if (sortBy === 'amount_desc') {
+    return [...filtered].sort(
+      (a, b) =>
+        getEffectiveTransactionAmount(b) - getEffectiveTransactionAmount(a) ||
+        (b.date || '').localeCompare(a.date || '')
+    );
+  }
+  if (sortBy === 'amount_asc') {
+    return [...filtered].sort(
+      (a, b) =>
+        getEffectiveTransactionAmount(a) - getEffectiveTransactionAmount(b) ||
+        (b.date || '').localeCompare(a.date || '')
+    );
+  }
+  // Default: date_desc (guarantee strict descending chronological sort)
+  return [...filtered].sort(
+    (a, b) =>
+      (b.date || '').localeCompare(a.date || '') ||
+      (b.time || '00:00').localeCompare(a.time || '00:00') ||
+      (b.createdAt || 0) - (a.createdAt || 0)
+  );
+}
 
 /**
  * Formats a currency amount ensuring strict minus sign for negative numbers

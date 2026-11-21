@@ -3,12 +3,13 @@
  * Displays intelligent threshold and over-budget warnings in Home and Budget views
  */
 
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { AlertTriangle, AlertCircle, TrendingUp, ChevronDown, ChevronUp, X } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { useAppData, useAppActions } from '../context/AppContext';
 
-export const SmartBudgetAlertBanner: React.FC = () => {
-  const { budgetAlerts, dismissedAlertIds, dismissBudgetAlert, settings, setCurrentTab } = useApp();
+const SmartBudgetAlertBannerBase: React.FC = () => {
+  const { budgetAlerts, dismissedAlertIds, settings } = useAppData();
+  const { dismissBudgetAlert, setCurrentTab } = useAppActions();
   const [isExpanded, setIsExpanded] = useState(true);
   const isArabic = settings.language === 'ar';
 
@@ -121,3 +122,5 @@ export const SmartBudgetAlertBanner: React.FC = () => {
     </div>
   );
 };
+
+export const SmartBudgetAlertBanner = memo(SmartBudgetAlertBannerBase);

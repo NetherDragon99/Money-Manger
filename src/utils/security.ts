@@ -338,13 +338,13 @@ export async function registerBiometrics(): Promise<boolean> {
     const publicKeyConfig: PublicKeyCredentialCreationOptions = {
       challenge,
       rp: {
-        name: 'Personal Finance PWA',
+        name: 'solv',
         ...(rpId ? { id: rpId } : {}),
       },
       user: {
         id: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
-        name: 'owner@finance.app',
-        displayName: 'App Owner',
+        name: 'owner@solv.app',
+        displayName: 'solv Owner',
       },
       pubKeyCredParams: [
         { type: 'public-key', alg: -7 },   // ES256

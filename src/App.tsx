@@ -6,26 +6,54 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { NavigationProvider, useNavigation, navigateBack } from './context/NavigationContext';
+import { useKeyboardInset } from './hooks/useKeyboardInset';
 import { HomeView } from './views/HomeView';
 import { BudgetView } from './views/BudgetView';
 import { InsightsView } from './views/InsightsView';
 import { AccountsView } from './views/AccountsView';
 import { CalculatorView } from './views/CalculatorView';
-import { AccountDetailsView } from './components/AccountDetailsView';
 import { Navigation } from './components/Navigation';
 import { Sidebar } from './components/Sidebar';
 import { TransactionModal } from './components/TransactionModal';
 import { TransactionDetailsModal } from './components/TransactionDetailsModal';
 import { AccountModal } from './components/AccountModal';
 import { CategoryModal } from './components/CategoryModal';
-import { UserProfileModal } from './components/UserProfileModal';
 import { SyncConflictModal } from './components/SyncConflictModal';
-import { ResetPeriodModal } from './components/ResetPeriodModal';
-import { AdvancedFilterModal } from './components/AdvancedFilterModal';
 import { EmojiPickerModal } from './components/EmojiPickerModal';
-import { SmartBudgetModal } from './components/SmartBudgetModal';
-import { SettingsModal } from './components/SettingsModal';
-import { TransferFeesModal } from './components/TransferFeesModal';
+
+const AccountDetailsView = React.lazy(() =>
+  import('./components/AccountDetailsView').then((m) => ({ default: m.AccountDetailsView }))
+);
+const UserProfileModal = React.lazy(() =>
+  import('./components/UserProfileModal').then((m) => ({ default: m.UserProfileModal }))
+);
+const ResetPeriodModal = React.lazy(() =>
+  import('./components/ResetPeriodModal').then((m) => ({ default: m.ResetPeriodModal }))
+);
+const AdvancedFilterModal = React.lazy(() =>
+  import('./components/AdvancedFilterModal').then((m) => ({ default: m.AdvancedFilterModal }))
+);
+const SmartBudgetModal = React.lazy(() =>
+  import('./components/SmartBudgetModal').then((m) => ({ default: m.SmartBudgetModal }))
+);
+const SettingsModal = React.lazy(() =>
+  import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal }))
+);
+const TransferFeesModal = React.lazy(() =>
+  import('./components/TransferFeesModal').then((m) => ({ default: m.TransferFeesModal }))
+);
+const PinSetupModal = React.lazy(() =>
+  import('./components/PinSetupModal').then((m) => ({ default: m.PinSetupModal }))
+);
+const RecurringTransactionsModal = React.lazy(() =>
+  import('./components/RecurringTransactionsModal').then((m) => ({ default: m.RecurringTransactionsModal }))
+);
+const SharedAccountsHubModal = React.lazy(() =>
+  import('./components/SharedAccountsHubModal').then((m) => ({ default: m.SharedAccountsHubModal }))
+);
+const StandaloneShareView = React.lazy(() =>
+  import('./components/StandaloneShareView').then((m) => ({ default: m.StandaloneShareView }))
+);
 
 const loadAppFeaturesModal = () =>
   import('./components/AppFeaturesModal').then((m) => ({ default: m.AppFeaturesModal }));
@@ -91,7 +119,7 @@ class LazyChunkErrorBoundary extends React.Component<
               <button
                 type="button"
                 onClick={this.handleRetry}
-                className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition cursor-pointer"
+                className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white transition cursor-pointer"
               >
                 {isArabic ? 'إعادة المحاولة' : 'Retry'}
               </button>
@@ -106,11 +134,6 @@ class LazyChunkErrorBoundary extends React.Component<
 import { WhatsNewModal } from './components/WhatsNewModal';
 import { ExitConfirmModal } from './components/ExitConfirmModal';
 import { AppLockScreen } from './components/AppLockScreen';
-import { PinSetupModal } from './components/PinSetupModal';
-import { RecurringTransactionsModal } from './components/RecurringTransactionsModal';
-import { SharedAccountsHubModal } from './components/SharedAccountsHubModal';
-import { SharedAccountLiveView } from './components/SharedAccountLiveView';
-import { StandaloneShareView } from './components/StandaloneShareView';
 import { MultiSelectActionBar } from './components/MultiSelectActionBar';
 import { ToastContainer } from './components/Toast';
 import { CustomDialogModal } from './components/CustomDialogModal';
@@ -137,6 +160,7 @@ import { BetaInstallBanner } from './components/BetaInstallBanner';
 const TABS: TabType[] = ['home', 'budget', 'insights', 'accounts', 'calculator'];
 
 const MainAppContent: React.FC = () => {
+  useKeyboardInset();
   const {
     currentTab,
     setCurrentTab,
@@ -197,8 +221,6 @@ const MainAppContent: React.FC = () => {
     closeSharedLiveView,
     customDialogState,
     closeCustomDialog,
-    isHeaderVisible,
-    setIsHeaderVisible,
     shareModalState,
     closeShareModal,
     remainingBalanceModalState,
@@ -208,7 +230,13 @@ const MainAppContent: React.FC = () => {
     clearGlobalSelection,
   } = useApp();
 
-  const [isBarsVisible, setIsBarsVisible] = useState<boolean>(true);
+  const appShellRef = useRef<HTMLDivElement | null>(null);
+  const barsHiddenRef = useRef<boolean>(false);
+  const setBarsHidden = (hidden: boolean) => {
+    if (barsHiddenRef.current === hidden) return;
+    barsHiddenRef.current = hidden;
+    appShellRef.current?.setAttribute('data-bars-hidden', hidden ? 'true' : 'false');
+  };
   const [updating, setUpdating] = useState(false);
   const { isExitModalOpen, cancelExit, confirmExit, exitHint } = useNavigation();
 
@@ -234,8 +262,6 @@ const MainAppContent: React.FC = () => {
     shareModalState.isOpen ||
     !!remainingBalanceModalState?.isOpen ||
     !!selectedAccountId;
-
-  const isMainBarsVisible = !isAnyModalOpen && isBarsVisible;
 
   // Capture PWA beforeinstallprompt event immediately in React state and window.deferredPwaPrompt
   const [deferredPwaPrompt, setDeferredPwaPrompt] = useState<any>(() => {
@@ -393,9 +419,10 @@ const MainAppContent: React.FC = () => {
 
   
 
-  // Unified bulletproof scroll tracker with reliable upward delta detection
+  // Unified GPU scroll tracker (zero React re-renders during scroll)
   const lastScrollTopRef = useRef<number>(0);
   const accumulatedDeltaRef = useRef<number>(0);
+  const sliderRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     const handleWindowScroll = () => {
@@ -407,11 +434,9 @@ const MainAppContent: React.FC = () => {
 
       if (currentScrollTop <= 30 || deltaY < -1) {
         accumulatedDeltaRef.current = 0;
-        setIsBarsVisible(true);
-        setIsHeaderVisible(true);
+        setBarsHidden(false);
       } else if (deltaY > 8 && currentScrollTop > 45) {
-        setIsBarsVisible(false);
-        setIsHeaderVisible(false);
+        setBarsHidden(true);
       }
     };
 
@@ -446,31 +471,22 @@ const MainAppContent: React.FC = () => {
     const deltaY = currentScrollTop - prevScrollTop;
     lastScrollTopRef.current = currentScrollTop;
 
-    // Synchronized Header & Navigation Visibility:
-    // 1. Instant restore at top of page or overscroll
     if (currentScrollTop <= 30) {
       accumulatedDeltaRef.current = 0;
-      setIsBarsVisible(true);
-      setIsHeaderVisible(true);
+      setBarsHidden(false);
       return;
     }
 
-    // 2. Upward scroll detection:
-    // When scrolling up (deltaY < -1), instantly restore visibility!
     if (deltaY < -1) {
       accumulatedDeltaRef.current = 0;
-      setIsBarsVisible(true);
-      setIsHeaderVisible(true);
+      setBarsHidden(false);
       return;
     }
 
-    // 3. Downward scroll detection:
-    // Accumulate downward movement to avoid jitter on small taps
     if (deltaY > 0) {
       accumulatedDeltaRef.current = Math.max(0, accumulatedDeltaRef.current) + deltaY;
       if (accumulatedDeltaRef.current > 10 && currentScrollTop > 45) {
-        setIsBarsVisible(false);
-        setIsHeaderVisible(false);
+        setBarsHidden(true);
       }
     }
   };
@@ -478,8 +494,7 @@ const MainAppContent: React.FC = () => {
   useEffect(() => {
     lastScrollTopRef.current = 0;
     accumulatedDeltaRef.current = 0;
-    setIsBarsVisible(true);
-    setIsHeaderVisible(true);
+    setBarsHidden(false);
   }, [currentTab]);
 
   // Native CSS Horizontal Page Swiping Engine across Main Views
@@ -575,84 +590,59 @@ const MainAppContent: React.FC = () => {
   const prefersReducedMotion = typeof window !== 'undefined'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Real native horizontal scroll handler: Detects active page cleanly based on viewport center alignment
-  const handleSliderScroll = () => {
+  // rAF-throttled horizontal slider tracker using scrollLeft/clientWidth (zero per-frame getBoundingClientRect loops)
+  const syncSliderTabFromScroll = () => {
+    sliderRafRef.current = null;
     const container = tabSliderRef.current;
     if (!container) return;
+    const paneWidth = Math.max(1, container.clientWidth);
+    const scrollOffset = Math.abs(container.scrollLeft);
 
-    const containerRect = container.getBoundingClientRect();
-    const containerCenter = containerRect.left + containerRect.width / 2;
-
-    // Guard during programmatic smooth scroll (e.g. bottom nav taps)
     if (isProgrammaticScrollRef.current && !isUserTouchingRef.current && targetTabRef.current) {
       const targetIndex = TABS.indexOf(targetTabRef.current);
       if (targetIndex >= 0) {
-        const targetPane = container.children[targetIndex] as HTMLElement;
-        if (targetPane) {
-          const targetPaneRect = targetPane.getBoundingClientRect();
-          const targetPaneCenter = targetPaneRect.left + targetPaneRect.width / 2;
-          const distToTarget = Math.abs(targetPaneCenter - containerCenter);
-          if (distToTarget < 12) {
-            isProgrammaticScrollRef.current = false;
-            targetTabRef.current = null;
-          } else {
-            // Still in flight towards the destination tab, strictly block intermediate tab updates
-            return;
-          }
+        const distToTarget = Math.abs(scrollOffset - targetIndex * paneWidth);
+        if (distToTarget < 12) {
+          isProgrammaticScrollRef.current = false;
+          targetTabRef.current = null;
+        } else {
+          return;
         }
       }
     }
 
-    let closestTab: TabType = currentTab;
-    let minDistance = Infinity;
-
-    for (let i = 0; i < container.children.length; i++) {
-      const pane = container.children[i] as HTMLElement;
-      const tabName = pane.getAttribute('data-tab') as TabType;
-      if (!tabName) continue;
-      const paneRect = pane.getBoundingClientRect();
-      const paneCenter = paneRect.left + paneRect.width / 2;
-      const distance = Math.abs(paneCenter - containerCenter);
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestTab = tabName;
-      }
-    }
-
-    // Immediately synchronize the active tab and bottom nav indicator in real-time as the user scrolls
+    const idx = Math.min(TABS.length - 1, Math.max(0, Math.round(scrollOffset / paneWidth)));
+    const closestTab = TABS[idx] || currentTab;
     if (closestTab !== currentTab) {
       isHandScrollingRef.current = true;
       setCurrentTab(closestTab);
     }
+  };
 
+  const handleSliderScroll = () => {
+    if (sliderRafRef.current === null) {
+      sliderRafRef.current = window.requestAnimationFrame(syncSliderTabFromScroll);
+    }
     if (scrollSettleTimerRef.current) clearTimeout(scrollSettleTimerRef.current);
     scrollSettleTimerRef.current = setTimeout(() => {
       if (isProgrammaticScrollRef.current && targetTabRef.current) return;
       const c = tabSliderRef.current;
       if (!c) return;
-      const cRect = c.getBoundingClientRect();
-      const cCenter = cRect.left + cRect.width / 2;
-      let finalTab: TabType = currentTab;
-      let finalMin = Infinity;
-      for (let i = 0; i < c.children.length; i++) {
-        const p = c.children[i] as HTMLElement;
-        const name = p.getAttribute('data-tab') as TabType;
-        if (!name) continue;
-        const pRect = p.getBoundingClientRect();
-        const pCenter = pRect.left + pRect.width / 2;
-        const dist = Math.abs(pCenter - cCenter);
-        if (dist < finalMin) {
-          finalMin = dist;
-          finalTab = name;
-        }
-      }
+      const paneWidth = Math.max(1, c.clientWidth);
+      const idx = Math.min(TABS.length - 1, Math.max(0, Math.round(Math.abs(c.scrollLeft) / paneWidth)));
+      const finalTab = TABS[idx];
       if (finalTab && finalTab !== currentTab) {
         isHandScrollingRef.current = true;
         setCurrentTab(finalTab);
       }
-    }, 60);
+    }, 65);
   };
+
+  useEffect(() => {
+    return () => {
+      if (sliderRafRef.current !== null) window.cancelAnimationFrame(sliderRafRef.current);
+    };
+  }, []);
 
   // Synchronize the slider when currentTab is updated programmatically (from bottom navigation or internal links)
   useEffect(() => {
@@ -670,9 +660,8 @@ const MainAppContent: React.FC = () => {
     const targetPane = container.children[targetIndex] as HTMLElement;
     if (!targetPane) return;
 
-    const containerRect = container.getBoundingClientRect();
-    const paneRect = targetPane.getBoundingClientRect();
-    const distance = Math.abs((paneRect.left + paneRect.width / 2) - (containerRect.left + containerRect.width / 2));
+    const paneWidth = Math.max(1, container.clientWidth);
+    const distance = Math.abs(Math.abs(container.scrollLeft) - targetIndex * paneWidth);
     if (distance < 8) return;
 
     targetTabRef.current = currentTab;
@@ -800,34 +789,30 @@ const MainAppContent: React.FC = () => {
     } else {
       document.body.style.overflow = '';
       // Restore bars visibility when all overlays/sub-pages are closed
-      setIsBarsVisible(true);
-      setIsHeaderVisible(true);
+      setBarsHidden(false);
     }
   }, [isAnyModalOpen]);
 
   if (activeSharedId || activeSharedSnapshot) {
     return (
-      <StandaloneShareView
-        shareId={activeSharedId || undefined}
-        sharedDataSnapshot={activeSharedSnapshot || undefined}
-        onExploreApp={closeSharedLiveView}
-      />
+      <React.Suspense fallback={null}>
+        <StandaloneShareView
+          shareId={activeSharedId || undefined}
+          sharedDataSnapshot={activeSharedSnapshot || undefined}
+          onExploreApp={closeSharedLiveView}
+        />
+      </React.Suspense>
     );
   }
 
   return (
-    <div className="w-full min-h-[100dvh] h-[100dvh] bg-zinc-950 flex justify-center text-white selection:bg-blue-600 selection:text-white">
+    <div className="w-full h-full max-h-full bg-zinc-950 flex justify-center text-white selection:bg-emerald-600 selection:text-white overflow-hidden">
       {/* Responsive Container Frame across Mobile, Tablet & Desktop (Landscape & Portrait adaptive) */}
       <div
+        ref={appShellRef}
+        data-bars-hidden="false"
         onScrollCapture={handleScrollCapture}
-        className="w-full max-w-none md:max-w-7xl landscape:max-w-none min-h-[100dvh] h-[100dvh] bg-black relative shadow-2xl flex flex-col overflow-hidden"
-        style={{
-          height: '100dvh',
-          maxHeight: '100dvh',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
+        className="w-full max-w-none md:max-w-7xl landscape:max-w-none h-full max-h-full bg-black relative shadow-2xl flex flex-col overflow-hidden"
       >
         <ToastContainer />
         <CustomDialogModal
@@ -840,8 +825,10 @@ const MainAppContent: React.FC = () => {
         <div className="flex-1 min-h-0 flex flex-col relative w-full">
           {selectedAccountId && (
             <div className="fixed inset-0 z-40 bg-black animate-in slide-in-from-right rtl:slide-in-from-left duration-250 flex flex-col overflow-y-auto overscroll-contain">
-              <div className="w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto min-h-[100dvh] flex flex-col bg-black">
-                <AccountDetailsView />
+              <div className="w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto min-h-full flex flex-col bg-black">
+                <React.Suspense fallback={null}>
+                  <AccountDetailsView />
+                </React.Suspense>
               </div>
             </div>
           )}
@@ -889,7 +876,7 @@ const MainAppContent: React.FC = () => {
                 WebkitOverflowScrolling: 'touch',
               }}
             >
-              <HomeView isBarsVisible={isMainBarsVisible} />
+              <HomeView isBarsVisible={true} />
             </div>
 
             {/* Tab 1: Budget */}
@@ -908,7 +895,7 @@ const MainAppContent: React.FC = () => {
                 WebkitOverflowScrolling: 'touch',
               }}
             >
-              <BudgetView isBarsVisible={isMainBarsVisible} />
+              <BudgetView isBarsVisible={true} />
             </div>
 
             {/* Tab 2: Insights */}
@@ -927,7 +914,7 @@ const MainAppContent: React.FC = () => {
                 WebkitOverflowScrolling: 'touch',
               }}
             >
-              <InsightsView isBarsVisible={isMainBarsVisible} />
+              <InsightsView isBarsVisible={true} />
             </div>
 
             {/* Tab 3: Accounts */}
@@ -946,7 +933,7 @@ const MainAppContent: React.FC = () => {
                 WebkitOverflowScrolling: 'touch',
               }}
             >
-              <AccountsView isBarsVisible={isMainBarsVisible} />
+              <AccountsView isBarsVisible={true} />
             </div>
 
             {/* Tab 4: Calculator */}
@@ -965,89 +952,88 @@ const MainAppContent: React.FC = () => {
                 WebkitOverflowScrolling: 'touch',
               }}
             >
-              <CalculatorView isBarsVisible={isMainBarsVisible} />
+              <CalculatorView isBarsVisible={true} />
             </div>
           </div>
           <MultiSelectActionBar />
-          <Navigation isBarsVisible={isMainBarsVisible} />
+          <Navigation isBarsVisible={true} />
         </div>
 
-        {/* Slide-over & Popups */}
+        {/* Slide-over & Conditionally Mounted Popups */}
         <BetaInstallBanner />
         <Sidebar />
-        <TransactionModal />
-        <TransactionDetailsModal />
-        <AccountModal />
-        <CategoryModal />
-        <UserProfileModal />
+        {(isAddTxModalOpen || !!editingTx) && <TransactionModal />}
+        {!!viewingTx && <TransactionDetailsModal />}
+        {isAccountModalOpen && <AccountModal />}
+        {isCategoryModalOpen && <CategoryModal />}
         <SyncConflictModal />
-        <ResetPeriodModal />
-        <AdvancedFilterModal />
+        {shareModalState.isOpen && <ShareFolderModal />}
+        {!!remainingBalanceModalState?.isOpen && <RemainingBalanceModal />}
 
-        {/* Unified Share & Remaining Balance Modals (Items 6 & 8) */}
-        <ShareFolderModal />
-        <RemainingBalanceModal />
+        <React.Suspense fallback={null}>
+          {isUserProfileModalOpen && <UserProfileModal />}
+          {isResetPeriodModalOpen && <ResetPeriodModal />}
+          {isFilterModalOpen && <AdvancedFilterModal />}
 
-        {/* Shared Accounts Hub Modal */}
-        <SharedAccountsHubModal
-          isOpen={isSharedHubModalOpen}
-          onClose={navigateBack}
-        />
-
-        {/* Recurring Transactions Modal */}
-        <RecurringTransactionsModal
-          isOpen={isRecurringModalOpen}
-          onClose={navigateBack}
-          onOpenAddModal={() => openAddTxModal()}
-        />
-
-        {/* Security PIN Setup Modal */}
-        <PinSetupModal
-          isOpen={isPinModalOpen}
-          onClose={navigateBack}
-        />
-
-        {/* App Features & Release Notes Modal (Lazy Loaded with Retry Error Boundary) */}
-        <LazyChunkErrorBoundary
-          isOpen={isFeaturesModalOpen}
-          isArabic={settings.language === 'ar'}
-          onClose={navigateBack}
-        >
-          <React.Suspense fallback={null}>
-            <AppFeaturesModal
-              isOpen={isFeaturesModalOpen}
+          {isSharedHubModalOpen && (
+            <SharedAccountsHubModal
+              isOpen={isSharedHubModalOpen}
               onClose={navigateBack}
             />
-          </React.Suspense>
-        </LazyChunkErrorBoundary>
+          )}
 
-        {/* Smart Budget Hub Modal */}
-        {isSmartBudgetModalOpen && (
-          <SmartBudgetModal
-            isOpen={isSmartBudgetModalOpen}
-            onClose={navigateBack}
-          />
-        )}
+          {isRecurringModalOpen && (
+            <RecurringTransactionsModal
+              isOpen={isRecurringModalOpen}
+              onClose={navigateBack}
+              onOpenAddModal={() => openAddTxModal()}
+            />
+          )}
 
-        {/* App Preferences & Settings Modal */}
-        {isSettingsModalOpen && (
-          <SettingsModal
-            isOpen={isSettingsModalOpen}
-            onClose={navigateBack}
-          />
-        )}
+          {isPinModalOpen && (
+            <PinSetupModal
+              isOpen={isPinModalOpen}
+              onClose={navigateBack}
+            />
+          )}
 
-        {/* Transfer Fees & Taxes Modal */}
-        {isTransferFeesModalOpen && (
-          <TransferFeesModal
-            isOpen={isTransferFeesModalOpen}
-            onClose={navigateBack}
-          />
-        )}
+          {isFeaturesModalOpen && (
+            <LazyChunkErrorBoundary
+              isOpen={isFeaturesModalOpen}
+              isArabic={settings.language === 'ar'}
+              onClose={navigateBack}
+            >
+              <AppFeaturesModal
+                isOpen={isFeaturesModalOpen}
+                onClose={navigateBack}
+              />
+            </LazyChunkErrorBoundary>
+          )}
+
+          {isSmartBudgetModalOpen && (
+            <SmartBudgetModal
+              isOpen={isSmartBudgetModalOpen}
+              onClose={navigateBack}
+            />
+          )}
+
+          {isSettingsModalOpen && (
+            <SettingsModal
+              isOpen={isSettingsModalOpen}
+              onClose={navigateBack}
+            />
+          )}
+
+          {isTransferFeesModalOpen && (
+            <TransferFeesModal
+              isOpen={isTransferFeesModalOpen}
+              onClose={navigateBack}
+            />
+          )}
+        </React.Suspense>
 
         {/* Automatic What's New on First Launch of each version */}
         <WhatsNewModal />
-
 
         {/* Android Exit Confirmation Modal */}
         <ExitConfirmModal
@@ -1058,11 +1044,13 @@ const MainAppContent: React.FC = () => {
         />
 
         {/* Global Emoji Picker */}
-        <EmojiPickerModal
-          isOpen={isEmojiPickerOpen}
-          onClose={closeEmojiPicker}
-          onSelect={selectEmoji}
-        />
+        {isEmojiPickerOpen && (
+          <EmojiPickerModal
+            isOpen={isEmojiPickerOpen}
+            onClose={closeEmojiPicker}
+            onSelect={selectEmoji}
+          />
+        )}
 
         {/* Biometric & PIN App Lock Screen */}
         <AppLockScreen

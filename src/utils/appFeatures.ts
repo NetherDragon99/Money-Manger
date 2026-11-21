@@ -19,6 +19,35 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.0.1',
+    isBeta: true,
+    releaseDate: 'November 21, 2026',
+    title: {
+      en: 'Version 2.0.1 Beta: Welcome to solv, Smarter Budget Control & Effortless Speed',
+      ar: 'إصدار 2.0.1 التجريبي: هوية solv الجديدة، تحكم أذكى بالميزانية وسلاسة فائقة',
+    },
+    highlights: {
+      en: [
+        'Welcome to solv: Fresh app name, sleek green-mint icon, and refined dark theme across every screen.',
+        'Always-Ready Offline Access: Opens reliably without internet, keeps your account signed in automatically, installs in one tap, and keeps beta testing cleanly separated.',
+        'Smarter Cycle & Live Income Rebalancing: Collapse cycle settings cleanly, automatically rebalance your daily limit when adding income to public accounts, and adjust seamlessly if moved to private.',
+        'Manual Budget Adjustments & One-Off Tracker: Fine-tune progress inside each budget pool independently without shifting your daily limit, and track one-off purchases directly.',
+        'Deeper Future-Impact & Three-Mode What-If Lab: Preview exact daily and monthly consequences before saving any transaction or testing single, multi-day, and extra-income plans.',
+        'Unified Period Picker & Smart Filters: Pick built-in durations or a custom calendar range, filter by active categories, price slider, sorting, and extra flags on both Home and Account pages.',
+        'Stable Typing & Ultra-Smooth Scrolling: The screen stays steady when opening the keyboard, and transaction lists glide smoothly even with large histories.',
+      ],
+      ar: [
+        'أهلاً بك في solv: اسم جديد وأيقونة خضراء أنيقة مع لمسات بصرية مريحة للعين في كل الشاشات.',
+        'عمل موثوق بدون إنترنت: يفتح التطبيق مباشرة في كل مرة مع بقاء حسابك مسجلاً، وتثبيت مباشر بضغطة واحدة، وفصل كامل لنسخة البيتا التجريبية.',
+        'إعادة ترتيب ذكية مع الدخل: إعدادات دورة قابلة للطي، وتعديل تلقائي للمصروف اليومي عند إضافة دخل للحسابات العامة أو نقله لحساب خاص.',
+        'تحكم يدوي بكل حوض ومصروف الطوارئ: عدّل تقدم التحويش والفواتير والخروجات ومصروف الطوارئ يدوياً وبشكل منفصل دون تغيير مصروفك اليومي، مع متابعة مباشرة لبند المشتريات غير المتكررة.',
+        'تحليل أعمق وتجربة سيناريوهات متعددة: اعرف تأثير أي معاملة على بقية الشهر قبل الحفظ، وجرب خطط مصروف ليوم أو لعدة أيام أو دخل إضافي.',
+        'فلتر موحد للمدة وخيارات بحث دقيقة: اختر المدة أو حدد تاريخين من التقويم، مع فلاتر للفئات المستخدمة فقط وسلايدر للأسعار والترتيب في الرئيسية وداخل كل حساب.',
+        'ثبات أثناء الكتابة وسلاسة فائقة: ثبات تام للشاشة عند فتح لوحة المفاتيح مع تمرير فائق السرعة وخفيف جداً على الجهاز.',
+      ],
+    },
+  },
+  {
     version: '2.0.0',
     isBeta: false,
     releaseDate: 'November 8, 2026',
@@ -537,8 +566,8 @@ export const APP_CORE_FEATURES: FeatureItem[] = [
       ar: 'تثبيت مباشر على الشاشة الرئيسية بدون متجر',
     },
     description: {
-      en: 'Install Money Manager directly on your phone home screen as a standalone application. It launches instantly in full screen with no browser address bar or search header, and functions at lightning speed even in airplane mode with complete local caching.',
-      ar: 'قم بتثبيت التطبيق مباشرة على شاشة هاتفك الرئيسية ليعمل كتطبيق مستقل بملء الشاشة دون شريط عناوين المتصفح. يفتح التطبيق بسرعة فائقة ويعمل بكفاءة كاملة حتى في وضع الطيران بدون أي اتصال بالإنترنت بفضل التخزين المؤقت الشامل.',
+      en: 'Install solv directly on your phone home screen as a standalone application. It launches instantly in full screen with no browser address bar or search header, and functions at lightning speed even in airplane mode with complete local storage.',
+      ar: 'قم بتثبيت التطبيق مباشرة على شاشة هاتفك الرئيسية ليعمل كتطبيق مستقل بملء الشاشة دون شريط عناوين المتصفح. يفتح التطبيق بسرعة فائقة ويعمل بكفاءة كاملة حتى في وضع الطيران بدون أي اتصال بالإنترنت بفضل التخزين المحلي الشامل.',
     },
     whereToFind: {
       en: 'Side Menu (☰) → Tap "Install App" button, or browser menu → "Add to Home screen" / "Install".',
@@ -546,10 +575,10 @@ export const APP_CORE_FEATURES: FeatureItem[] = [
     },
     howToUse: {
       en: [
-        'In your mobile browser (Chrome on Android or Safari on iOS), look for the "Install App" prompt.',
+        'In your mobile browser (Chrome on Android or Safari on iPhone), look for the "Install App" prompt.',
         'Alternatively, open the side menu (☰) and tap "Install App" to launch the native installation dialog.',
         'Confirm the installation prompt to add the application icon directly to your Home Screen.',
-        'Launch Money Manager from your phone screen to enjoy an immersive, full-screen standalone experience.',
+        'Launch solv from your phone screen to enjoy an immersive, full-screen standalone experience.',
       ],
       ar: [
         'في متصفح هاتفك (كروم على أندرويد أو سفاري على آيفون)، ستظهر رسالة تثبيت التطبيق.',

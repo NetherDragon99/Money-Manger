@@ -1,6 +1,6 @@
 import { SwipeableTabs } from '../components/SwipeableTabs';
-import React, { useMemo, useState, useRef } from 'react';
-import { useApp } from '../context/AppContext';
+import React, { useMemo, useState, useRef, memo } from 'react';
+import { useAppData, useAppUI, useAppActions } from '../context/AppContext';
 import {
   Plus,
   ArrowUp,
@@ -22,7 +22,6 @@ import {
   isManualAdjustment,
 } from '../utils/dateCycle';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
-import { useHeaderScroll } from '../hooks/useHeaderScroll';
 import { useLongPress } from '../hooks/useLongPress';
 
 interface ExpenseCategoryRowProps {
@@ -331,24 +330,17 @@ const IncomeCategoryRow: React.FC<IncomeCategoryRowProps> = ({
   );
 };
 
-export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
+const BudgetViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
+  const { categories, transactions, settings, t } = useAppData();
+  const { isCategoryMultiSelect, selectedCategoryIds } = useAppUI();
   const {
-    categories,
-    transactions,
-    settings,
     openEditCategoryModal,
     openAddCategoryModal,
     reorderCategories,
     setIsSidebarOpen,
-    isCategoryMultiSelect,
-    selectedCategoryIds,
     startCategoryMultiSelect,
     toggleCategorySelection,
-    t,
-  } = useApp();
-
-  const isHeaderScrollVisible = useHeaderScroll();
-  const isHeaderVisible = isHeaderScrollVisible && (propBarsVisible !== undefined ? propBarsVisible : true);
+  } = useAppActions();
 
   const [categoryTab, setCategoryTab] = useState<'expense' | 'income'>('expense');
   const [searchQuery, setSearchQuery] = useState('');
@@ -538,17 +530,8 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
 
   return (
     <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
-      {/* 1. Standardized Top Header Across All Views (Item 2) */}
-      <header
-        style={{
-          transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
-          visibility: isHeaderVisible ? 'visible' : 'hidden',
-          transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
-        className={`fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
-          isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-      >
+      {/* 1. Standardized Top Header Across All Views */}
+      <header className="app-auto-header fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/95 border-b border-zinc-800/80 flex items-center justify-between">
         <div className="flex items-center gap-2">
           {/* Universal Sidebar Menu Button (☰) */}
           <button
@@ -784,7 +767,7 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
               <button
                 type="button"
                 onClick={() => openAddCategoryModal('income')}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
                 <span>{settings.language === 'ar' ? 'إنشاء فئة واردة جديدة' : 'Create Income Category'}</span>
@@ -824,3 +807,5 @@ export const BudgetView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisibl
   </div>
   );
 };
+
+export const BudgetView = memo(BudgetViewBase);

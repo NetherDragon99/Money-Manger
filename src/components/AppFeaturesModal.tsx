@@ -152,14 +152,14 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-5xl h-[92dvh] sm:h-[88dvh] my-auto flex flex-col rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl text-white overflow-hidden relative transition-all duration-200 ${
+        className={`w-full max-w-5xl h-[92dvh] sm:h-[88dvh] my-auto flex flex-col rounded-3xl bg-zinc-950 border border-zinc-800/80 shadow-2xl text-white overflow-hidden relative transition-all duration-200 ${
           isClosing ? 'modal-container-closing' : 'modal-container-anim'
         }`}
       >
         {/* Top Header Bar */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-zinc-800/80 bg-zinc-900/50 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
               <BookOpen className="w-5 h-5" />
             </div>
             <div className="min-w-0">
@@ -183,7 +183,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
                 className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-300 transition cursor-pointer active:scale-95"
                 title={isArabic ? 'العودة للشبكة الرئيسية' : 'Return to Grid'}
               >
-                <LayoutGrid className="w-3.5 h-3.5 text-blue-400" />
+                <LayoutGrid className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="hidden sm:inline">{isArabic ? 'عرض الشبكة' : 'Grid View'}</span>
               </button>
             )}
@@ -204,7 +204,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
           {/* SUSPENSE LOADING STATE */}
           {isLoading && (
             <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 animate-spin">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 animate-spin">
                 <Loader2 className="w-6 h-6" />
               </div>
               <p className="text-sm font-medium text-zinc-300">
@@ -232,7 +232,7 @@ export const AppFeaturesModal: React.FC<AppFeaturesModalProps> = ({ isOpen, onCl
               <button
                 type="button"
                 onClick={loadFeaturesModule}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg transition active:scale-95 cursor-pointer"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition active:scale-95 cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" />
                 <span>{isArabic ? 'إعادة المحاولة' : 'Retry'}</span>

@@ -1,41 +1,94 @@
 @import "tailwindcss";
 
-/* Modern Web & PWA base styles */
+:root {
+  --kb-inset: 0px;
+}
+
+/* Modern Web & PWA base styles - Anchored viewport prevents virtual keyboard lift */
 html {
   -webkit-tap-highlight-color: transparent;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   font-size: clamp(13px, 3.6vw, 16px);
-  overscroll-behavior-y: contain;
 }
 
-body {
+html, body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
   background-color: #000000;
   color: #ffffff;
-  overflow-x: hidden;
-  overscroll-behavior-y: contain;
 }
 
-html, body, #root {
+#root {
   width: 100%;
-  min-height: 100dvh;
+  height: 100%;
   max-width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* High-Zoom & Large OS Display Scaling Guard */
 *, ::before, ::after {
   box-sizing: border-box;
-  overflow-wrap: anywhere;
 }
 
 header, nav, [role="dialog"], .modal-container-anim, .card, [class*="card"] {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 header, nav {
   min-height: fit-content;
+}
+
+/* GPU-composited scroll hide (zero React re-renders) */
+.app-auto-header {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease;
+}
+[data-bars-hidden="true"] .app-auto-header,
+.app-auto-header[data-hidden="true"] {
+  transform: translate3d(0, -110%, 0);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-auto-nav {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease;
+}
+[data-bars-hidden="true"] .app-auto-nav,
+.app-auto-nav[data-hidden="true"] {
+  transform: translate3d(0, 120%, 0);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-auto-fab {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease;
+}
+[data-bars-hidden="true"] .app-auto-fab,
+.app-auto-fab[data-hidden="true"] {
+  transform: translate3d(0, 180px, 0);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Virtual keyboard scroll padding for scrollable modal/form regions */
+.kb-scroll-pad {
+  padding-bottom: calc(1.25rem + var(--kb-inset, 0px));
+}
+
+/* Virtualized off-screen transaction rows (120fps scrolling) */
+.tx-row-perf {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
+  contain: layout style;
 }
 
 /* Modals fluid viewport constraint on high zoom */
@@ -364,7 +417,6 @@ html.light-mode button:disabled {
 button,
 [role="button"] {
   transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
-  will-change: transform;
 }
 
 button:active:not(:disabled),

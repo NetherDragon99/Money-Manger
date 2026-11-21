@@ -30,7 +30,7 @@ export default defineConfig(({ command, mode }) => {
     : (existingBase === './' ? './index.html' : `${existingBase}index.html`);
 
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
-  const versionString = packageJson.version || '2.0.0';
+  const versionString = packageJson.version || '2.0.1';
 
   let buildId = 'dev';
   try {
@@ -55,6 +55,8 @@ export default defineConfig(({ command, mode }) => {
     define: {
       'import.meta.env.VITE_APP_CHANNEL': JSON.stringify(channel),
       'import.meta.env.VITE_BUILD_ID': JSON.stringify(buildId),
+      '__APP_VERSION__': JSON.stringify(versionString),
+      '__STABLE_BASELINE_VERSION__': JSON.stringify(stableVersionString),
     },
     build: {
       outDir: isBeta ? 'dist/beta' : 'dist',
@@ -66,15 +68,15 @@ export default defineConfig(({ command, mode }) => {
       {
         name: 'html-version-transform',
         transformIndexHtml(html: string) {
-          const appName = isBeta ? 'Personal Finance Tracker (Beta)' : 'Personal Finance Tracker';
-          const shortName = isBeta ? 'FinanceApp Beta' : 'FinanceApp';
+          const appName = isBeta ? 'solv (Beta)' : 'solv';
+          const shortName = isBeta ? 'solv Beta' : 'solv';
           const versionLabel = isBeta ? `Beta v${versionString}` : `v${versionString}`;
           let res = html.replace(/%APP_VERSION%/g, versionString);
           res = res.replace(/%BOOT_VERSION_LABEL%/g, versionLabel);
           res = res.replace(/Beta v%APP_VERSION%/g, versionLabel);
           if (isBeta) {
-            res = res.replace(/<title>Personal Finance Tracker<\/title>/g, `<title>${appName}</title>`);
-            res = res.replace(/content="FinanceApp"/g, `content="${shortName}"`);
+            res = res.replace(/<title>solv<\/title>/g, `<title>${appName}</title>`);
+            res = res.replace(/content="solv"/g, `content="${shortName}"`);
           }
           return res;
         },
@@ -100,20 +102,14 @@ export default defineConfig(({ command, mode }) => {
         scope: channelScope,
         registerType: 'prompt',
         injectRegister: null,
-        includeAssets: [
-          'favicon.png',
-          'apple-touch-icon.png',
-          'icon.svg',
-          'version.json',
-          'pwa-192x192.png',
-          'pwa-512x512.png',
-        ],
+        includeAssets: [],
+        includeManifestIcons: false,
         manifest: {
           id: isBeta ? (channelScope === './' ? './beta' : `${channelScope}`) : base,
-          name: isBeta ? 'Personal Finance Tracker (Beta)' : 'Personal Finance Tracker',
-          short_name: isBeta ? 'FinanceApp (Beta)' : 'FinanceApp',
+          name: isBeta ? 'solv (Beta)' : 'solv',
+          short_name: isBeta ? 'solv Beta' : 'solv',
           description:
-            'An offline-first, OLED dark-themed personal finance tracker PWA with running balances, multi-account management, custom cycles, and budgeting.',
+            'solv — an offline-first, OLED dark-themed personal finance & smart budget PWA with multi-account management, custom cycles, and live future-impact insights.',
           theme_color: '#000000',
           background_color: '#000000',
           display: 'standalone',
@@ -137,7 +133,7 @@ export default defineConfig(({ command, mode }) => {
               purpose: 'any',
             },
             {
-              src: 'pwa-512x512.png',
+              src: 'pwa-maskable-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
@@ -145,55 +141,43 @@ export default defineConfig(({ command, mode }) => {
           ],
         },
         workbox: {
-          cacheId: isBeta ? 'mm-beta' : undefined,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,json,woff,woff2}'],
-          globIgnores: isBeta ? [] : ['beta/**', '**/beta/**'],
+          cacheId: isBeta ? 'solv-beta' : 'solv-stable',
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          globIgnores: isBeta ? ['**/version.json'] : ['beta/**', '**/beta/**', '**/version.json'],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
-          navigateFallback: `${base}index.html`,
-          navigateFallbackAllowlist: isBeta ? [/.*beta.*/, /^\.\/.*index\.html/] : [/^(?!.*beta).*$/],
-          navigateFallbackDenylist: isBeta ? [/^\/api/] : [/^\/api/, /.*beta.*/],
+          navigateFallback: 'index.html',
+          navigateFallbackAllowlist: isBeta
+            ? [/.*beta.*/, /^\/(index\.html)?$/]
+            : [/^(?!.*beta).*$/],
+          navigateFallbackDenylist: isBeta
+            ? [/^\/api/, /version\.json$/]
+            : [/^\/api/, /.*beta.*/, /version\.json$/],
           runtimeCaching: [
-            {
-              urlPattern: isBeta
-                ? ({ request }) =>
-                    request.destination === 'document' ||
-                    request.destination === 'script' ||
-                    request.destination === 'style' ||
-                    request.destination === 'image' ||
-                    request.destination === 'font'
-                : ({ request, url }) => {
-                    if (/\/beta\//.test(url.pathname)) {
-                      return false;
-                    }
-                    return (
-                      request.destination === 'document' ||
-                      request.destination === 'script' ||
-                      request.destination === 'style' ||
-                      request.destination === 'image' ||
-                      request.destination === 'font'
-                    );
-                  },
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: isBeta ? 'app-offline-cache-beta' : 'app-offline-cache',
-                expiration: {
-                  maxEntries: 100,
-                  maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
-                },
-                networkTimeoutSeconds: 2,
-              },
-            },
             {
               urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,
               handler: 'CacheFirst',
               options: {
-                cacheName: 'google-fonts-cache',
+                cacheName: isBeta ? 'solv-beta-google-fonts' : 'solv-stable-google-fonts',
                 expiration: {
                   maxEntries: 30,
                   maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+              },
+            },
+            {
+              urlPattern: ({ request, url }) =>
+                url.origin !== self.location.origin &&
+                request.destination === 'image' &&
+                !url.hostname.includes('firebase'),
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: isBeta ? 'solv-beta-avatars' : 'solv-stable-avatars',
+                expiration: {
+                  maxEntries: 40,
+                  maxAgeSeconds: 60 * 60 * 24 * 30,
                 },
               },
             },
