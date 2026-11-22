@@ -281,6 +281,12 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     if (baselineSettings.includedAccountIds && baselineSettings.includedAccountIds.length > 0) {
       return baselineSettings.includedAccountIds;
     }
+    if (
+      baselineSettings.fromTodayConfig?.linkedAccountIds &&
+      baselineSettings.fromTodayConfig.linkedAccountIds.length > 0
+    ) {
+      return baselineSettings.fromTodayConfig.linkedAccountIds;
+    }
     const spendingAccounts = accounts.filter(
       (a) => !a.isPrivate && isSpendingOrCustomiseRole(a.accountRole)
     );
@@ -289,7 +295,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       : accounts.filter((a) => !a.isPrivate).map((a) => a.id);
   });
 
-  const [isLinkedAccountsOpen, setIsLinkedAccountsOpen] = useState<boolean>(false);
+  const [isLinkedAccountsOpen, setIsLinkedAccountsOpen] = useState<boolean>(true);
   const [adjustmentInput, setAdjustmentInput] = useState<string>(() => {
     const adj = baselineSettings.fromTodayConfig?.manualAdjustment;
     return adj != null && adj !== 0 ? String(adj) : '';
@@ -301,11 +307,21 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   }, [adjustmentInput]);
 
   const linkedAccountsBalanceSum = useMemo(() => {
-    const includePrivate = Boolean(baselineSettings.includePrivateAccounts);
     return accounts
-      .filter((a) => selectedAccountIds.includes(a.id) && (includePrivate || !a.isPrivate))
+      .filter(
+        (a) =>
+          selectedAccountIds.includes(a.id) &&
+          (!a.currency ||
+            normalizeCurrencyCodeOrSymbol(a.currency) ===
+              normalizeCurrencyCodeOrSymbol(currency))
+      )
       .reduce((sum, a) => sum + (a.balance || 0), 0);
-  }, [accounts, selectedAccountIds, baselineSettings.includePrivateAccounts]);
+  }, [accounts, selectedAccountIds, currency]);
+
+  const activeIncludePrivateAccounts = useMemo(
+    () => accounts.some((a) => selectedAccountIds.includes(a.id) && a.isPrivate),
+    [accounts, selectedAccountIds]
+  );
 
   const liveBudget = useMemo(() => {
     return Math.max(0, Math.round((linkedAccountsBalanceSum + parsedAdjustment) * 100) / 100);
@@ -419,6 +435,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       oneOffFundingSource,
       fixedCategoryIds: selectedFixedCatIds,
       includedAccountIds: selectedAccountIds,
+      includePrivateAccounts: activeIncludePrivateAccounts,
       calculationMode: baselineCalculationMode,
       fromTodayConfig: {
         fromDate: baselineSettings.fromTodayConfig?.fromDate || formatLocalDate(new Date()),
@@ -460,6 +477,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     oneOffFundingSource,
     selectedFixedCatIds,
     selectedAccountIds,
+    activeIncludePrivateAccounts,
     parsedAdjustment,
     headsUpThresholdPercent,
     settings.smartBudget?.overrides,
@@ -471,6 +489,57 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     () => evaluateSmartBudget(transactions, accounts, effectiveBudgetConfig, new Date()),
     [transactions, accounts, effectiveBudgetConfig]
   );
+
+  // Live percentage badges computed from active evaluation totals (including dynamic public income) so they always sum to 100%
+  const displayPoolPercents = useMemo(() => {
+    const totalAllocMinor =
+      evaluation.pools.savings.allocatedMinor +
+      evaluation.pools.fixed.allocatedMinor +
+      evaluation.pools.outings.allocatedMinor +
+      evaluation.pools.oneoff.allocatedMinor +
+      evaluation.pools.daily.allocatedMinor;
+    if (totalAllocMinor <= 0) {
+      return { savings: 0, fixed: 0, outings: 0, oneoff: 0, daily: 0 };
+    }
+    const sPct =
+      Math.round((evaluation.pools.savings.allocatedMinor / totalAllocMinor) * 100 * 10) / 10;
+    const fPct =
+      Math.round((evaluation.pools.fixed.allocatedMinor / totalAllocMinor) * 100 * 10) / 10;
+    const oPct =
+      Math.round((evaluation.pools.outings.allocatedMinor / totalAllocMinor) * 100 * 10) / 10;
+    const ooPct =
+      Math.round((evaluation.pools.oneoff.allocatedMinor / totalAllocMinor) * 100 * 10) / 10;
+    const dPct = Math.max(0, Math.round((100 - (sPct + fPct + oPct + ooPct)) * 10) / 10);
+    return { savings: sPct, fixed: fPct, outings: oPct, oneoff: ooPct, daily: dPct };
+  }, [
+    evaluation.pools.savings.allocatedMinor,
+    evaluation.pools.fixed.allocatedMinor,
+    evaluation.pools.outings.allocatedMinor,
+    evaluation.pools.oneoff.allocatedMinor,
+    evaluation.pools.daily.allocatedMinor,
+  ]);
+
+  const unpaidObligationsTotal = useMemo(() => {
+    const unpaidSavings = Math.max(
+      0,
+      evaluation.pools.savings.allocated -
+        evaluation.pools.savings.netSaved -
+        evaluation.pools.savings.absorbedOneOff
+    );
+    const unpaidFixed = Math.max(0, evaluation.pools.fixed.remaining);
+    const unpaidOutings = Math.max(0, evaluation.pools.outings.remaining);
+    const unpaidOneOff = Math.max(0, evaluation.pools.oneoff.remaining);
+    return Math.round((unpaidSavings + unpaidFixed + unpaidOutings + unpaidOneOff) * 100) / 100;
+  }, [
+    evaluation.pools.savings.allocated,
+    evaluation.pools.savings.netSaved,
+    evaluation.pools.savings.absorbedOneOff,
+    evaluation.pools.fixed.remaining,
+    evaluation.pools.outings.remaining,
+    evaluation.pools.oneoff.remaining,
+  ]);
+
+  const effectiveTotalIncomeMinor = Math.max(incomeMinor, evaluation.pools.total.incomeMinor);
 
   const currentCycleKey = evaluation.cycle.startDate; // YYYY-MM-DD
   const currentOverride = resolveCycleOverride(settings.smartBudget?.overrides, currentCycleKey);
@@ -729,25 +798,75 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       poolKey,
       rawInput,
       inputEl,
-      incomeMinor,
+      effectiveTotalIncomeMinor,
       pools,
       setPools,
       setPoolHints
     );
 
   const handleAmountBlur = (poolKey: 'savings' | 'fixed' | 'outings' | 'oneoff') =>
-    applyDualAmountBlur(poolKey, incomeMinor, setPools);
+    applyDualAmountBlur(poolKey, effectiveTotalIncomeMinor, setPools);
+
+  const handleApplyCurrentOneOffSpend = () => {
+    const spentVal = Math.max(0, evaluation.pools.oneoff.spent);
+    if (spentVal <= 0) return;
+    const spentMinor = Math.round(spentVal * 100);
+    const capMinor = effectiveTotalIncomeMinor;
+    if (capMinor > 0) {
+      const otherMinor =
+        pools.savings.minorUnits + pools.fixed.minorUnits + pools.outings.minorUnits;
+      const maxMinor = Math.max(0, capMinor - otherMinor);
+      const finalMinor = Math.min(spentMinor, maxMinor);
+      const derivedPct = Math.round(((finalMinor / capMinor) * 100) * 10) / 10;
+
+      if (spentMinor > maxMinor) {
+        setPoolHints((h) => ({
+          ...h,
+          oneoff: t('maxAllowedPoolHint')
+            .replace('{amount}', formatCurrency(maxMinor / 100, currency))
+            .replace('{percent}', String(derivedPct)),
+        }));
+      } else {
+        setPoolHints((h) => ({ ...h, oneoff: null }));
+      }
+
+      setPools((prev) => ({
+        ...prev,
+        oneoff: {
+          minorUnits: finalMinor,
+          percent: derivedPct,
+          mode: 'amount',
+          amountText: formatNumberWithCommas(finalMinor / 100, 2),
+        },
+      }));
+    } else {
+      setPools((prev) => ({
+        ...prev,
+        oneoff: {
+          minorUnits: spentMinor,
+          percent: 0,
+          mode: 'amount',
+          amountText: formatNumberWithCommas(spentMinor / 100, 2),
+        },
+      }));
+    }
+    showToast(
+      isArabic ? 'تم تخصيص ميزانية المصاريف الاستثنائية' : 'One-Off allocation updated',
+      'success'
+    );
+  };
 
   const handleApplyDetectedRecurringBills = () => {
     if (detectedRecurringBills <= 0) return;
     const detectedMinor = Math.round(detectedRecurringBills * 100);
 
-    if (incomeMinor > 0) {
+    if (effectiveTotalIncomeMinor > 0) {
       const otherMinor =
         pools.savings.minorUnits + pools.outings.minorUnits + pools.oneoff.minorUnits;
-      const maxMinor = Math.max(0, incomeMinor - otherMinor);
+      const maxMinor = Math.max(0, effectiveTotalIncomeMinor - otherMinor);
       const finalMinor = Math.min(detectedMinor, maxMinor);
-      const derivedPct = Math.round(((finalMinor / incomeMinor) * 100) * 10) / 10;
+      const derivedPct =
+        Math.round(((finalMinor / effectiveTotalIncomeMinor) * 100) * 10) / 10;
 
       if (detectedMinor > maxMinor) {
         setPoolHints((h) => ({
@@ -888,17 +1007,54 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     );
   };
 
-  const handleSelectLinkedAccountsPreset = (preset: 'non_savings' | 'all') => {
+  const getLinkedPresetIds = (
+    preset: 'public_only' | 'private_only' | 'all' | 'non_savings'
+  ): string[] => {
     const primaryAccounts = accounts.filter(
-      (a) => !a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normalizeCurrencyCodeOrSymbol(currency)
+      (a) =>
+        !a.currency ||
+        normalizeCurrencyCodeOrSymbol(a.currency) ===
+          normalizeCurrencyCodeOrSymbol(currency)
     );
-    let nextIds: string[];
+    if (preset === 'public_only') {
+      return primaryAccounts.filter((a) => !a.isPrivate).map((a) => a.id);
+    }
+    if (preset === 'private_only') {
+      return primaryAccounts.filter((a) => Boolean(a.isPrivate)).map((a) => a.id);
+    }
     if (preset === 'all') {
-      nextIds = primaryAccounts.map((a) => a.id);
-    } else {
-      nextIds = primaryAccounts
-        .filter((a) => isSpendingOrCustomiseRole(a.accountRole))
-        .map((a) => a.id);
+      return primaryAccounts.map((a) => a.id);
+    }
+    return primaryAccounts
+      .filter((a) => !a.isPrivate && isSpendingOrCustomiseRole(a.accountRole))
+      .map((a) => a.id);
+  };
+
+  const isPresetSelected = (
+    preset: 'public_only' | 'private_only' | 'all' | 'non_savings'
+  ): boolean => {
+    const presetIds = getLinkedPresetIds(preset);
+    if (presetIds.length === 0 || presetIds.length !== selectedAccountIds.length) return false;
+    const selSet = new Set(selectedAccountIds);
+    return presetIds.every((id) => selSet.has(id));
+  };
+
+  const handleSelectLinkedAccountsPreset = (
+    preset: 'public_only' | 'private_only' | 'all' | 'non_savings'
+  ) => {
+    const nextIds = getLinkedPresetIds(preset);
+    if (nextIds.length === 0) {
+      showToast(
+        preset === 'private_only'
+          ? isArabic
+            ? 'لا توجد حسابات خاصة بعملة الميزانية حالياً'
+            : 'No private accounts found in base currency'
+          : isArabic
+          ? 'لا توجد حسابات مطابقة'
+          : 'No matching accounts found',
+        'info'
+      );
+      return;
     }
     setSelectedAccountIds(nextIds);
   };
@@ -960,10 +1116,22 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     const fMinor = pools.fixed.minorUnits;
     const oMinor = pools.outings.minorUnits;
     const ooMinor = pools.oneoff.minorUnits;
-    const sPct = incomeMinor > 0 ? Math.round(((sMinor / incomeMinor) * 100) * 10) / 10 : 0;
-    const fPct = incomeMinor > 0 ? Math.round(((fMinor / incomeMinor) * 100) * 10) / 10 : 0;
-    const oPct = incomeMinor > 0 ? Math.round(((oMinor / incomeMinor) * 100) * 10) / 10 : 0;
-    const ooPct = incomeMinor > 0 ? Math.round(((ooMinor / incomeMinor) * 100) * 10) / 10 : 0;
+    const sPct =
+      effectiveTotalIncomeMinor > 0
+        ? Math.round(((sMinor / effectiveTotalIncomeMinor) * 100) * 10) / 10
+        : 0;
+    const fPct =
+      effectiveTotalIncomeMinor > 0
+        ? Math.round(((fMinor / effectiveTotalIncomeMinor) * 100) * 10) / 10
+        : 0;
+    const oPct =
+      effectiveTotalIncomeMinor > 0
+        ? Math.round(((oMinor / effectiveTotalIncomeMinor) * 100) * 10) / 10
+        : 0;
+    const ooPct =
+      effectiveTotalIncomeMinor > 0
+        ? Math.round(((ooMinor / effectiveTotalIncomeMinor) * 100) * 10) / 10
+        : 0;
 
     const newBaseline: SmartBudgetBaselineConfig = {
       startDay: globalMonthStartDay,
@@ -978,6 +1146,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       oneOffFundingSource,
       fixedCategoryIds: selectedFixedCatIds,
       includedAccountIds: selectedAccountIds,
+      includePrivateAccounts: activeIncludePrivateAccounts,
       calculationMode: baselineCalculationMode,
       fromTodayConfig: {
         fromDate: baselineSettings.fromTodayConfig?.fromDate || evaluation.cycle.startDate,
@@ -1462,152 +1631,269 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                 )}
               </div>
 
-              {/* Linked Funding Accounts or Planned Income */}
-              {baselineCalculationMode === 'from_today' ? (
+              {/* Planned Income for Full Cycle Mode (always shown alongside Linked Accounts) */}
+              {baselineCalculationMode === 'full_cycle' && (
                 <div className="space-y-3 pt-2 border-t border-zinc-800/80">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h4 className="text-xs font-bold text-white">
-                        {t('linkedFundingAccountsTitle')}
-                      </h4>
-                      <p className="text-[11px] text-zinc-400">
-                        {t('linkedFundingAccountsDesc')}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsLinkedAccountsOpen((prev) => !prev)}
-                      className="min-h-[38px] px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-zinc-300 text-xs font-bold border border-zinc-700 flex items-center gap-1.5 transition cursor-pointer"
-                    >
-                      <span>
-                        {t('includedAccountsCount').replace(
-                          '{count}',
-                          String(selectedAccountIds.length)
-                        )}
-                      </span>
-                      {isLinkedAccountsOpen ? (
-                        <ChevronUp className="w-3.5 h-3.5" />
-                      ) : (
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+                  <div>
+                    <label className="block text-xs font-bold text-white mb-1">
+                      {t('plannedIncome')}
+                    </label>
+                    <p className="text-[11px] text-zinc-400 mb-2">{t('plannedIncomeDesc')}</p>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={plannedIncomeInput}
+                      onChange={(e) => handlePlannedIncomeChange(e.target.value, e.target)}
+                      placeholder="e.g. 20000"
+                      className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                    />
                   </div>
 
-                  {/* Live Budget Banner */}
-                  <div className="p-3.5 rounded-2xl bg-zinc-950/90 border border-zinc-800 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                        <Zap className="w-3.5 h-3.5 text-amber-400" />
-                        {t('moneyLeftForRestOfCycle')}
-                      </span>
-                      <span className="text-base font-mono font-extrabold text-emerald-400">
-                        {formatCurrency(liveBudget, currency)}
-                      </span>
+                  {effectiveTotalIncomeMinor <= 0 && (
+                    <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{t('enterIncomeFirstHint')}</span>
                     </div>
+                  )}
+                </div>
+              )}
+
+              {/* Always-Visible Linked Funding Accounts Section (All Cycle Modes) */}
+              <div className="space-y-3 pt-3 border-t border-zinc-800/80">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-bold text-white">
+                      {isArabic ? 'الحسابات الداخلة في الميزانية' : t('linkedFundingAccountsTitle')}
+                    </h4>
+                    <p className="text-[11px] text-zinc-400">
+                      {isArabic
+                        ? 'اختر الحسابات اللي التطبيق يحسب منها المتاح الفعلي لباقي الشهر بعد خصم الالتزامات غير المدفوعة'
+                        : t('linkedFundingAccountsDesc')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsLinkedAccountsOpen((prev) => !prev)}
+                    className="min-h-[38px] px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-zinc-300 text-xs font-bold border border-zinc-700 flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <span>
+                      {t('includedAccountsCount').replace(
+                        '{count}',
+                        String(selectedAccountIds.length)
+                      )}
+                    </span>
+                    {isLinkedAccountsOpen ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Live Obligation & Net Remainder Banner */}
+                <div className="p-3.5 rounded-2xl bg-zinc-950/90 border border-zinc-800 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>
+                        {baselineCalculationMode === 'from_today'
+                          ? t('moneyLeftForRestOfCycle')
+                          : isArabic
+                          ? 'الرصيد الحالي بالحسابات المختارة'
+                          : 'Selected Accounts Live Balance'}
+                      </span>
+                    </span>
+                    <span className="text-base font-mono font-extrabold text-emerald-400 shrink-0">
+                      {formatCurrency(
+                        baselineCalculationMode === 'from_today' ? liveBudget : linkedAccountsBalanceSum,
+                        currency
+                      )}
+                    </span>
+                  </div>
+
+                  {baselineCalculationMode !== 'from_today' ? (
+                    <div className="space-y-1 pt-1.5 border-t border-zinc-800/80 text-[11px] font-mono">
+                      <div className="flex items-center justify-between text-zinc-400">
+                        <span>
+                          {isArabic
+                            ? 'الالتزامات المتبقية (فواتير / تحويش / غيرها):'
+                            : 'Unpaid obligations reserved:'}
+                        </span>
+                        <span className="text-amber-300">
+                          - {formatCurrency(unpaidObligationsTotal, currency)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between font-bold">
+                        <span className="text-zinc-300">
+                          {isArabic ? 'الصافي المتبقي للمصروف اليومي:' : 'Net remaining for Daily Spending:'}
+                        </span>
+                        <span
+                          className={
+                            evaluation.pools.daily.remaining < 0
+                              ? 'text-rose-400'
+                              : 'text-emerald-400'
+                          }
+                        >
+                          {formatCurrency(evaluation.pools.daily.remaining, currency)}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
                     <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono">
                       <span>
                         {t('sumOfLinkedAccounts')}: {formatCurrency(linkedAccountsBalanceSum, currency)}
                       </span>
                       {parsedAdjustment !== 0 && (
                         <span className={parsedAdjustment > 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                          {parsedAdjustment > 0 ? '+' : ''}{formatCurrency(parsedAdjustment, currency)}
+                          {parsedAdjustment > 0 ? '+' : ''}
+                          {formatCurrency(parsedAdjustment, currency)}
                         </span>
                       )}
                     </div>
-                  </div>
+                  )}
+                </div>
 
-                  {/* Quick-filter Chips */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => handleSelectLinkedAccountsPreset('non_savings')}
-                      className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-750 transition cursor-pointer"
-                    >
-                      {t('selectLinkedAccountsPresetNonSavings')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSelectLinkedAccountsPreset('all')}
-                      className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-750 transition cursor-pointer"
-                    >
-                      {t('selectLinkedAccountsPresetAll')}
-                    </button>
-                  </div>
+                {/* Quick Shortcuts: Public Only | Private Only | All | Non-Savings */}
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectLinkedAccountsPreset('public_only')}
+                    className={`min-h-[34px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                      isPresetSelected('public_only')
+                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                        : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border-zinc-750'
+                    }`}
+                  >
+                    {isArabic ? 'العامة فقط' : 'Public Only'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectLinkedAccountsPreset('private_only')}
+                    className={`min-h-[34px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                      isPresetSelected('private_only')
+                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                        : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border-zinc-750'
+                    }`}
+                  >
+                    {isArabic ? 'الخاصة فقط' : 'Private Only'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectLinkedAccountsPreset('all')}
+                    className={`min-h-[34px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                      isPresetSelected('all')
+                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                        : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border-zinc-750'
+                    }`}
+                  >
+                    {isArabic ? 'الكل' : 'All'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectLinkedAccountsPreset('non_savings')}
+                    className={`min-h-[34px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                      isPresetSelected('non_savings') && !isPresetSelected('public_only')
+                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                        : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border-zinc-750'
+                    }`}
+                  >
+                    {t('selectLinkedAccountsPresetNonSavings')}
+                  </button>
+                </div>
 
-                  {/* Dropdown list of accounts */}
-                  {isLinkedAccountsOpen && (
-                    <div className="p-2 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-1 max-h-56 overflow-y-auto">
-                      {accounts.length === 0 ? (
-                        <div className="p-2 text-center text-xs text-zinc-500">
-                          {isArabic ? 'لا توجد حسابات' : 'No accounts found'}
-                        </div>
-                      ) : (
-                        accounts.map((acc) => {
-                          const isExcludedCurrency = Boolean(
-                            acc.currency && normalizeCurrencyCodeOrSymbol(acc.currency) !== normalizeCurrencyCodeOrSymbol(currency)
-                          );
-                          const isChecked = !isExcludedCurrency && selectedAccountIds.includes(acc.id);
-                          return (
-                            <label
-                              key={acc.id}
-                              className={`flex items-center justify-between p-2 rounded-xl transition select-none ${
-                                isExcludedCurrency
-                                  ? 'opacity-40 cursor-not-allowed bg-zinc-950/40'
-                                  : 'hover:bg-zinc-900 cursor-pointer'
+                {/* Dropdown list of accounts */}
+                {isLinkedAccountsOpen && (
+                  <div className="p-2 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-1 max-h-56 overflow-y-auto">
+                    {accounts.length === 0 ? (
+                      <div className="p-2 text-center text-xs text-zinc-500">
+                        {isArabic ? 'لا توجد حسابات' : 'No accounts found'}
+                      </div>
+                    ) : (
+                      accounts.map((acc) => {
+                        const isExcludedCurrency = Boolean(
+                          acc.currency &&
+                            normalizeCurrencyCodeOrSymbol(acc.currency) !==
+                              normalizeCurrencyCodeOrSymbol(currency)
+                        );
+                        const isChecked =
+                          !isExcludedCurrency && selectedAccountIds.includes(acc.id);
+                        return (
+                          <label
+                            key={acc.id}
+                            className={`flex items-center justify-between p-2 rounded-xl transition select-none ${
+                              isExcludedCurrency
+                                ? 'opacity-40 cursor-not-allowed bg-zinc-950/40'
+                                : 'hover:bg-zinc-900 cursor-pointer'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <input
+                                type="checkbox"
+                                disabled={isExcludedCurrency}
+                                checked={isChecked}
+                                onChange={() =>
+                                  !isExcludedCurrency && handleToggleLinkedAccount(acc.id)
+                                }
+                                className="w-4 h-4 rounded text-emerald-600 bg-zinc-800 border-zinc-700 focus:ring-emerald-500 cursor-pointer disabled:cursor-not-allowed"
+                              />
+                              <span className="text-sm shrink-0">{acc.icon || '💳'}</span>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="text-xs font-semibold text-zinc-200 truncate">
+                                    {acc.name}
+                                  </p>
+                                  <span
+                                    className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-medium border ${
+                                      acc.isPrivate
+                                        ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                        : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                    }`}
+                                  >
+                                    {acc.isPrivate
+                                      ? isArabic ? 'خاص' : 'Private'
+                                      : isArabic ? 'عام' : 'Public'}
+                                  </span>
+                                  {isExcludedCurrency && (
+                                    <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                      {isArabic
+                                        ? `مستبعد (${acc.currency})`
+                                        : `Excluded (${acc.currency})`}
+                                    </span>
+                                  )}
+                                </div>
+                                {isSavingsOrInvestmentRole(acc.accountRole) ? (
+                                  <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                                    {isArabic ? 'ادخار / استثمار' : 'Savings / Investing'}
+                                  </span>
+                                ) : acc.accountRole === 'customise' ? (
+                                  <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                                    {isArabic ? 'مخصص' : 'Custom'}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                            <span
+                              className={`text-xs font-mono font-semibold shrink-0 ${
+                                acc.balance >= 0 ? 'text-zinc-300' : 'text-rose-400'
                               }`}
                             >
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                <input
-                                  type="checkbox"
-                                  disabled={isExcludedCurrency}
-                                  checked={isChecked}
-                                  onChange={() => !isExcludedCurrency && handleToggleLinkedAccount(acc.id)}
-                                  className="w-4 h-4 rounded text-blue-600 bg-zinc-800 border-zinc-700 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
-                                />
-                                <span className="text-sm shrink-0">{acc.icon || '💳'}</span>
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <p className="text-xs font-semibold text-zinc-200 truncate">
-                                      {acc.name}
-                                    </p>
-                                    {isExcludedCurrency && (
-                                      <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
-                                        {isArabic ? `مستبعد (${acc.currency})` : `Excluded (${acc.currency})`}
-                                      </span>
-                                    )}
-                                  </div>
-                                  {isSavingsOrInvestmentRole(acc.accountRole) ? (
-                                    <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                                      {isArabic ? 'ادخار / استثمار' : 'Savings / Investing'}
-                                    </span>
-                                  ) : acc.accountRole === 'customise' ? (
-                                    <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20">
-                                      {isArabic ? 'مخصص' : 'Custom'}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </div>
-                              <span
-                                className={`text-xs font-mono font-semibold shrink-0 ${
-                                  acc.balance >= 0 ? 'text-zinc-300' : 'text-rose-400'
-                                }`}
-                              >
-                                {formatCurrency(acc.balance || 0, acc.currency || currency)}
-                              </span>
-                            </label>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
+                              {formatCurrency(acc.balance || 0, acc.currency || currency)}
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
 
-                  {selectedAccountIds.length === 0 && (
-                    <p className="text-[11px] text-amber-400 leading-relaxed">
-                      {t('noLinkedAccountsWarning')}
-                    </p>
-                  )}
+                {selectedAccountIds.length === 0 && (
+                  <p className="text-[11px] text-amber-400 leading-relaxed">
+                    {t('noLinkedAccountsWarning')}
+                  </p>
+                )}
 
-                  {/* Extra Outside Cash (Adjustment) */}
+                {/* Extra Outside Cash (Adjustment) in From Today mode */}
+                {baselineCalculationMode === 'from_today' && (
                   <div className="space-y-1.5 pt-2 border-t border-zinc-800/80">
                     <label className="block text-xs font-semibold text-zinc-300">
                       {t('extraCashAdjustment')}
@@ -1630,33 +1916,8 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       {t('extraCashAdjustmentDesc')}
                     </p>
                   </div>
-                </div>
-              ) : (
-                /* Planned Income for Full Cycle Mode */
-                <div className="space-y-3 pt-2 border-t border-zinc-800/80">
-                  <div>
-                    <label className="block text-xs font-bold text-white mb-1">
-                      {t('plannedIncome')}
-                    </label>
-                    <p className="text-[11px] text-zinc-400 mb-2">{t('plannedIncomeDesc')}</p>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={plannedIncomeInput}
-                      onChange={(e) => handlePlannedIncomeChange(e.target.value, e.target)}
-                      placeholder="e.g. 20000"
-                      className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono text-sm focus:border-emerald-500 focus:outline-none"
-                    />
-                  </div>
-
-                  {incomeMinor <= 0 && (
-                    <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{t('enterIncomeFirstHint')}</span>
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
                 </div>
               )}
             </div>
@@ -1841,7 +2102,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
               <div
                 onClick={() => setInspectPoolKey('savings')}
                 className={`p-4 rounded-3xl bg-zinc-900/80 border border-blue-500/25 space-y-3 cursor-pointer hover:border-blue-500/50 transition ${
-                  incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
+                  effectiveTotalIncomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
                 }`}
                 title={isArabic ? 'اضغط لعرض معاملات التحويش' : 'Click to view savings transactions'}
               >
@@ -1863,7 +2124,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       <ChevronRight className="w-2.5 h-2.5 rtl:rotate-180" />
                     </button>
                     <span className="text-[10px] font-mono bg-blue-500/20 px-2 py-0.5 rounded-full text-blue-300 font-semibold">
-                      {pools.savings.percent}%
+                      {displayPoolPercents.savings}%
                     </span>
                   </div>
                 </div>
@@ -1878,7 +2139,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       type="text"
                       inputMode="decimal"
                       value={pools.savings.amountText}
-                      disabled={incomeMinor <= 0}
+                      disabled={effectiveTotalIncomeMinor <= 0}
                       onChange={(e) =>
                         handleAmountChange('savings', e.target.value, e.target)
                       }
@@ -1934,7 +2195,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
               <div
                 onClick={() => setInspectPoolKey('fixed')}
                 className={`p-4 rounded-3xl bg-zinc-900/80 border border-purple-500/25 space-y-3 cursor-pointer hover:border-purple-500/50 transition ${
-                  incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
+                  effectiveTotalIncomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
                 }`}
                 title={isArabic ? 'اضغط لعرض معاملات الفواتير والالتزامات' : 'Click to view fixed & bills transactions'}
               >
@@ -1956,7 +2217,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       <ChevronRight className="w-2.5 h-2.5 rtl:rotate-180" />
                     </button>
                     <span className="text-[10px] font-mono bg-purple-500/20 px-2 py-0.5 rounded-full text-purple-300 font-semibold">
-                      {pools.fixed.percent}%
+                      {displayPoolPercents.fixed}%
                     </span>
                   </div>
                 </div>
@@ -1971,7 +2232,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       type="text"
                       inputMode="decimal"
                       value={pools.fixed.amountText}
-                      disabled={incomeMinor <= 0}
+                      disabled={effectiveTotalIncomeMinor <= 0}
                       onChange={(e) =>
                         handleAmountChange('fixed', e.target.value, e.target)
                       }
@@ -2052,7 +2313,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
               <div
                 onClick={() => setInspectPoolKey('outings')}
                 className={`p-4 rounded-3xl bg-zinc-900/80 border border-amber-500/25 space-y-3 cursor-pointer hover:border-amber-500/50 transition ${
-                  incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
+                  effectiveTotalIncomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
                 }`}
                 title={isArabic ? 'اضغط لعرض معاملات الخروجات' : 'Click to view outings transactions'}
               >
@@ -2074,7 +2335,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       <ChevronRight className="w-2.5 h-2.5 rtl:rotate-180" />
                     </button>
                     <span className="text-[10px] font-mono bg-amber-500/20 px-2 py-0.5 rounded-full text-amber-300 font-semibold">
-                      {pools.outings.percent}%
+                      {displayPoolPercents.outings}%
                     </span>
                   </div>
                 </div>
@@ -2089,7 +2350,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       type="text"
                       inputMode="decimal"
                       value={pools.outings.amountText}
-                      disabled={incomeMinor <= 0}
+                      disabled={effectiveTotalIncomeMinor <= 0}
                       onChange={(e) =>
                         handleAmountChange('outings', e.target.value, e.target)
                       }
@@ -2158,7 +2419,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
               <div
                 onClick={() => setInspectPoolKey('oneoff')}
                 className={`p-4 rounded-3xl bg-zinc-900/80 border border-cyan-500/25 space-y-3 cursor-pointer hover:border-cyan-500/50 transition ${
-                  incomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
+                  effectiveTotalIncomeMinor <= 0 ? 'opacity-40 pointer-events-none' : ''
                 }`}
                 title={isArabic ? 'اضغط لعرض معاملات الـ One-Off' : 'Click to view One-Off transactions'}
               >
@@ -2180,22 +2441,22 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       <ChevronRight className="w-2.5 h-2.5 rtl:rotate-180" />
                     </button>
                     <span className="text-[10px] font-mono bg-cyan-500/20 px-2 py-0.5 rounded-full text-cyan-300 font-semibold">
-                      {pools.oneoff.percent}%
+                      {displayPoolPercents.oneoff}%
                     </span>
                   </div>
                 </div>
 
-                {/* Optional One-Off Allocation Input */}
+                {/* Dedicated One-Off Allocation Input */}
                 <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
                   <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-                    {t('poolAllocated')} ({isArabic ? 'اختياري' : 'Optional'})
+                    {t('poolAllocated')}
                   </span>
                   <div className="relative">
                     <input
                       type="text"
                       inputMode="decimal"
                       value={pools.oneoff.amountText}
-                      disabled={incomeMinor <= 0}
+                      disabled={effectiveTotalIncomeMinor <= 0}
                       onChange={(e) => handleAmountChange('oneoff', e.target.value, e.target)}
                       onBlur={() => handleAmountBlur('oneoff')}
                       placeholder="0.00"
@@ -2206,6 +2467,25 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                     </span>
                   </div>
                 </div>
+
+                {/* 1-Tap Allocate Current One-Off Spend Helper Button */}
+                {evaluation.pools.oneoff.spent > pools.oneoff.minorUnits / 100 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleApplyCurrentOneOffSpend();
+                    }}
+                    className="min-h-[36px] px-2.5 py-1 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-[11px] font-semibold border border-cyan-500/30 flex items-center gap-1.5 transition w-full cursor-pointer"
+                  >
+                    <Sliders className="w-3 h-3 shrink-0" />
+                    <span className="truncate">
+                      {isArabic
+                        ? `تخصيص المنصرف الفعلي (${formatCurrency(evaluation.pools.oneoff.spent, currency)})`
+                        : `Use current spend (${formatCurrency(evaluation.pools.oneoff.spent, currency)})`}
+                    </span>
+                  </button>
+                )}
 
                 {/* Funding Source Selector for Uncovered One-Off Excess */}
                 <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
@@ -2329,7 +2609,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       <ChevronRight className="w-2.5 h-2.5 rtl:rotate-180" />
                     </button>
                     <span className="text-[10px] font-mono bg-emerald-500/20 px-2 py-0.5 rounded-full text-emerald-300 font-bold">
-                      {dailyPercent}%
+                      {displayPoolPercents.daily}%
                     </span>
                   </div>
                 </div>

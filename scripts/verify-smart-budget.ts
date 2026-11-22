@@ -689,45 +689,141 @@ test('8. resolveDateRange & applyAdvancedTransactionFilter cover all durations, 
 // ============================================================================
 // 9. Channel Release Notes Isolation & Plain-Language Jargon Guard
 // ============================================================================
-test('9. Beta 2.0.1 release notes stay hidden on Stable, visible on Beta, and pass jargon rules', () => {
+test('9. Beta release notes (2.0.1 & 2.0.3) stay hidden on Stable, visible on Beta, and pass jargon rules', () => {
   const stableNotes = getReleaseNotesForChannel(APP_RELEASE_NOTES, false);
   const betaNotes = getReleaseNotesForChannel(APP_RELEASE_NOTES, true);
 
-  assert.equal(stableNotes.some((n) => n.version === '2.0.1'), false, 'Stable hides 2.0.1 beta note');
-  const note201 = betaNotes.find((n) => n.version === '2.0.1');
-  assert.ok(note201, 'Beta includes 2.0.1 note');
-  assert.equal(note201.isBeta, true, '2.0.1 marked isBeta: true');
+  for (const ver of ['2.0.1', '2.0.3']) {
+    assert.equal(stableNotes.some((n) => n.version === ver), false, `Stable hides ${ver} beta note`);
+    const note = betaNotes.find((n) => n.version === ver);
+    assert.ok(note, `Beta includes ${ver} note`);
+    assert.equal(note.isBeta, true, `${ver} marked isBeta: true`);
 
-  const JARGON_WORDS = [
-    'api', 'firebase', 'rtdb', 'tdz', 'hook', 'hooks', 'refactor', 'refactored', 'refactoring',
-    'bundle', 'bundled', 'cache', 'cached', 'service worker', 'commit', 'commits',
-  ];
-  const JARGON_PATTERNS: Array<[RegExp, string]> = [
-    [/\b[\w./-]+\.(tsx?|jsx?|mjs|cjs|json|css|html|md|yml|yaml)\b/i, 'file extension'],
-    [/`[^`]*`/, 'inline code'],
-    [/\b[a-z]+[A-Z][A-Za-z0-9]*\b/, 'camelCase'],
-    [/\b[A-Za-z0-9]+_[A-Za-z0-9_]+\b/, 'snake_case'],
-    [/\w+\(\)/, 'function call'],
-    [/\$\{[^}]*\}/, 'template expr'],
-    [/\b[\w-]+\/[\w-]+\//, 'path'],
-  ];
+    const JARGON_WORDS = [
+      'api', 'firebase', 'rtdb', 'tdz', 'hook', 'hooks', 'refactor', 'refactored', 'refactoring',
+      'bundle', 'bundled', 'cache', 'cached', 'service worker', 'commit', 'commits',
+    ];
+    const JARGON_PATTERNS: Array<[RegExp, string]> = [
+      [/\b[\w./-]+\.(tsx?|jsx?|mjs|cjs|json|css|html|md|yml|yaml)\b/i, 'file extension'],
+      [/`[^`]*`/, 'inline code'],
+      [/\b[a-z]+[A-Z][A-Za-z0-9]*\b/, 'camelCase'],
+      [/\b[A-Za-z0-9]+_[A-Za-z0-9_]+\b/, 'snake_case'],
+      [/\w+\(\)/, 'function call'],
+      [/\$\{[^}]*\}/, 'template expr'],
+      [/\b[\w-]+\/[\w-]+\//, 'path'],
+    ];
 
-  const textsToCheck = [
-    note201.title.en,
-    note201.title.ar,
-    ...note201.highlights.en,
-    ...note201.highlights.ar,
-  ];
-  for (const txt of textsToCheck) {
-    const lower = txt.toLowerCase();
-    for (const w of JARGON_WORDS) {
-      const re = new RegExp(`(^|[^a-z])${w.replace(' ', '\\s+')}([^a-z]|$)`, 'i');
-      assert.equal(re.test(lower), false, `Forbidden jargon word "${w}" found in: ${txt}`);
-    }
-    for (const [re, label] of JARGON_PATTERNS) {
-      assert.equal(re.test(txt), false, `Forbidden ${label} found in: ${txt}`);
+    const textsToCheck = [
+      note.title.en,
+      note.title.ar,
+      ...note.highlights.en,
+      ...note.highlights.ar,
+    ];
+    for (const txt of textsToCheck) {
+      const lower = txt.toLowerCase();
+      for (const w of JARGON_WORDS) {
+        const re = new RegExp(`(^|[^a-z])${w.replace(' ', '\\s+')}([^a-z]|$)`, 'i');
+        assert.equal(re.test(lower), false, `Forbidden jargon word "${w}" found in: ${txt}`);
+      }
+      for (const [re, label] of JARGON_PATTERNS) {
+        assert.equal(re.test(txt), false, `Forbidden ${label} found in: ${txt}`);
+      }
     }
   }
+});
+
+// ============================================================================
+// 10. One-Off/Outings Isolation from Spent Today, Live Obligation Math & Public/Private/All Accounts
+// ============================================================================
+test('10. One-Off/Outings keep Spent Today isolated, reserve unpaid obligations across linked accounts, and honor Public/Private/All', () => {
+  // 2026-11-18 with startDay=1 -> cycle Nov 1..30 (13 remaining days: Nov 18..30)
+  const asOf = new Date(2026, 10, 18, 12, 0, 0);
+  const accs: Account[] = [
+    pubAcc('acc_home', 1090),
+    pubAcc('acc_telda', 48.65),
+    pubAcc('acc_bm', 1521.01),
+    pubAcc('acc_cash', 110),
+    privAcc('acc_priv', 5000),
+  ]; // 4 public accounts sum = 2,769.66 EGP
+
+  const txs: Transaction[] = [
+    mkTx({ id: 'tx_inc', type: 'income', amount: 1130, date: '2026-11-05', accountId: 'acc_home', description: 'Freelance' }),
+    mkTx({ id: 'tx_sav', type: 'expense', amount: 1000, date: '2026-11-02', accountId: 'acc_bm', budgetPool: 'savings' }),
+    mkTx({ id: 'tx_fix', type: 'expense', amount: 930.61, date: '2026-11-04', accountId: 'acc_bm', budgetPool: 'fixed' }),
+    mkTx({ id: 'tx_out', type: 'expense', amount: 1050.5, date: '2026-11-10', accountId: 'acc_telda', budgetPool: 'outings' }),
+    mkTx({ id: 'tx_oo_today', type: 'expense', amount: 1623.9, date: '2026-11-18', accountId: 'acc_bm', budgetPool: 'oneoff' }),
+    mkTx({ id: 'tx_d_prev', type: 'expense', amount: 661, date: '2026-11-12', accountId: 'acc_home', budgetPool: 'daily' }),
+    mkTx({ id: 'tx_d_today', type: 'expense', amount: 15, date: '2026-11-18', accountId: 'acc_cash', budgetPool: 'daily' }),
+    mkTx({ id: 'tx_priv_exp', type: 'expense', amount: 400, date: '2026-11-18', accountId: 'acc_priv', budgetPool: 'daily' }),
+  ];
+
+  const publicIds = ['acc_home', 'acc_telda', 'acc_bm', 'acc_cash'];
+  const pubCfg: SmartBudgetConfig = {
+    startDay: 1,
+    cycleStartMode: 'app_default',
+    calculationMode: 'full_cycle',
+    plannedIncome: 6100,
+    savings: { type: 'fixed', value: 1000 },
+    plannedFixedObligations: 2700,
+    outingsBudget: 700,
+    oneOffBudget: 0,
+    oneOffFundingSource: 'daily',
+    includedAccountIds: publicIds,
+    includePrivateAccounts: false,
+    baseCurrency: 'EGP',
+  };
+
+  const ePub = evaluateSmartBudget(txs, accs, pubCfg, asOf);
+  assert.equal(ePub.pools.total.income, 7230, 'Cycle total includes +1130 public income');
+  approxEqual(ePub.pools.daily.allocated, 2830, 0.01, 'Daily allocated = 7230 - 4400');
+  approxEqual(ePub.pools.oneoff.spent, 1623.9, 0.01, 'One-Off tracks 1,623.90');
+  approxEqual(ePub.pools.daily.spent, 676, 0.01, 'Daily spent = 661 + 15 only (no One-Off/Outings spillover)');
+  approxEqual(ePub.dailyStatus.todaySpent, 15, 0.01, 'Spent Today strictly excludes today One-Off tx');
+  approxEqual(ePub.pools.daily.remaining, 1000.27, 0.02, 'Net remaining = 2,769.66 live - 1,769.39 unpaid Bills');
+  approxEqual(ePub.dailyStatus.todayAllowance, 78.1, 0.02, 'Allowed Today = (1,000.27 + 15.00) / 13');
+  approxEqual(ePub.dailyStatus.todayRemaining, 63.1, 0.02, 'Remaining Today = 78.10 - 15.00');
+
+  // Private Only shortcut (excludes public Bills/Outings txs, so 2700 Bills + 700 Outings remain unpaid -> 5000 - 3400 = 1600)
+  const ePriv = evaluateSmartBudget(
+    txs,
+    accs,
+    { ...pubCfg, includedAccountIds: ['acc_priv'], includePrivateAccounts: true },
+    asOf
+  );
+  approxEqual(ePriv.dailyStatus.todaySpent, 400, 0.01, 'Private Only includes private today daily spend (400)');
+  approxEqual(ePriv.pools.daily.remaining, 1600, 0.02, 'Private Only uses 5,000 private balance - 3,400 unpaid obligations');
+
+  // All accounts shortcut
+  const eAll = evaluateSmartBudget(
+    txs,
+    accs,
+    { ...pubCfg, includedAccountIds: [...publicIds, 'acc_priv'], includePrivateAccounts: true },
+    asOf
+  );
+  approxEqual(eAll.dailyStatus.todaySpent, 415, 0.01, 'All includes both public (15) + private (400) today daily spend');
+  approxEqual(eAll.pools.daily.remaining, 7769.66 - 1769.39, 0.02, 'All combines 7,769.66 live cash - unpaid Bills');
+
+  // Even without includedAccountIds, same-day Outings & One-Off excess spreads evenly and keeps Spent Today = 0
+  const plainEval = evaluateSmartBudget(
+    [
+      mkTx({ id: 'p_out', type: 'expense', amount: 500, date: '2026-11-18', accountId: 'acc_home', budgetPool: 'outings' }),
+      mkTx({ id: 'p_oo', type: 'expense', amount: 800, date: '2026-11-18', accountId: 'acc_home', budgetPool: 'oneoff' }),
+    ],
+    accs,
+    {
+      startDay: 1,
+      calculationMode: 'full_cycle',
+      plannedIncome: 10000,
+      savings: { type: 'fixed', value: 1000 },
+      plannedFixedObligations: 2000,
+      outingsBudget: 200,
+      oneOffBudget: 0,
+      baseCurrency: 'EGP',
+    },
+    asOf
+  );
+  assert.equal(plainEval.dailyStatus.todaySpent, 0, 'Same-day Outings/One-Off excess keeps Spent Today = 0');
+  assert.ok(plainEval.dailyStatus.todayRemaining > 0, 'Same-day Outings/One-Off excess leaves today positive across 13 days');
 });
 
 console.log(`\n[solv] ALL ${passed} VERIFICATION SUITES PASSED ✓\n`);

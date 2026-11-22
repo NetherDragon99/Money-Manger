@@ -19,6 +19,29 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.0.3',
+    isBeta: true,
+    releaseDate: 'November 22, 2026',
+    title: {
+      en: 'Version 2.0.3 Beta: Smarter Daily Allowance, Live Balance Math & Account Shortcuts',
+      ar: 'إصدار 2.0.3 التجريبي: حساب أدق للمصروف اليومي وأرصدة الحسابات واختصارات أسرع',
+    },
+    highlights: {
+      en: [
+        'One-Off & Outings Protection: Spending on one-off purchases or outings no longer shrinks today\'s Spent Today counter or sends today negative — any excess spreads calmly across your remaining days.',
+        'Live Balance Obligation Math: Your daily limit now checks your actual cash across selected accounts, reserves remaining unpaid bills and savings first, and divides what is truly left fairly over the rest of the month.',
+        'Always-Ready Account Selector: Pick exactly which accounts count in Smart Budget right under your cycle settings with quick buttons for Public Only, Private Only, and All accounts.',
+        'Accurate Pool Percentages: Each budget card percentage now reflects your live updated budget total (including extra income) so all shares always add up to 100%.',
+      ],
+      ar: [
+        'حماية مصروفك اليومي: المصاريف الاستثنائية والخروجات لم تعد تتخصم من خانة مصروف النهاردة ولا تخلي يومك بالسالب — ولو في أي زيادة بتتوزع بهدوء على باقي أيام الشهر.',
+        'مراجعة حية لفلوس حساباتك: التطبيق بيحسب الفلوس الموجودة فعلاً في الحسابات اللي اخترتها، ويحجز منها الأول التزامات الفواتير والتحويش اللي لسه ما خلصتش، والباقي الصافي بيتقسم على الأيام المتبقية.',
+        'اختيار الحسابات واختصارات سريعة دايماً تحت إيدك: تقدر تفتح قائمة الحسابات الداخلة في الميزانية مباشرة تحت الدورة مع أزرار سريعة لاختيار العامة فقط، الخاصة فقط، أو الكل.',
+        'نسب مئوية مضبوطة 100%: نسب كل بند بقت بتتحسب صح من إجمالي ميزانيتك الحية شاملة أي دخل إضافي.',
+      ],
+    },
+  },
+  {
     version: '2.0.2',
     isBeta: true,
     releaseDate: 'November 21, 2026',

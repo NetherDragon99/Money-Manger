@@ -748,7 +748,7 @@ export function evaluateSmartBudget(
     ? { ...config, ...cycleOverride }
     : config;
 
-  // 2. Base Currency & Public Account Filtering
+  // 2. Base Currency & Linked Account Filtering (Public / Private / Custom Selection)
   const baseCurrency = effectiveConfig.baseCurrency || accounts[0]?.currency || 'EGP';
   const normalizedBaseCurr = normalizeCurrencyCodeOrSymbol(baseCurrency);
   const includePrivate = Boolean(effectiveConfig.includePrivateAccounts);
@@ -758,16 +758,36 @@ export function evaluateSmartBudget(
     accountMap.set(acc.id, acc);
   }
 
-  const isPublicBaseCurrencyAccount = (acc?: Account): boolean => {
+  const rawExplicitAccountIds =
+    effectiveConfig.includedAccountIds && effectiveConfig.includedAccountIds.length > 0
+      ? effectiveConfig.includedAccountIds
+      : effectiveConfig.fromTodayConfig?.linkedAccountIds &&
+        effectiveConfig.fromTodayConfig.linkedAccountIds.length > 0
+      ? effectiveConfig.fromTodayConfig.linkedAccountIds
+      : null;
+  const explicitAccountSet = rawExplicitAccountIds ? new Set(rawExplicitAccountIds) : null;
+
+  const isIncludedBudgetAccount = (acc?: Account): boolean => {
     if (!acc) return false;
+    if (acc.currency && normalizeCurrencyCodeOrSymbol(acc.currency) !== normalizedBaseCurr) {
+      return false;
+    }
+    if (explicitAccountSet !== null) {
+      return explicitAccountSet.has(acc.id);
+    }
     if (acc.isPrivate && !includePrivate) return false;
-    if (acc.currency && normalizeCurrencyCodeOrSymbol(acc.currency) !== normalizedBaseCurr) return false;
     return true;
   };
 
   const excludedCurrenciesSet = new Set<string>();
   for (const acc of accounts) {
-    if (acc.isPrivate && !includePrivate) continue;
+    if (
+      acc.isPrivate &&
+      !includePrivate &&
+      !(explicitAccountSet !== null && explicitAccountSet.has(acc.id))
+    ) {
+      continue;
+    }
     if (acc.currency && normalizeCurrencyCodeOrSymbol(acc.currency) !== normalizedBaseCurr) {
       excludedCurrenciesSet.add(acc.currency);
     }
@@ -775,43 +795,47 @@ export function evaluateSmartBudget(
 
   const calculationMode: 'full_cycle' | 'from_today' = effectiveConfig.calculationMode || 'full_cycle';
   const isPaused = Boolean(effectiveConfig.isPaused);
-  const includedAccountSet =
-    calculationMode === 'from_today' &&
-    effectiveConfig.includedAccountIds &&
-    effectiveConfig.includedAccountIds.length > 0
-      ? new Set(effectiveConfig.includedAccountIds)
-      : null;
 
   let fromDateStr = cycle.startDate;
   let remainingMoneyMinor: number | null = null;
   let evaluatedFromTodayConfig: FromTodayConfig | undefined = undefined;
   let fromTodayDynamicDeltaMinor = 0;
+  let currentLiveBalanceMinor = 0;
+  let trackedBudgetOutflowsFromLinkedMinor = 0;
+  let hasLiveLinkedBalance = false;
 
-  if (calculationMode === 'from_today') {
-    const rawFromDate = effectiveConfig.fromTodayConfig?.fromDate || asOfStr;
-    fromDateStr =
-      rawFromDate < cycle.startDate
-        ? cycle.startDate
-        : rawFromDate > cycle.endDate
-        ? cycle.endDate
-        : rawFromDate;
+  if (calculationMode === 'from_today' || explicitAccountSet !== null) {
+    hasLiveLinkedBalance = true;
+    if (calculationMode === 'from_today') {
+      const rawFromDate = effectiveConfig.fromTodayConfig?.fromDate || asOfStr;
+      fromDateStr =
+        rawFromDate < cycle.startDate
+          ? cycle.startDate
+          : rawFromDate > cycle.endDate
+          ? cycle.endDate
+          : rawFromDate;
+    } else {
+      fromDateStr = cycle.startDate;
+    }
 
-    // Live Public Account Linkage:
-    // Automatically excludes Private accounts (even if previously listed) unless includePrivateAccounts is enabled.
-    const primaryPublicAccounts = accounts.filter((a) => isPublicBaseCurrencyAccount(a));
+    // Live Account Linkage:
+    // Honors explicitAccountSet (including Private accounts when selected) or falls back to public spending accounts.
+    const primaryPublicAccounts = accounts.filter(
+      (a) =>
+        (!a.isPrivate || includePrivate) &&
+        (!a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normalizedBaseCurr)
+    );
     const spendingAccounts = primaryPublicAccounts.filter((a) => isSpendingOrCustomiseRole(a.accountRole));
     const defaultAccounts = spendingAccounts.length > 0 ? spendingAccounts : primaryPublicAccounts;
 
-    const configuredLinkedIds = effectiveConfig.fromTodayConfig?.linkedAccountIds;
     const effectiveLinkedAccounts =
-      configuredLinkedIds && configuredLinkedIds.length > 0
-        ? accounts.filter((a) => configuredLinkedIds.includes(a.id) && isPublicBaseCurrencyAccount(a))
+      explicitAccountSet !== null
+        ? accounts.filter((a) => isIncludedBudgetAccount(a))
         : defaultAccounts;
 
     const linkedAccountSet = new Set(effectiveLinkedAccounts.map((a) => a.id));
     let todayOutflowMinor = 0;
     let todayInflowMinor = 0;
-    let trackedBudgetOutflowsFromLinkedMinor = 0;
     let fromTodayExtraIncomeMinor = 0;
     let fromTodayPrivateTransferDeltaMinor = 0;
 
@@ -827,9 +851,7 @@ export function evaluateSmartBudget(
       const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
       const isTransfer = tx.type === 'transfer' || Boolean(tx.toAccountId);
 
-      // Preserve cash-conservation for all tracked budget outflows since fromDateStr:
-      // current account balances already deducted these outflows, so add them back to form
-      // the live cycle-funded pool before deducting pool allocations & tracked spends once.
+      // Preserve cash-conservation for all tracked budget outflows since fromDateStr
       if (tx.type === 'expense' && linkedAccountSet.has(tx.accountId)) {
         trackedBudgetOutflowsFromLinkedMinor += Math.max(0, toMinorUnits((tx.amount || 0) + tax, minorFactor));
       } else if (isTransfer && tx.toAccountId && tx.accountId !== tx.toAccountId) {
@@ -843,15 +865,15 @@ export function evaluateSmartBudget(
         ) {
           trackedBudgetOutflowsFromLinkedMinor += principalMinor;
         }
-        // Track non-savings shifts between Private (or unlinked non-savings) and Linked Public accounts for badge telemetry
+        // Track non-savings shifts between Excluded and Included accounts for badge telemetry
         if (!isSavingsTransaction(tx, undefined, effectiveConfig.fixedCategoryIds)) {
           const fromAcc = accountMap.get(tx.accountId);
           const toAcc = accountMap.get(tx.toAccountId);
-          const fromIsPublic = isPublicBaseCurrencyAccount(fromAcc);
-          const toIsPublic = isPublicBaseCurrencyAccount(toAcc);
-          if (!fromIsPublic && toIsLinked) {
+          const fromIncluded = isIncludedBudgetAccount(fromAcc);
+          const toIncluded = isIncludedBudgetAccount(toAcc);
+          if (!fromIncluded && toIsLinked) {
             fromTodayPrivateTransferDeltaMinor += principalMinor;
-          } else if (fromIsLinked && toAcc?.isPrivate && !toIsPublic) {
+          } else if (fromIsLinked && toAcc && !toIncluded) {
             fromTodayPrivateTransferDeltaMinor -= principalMinor;
           }
         }
@@ -891,11 +913,10 @@ export function evaluateSmartBudget(
     const todayLinkedNetOutflowMinor = Math.max(0, todayOutflowMinor - todayInflowMinor);
 
     // ALWAYS compute live balance dynamically from current linked account balances + manual adjustment
-    // (Never freeze stale remainingMoneyMinor so any income/edit/private-move rebalances immediately!)
     const linkedBalancesSum = effectiveLinkedAccounts.reduce((sum, a) => sum + (a.balance || 0), 0);
     const manualAdj = Number(effectiveConfig.fromTodayConfig?.manualAdjustment) || 0;
     const manualAdjMinor = toMinorUnits(manualAdj, minorFactor);
-    const currentLiveBalanceMinor = Math.max(0, toMinorUnits(linkedBalancesSum, minorFactor) + manualAdjMinor);
+    currentLiveBalanceMinor = Math.max(0, toMinorUnits(linkedBalancesSum, minorFactor) + manualAdjMinor);
     const cycleFundedMinor = Math.max(0, currentLiveBalanceMinor + trackedBudgetOutflowsFromLinkedMinor);
 
     remainingMoneyMinor = cycleFundedMinor;
@@ -945,11 +966,11 @@ export function evaluateSmartBudget(
     const desc = (tx.description || '').toLowerCase();
     if (desc.includes('manual balance adjustment') || desc.includes('تسوية رصيد')) continue;
 
-    // Public Income scanning (for dynamic full_cycle rebalancing)
+    // Income scanning (respecting selected budget accounts: Public / Private / Custom)
     if (tx.type === 'income') {
-      if (acc && isPublicBaseCurrencyAccount(acc)) {
+      if (acc && isIncludedBudgetAccount(acc)) {
         const tax = typeof tx.taxAmount === 'number' && !isNaN(tx.taxAmount) ? Math.max(0, tx.taxAmount) : 0;
-        const netIncomeMinor = Math.max(0, toMinorUnits((tx.amount || 0) - 0 + tax, minorFactor));
+        const netIncomeMinor = Math.max(0, toMinorUnits((tx.amount || 0) + tax, minorFactor));
         if (isSalaryLikeIncome(tx)) {
           salaryIncomeInCycleMinor += netIncomeMinor;
         } else {
@@ -1015,12 +1036,12 @@ export function evaluateSmartBudget(
         savingsDepositedMinor += principalMinor;
         savingsTransactions.push(tx);
       } else {
-        // Track Public <-> Private shifts dynamically in full_cycle mode
-        const fromIsPublic = isPublicBaseCurrencyAccount(acc);
-        const toIsPublic = isPublicBaseCurrencyAccount(toAcc);
-        if (!fromIsPublic && toIsPublic) {
+        // Track shifts between Excluded <-> Included accounts dynamically in full_cycle mode
+        const fromIncluded = isIncludedBudgetAccount(acc);
+        const toIncluded = isIncludedBudgetAccount(toAcc);
+        if (!fromIncluded && toIncluded) {
           netPrivateTransferDeltaMinor += principalMinor;
-        } else if (fromIsPublic && !toIsPublic) {
+        } else if (fromIncluded && !toIncluded) {
           netPrivateTransferDeltaMinor -= principalMinor;
         }
       }
@@ -1031,10 +1052,7 @@ export function evaluateSmartBudget(
     // Expense transactions
     if (calculationMode === 'from_today' && cleanTxDate < fromDateStr) continue;
 
-    if (acc) {
-      if (includedAccountSet && !includedAccountSet.has(acc.id)) continue;
-      if (acc.isPrivate && !includePrivate) continue;
-    }
+    if (acc && !isIncludedBudgetAccount(acc)) continue;
 
     if (tx.type === 'expense') {
       cycleTxs.push({ ...tx, date: cleanTxDate });
@@ -1042,7 +1060,7 @@ export function evaluateSmartBudget(
   }
 
   // Determine Cycle Total Income
-  const plannedBaseIncomeMinor =
+  let plannedBaseIncomeMinor =
     calculationMode === 'from_today'
       ? Math.max(0, remainingMoneyMinor ?? 0)
       : Math.max(0, toMinorUnits(effectiveConfig.plannedIncome || 0, minorFactor));
@@ -1051,12 +1069,16 @@ export function evaluateSmartBudget(
   let cycleIncomeMinor = plannedBaseIncomeMinor;
 
   if (calculationMode === 'from_today') {
-    // cycleIncomeMinor already reflects live linked public account balances; expose delta for UI telemetry
+    // cycleIncomeMinor already reflects live linked account balances; expose delta for UI telemetry
     dynamicPublicIncomeDeltaMinor = fromTodayDynamicDeltaMinor;
   } else if (calculationMode === 'full_cycle') {
     if (plannedBaseIncomeMinor > 0) {
       dynamicPublicIncomeDeltaMinor = extraPublicIncomeMinor + netPrivateTransferDeltaMinor;
       cycleIncomeMinor = Math.max(0, plannedBaseIncomeMinor + dynamicPublicIncomeDeltaMinor);
+    } else if (hasLiveLinkedBalance && remainingMoneyMinor !== null && remainingMoneyMinor > 0) {
+      plannedBaseIncomeMinor = remainingMoneyMinor;
+      dynamicPublicIncomeDeltaMinor = fromTodayDynamicDeltaMinor;
+      cycleIncomeMinor = remainingMoneyMinor;
     } else {
       dynamicPublicIncomeDeltaMinor =
         salaryIncomeInCycleMinor + extraPublicIncomeMinor + netPrivateTransferDeltaMinor;
@@ -1267,13 +1289,15 @@ export function evaluateSmartBudget(
 
   // 7. Calculate Today's Baseline Allowance & Upcoming Daily Allowance
   const rollover = effectiveConfig.rolloverSetting || 'spread';
-  const effectiveDailySpentBeforeTodayMinor = dailySpentBeforeTodayMinor + spilledBeforeTodayMinor;
+  // NOTE: Uncovered excess from Fixed/Outings/One-Off is deducted at the cycle pool level
+  // so it spreads evenly across remaining days and NEVER inflates "Spent Today".
+  const effectiveDailySpentBeforeTodayMinor = dailySpentBeforeTodayMinor + totalSpilledToDailyMinor;
   let dailyPoolRemainingAtStartOfTodayMinor: number;
 
   if (calculationMode === 'from_today') {
     dailyPoolRemainingAtStartOfTodayMinor = dailyMinor - effectiveDailySpentBeforeTodayMinor;
   } else if (rollover === 'sweep_to_savings') {
-    let poolSimMinor = Math.max(0, dailyMinor - spilledBeforeTodayMinor);
+    let poolSimMinor = Math.max(0, dailyMinor - totalSpilledToDailyMinor);
     for (let i = 0; i < allCycleDates.length; i++) {
       const d = allCycleDates[i];
       const dStr = formatLocalDate(d);
@@ -1302,13 +1326,13 @@ export function evaluateSmartBudget(
     todayAllowanceMinor = roundHalfUp(poolForTodayMinor / remainingDays);
   }
 
-  const todaySpentMinor = todayDailySpentMinor + spilledTodayMinor;
-  const todayRemainingMinor = todayAllowanceMinor - todaySpentMinor;
-  const overBudgetByMinor = todayRemainingMinor < 0 ? Math.abs(todayRemainingMinor) : 0;
+  const todaySpentMinor = todayDailySpentMinor;
+  let todayRemainingMinor = todayAllowanceMinor - todaySpentMinor;
+  let overBudgetByMinor = todayRemainingMinor < 0 ? Math.abs(todayRemainingMinor) : 0;
 
-  const dailyPoolRemainingAfterTodayMinor = dailyPoolRemainingAtStartOfTodayMinor - todaySpentMinor;
+  let dailyPoolRemainingAfterTodayMinor = dailyPoolRemainingAtStartOfTodayMinor - todaySpentMinor;
   const effectiveDailyTrackedSpentMinor = dailyTrackedSpentMinor + totalSpilledToDailyMinor;
-  const effectiveDailyRemainingMinor = dailyMinor - effectiveDailyTrackedSpentMinor;
+  let effectiveDailyRemainingMinor = dailyMinor - effectiveDailyTrackedSpentMinor;
 
   let upcomingDailyAllowanceMinor = 0;
   if (remainingDaysInCycle > 1 && dailyPoolRemainingAfterTodayMinor > 0) {
@@ -1493,13 +1517,86 @@ export function evaluateSmartBudget(
   const oneOffDisplaySpentMinor = Math.max(0, oneOffTrackedSpentMinor + oneOffManualMinor);
   const oneOffDisplayRemainingMinor = oneOffMinor - oneOffDisplaySpentMinor;
 
-  const dailyDisplaySpentMinor = Math.max(0, effectiveDailyTrackedSpentMinor + dailyManualMinor);
-  const dailyDisplayRemainingMinor = dailyMinor - dailyDisplaySpentMinor;
+  const dailyDisplaySpentMinor = Math.max(0, dailyTrackedSpentMinor + dailyManualMinor);
+  let dailyDisplayRemainingMinor = dailyMinor - effectiveDailyTrackedSpentMinor - dailyManualMinor;
 
-  // 11. Rebalance Scenarios (based purely on tracked transaction deficits)
-  const unclampedDailyPoolRemainingMinor = dailyMinor - effectiveDailyTrackedSpentMinor;
+  // Live Linked-Account Obligation Reconciliation:
+  // In full_cycle modes (App Cycle, Calendar Month, Custom) whenever budget accounts are selected,
+  // check actual live balance across selected accounts, subtract unpaid obligations (Savings, Fixed,
+  // Outings, One-Off), and divide the net available cash evenly across remaining days.
+  if (calculationMode === 'full_cycle' && explicitAccountSet !== null) {
+    const unpaidSavingsMinor = Math.max(
+      0,
+      savingsMinor - displayNetSavedMinor - savingsAbsorbedOneOffMinor
+    );
+    const unpaidFixedMinor = Math.max(0, fixedMinor - fixedDisplaySpentMinor);
+    const unpaidOutingsMinor = Math.max(
+      0,
+      outingsMinor - Math.max(outingsDisplaySpentMinor, outingsEffectiveForSpillMinor)
+    );
+    const unpaidOneOffMinor = Math.max(
+      0,
+      oneOffMinor -
+        Math.max(
+          oneOffDisplaySpentMinor,
+          oneOffTrackedSpentMinor - oneOffCoveredByEmergencyCreditMinor
+        )
+    );
+    const totalUnpaidObligationsMinor =
+      unpaidSavingsMinor + unpaidFixedMinor + unpaidOutingsMinor + unpaidOneOffMinor;
+
+    dailyPoolRemainingAfterTodayMinor = currentLiveBalanceMinor - totalUnpaidObligationsMinor;
+    dailyPoolRemainingAtStartOfTodayMinor =
+      dailyPoolRemainingAfterTodayMinor + todayDailySpentMinor;
+
+    todayAllowanceMinor =
+      remainingDays > 0 && dailyPoolRemainingAtStartOfTodayMinor > 0
+        ? roundHalfUp(dailyPoolRemainingAtStartOfTodayMinor / remainingDays)
+        : 0;
+    todayRemainingMinor = todayAllowanceMinor - todaySpentMinor;
+    overBudgetByMinor = todayRemainingMinor < 0 ? Math.abs(todayRemainingMinor) : 0;
+
+    if (remainingDaysInCycle > 1) {
+      upcomingDailyAllowanceMinor =
+        dailyPoolRemainingAfterTodayMinor > 0
+          ? roundHalfUp(dailyPoolRemainingAfterTodayMinor / (remainingDaysInCycle - 1))
+          : 0;
+    } else {
+      upcomingDailyAllowanceMinor = Math.max(0, todayRemainingMinor);
+    }
+
+    dailyDisplayRemainingMinor = dailyPoolRemainingAfterTodayMinor - dailyManualMinor;
+    effectiveDailyRemainingMinor = dailyPoolRemainingAfterTodayMinor;
+
+    const liveDailyExhausted =
+      dailyPoolRemainingAfterTodayMinor < 0 ||
+      (dailyPoolRemainingAfterTodayMinor === 0 &&
+        (overBudgetByMinor > 0 || remainingDaysInCycle > 1));
+
+    if (liveDailyExhausted) {
+      allowanceState = 'true_deficit';
+    } else if (
+      overBudgetByMinor > 0 ||
+      (plannedDailyAllowanceMinor > 0 &&
+        upcomingDailyAllowanceMinor <
+          roundHalfUp(plannedDailyAllowanceMinor * headsUpThresholdRatio))
+    ) {
+      allowanceState = 'heads_up';
+    } else {
+      allowanceState = 'normal';
+    }
+  }
+
+  // 11. Rebalance Scenarios (reflects live obligation shortfall when accounts are linked)
+  const unclampedDailyPoolRemainingMinor =
+    calculationMode === 'full_cycle' && explicitAccountSet !== null
+      ? dailyPoolRemainingAfterTodayMinor
+      : dailyMinor - effectiveDailyTrackedSpentMinor;
   const dailyDeficitMinor = -unclampedDailyPoolRemainingMinor;
-  const cycleIncomeDeficitMinor = totalTrackedCycleSpendMinor - cycleIncomeMinor;
+  const cycleIncomeDeficitMinor =
+    calculationMode === 'full_cycle' && explicitAccountSet !== null
+      ? Math.max(0, -dailyPoolRemainingAfterTodayMinor)
+      : totalTrackedCycleSpendMinor - cycleIncomeMinor;
   const cycleDeficitMinor = Math.max(0, dailyDeficitMinor, cycleIncomeDeficitMinor);
   const cycleDeficitMajor = toMajorUnits(cycleDeficitMinor, minorFactor);
   const hasDeficit = cycleDeficitMinor > 0 && cycleDeficitMajor >= 0.01;

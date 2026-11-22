@@ -81,6 +81,8 @@ import {
   evaluateSmartBudget,
   SmartBudgetConfig,
   SmartBudgetEvaluation,
+  isSpendingOrCustomiseRole,
+  normalizeCurrencyCodeOrSymbol,
 } from '../utils/smartBudgetEngine';
 import { ensureBankFeesCategory, buildLinkedTransferFeeTransaction, roundHalfUpToCents } from '../utils/transferFee';
 import { syncAllAccountBalances, getHistoricalBalance } from '../utils/balanceEngine';
@@ -2605,10 +2607,42 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const smartBudgetEvaluation = useMemo<SmartBudgetEvaluation>(() => {
     const sb = settings.smartBudget;
     const baseline = sb?.baseline || {};
+    const baseCurr = settings.currencySymbol || baseline.baseCurrency || 'EGP';
+    const normBaseCurr = normalizeCurrencyCodeOrSymbol(baseCurr);
+
+    const hasExplicitIncluded =
+      baseline.includedAccountIds && baseline.includedAccountIds.length > 0;
+    const hasLinkedFromToday =
+      baseline.fromTodayConfig?.linkedAccountIds &&
+      baseline.fromTodayConfig.linkedAccountIds.length > 0;
+
+    let defaultIncludedIds: string[];
+    if (hasExplicitIncluded) {
+      defaultIncludedIds = baseline.includedAccountIds!;
+    } else if (hasLinkedFromToday) {
+      defaultIncludedIds = baseline.fromTodayConfig!.linkedAccountIds!;
+    } else {
+      const publicBaseAccounts = accounts.filter(
+        (a) =>
+          !a.isPrivate &&
+          (!a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normBaseCurr)
+      );
+      const spendingAccounts = publicBaseAccounts.filter((a) =>
+        isSpendingOrCustomiseRole(a.accountRole)
+      );
+      defaultIncludedIds = (spendingAccounts.length > 0 ? spendingAccounts : publicBaseAccounts).map(
+        (a) => a.id
+      );
+    }
+
     const cfg: SmartBudgetConfig = {
       ...baseline,
       startDay: settings.defaultMonthStartDay || baseline.startDay || 1,
-      baseCurrency: settings.currencySymbol || baseline.baseCurrency || 'EGP',
+      baseCurrency: baseCurr,
+      includedAccountIds: defaultIncludedIds,
+      includePrivateAccounts:
+        baseline.includePrivateAccounts ??
+        accounts.some((a) => defaultIncludedIds.includes(a.id) && a.isPrivate),
       overrides: sb?.overrides,
       adjustments: sb?.adjustments,
     };
