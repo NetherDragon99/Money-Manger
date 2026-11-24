@@ -59,6 +59,9 @@ export interface TransactionImpactMetrics {
   spilloverAmount: number;
   equivalentDailyDays: number;
   averageDailySpendInCycle: number;
+  recentDailySpendAverage: number;
+  paceForecastDays: number;
+  paceExtraDaysDelta: number;
   exceedsAvgAlert: boolean;
   exceedsAvgRatio: number;
   remainingDaysInCycle: number;
@@ -93,10 +96,15 @@ export interface WhatIfPoolComparisonItem {
 }
 
 export interface WhatIfSimulationReport {
-  mode: 'single_expense' | 'multi_day_expense' | 'extra_income';
+  mode: 'single_expense' | 'multi_day_expense' | 'extra_income' | 'stretch_days';
   totalAmount: number;
   perDayAmount: number;
   daysCount: number;
+  extraDays?: number;
+  newCycleEndDate?: string;
+  newRemainingDays?: number;
+  recentDailyAverage?: number;
+  paceForecastDays?: number;
   severity: ImpactSeverity;
   headline: string;
   detailedMessages: string[];
@@ -152,6 +160,33 @@ function applyVirtualAccountDeltas(
     }
     return delta !== 0 ? { ...acc, balance: (acc.balance || 0) + delta } : acc;
   });
+}
+
+function computeRecentDailyAverage(
+  dailyTxs: Transaction[] | undefined,
+  cycleDailyTrackedSpent: number,
+  asOfDate: Date,
+  cycleStartStr: string,
+  elapsedDays: number
+): number {
+  const safeElapsed = Math.max(1, elapsedDays);
+  const cycleAvg = Math.round((Math.max(0, cycleDailyTrackedSpent) / safeElapsed) * 100) / 100;
+  if (!dailyTxs || dailyTxs.length === 0) return cycleAvg;
+
+  const windowDays = Math.min(7, safeElapsed);
+  const asOfStr = formatLocalDate(asOfDate);
+  const rawWindowStart = formatLocalDate(addDays(asOfDate, -(windowDays - 1)));
+  const windowStartStr = rawWindowStart < cycleStartStr ? cycleStartStr : rawWindowStart;
+
+  let windowSum = 0;
+  for (const tx of dailyTxs) {
+    const cleanDate = (tx.date || '').slice(0, 10);
+    if (cleanDate >= windowStartStr && cleanDate <= asOfStr) {
+      windowSum += Math.max(0, Number(tx.amount) || 0) + Math.max(0, Number(tx.taxAmount) || 0);
+    }
+  }
+  if (windowSum <= 0) return cycleAvg;
+  return Math.round((windowSum / windowDays) * 100) / 100;
 }
 
 function computeRunway(
@@ -286,37 +321,52 @@ export function analyzeTransactionImpact(
     dailyBefore > 0 ? Math.round(((dailyAfter - dailyBefore) / dailyBefore) * 1000) / 10 : 0;
 
   const elapsedDays = Math.max(1, evalBefore.dailyStatus.cycleDayIndex);
-  const totalDiscretionarySpentBefore =
-    evalBefore.pools.daily.trackedSpent + evalBefore.pools.outings.trackedSpent;
+  // Strictly Daily-pool spending only (never mix Outings/Bills/One-Off into Daily pace!)
+  const dailyOnlyTrackedSpentBefore = evalBefore.pools.daily.trackedSpent;
   const averageDailySpendInCycle =
-    Math.round((totalDiscretionarySpentBefore / elapsedDays) * 100) / 100;
+    Math.round((dailyOnlyTrackedSpentBefore / elapsedDays) * 100) / 100;
+  const recentDailySpendAverage = computeRecentDailyAverage(
+    evalBefore.pools.daily.transactions,
+    dailyOnlyTrackedSpentBefore,
+    asOf,
+    evalBefore.cycle.startDate,
+    elapsedDays
+  );
 
   const plannedDaily = Math.max(1, evalBefore.dailyStatus.plannedDailyAllowance || dailyBefore || 1);
   const equivalentDailyDays = Math.round((effectiveAmount / plannedDaily) * 10) / 10;
 
-  const avgBaseline = Math.max(averageDailySpendInCycle, plannedDaily * 0.65);
+  const avgBaseline = Math.max(recentDailySpendAverage, averageDailySpendInCycle, plannedDaily * 0.65);
   const exceedsAvgRatio = avgBaseline > 0 ? Math.round((effectiveAmount / avgBaseline) * 10) / 10 : 0;
   const exceedsAvgAlert =
     draft.type === 'expense' &&
-    ((averageDailySpendInCycle > 0 && effectiveAmount >= averageDailySpendInCycle * 1.5) ||
+    ((recentDailySpendAverage > 0 && effectiveAmount >= recentDailySpendAverage * 1.6) ||
       effectiveAmount >= plannedDaily * 1.6);
 
-  const burnAfter = Math.max(
-    averageDailySpendInCycle || plannedDaily,
-    evalAfter.dailyStatus.upcomingDailyAllowance || plannedDaily
-  );
+  const paceBasis = recentDailySpendAverage > 0 ? recentDailySpendAverage : dailyAfter || plannedDaily;
+  const paceForecastDays =
+    evalAfter.pools.daily.remaining <= 0
+      ? 0
+      : paceBasis > 0
+      ? Math.min(999, Math.floor(evalAfter.pools.daily.remaining / paceBasis))
+      : remDays;
+  const paceExtraDaysDelta = paceForecastDays - remDays;
+
   const runwayAfter = computeRunway(
-    evalAfter.pools.daily.remaining + Math.max(0, evalAfter.pools.outings.remaining),
-    burnAfter,
+    evalAfter.pools.daily.remaining,
+    Math.max(paceBasis, 1),
     remDays,
     asOf
   );
+  // Honest cycle-end projection: never invent a fake deficit when remaining Daily pool covers all remaining days at dailyAfter!
   const projectedCycleEndBalance =
-    Math.round(
-      (evalAfter.pools.daily.remaining -
-        (averageDailySpendInCycle > 0 ? averageDailySpendInCycle : dailyAfter) * Math.max(0, remDays - 1)) *
-        100
-    ) / 100;
+    evalAfter.pools.daily.remaining <= 0
+      ? Math.round(evalAfter.pools.daily.remaining * 100) / 100
+      : recentDailySpendAverage > 0 && recentDailySpendAverage < dailyAfter
+      ? Math.round(
+          (evalAfter.pools.daily.remaining - recentDailySpendAverage * Math.max(0, remDays - 1)) * 100
+        ) / 100
+      : 0;
 
   const fromAcc = accounts.find((a) => a.id === draft.accountId);
   const toAcc = draft.toAccountId ? accounts.find((a) => a.id === draft.toAccountId) : undefined;
@@ -575,71 +625,76 @@ export function analyzeTransactionImpact(
       if (poolAfter <= 0 || evalAfter.dailyStatus.allowanceState === 'true_deficit') {
         severity = 'danger';
         headline = isAr
-          ? `استنى شوية! الصرف ده هيخلّص فلوس اليومي تماماً (عجز ${fmtShort(Math.abs(poolAfter), curr)})`
+          ? `استنى شوية! الصرف ده هيخلّص فلوس اليومي ويدخّلك في عجز ${fmtShort(Math.abs(poolAfter), curr)}`
           : `Hold on! This uses up your remaining Daily pool (${fmtShort(Math.abs(poolAfter), curr)} short)`;
       } else if (overToday > 0 || dailyDeltaPercent <= -15) {
         severity = 'warning';
         headline = isAr
-          ? `عديت مسموح النهارده بـ ${fmtShort(overToday, curr)} — يومية الأيام الجاية بقت ${fmtShort(dailyAfter, curr)}/يوم`
-          : `Over today's limit by ${fmtShort(overToday, curr)} → upcoming days adjust to ${fmtShort(dailyAfter, curr)}/day`;
+          ? `عدّيت مسموح النهارده بـ ${fmtShort(overToday, curr)} — يومية الأيام الجاية بقت ${fmtShort(dailyAfter, curr)}`
+          : `Over today's limit by ${fmtShort(overToday, curr)} — upcoming days adjust to ${fmtShort(dailyAfter, curr)}/day`;
       } else if (todayRemAfter < evalBefore.dailyStatus.todayAllowance * 0.25) {
         severity = 'caution';
         headline = isAr
-          ? `قربت تخلص مسموح النهارده — هيفضلك ${fmtShort(Math.max(0, todayRemAfter), curr)} بس لباقي اليوم`
-          : `Getting tight today — leaves just ${fmtShort(Math.max(0, todayRemAfter), curr)} for the rest of the day`;
+          ? `قرّبت تخلص مسموح النهارده — باقي لك ${fmtShort(Math.max(0, todayRemAfter), curr)} بس`
+          : `Getting tight today — ${fmtShort(Math.max(0, todayRemAfter), curr)} left for the rest of the day`;
       } else {
         severity = 'safe';
         headline = isAr
-          ? `مية مية وزي الفل! باقي لك النهارده ${fmtShort(todayRemAfter, curr)} والأيام الجاية ${fmtShort(dailyAfter, curr)}/يوم`
-          : `Right on track! ${fmtShort(todayRemAfter, curr)} left today · ${fmtShort(dailyAfter, curr)}/day next`;
+          ? `في الأمان! باقي لك النهارده ${fmtShort(todayRemAfter, curr)}`
+          : `Right on track! ${fmtShort(todayRemAfter, curr)} left for today`;
       }
+    }
 
+    // 100% consistent Month Status label (never contradicts a green headline!)
+    if (evalAfter.pools.daily.remaining <= 0 || evalAfter.dailyStatus.allowanceState === 'true_deficit') {
+      simpleOutlookLabel = isAr
+        ? `عجز ${fmtShort(Math.abs(evalAfter.pools.daily.remaining), curr)}`
+        : `Short by ${fmtShort(Math.abs(evalAfter.pools.daily.remaining), curr)}`;
+    } else if (recentDailySpendAverage > 0 && paceExtraDaysDelta > 0) {
+      simpleOutlookLabel = isAr
+        ? `مكفّي الـ ${remDays} يوم (+${paceExtraDaysDelta} يوم زيادة)`
+        : `Covers ${remDays}d (+${paceExtraDaysDelta}d spare)`;
+    } else {
+      simpleOutlookLabel = isAr
+        ? `مكفّي لآخر الشهر (${remDays} يوم)`
+        : `Covers all ${remDays} days left`;
+    }
+
+    // Honest Pace Forecast bullet (strictly Daily-only 7-day average, answers "how many days will my cash last?")
+    if (evalAfter.pools.daily.remaining <= 0 || evalAfter.dailyStatus.allowanceState === 'true_deficit') {
       detailedMessages.push(
         isAr
-          ? `الصرفة دي لوحدها قد ${equivalentDailyDays} يوم صرف من خطتك، ولو كملت بنفس الريتم هتخلص الشهر ${projectedCycleEndBalance >= 0 ? `بفائض حلو +${fmtShort(projectedCycleEndBalance, curr)}` : `بعجز ${fmtShort(Math.abs(projectedCycleEndBalance), curr)}`}.`
-          : `On its own, this equals ${equivalentDailyDays} planned spending days — finishing the cycle ${projectedCycleEndBalance >= 0 ? `+${fmtShort(projectedCycleEndBalance, curr)} ahead` : `-${fmtShort(Math.abs(projectedCycleEndBalance), curr)} short`}.`
+          ? `المبلغ ده أكبر من المتبقي في المصروف اليومي وهيسيب عجز ${fmtShort(Math.abs(evalAfter.pools.daily.remaining), curr)} لنهاية الدورة.`
+          : `This exceeds your remaining Daily balance, leaving a ${fmtShort(Math.abs(evalAfter.pools.daily.remaining), curr)} shortfall.`
+      );
+    } else if (recentDailySpendAverage > 0) {
+      if (paceForecastDays >= remDays) {
+        detailedMessages.push(
+          isAr
+            ? `📊 بمعدل صرفك اليومي آخر 7 أيام (${fmtShort(recentDailySpendAverage, curr)}/يوم)، فلوسك تكفي حوالي ${paceForecastDays} يوم${paceExtraDaysDelta > 0 ? ` — يعني مكفّية الـ ${remDays} يوم اللي فاضلين ومعاك ~${paceExtraDaysDelta} يوم زيادة.` : ' (مكفّية لآخر الشهر بالظبط).'}`
+            : `📊 At your recent 7-day daily pace (${fmtShort(recentDailySpendAverage, curr)}/day), your funds last ~${paceForecastDays} days${paceExtraDaysDelta > 0 ? ` — covering all ${remDays} days left with ~${paceExtraDaysDelta} extra days to spare.` : ' (right through payday).'}`
+        );
+      } else {
+        detailedMessages.push(
+          isAr
+            ? `📊 وتيرة آخر 7 أيام كانت ${fmtShort(recentDailySpendAverage, curr)}/يوم (تكفي ${paceForecastDays} من ${remDays} يوم)، بس التزامك بحد ${fmtShort(dailyAfter, curr)}/يوم هيوصّلك لآخر الشهر مرتاح.`
+            : `📊 Your last 7-day daily pace was ${fmtShort(recentDailySpendAverage, curr)}/day (~${paceForecastDays} of ${remDays} days), so sticking to ${fmtShort(dailyAfter, curr)}/day keeps you covered until payday.`
+        );
+      }
+    } else {
+      detailedMessages.push(
+        isAr
+          ? `📅 بحدك اليومي (${fmtShort(dailyAfter, curr)}/يوم)، فلوسك مكفّية الـ ${remDays} يوم اللي فاضلين لحد ${evalAfter.cycle.endDate.slice(5)}.`
+          : `📅 At ${fmtShort(dailyAfter, curr)}/day, your balance covers all ${remDays} remaining days through ${evalAfter.cycle.endDate.slice(5)}.`
       );
     }
 
-    if (evalAfter.pools.daily.remaining <= 0 || evalAfter.dailyStatus.allowanceState === 'true_deficit') {
-      simpleOutlookLabel = isAr ? 'الميزانية هتخلص قبل آخر الشهر' : 'Runs out before cycle ends';
-    } else if (runwayAfter.zeroDate) {
-      simpleOutlookLabel = isAr
-        ? `هتكفي لحد يوم ${runwayAfter.zeroDate.slice(5)} (${runwayAfter.runwayDays} يوم)`
-        : `Lasts until ${runwayAfter.zeroDate.slice(5)} (${runwayAfter.runwayDays} days)`;
-    } else {
-      simpleOutlookLabel = isAr
-        ? `متكفي لآخر الشهر! (+${fmtShort(Math.max(0, projectedCycleEndBalance), curr)} وفر)`
-        : `Safe until payday! (${projectedCycleEndBalance >= 0 ? `+${fmtShort(projectedCycleEndBalance, curr)}` : fmtShort(projectedCycleEndBalance, curr)})`;
-    }
-
-    // Daily Average Spike Warning
+    // Daily Average Spike Warning (only when significantly higher than usual Daily-only average)
     if (exceedsAvgAlert) {
       detailedMessages.push(
         isAr
-          ? `⚡ خد بالك: المبلغ ده أعلى بـ ${exceedsAvgRatio}× من متوسّط صرفك اليومي المعتاد (${fmtShort(averageDailySpendInCycle, curr)}/يوم).`
-          : `⚡ Big jump: ${exceedsAvgRatio}× higher than your usual daily spend (${fmtShort(averageDailySpendInCycle, curr)}/day).`
-      );
-    }
-
-    // Cycle Phase + Runway Contextual Insight
-    if (runwayAfter.zeroDate && evalAfter.pools.daily.remaining > 0) {
-      detailedMessages.push(
-        isAr
-          ? `📅 بنفس سرعة الصرف دي، الفلوس هتكفيك لحد يوم ${runwayAfter.zeroDate} (${runwayAfter.runwayDays} يوم من أصل ${remDays} فاضلين).`
-          : `📅 At this pace, your cash lasts until ${runwayAfter.zeroDate} (${runwayAfter.runwayDays} of ${remDays} days remaining).`
-      );
-    } else if (cyclePhase === 'early' && severity !== 'safe') {
-      detailedMessages.push(
-        isAr
-          ? '💡 إحنا لسه في أول الشهر — قدامك وقت طويل تلمّ الفرق ده بهدوء ومفيش قلق.'
-          : '💡 Still early in the cycle — plenty of days ahead to smooth this out easily.'
-      );
-    } else if (cyclePhase === 'late' && severity === 'safe') {
-      detailedMessages.push(
-        isAr
-          ? '🎯 شابوه! قفلة شهر ممتازة ومظبط الدنيا من غير ما تيجي جنب التحويش.'
-          : '🎯 Strong finish near payday — staying balanced without touching savings.'
+          ? `⚡ الصرفة دي أعلى بـ ${exceedsAvgRatio}× من متوسّط صرفك اليومي المعتاد (${fmtShort(recentDailySpendAverage || plannedDaily, curr)}/يوم).`
+          : `⚡ Big jump: ${exceedsAvgRatio}× higher than your usual daily spend (${fmtShort(recentDailySpendAverage || plannedDaily, curr)}/day).`
       );
     }
 
@@ -664,12 +719,20 @@ export function analyzeTransactionImpact(
         : `What helps: Tag urgent surprises as One-Off, trim ${fmtShort(dailyRecoveryNeeded, curr)}/day ahead, or open Smart Budget to rebalance.`;
     } else if (severity === 'warning') {
       recommendation = isAr
-        ? `عشان ترجع لنفس خطتك القديمة بسهولة، حاول توفّر حوالي ${fmtShort(Math.max(1, dailyRecoveryNeeded), curr)} بس كل يوم في الـ ${remDays} يوم الجايين.`
-        : `Easy recovery: Spend about ${fmtShort(Math.max(1, dailyRecoveryNeeded), curr)} less per day over the next ${remDays} days to bounce right back.`;
+        ? `عشان ترجع لخطتك القديمة بسهولة، حاول توفّر حوالي ${fmtShort(Math.max(1, dailyRecoveryNeeded), curr)} بس كل يوم في الـ ${remDays} يوم الجايين.`
+        : `Easy recovery: Spend about ${fmtShort(Math.max(1, dailyRecoveryNeeded), curr)} less per day over the next ${remDays} days to bounce back.`;
+    } else if (severity === 'caution') {
+      recommendation = isAr
+        ? `خلي باقي يومك هادي النهارده وهتكمل باقي الشهر على ${fmtShort(dailyAfter, curr)}/يوم بدون أي ضغط.`
+        : `Keep the rest of today light and you will cruise at ${fmtShort(dailyAfter, curr)}/day ahead.`;
     } else {
       recommendation = isAr
-        ? `كله تحت السيطرة! يوميتك الجاية ${fmtShort(dailyAfter, curr)}/يوم.${evalAfter.pools.outings.remaining > 0 ? ` ومعاك كمان ${fmtShort(evalAfter.pools.outings.remaining, curr)} فايضين للخروجات.` : ''}`
-        : `Smooth sailing at ${fmtShort(dailyAfter, curr)}/day ahead.${evalAfter.pools.outings.remaining > 0 ? ` Plus ${fmtShort(evalAfter.pools.outings.remaining, curr)} still free in Outings.` : ''}`;
+        ? evalAfter.pools.outings.remaining > 0
+          ? `ماشي مظبوط! ومعاك كمان ${fmtShort(evalAfter.pools.outings.remaining, curr)} فايضين لبند الخروجات.`
+          : 'ماشي مظبوط — حافظ على الوتيرة دي وهتكمّل الشهر مرتاح.'
+        : evalAfter.pools.outings.remaining > 0
+        ? `Looking great! You also still have ${fmtShort(evalAfter.pools.outings.remaining, curr)} free in Outings.`
+        : 'Looking great — keep this pace and you will breeze through the month.';
     }
 
     return {
@@ -692,6 +755,9 @@ export function analyzeTransactionImpact(
         spilloverAmount,
         equivalentDailyDays,
         averageDailySpendInCycle,
+        recentDailySpendAverage,
+        paceForecastDays,
+        paceExtraDaysDelta,
         exceedsAvgAlert,
         exceedsAvgRatio,
         remainingDaysInCycle: remDays,
@@ -728,6 +794,9 @@ export function analyzeTransactionImpact(
       spilloverAmount,
       equivalentDailyDays,
       averageDailySpendInCycle,
+      recentDailySpendAverage,
+      paceForecastDays,
+      paceExtraDaysDelta,
       exceedsAvgAlert,
       exceedsAvgRatio,
       remainingDaysInCycle: remDays,
@@ -746,9 +815,10 @@ export function analyzeTransactionImpact(
 
 export function simulateWhatIfScenario(
   params: {
-    mode: 'single_expense' | 'multi_day_expense' | 'extra_income';
+    mode: 'single_expense' | 'multi_day_expense' | 'extra_income' | 'stretch_days';
     amount: number;
     daysCount?: number;
+    extraDays?: number;
     pool: 'daily' | 'outings' | 'fixed' | 'oneoff';
   },
   evaluation: SmartBudgetEvaluation,
@@ -762,29 +832,152 @@ export function simulateWhatIfScenario(
   const curr = evaluation.baseCurrency || 'EGP';
   const remDays = Math.max(1, evaluation.dailyStatus.remainingDaysInCycle);
   const isLastDay = remDays <= 1;
+
+  const elapsedDays = Math.max(1, evaluation.dailyStatus.cycleDayIndex);
+  // Strictly Daily-only pace (never mix Outings into Daily burn rate!)
+  const burnRateBefore =
+    Math.round((evaluation.pools.daily.trackedSpent / elapsedDays) * 100) / 100;
+  const recentDailyAverage = computeRecentDailyAverage(
+    evaluation.pools.daily.transactions,
+    evaluation.pools.daily.trackedSpent,
+    asOf,
+    evaluation.cycle.startDate,
+    elapsedDays
+  );
+
+  const allowanceBefore = isLastDay
+    ? Math.max(0, evaluation.dailyStatus.todayRemaining)
+    : evaluation.dailyStatus.upcomingDailyAllowance;
+
+  const runwayBefore = computeRunway(
+    evaluation.pools.daily.remaining,
+    Math.max(recentDailyAverage || burnRateBefore, allowanceBefore || 1),
+    remDays,
+    asOf
+  );
+
+  // ==========================================================================
+  // MODE 4: STRETCH EXTRA DAYS (Extend current cycle end date by N extra days)
+  // ==========================================================================
+  if (params.mode === 'stretch_days') {
+    const requestedExtraDays = Math.min(
+      60,
+      Math.max(1, Math.round(params.extraDays ?? params.daysCount ?? 5))
+    );
+    const currentCycleKey = evaluation.cycle.startDate;
+    const nextOverrides = {
+      ...(config.overrides || {}),
+      [currentCycleKey]: {
+        ...(config.overrides?.[currentCycleKey] || {}),
+        extraCycleDays: requestedExtraDays,
+      },
+    };
+    const simEval = evaluateSmartBudget(
+      transactions,
+      accounts,
+      { ...config, extraCycleDays: requestedExtraDays, overrides: nextOverrides },
+      asOf
+    );
+
+    const newRemDays = Math.max(1, simEval.dailyStatus.remainingDaysInCycle);
+    const newAllowance =
+      newRemDays <= 1
+        ? Math.max(0, simEval.dailyStatus.todayRemaining)
+        : simEval.dailyStatus.upcomingDailyAllowance;
+    const stretchDelta = Math.round((newAllowance - allowanceBefore) * 100) / 100;
+    const stretchDeltaPct =
+      allowanceBefore > 0 ? Math.round((stretchDelta / allowanceBefore) * 1000) / 10 : 0;
+    const paceBasis = recentDailyAverage > 0 ? recentDailyAverage : newAllowance || 1;
+    const paceDays =
+      simEval.pools.daily.remaining <= 0
+        ? 0
+        : Math.min(999, Math.floor(simEval.pools.daily.remaining / paceBasis));
+    const stretchRunway = computeRunway(
+      simEval.pools.daily.remaining,
+      Math.max(paceBasis, 1),
+      newRemDays,
+      asOf
+    );
+
+    const severity: ImpactSeverity =
+      simEval.pools.daily.remaining <= 0
+        ? 'danger'
+        : Math.abs(stretchDeltaPct) >= 25
+        ? 'warning'
+        : 'caution';
+
+    const headline =
+      simEval.pools.daily.remaining <= 0
+        ? isAr
+          ? `مافيش رصيد يومي كافي للتمديد (+${requestedExtraDays} يوم)`
+          : `Not enough Daily balance left to stretch by +${requestedExtraDays} days`
+        : isAr
+        ? `لو مدّيت الشهر +${requestedExtraDays} يوم (لحد ${simEval.cycle.endDate})، يوميتك هتبقى ${fmtShort(newAllowance, curr)}/يوم`
+        : `Stretching +${requestedExtraDays} extra days (until ${simEval.cycle.endDate}) sets your daily limit to ${fmtShort(newAllowance, curr)}/day`;
+
+    const detailedMessages: string[] = [
+      isAr
+        ? `الفلوس المتبقية في اليومي (${fmtShort(simEval.pools.daily.remaining, curr)}) هتتقسّم على ${newRemDays} يوم بدل ${remDays} يوم (نهاية جديدة: ${simEval.cycle.endDate}).`
+        : `Your remaining Daily balance (${fmtShort(simEval.pools.daily.remaining, curr)}) spreads across ${newRemDays} days instead of ${remDays} (new end: ${simEval.cycle.endDate}).`,
+    ];
+
+    if (recentDailyAverage > 0) {
+      detailedMessages.push(
+        paceDays >= newRemDays
+          ? isAr
+            ? `📊 بمعدل صرفك آخر 7 أيام (${fmtShort(recentDailyAverage, curr)}/يوم)، فلوسك تكفي حوالي ${paceDays} يوم — يعني هتعدّي التمديد مرتاح!`
+            : `📊 At your last 7-day pace (${fmtShort(recentDailyAverage, curr)}/day), funds last ~${paceDays} days — comfortably covering the stretch!`
+          : isAr
+          ? `📊 معدل آخر 7 أيام (${fmtShort(recentDailyAverage, curr)}/يوم) يكفي ${paceDays} من ${newRemDays} يوم — فلو طبّقت التمديد التزم بحد ${fmtShort(newAllowance, curr)}/يوم.`
+          : `📊 Your last 7-day pace (${fmtShort(recentDailyAverage, curr)}/day) covers ${paceDays} of ${newRemDays} days — stick to ${fmtShort(newAllowance, curr)}/day if you apply this stretch.`
+      );
+    }
+
+    const recommendation = isAr
+      ? `تقدر تطبّق التمديد (+${requestedExtraDays} يوم) على الشهر ده كحالة استثنائية، وهيفضل الشهر الجاي يرجع لموعده العادي تلقائياً.`
+      : `You can apply +${requestedExtraDays} extra days to this cycle as a one-off exception — next month stays on your normal schedule automatically.`;
+
+    return {
+      mode: 'stretch_days',
+      totalAmount: simEval.pools.daily.remaining,
+      perDayAmount: newAllowance,
+      daysCount: requestedExtraDays,
+      extraDays: requestedExtraDays,
+      newCycleEndDate: simEval.cycle.endDate,
+      newRemainingDays: newRemDays,
+      recentDailyAverage,
+      paceForecastDays: paceDays,
+      severity,
+      headline,
+      detailedMessages,
+      recommendation,
+      poolName: getPoolDisplayName('daily', isAr),
+      poolBefore: evaluation.pools.daily.remaining,
+      poolAfter: simEval.pools.daily.remaining,
+      spilloverToDaily: 0,
+      allowanceBefore,
+      allowanceAfter: newAllowance,
+      dailyDelta: stretchDelta,
+      dailyDeltaPercent: stretchDeltaPct,
+      burnRateBefore,
+      burnRateAfter: burnRateBefore,
+      runwayDaysBefore: runwayBefore.runwayDays,
+      runwayDaysAfter: stretchRunway.runwayDays,
+      projectedZeroDate: stretchRunway.zeroDate,
+      projectedCycleEndBalance: simEval.pools.daily.remaining <= 0 ? simEval.pools.daily.remaining : 0,
+      dailyRecoveryNeeded: stretchDelta < 0 ? Math.abs(stretchDelta) : 0,
+      remainingDaysInCycle: newRemDays,
+      isLastDay: newRemDays <= 1,
+      poolComparison: [],
+    };
+  }
+
   const daysCount =
     params.mode === 'multi_day_expense'
       ? Math.min(remDays, Math.max(1, Math.round(params.daysCount || 3)))
       : 1;
   const perDayAmount = Math.max(0, Number(params.amount) || 0);
   const totalAmount = Math.round(perDayAmount * daysCount * 100) / 100;
-
-  const allowanceBefore = isLastDay
-    ? Math.max(0, evaluation.dailyStatus.todayRemaining)
-    : evaluation.dailyStatus.upcomingDailyAllowance;
-
-  const elapsedDays = Math.max(1, evaluation.dailyStatus.cycleDayIndex);
-  const burnRateBefore =
-    Math.round(
-      ((evaluation.pools.daily.trackedSpent + evaluation.pools.outings.trackedSpent) / elapsedDays) * 100
-    ) / 100;
-
-  const runwayBefore = computeRunway(
-    evaluation.pools.daily.remaining + Math.max(0, evaluation.pools.outings.remaining),
-    Math.max(burnRateBefore, allowanceBefore || 1),
-    remDays,
-    asOf
-  );
 
   // Pick a representative public account for simulation (so from_today live balances adjust cleanly)
   const publicAcc = accounts.find((a) => !a.isPrivate) || accounts[0];
@@ -861,23 +1054,29 @@ export function simulateWhatIfScenario(
   const burnRateAfter =
     params.mode === 'extra_income'
       ? burnRateBefore
-      : Math.round(
-          ((simEval.pools.daily.trackedSpent + simEval.pools.outings.trackedSpent) / elapsedDays) * 100
-        ) / 100;
+      : Math.round((simEval.pools.daily.trackedSpent / elapsedDays) * 100) / 100;
+
+  const paceBasisAfter = recentDailyAverage > 0 ? recentDailyAverage : allowanceAfter || 1;
+  const paceForecastDays =
+    simEval.pools.daily.remaining <= 0
+      ? 0
+      : Math.min(999, Math.floor(simEval.pools.daily.remaining / paceBasisAfter));
 
   const runwayAfter = computeRunway(
-    simEval.pools.daily.remaining + Math.max(0, simEval.pools.outings.remaining),
-    Math.max(burnRateAfter, allowanceAfter || 1),
+    simEval.pools.daily.remaining,
+    Math.max(paceBasisAfter, 1),
     remDays,
     asOf
   );
 
   const projectedCycleEndBalance =
-    Math.round(
-      (simEval.pools.daily.remaining -
-        Math.max(burnRateBefore, allowanceAfter) * Math.max(0, remDays - 1)) *
-        100
-    ) / 100;
+    simEval.pools.daily.remaining <= 0
+      ? Math.round(simEval.pools.daily.remaining * 100) / 100
+      : recentDailyAverage > 0 && recentDailyAverage < allowanceAfter
+      ? Math.round(
+          (simEval.pools.daily.remaining - recentDailyAverage * Math.max(0, remDays - 1)) * 100
+        ) / 100
+      : 0;
 
   const dailyRecoveryNeeded =
     params.mode !== 'extra_income' && dailyDelta < 0
@@ -1057,6 +1256,8 @@ export function simulateWhatIfScenario(
     dailyRecoveryNeeded,
     remainingDaysInCycle: remDays,
     isLastDay,
+    recentDailyAverage,
+    paceForecastDays,
     poolComparison,
   };
 }

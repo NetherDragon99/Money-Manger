@@ -297,6 +297,7 @@ export interface SmartBudgetCycleOverride extends Partial<SmartBudgetBaselineCon
   manualProgressAdjustments?: Partial<Record<SmartBudgetPoolKey, number>>;
   oneOffBudget?: number;
   oneOffFundingSource?: OneOffFundingSource;
+  extraCycleDays?: number; // Temporary exception: extend this cycle's end date by N extra days (0..60)
 }
 
 export interface SmartBudgetSettings {

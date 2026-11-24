@@ -228,10 +228,11 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   const [manualAmountInput, setManualAmountInput] = useState<string>('');
 
   // ==========================================================================
-  // WHAT-IF SIMULATOR STATE (3 Modes)
+  // WHAT-IF SIMULATOR STATE (4 Modes)
   // ==========================================================================
-  const [whatIfMode, setWhatIfMode] = useState<'single_expense' | 'multi_day_expense' | 'extra_income'>('single_expense');
+  const [whatIfMode, setWhatIfMode] = useState<'single_expense' | 'multi_day_expense' | 'extra_income' | 'stretch_days'>('single_expense');
   const [whatIfDaysCount, setWhatIfDaysCount] = useState<number>(3);
+  const [whatIfExtraDays, setWhatIfExtraDays] = useState<number>(5);
   const [whatIfAmount, setWhatIfAmount] = useState<string>('');
   const [whatIfPool, setWhatIfPool] = useState<'daily' | 'outings' | 'fixed' | 'oneoff'>('outings');
 
@@ -965,6 +966,36 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     showToast(t('scenarioRevertedSuccess'), 'info');
   };
 
+  const handleApplyExtraCycleDays = (extraDays: number) => {
+    const cleanDays = Math.min(60, Math.max(0, Math.round(extraDays)));
+    const newOverride: SmartBudgetCycleOverride = {
+      ...(currentOverride || {}),
+      extraCycleDays: cleanDays,
+    };
+    const newOverrides = {
+      ...(settings.smartBudget?.overrides || {}),
+      [currentCycleKey]: newOverride,
+    };
+    updateSettings({
+      smartBudget: {
+        baseline: settings.smartBudget?.baseline || {},
+        overrides: newOverrides,
+        adjustments: settings.smartBudget?.adjustments,
+        updatedAt: Date.now(),
+      },
+    });
+    showToast(
+      cleanDays > 0
+        ? isMsgArabic
+          ? `تم تمديد الشهر ده +${cleanDays} يوم كحالة استثنائية وتحديث مصروفك اليومي تلقائياً!`
+          : `Extended this cycle by +${cleanDays} extra days as a one-off exception!`
+        : isMsgArabic
+        ? 'تم إرجاع مدة الشهر لوضعها العادي.'
+        : 'Cycle duration restored to normal.',
+      'success'
+    );
+  };
+
   const handleToggleCyclePause = () => {
     const nextPaused = !isCyclePaused;
     const newOverride: SmartBudgetCycleOverride = {
@@ -1079,9 +1110,26 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   };
 
   // ==========================================================================
-  // 3-MODE WHAT-IF SIMULATOR CALCULATION (100% LOCAL DETERMINISTIC MATH)
+  // 4-MODE WHAT-IF SIMULATOR CALCULATION (100% LOCAL DETERMINISTIC MATH)
   // ==========================================================================
   const whatIfReport: WhatIfSimulationReport | null = useMemo(() => {
+    if (whatIfMode === 'stretch_days') {
+      const cleanExtra = Math.min(60, Math.max(1, Math.round(whatIfExtraDays || 1)));
+      return simulateWhatIfScenario(
+        {
+          mode: 'stretch_days',
+          amount: 0,
+          extraDays: cleanExtra,
+          pool: 'daily',
+        },
+        evaluation,
+        transactions,
+        accounts,
+        effectiveBudgetConfig,
+        resolvedMsgLang,
+        new Date()
+      );
+    }
     const simulatedAmount = Math.max(0, parseFloat(whatIfAmount.replace(/,/g, '')) || 0);
     if (simulatedAmount <= 0) return null;
     return simulateWhatIfScenario(
@@ -1102,6 +1150,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     whatIfMode,
     whatIfAmount,
     whatIfDaysCount,
+    whatIfExtraDays,
     whatIfPool,
     evaluation,
     transactions,
@@ -1416,6 +1465,19 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                         ? isArabic ? 'مخصص' : 'Custom'
                         : isArabic ? 'دورة التطبيق' : 'App Cycle'}
                     </span>
+                    {(evaluation.cycle.extraCycleDays || 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleApplyExtraCycleDays(0);
+                        }}
+                        title={isArabic ? 'اضغط لإلغاء التمديد وإرجاع الدورة لمدتها العادية' : 'Tap to reset extra days'}
+                        className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 transition cursor-pointer"
+                      >
+                        +{evaluation.cycle.extraCycleDays} {isArabic ? 'يوم تمديد ×' : 'd extended ×'}
+                      </button>
+                    )}
                     {evaluation.pools.total.dynamicPublicIncomeDelta !== 0 && (
                       <span
                         className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
@@ -2763,17 +2825,17 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   </h4>
                 </div>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
-                  {isArabic ? 'تحليل مستقبلي 3 أوضاع' : '3-Mode Forecast'}
+                  {isArabic ? 'تحليل مستقبلي 4 أوضاع' : '4-Mode Forecast'}
                 </span>
               </div>
               <p className="text-xs text-zinc-400">{t('whatIfSimulatorDesc')}</p>
 
-              {/* 3-Mode Segmented Control */}
-              <div className="grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-zinc-950 border border-zinc-800">
+              {/* 4-Mode Segmented Control */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 rounded-2xl bg-zinc-950 border border-zinc-800">
                 <button
                   type="button"
                   onClick={() => setWhatIfMode('single_expense')}
-                  className={`min-h-[38px] px-2 py-1.5 rounded-xl text-[11px] font-bold transition cursor-pointer ${
+                  className={`min-h-[40px] px-2 py-1.5 rounded-xl text-[11px] font-bold transition cursor-pointer ${
                     whatIfMode === 'single_expense'
                       ? 'bg-emerald-600 text-white shadow'
                       : 'text-zinc-400 hover:text-zinc-200'
@@ -2784,7 +2846,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                 <button
                   type="button"
                   onClick={() => setWhatIfMode('multi_day_expense')}
-                  className={`min-h-[38px] px-2 py-1.5 rounded-xl text-[11px] font-bold transition cursor-pointer ${
+                  className={`min-h-[40px] px-2 py-1.5 rounded-xl text-[11px] font-bold transition cursor-pointer ${
                     whatIfMode === 'multi_day_expense'
                       ? 'bg-amber-600 text-white shadow'
                       : 'text-zinc-400 hover:text-zinc-200'
@@ -2795,7 +2857,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                 <button
                   type="button"
                   onClick={() => setWhatIfMode('extra_income')}
-                  className={`min-h-[38px] px-2 py-1.5 rounded-xl text-[11px] font-bold transition cursor-pointer ${
+                  className={`min-h-[40px] px-2 py-1.5 rounded-xl text-[11px] font-bold transition cursor-pointer ${
                     whatIfMode === 'extra_income'
                       ? 'bg-teal-600 text-white shadow'
                       : 'text-zinc-400 hover:text-zinc-200'
@@ -2803,9 +2865,71 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                 >
                   {isArabic ? 'دخل إضافي' : 'Extra Income'}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setWhatIfMode('stretch_days')}
+                  className={`min-h-[40px] px-2 py-1.5 rounded-xl text-[11px] font-bold transition cursor-pointer ${
+                    whatIfMode === 'stretch_days'
+                      ? 'bg-cyan-600 text-white shadow'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {isArabic ? 'تمديد أيام إضافية' : 'Stretch Days'}
+                </button>
               </div>
 
               <div className="space-y-3">
+                {whatIfMode === 'stretch_days' ? (
+                  <div className="p-3.5 rounded-2xl bg-zinc-950/90 border border-cyan-500/30 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <span className="block text-xs font-bold text-white">
+                          {isArabic ? 'عاوز تقعد كام يوم زيادة بالفلوس اللي معاك؟' : 'How many extra days do you want to stretch?'}
+                        </span>
+                        <span className="block text-[11px] text-zinc-400 mt-0.5">
+                          {isArabic
+                            ? 'حالة استثنائية للشهر ده بس (مثلاً لو المرتب اتأخر) ومش بتأثر على الشهور الجاية.'
+                            : 'One-off exception for this cycle only (e.g. delayed payday) — future months stay normal.'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setWhatIfExtraDays((d) => Math.max(1, d - 1))}
+                          className="w-9 h-9 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-200 flex items-center justify-center hover:bg-zinc-800 cursor-pointer"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span dir="ltr" className="min-w-[3rem] text-center font-mono tabular-nums font-bold text-sm text-cyan-300">
+                          +{whatIfExtraDays}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setWhatIfExtraDays((d) => Math.min(60, d + 1))}
+                          className="w-9 h-9 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-200 flex items-center justify-center hover:bg-zinc-800 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {[3, 5, 7, 10, 15].map((presetExtra) => (
+                        <button
+                          key={presetExtra}
+                          type="button"
+                          onClick={() => setWhatIfExtraDays(presetExtra)}
+                          className={`min-h-[34px] px-3 py-1 rounded-lg text-[11px] font-bold font-mono tabular-nums border transition cursor-pointer ${
+                            whatIfExtraDays === presetExtra
+                              ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300'
+                              : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          +{presetExtra} {isArabic ? 'أيام' : 'days'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
                 <div>
                   <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
                     {whatIfMode === 'multi_day_expense'
@@ -2828,6 +2952,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                     </span>
                   </div>
                 </div>
+                )}
 
                 {/* Days Count Stepper & Quick Presets for Multi-Day Mode */}
                 {whatIfMode === 'multi_day_expense' && (
@@ -2881,7 +3006,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   </div>
                 )}
 
-                {whatIfMode !== 'extra_income' && (
+                {whatIfMode !== 'extra_income' && whatIfMode !== 'stretch_days' && (
                   <div>
                     <label className="block text-[11px] font-semibold text-zinc-400 mb-1.5">
                       {t('whatIfPool')}
@@ -2968,11 +3093,56 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   </div>
 
                   {/* Rich KPI Telemetry Grid */}
+                  {whatIfReport.mode === 'stretch_days' ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800/80">
+                        <div className="text-[10px] text-zinc-400">
+                          {isMsgArabic ? 'نهاية الشهر الجديدة' : 'Extended End Date'}
+                        </div>
+                        <div dir="ltr" className="text-xs font-mono tabular-nums font-bold text-cyan-300 mt-0.5 text-start rtl:text-end">
+                          {whatIfReport.newCycleEndDate || evaluation.cycle.endDate}
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800/80">
+                        <div className="text-[10px] text-zinc-400">
+                          {isMsgArabic ? 'الأيام المتبقية' : 'Days Remaining'}
+                        </div>
+                        <div dir="ltr" className="text-xs font-mono tabular-nums font-bold text-white mt-0.5 flex items-center gap-1">
+                          <span>{evaluation.dailyStatus.remainingDaysInCycle}</span>
+                          <span className="opacity-60">→</span>
+                          <span className="text-cyan-300">{whatIfReport.newRemainingDays}</span>
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800/80">
+                        <div className="text-[10px] text-zinc-400">
+                          {isMsgArabic ? 'يوميتك الجديدة' : 'New Daily Limit'}
+                        </div>
+                        <div dir="ltr" className="text-xs font-mono tabular-nums font-bold text-white mt-0.5 flex items-center gap-1 flex-wrap">
+                          <span>{formatCurrency(whatIfReport.allowanceBefore, currency)}</span>
+                          <span className="opacity-60">→</span>
+                          <span className="text-amber-300">{formatCurrency(whatIfReport.allowanceAfter, currency)}</span>
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800/80">
+                        <div className="text-[10px] text-zinc-400">
+                          {isMsgArabic ? 'يكفي كام يوم بوتيرتك' : 'Days at 7d Pace'}
+                        </div>
+                        <div className="text-xs font-mono tabular-nums font-bold text-emerald-400 mt-0.5">
+                          {whatIfReport.paceForecastDays ?? whatIfReport.runwayDaysAfter}{' '}
+                          {isMsgArabic ? 'يوم' : 'days'}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <div className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800/80">
                       <div className="text-[10px] text-zinc-400">{whatIfReport.poolName}</div>
-                      <div className="text-xs font-mono tabular-nums font-bold text-white mt-0.5">
-                        {formatCurrency(whatIfReport.poolBefore, currency)} {'->'}{' '}
+                      <div dir="ltr" className="text-xs font-mono tabular-nums font-bold text-white mt-0.5 flex items-center gap-1 flex-wrap">
+                        <span>{formatCurrency(whatIfReport.poolBefore, currency)}</span>
+                        <span className="opacity-60">→</span>
                         <span className={whatIfReport.poolAfter < 0 ? 'text-rose-400' : 'text-emerald-400'}>
                           {formatCurrency(whatIfReport.poolAfter, currency)}
                         </span>
@@ -2983,8 +3153,9 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       <div className="text-[10px] text-zinc-400">
                         {isMsgArabic ? 'يوميتك للأيام الجاية' : 'Daily Limit Ahead'}
                       </div>
-                      <div className="text-xs font-mono tabular-nums font-bold text-white mt-0.5">
-                        {formatCurrency(whatIfReport.allowanceBefore, currency)} {'->'}{' '}
+                      <div dir="ltr" className="text-xs font-mono tabular-nums font-bold text-white mt-0.5 flex items-center gap-1 flex-wrap">
+                        <span>{formatCurrency(whatIfReport.allowanceBefore, currency)}</span>
+                        <span className="opacity-60">→</span>
                         <span className={whatIfReport.dailyDelta >= 0 ? 'text-emerald-400' : 'text-amber-300'}>
                           {formatCurrency(whatIfReport.allowanceAfter, currency)}
                         </span>
@@ -2995,8 +3166,9 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       <div className="text-[10px] text-zinc-400">
                         {isMsgArabic ? 'هتكفّي كام يوم' : 'Budget Runway'}
                       </div>
-                      <div className="text-xs font-mono tabular-nums font-bold text-white mt-0.5">
-                        {whatIfReport.runwayDaysBefore}{isMsgArabic ? 'ي' : 'd'} {'->'}{' '}
+                      <div dir="ltr" className="text-xs font-mono tabular-nums font-bold text-white mt-0.5 flex items-center gap-1">
+                        <span>{whatIfReport.runwayDaysBefore}{isMsgArabic ? 'ي' : 'd'}</span>
+                        <span className="opacity-60">→</span>
                         <span
                           className={
                             whatIfReport.runwayDaysAfter < whatIfReport.remainingDaysInCycle
@@ -3015,13 +3187,14 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                           ? isMsgArabic ? 'توفّر كام في اليوم' : 'Daily Recovery'
                           : isMsgArabic ? 'المتبقي لآخر الشهر' : 'Month-End Outlook'}
                       </div>
-                      <div className="text-xs font-mono tabular-nums font-bold text-white mt-0.5">
+                      <div dir="ltr" className="text-xs font-mono tabular-nums font-bold text-white mt-0.5 text-start rtl:text-end">
                         {whatIfReport.dailyRecoveryNeeded > 0
                           ? `${formatCurrency(whatIfReport.dailyRecoveryNeeded, currency)}/${isMsgArabic ? 'ي' : 'd'}`
                           : formatCurrency(whatIfReport.projectedCycleEndBalance, currency)}
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {/* Detailed Forecast Bullets */}
                   {whatIfReport.detailedMessages.length > 0 && (
@@ -3033,6 +3206,34 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                         </li>
                       ))}
                     </ul>
+                  )}
+
+                  {/* 1-Tap Apply Stretch Exception for This Cycle */}
+                  {whatIfReport.mode === 'stretch_days' && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleApplyExtraCycleDays(whatIfReport.extraDays || whatIfExtraDays)}
+                        className="flex-1 min-h-[44px] px-4 py-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black font-bold text-xs shadow-lg transition active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <span>
+                          {isMsgArabic
+                            ? `تطبيق التمديد (+${whatIfReport.extraDays || whatIfExtraDays} يوم) على الشهر ده فقط`
+                            : `Apply +${whatIfReport.extraDays || whatIfExtraDays} Extra Days to This Cycle`}
+                        </span>
+                      </button>
+                      {(evaluation.cycle.extraCycleDays || 0) > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleApplyExtraCycleDays(0)}
+                          className="min-h-[44px] px-3.5 py-2 rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 font-bold text-xs transition cursor-pointer flex items-center gap-1.5"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>{isMsgArabic ? 'إرجاع للمدة العادية' : 'Reset'}</span>
+                        </button>
+                      )}
+                    </div>
                   )}
 
                   {/* 3-Way Pool Comparison Cards */}

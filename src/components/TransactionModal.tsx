@@ -1876,23 +1876,26 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         {impactReport.headline}
                       </div>
                       <div className="text-[11px] opacity-90 font-mono tabular-nums mt-1 flex items-center gap-1.5 flex-wrap">
-                        <span>
-                          {isMsgArabic ? 'اليومي:' : 'Daily:'}{' '}
-                          {formatCurrency(impactReport.metrics.dailyBefore, currencySymbol)} {'->'}{' '}
-                          {formatCurrency(impactReport.metrics.dailyAfter, currencySymbol)}
+                        <span>{isMsgArabic ? 'يومية الأيام الجاية:' : 'Upcoming daily:'}</span>
+                        <span dir="ltr" className="inline-flex items-center gap-1 font-semibold">
+                          <span>{formatCurrency(impactReport.metrics.dailyBefore, currencySymbol)}</span>
+                          <span className="opacity-60">→</span>
+                          <span>{formatCurrency(impactReport.metrics.dailyAfter, currencySymbol)}</span>
                         </span>
-                        {impactReport.metrics.dailyDelta !== 0 && (
-                          <span
-                            className={`px-1.5 py-0.5 rounded-md font-bold tabular-nums ${
-                              impactReport.metrics.dailyDelta > 0
-                                ? 'bg-emerald-500/20 text-emerald-300'
-                                : 'bg-black/30 text-current'
-                            }`}
-                          >
-                            {impactReport.metrics.dailyDelta > 0 ? '+' : ''}
-                            {formatCurrency(impactReport.metrics.dailyDelta, currencySymbol)}
-                          </span>
-                        )}
+                        {impactReport.metrics.dailyDelta !== 0 &&
+                          (impactReport.metrics.dailyDelta > 0 || impactReport.severity !== 'safe') && (
+                            <span
+                              dir="ltr"
+                              className={`px-1.5 py-0.5 rounded-md font-bold tabular-nums ${
+                                impactReport.metrics.dailyDelta > 0
+                                  ? 'bg-emerald-500/20 text-emerald-300'
+                                  : 'bg-black/30 text-current'
+                              }`}
+                            >
+                              {impactReport.metrics.dailyDelta > 0 ? '+' : '-'}
+                              {formatCurrency(Math.abs(impactReport.metrics.dailyDelta), currencySymbol)}
+                            </span>
+                          )}
                       </div>
                     </div>
                   </div>
@@ -1922,7 +1925,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         <div className="text-[11px] opacity-75">
                           {isMsgArabic ? 'متاح النهارده بعد العملية' : 'Left Today After'}
                         </div>
-                        <div className="font-mono font-bold tabular-nums text-white mt-0.5 break-words">
+                        <div dir="ltr" className="font-mono font-bold tabular-nums text-white mt-0.5 break-words text-start rtl:text-end">
                           {formatCurrency(Math.max(0, impactReport.metrics.todayRemainingAfter), currencySymbol)}
                         </div>
                         {impactReport.metrics.todayRemainingAfter < 0 && (
@@ -1938,27 +1941,29 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         <div className="text-[11px] opacity-75">
                           {isMsgArabic ? 'يوميتك للأيام الجاية' : 'Daily Limit Ahead'}
                         </div>
-                        <div className="font-mono font-bold tabular-nums text-white mt-0.5 break-words">
+                        <div dir="ltr" className="font-mono font-bold tabular-nums text-white mt-0.5 break-words text-start rtl:text-end">
                           {formatCurrency(impactReport.metrics.dailyAfter, currencySymbol)}
                         </div>
                         <div className="text-[10px] opacity-70 font-mono tabular-nums mt-0.5">
-                          {isMsgArabic ? 'كان' : 'was'} {formatCurrency(impactReport.metrics.dailyBefore, currencySymbol)}
+                          {isMsgArabic ? 'كان' : 'was'}{' '}
+                          <span dir="ltr">{formatCurrency(impactReport.metrics.dailyBefore, currencySymbol)}</span>
                         </div>
                       </div>
 
                       <div className="p-2.5 rounded-xl bg-black/25 border border-white/10 min-w-0">
                         <div className="text-[11px] opacity-75 truncate">{impactReport.metrics.poolLabel}</div>
-                        <div className="font-mono font-bold tabular-nums text-white mt-0.5 break-words">
+                        <div dir="ltr" className="font-mono font-bold tabular-nums text-white mt-0.5 break-words text-start rtl:text-end">
                           {formatCurrency(impactReport.metrics.poolAfter, currencySymbol)}
                         </div>
                         <div className="text-[10px] opacity-70 font-mono tabular-nums mt-0.5">
-                          {isMsgArabic ? 'كان' : 'was'} {formatCurrency(impactReport.metrics.poolBefore, currencySymbol)}
+                          {isMsgArabic ? 'كان' : 'was'}{' '}
+                          <span dir="ltr">{formatCurrency(impactReport.metrics.poolBefore, currencySymbol)}</span>
                         </div>
                       </div>
 
                       <div className="p-2.5 rounded-xl bg-black/25 border border-white/10 min-w-0">
                         <div className="text-[11px] opacity-75">
-                          {isMsgArabic ? 'نظرة لآخر الشهر' : 'Month-End Outlook'}
+                          {isMsgArabic ? 'حالة الشهر' : 'Month Status'}
                         </div>
                         <div className="font-bold text-white mt-0.5 leading-snug whitespace-normal break-words">
                           {impactReport.metrics.simpleOutlookLabel}
@@ -2019,13 +2024,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         <div className="mt-2 grid grid-cols-2 gap-1.5 text-[11px]">
                           <div className="p-2 rounded-xl bg-black/30 border border-white/5">
                             <div className="text-[10px] opacity-70">
-                              {isMsgArabic ? 'عمر الميزانية المتوقع' : 'Projected Runway'}
+                              {isMsgArabic ? 'تقدير الأيام بوتيرتك' : 'Days at Recent Pace'}
                             </div>
                             <div className="font-mono font-bold tabular-nums text-white mt-0.5">
-                              {impactReport.metrics.projectedRunwayDays} {isMsgArabic ? 'يوم' : 'days'}
-                              {impactReport.metrics.projectedZeroDate
-                                ? ` (${impactReport.metrics.projectedZeroDate.slice(5)})`
-                                : ''}
+                              {impactReport.metrics.paceForecastDays} {isMsgArabic ? 'يوم' : 'days'}
                             </div>
                           </div>
                           <div className="p-2 rounded-xl bg-black/30 border border-white/5">
@@ -2038,10 +2040,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                           </div>
                           <div className="p-2 rounded-xl bg-black/30 border border-white/5">
                             <div className="text-[10px] opacity-70">
-                              {isMsgArabic ? 'متوسّط الصرف اليومي' : 'Cycle Daily Average'}
+                              {isMsgArabic ? 'متوسّط آخر 7 أيام (يومي)' : 'Last 7d Daily Avg'}
                             </div>
-                            <div className="font-mono font-bold tabular-nums text-white mt-0.5">
-                              {formatCurrency(impactReport.metrics.averageDailySpendInCycle, currencySymbol)}
+                            <div dir="ltr" className="font-mono font-bold tabular-nums text-white mt-0.5 text-start rtl:text-end">
+                              {formatCurrency(impactReport.metrics.recentDailySpendAverage, currencySymbol)}
                             </div>
                           </div>
                           <div className="p-2 rounded-xl bg-black/30 border border-white/5">
@@ -2054,7 +2056,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                                 ? 'الرصيد المتوقع بنهاية الدورة'
                                 : 'Cycle-End Forecast'}
                             </div>
-                            <div className="font-mono font-bold tabular-nums text-white mt-0.5">
+                            <div dir="ltr" className="font-mono font-bold tabular-nums text-white mt-0.5 text-start rtl:text-end">
                               {impactReport.metrics.dailyRecoveryNeeded > 0
                                 ? `${formatCurrency(impactReport.metrics.dailyRecoveryNeeded, currencySymbol)}/${isMsgArabic ? 'يوم' : 'd'}`
                                 : formatCurrency(impactReport.metrics.projectedCycleEndBalance, currencySymbol)}

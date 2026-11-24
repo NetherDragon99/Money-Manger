@@ -265,11 +265,14 @@ export interface SmartBudgetConfig {
   fromTodayConfig?: FromTodayConfig;
   isPaused?: boolean;
   manualProgressAdjustments?: Partial<Record<SmartBudgetPoolKey, number>>;
+  extraCycleDays?: number;
 }
 
 export interface CycleInfo {
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
+  baseEndDate?: string; // YYYY-MM-DD before temporary extraCycleDays
+  extraCycleDays?: number;
   cycleKey: string; // YYYY-MM-DD
   startDay: number;
   effectiveStartDay: number;
@@ -734,19 +737,68 @@ export function evaluateSmartBudget(
     cycleStartDay = Math.min(31, Math.max(1, Math.floor(config.startDay)));
   }
 
-  const cycle = getSalaryCycleRange(
+  const baseCycle = getSalaryCycleRange(
     asOfDate,
     cycleStartDay,
     startMode === 'custom' ? config.customStartDate : undefined
   );
-  const cycleStart = parseLocalDate(cycle.startDate);
-  const cycleEnd = parseLocalDate(cycle.endDate);
 
-  // Apply active cycle override (keyed by cycle.startDate 'YYYY-MM-DD') if present
-  const cycleOverride = resolveCycleOverride(config.overrides, cycle.startDate);
+  // Apply active cycle override (keyed by cycle.startDate 'YYYY-MM-DD') if present.
+  // Also honor an extended preceding cycle when its extraCycleDays still covers asOfDate.
+  let activeCycle: CycleInfo = baseCycle;
+  let cycleOverride = resolveCycleOverride(config.overrides, baseCycle.startDate);
+
+  if (
+    config.overrides &&
+    (!cycleOverride || !(Number(cycleOverride.extraCycleDays) > 0))
+  ) {
+    const asOfStrCheck = formatLocalDate(asOfDate);
+    for (const [key, ov] of Object.entries(config.overrides)) {
+      const ovExtra = Math.min(60, Math.max(0, Math.round(Number(ov?.extraCycleDays) || 0)));
+      if (ovExtra <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+      if (key < baseCycle.startDate && key <= asOfStrCheck) {
+        const prevAnchor = parseLocalDate(key);
+        const prevBase = getSalaryCycleRange(
+          prevAnchor,
+          cycleStartDay,
+          startMode === 'custom' ? ov.customStartDate || config.customStartDate : undefined
+        );
+        const prevExtendedEnd = addDays(parseLocalDate(prevBase.endDate), ovExtra);
+        const prevExtendedEndStr = formatLocalDate(prevExtendedEnd);
+        if (asOfStrCheck >= prevBase.startDate && asOfStrCheck <= prevExtendedEndStr) {
+          activeCycle = prevBase;
+          cycleOverride = ov;
+          break;
+        }
+      }
+    }
+  }
+
   const effectiveConfig: SmartBudgetConfig = cycleOverride
     ? { ...config, ...cycleOverride }
     : config;
+
+  const extraCycleDays = Math.min(
+    60,
+    Math.max(0, Math.round(Number(effectiveConfig.extraCycleDays) || 0))
+  );
+  const baseCycleEnd = parseLocalDate(activeCycle.endDate);
+  const cycleEnd = extraCycleDays > 0 ? addDays(baseCycleEnd, extraCycleDays) : baseCycleEnd;
+  const cycle: CycleInfo =
+    extraCycleDays > 0
+      ? {
+          ...activeCycle,
+          baseEndDate: activeCycle.endDate,
+          endDate: formatLocalDate(cycleEnd),
+          length: activeCycle.length + extraCycleDays,
+          extraCycleDays,
+        }
+      : {
+          ...activeCycle,
+          baseEndDate: activeCycle.endDate,
+          extraCycleDays: 0,
+        };
+  const cycleStart = parseLocalDate(cycle.startDate);
 
   // 2. Base Currency & Linked Account Filtering (Public / Private / Custom Selection)
   const baseCurrency = effectiveConfig.baseCurrency || accounts[0]?.currency || 'EGP';

@@ -986,4 +986,87 @@ test('12. Sidebar badge matches real deficit/heads-up states (zero phantom anoma
   );
 });
 
+// ============================================================================
+// 13. Zero-Contradiction Impact Forecast (Daily-Only 7d Pace) & Stretch Extra Days
+// ============================================================================
+test('13. Healthy daily spend never shows fake deficit from Outings, forecasts recent 7d pace days, and stretch_days extends cycle as one-off exception', () => {
+  // Nov 20, 2026 (11 remaining days in Nov 1..30 cycle)
+  const asOf = new Date(2026, 10, 20, 12, 0, 0);
+  const accs: Account[] = [pubAcc('acc_main', 1420.27)];
+  const txs: Transaction[] = [
+    // Large earlier Outings spend (1,200) must NEVER contaminate Daily-only pace!
+    mkTx({ id: 'tx_out_big', type: 'expense', amount: 1200, date: '2026-11-08', accountId: 'acc_main', budgetPool: 'outings' }),
+    // Recent 7-day modest daily spending: 350 over 7 days = 50/day
+    mkTx({ id: 'tx_d1', type: 'expense', amount: 150, date: '2026-11-15', accountId: 'acc_main', budgetPool: 'daily' }),
+    mkTx({ id: 'tx_d2', type: 'expense', amount: 100, date: '2026-11-17', accountId: 'acc_main', budgetPool: 'daily' }),
+    mkTx({ id: 'tx_d3', type: 'expense', amount: 100, date: '2026-11-19', accountId: 'acc_main', budgetPool: 'daily' }),
+  ];
+  const cfg: SmartBudgetConfig = {
+    startDay: 1,
+    calculationMode: 'full_cycle',
+    plannedIncome: 4000,
+    savings: { type: 'fixed', value: 500 },
+    plannedFixedObligations: 1000,
+    outingsBudget: 700,
+    oneOffBudget: 0,
+    baseCurrency: 'EGP',
+  };
+
+  // Entering small 50 EGP daily expense well within daily limit
+  const arReport = analyzeTransactionImpact(
+    { type: 'expense', amount: 50, date: '2026-11-20', accountId: 'acc_main', budgetPool: 'daily' },
+    null,
+    txs,
+    accs,
+    cfg,
+    'ar_eg',
+    asOf
+  );
+  assert.ok(arReport, 'ar_eg impact report returned');
+  assert.equal(arReport.severity, 'safe', 'Small daily spend within budget is safe');
+  assert.ok(arReport.metrics.projectedCycleEndBalance >= 0, 'No fake deficit fabricated from Outings');
+  assert.equal(arReport.metrics.simpleOutlookLabel.includes('عجز'), false, 'Safe card never says deficit in outlook');
+  approxEqual(arReport.metrics.recentDailySpendAverage, 50, 0.5, 'Last 7-day average strictly excludes Outings (350/7 = 50)');
+  assert.ok(arReport.metrics.paceForecastDays >= 11, 'At 50/day recent pace, funds cover all 11+ days');
+
+  // What-If Mode 4: stretch_days (+5 extra days)
+  const baseEval = evaluateSmartBudget(txs, accs, cfg, asOf);
+  const stretchSim = simulateWhatIfScenario(
+    { mode: 'stretch_days', amount: 0, extraDays: 5, pool: 'daily' },
+    baseEval,
+    txs,
+    accs,
+    cfg,
+    'ar_eg',
+    asOf
+  );
+  assert.equal(stretchSim.mode, 'stretch_days');
+  assert.equal(stretchSim.extraDays, 5);
+  assert.equal(stretchSim.newRemainingDays, baseEval.dailyStatus.remainingDaysInCycle + 5, 'Stretch adds +5 remaining days');
+  assert.equal(stretchSim.newCycleEndDate, '2026-12-05', 'End date shifts Nov 30 -> Dec 5');
+  assert.ok(stretchSim.allowanceAfter < stretchSim.allowanceBefore, 'Stretching lowers daily limit fairly');
+
+  // Applying extraCycleDays=5 as a cycle override works both during Nov and into Dec 2!
+  const extendedCfg: SmartBudgetConfig = {
+    ...cfg,
+    overrides: {
+      '2026-11-01': { extraCycleDays: 5 },
+    },
+  };
+  const evalNov = evaluateSmartBudget(txs, accs, extendedCfg, asOf);
+  assert.equal(evalNov.cycle.endDate, '2026-12-05', 'Override extends cycle endDate to Dec 5');
+  assert.equal(evalNov.cycle.extraCycleDays, 5, 'Cycle records extraCycleDays=5');
+  assert.equal(evalNov.dailyStatus.remainingDaysInCycle, 16, 'Nov 20..Dec 5 = 16 days');
+
+  const evalDec2 = evaluateSmartBudget(txs, accs, extendedCfg, new Date(2026, 11, 2, 12, 0, 0));
+  assert.equal(evalDec2.cycle.startDate, '2026-11-01', 'Extended Nov cycle stays active on Dec 2');
+  assert.equal(evalDec2.cycle.endDate, '2026-12-05', 'Extended Nov cycle runs through Dec 5');
+  assert.equal(evalDec2.dailyStatus.remainingDaysInCycle, 4, 'Dec 2..5 = 4 remaining days');
+
+  // After Dec 5 (e.g. Dec 6), normal December cycle resumes untouched!
+  const evalDec6 = evaluateSmartBudget(txs, accs, extendedCfg, new Date(2026, 11, 6, 12, 0, 0));
+  assert.equal(evalDec6.cycle.startDate, '2026-12-01', 'Normal Dec cycle resumes cleanly after extension ends');
+  assert.equal(evalDec6.cycle.extraCycleDays, 0, 'Next month has zero leftover extension');
+});
+
 console.log(`\n[solv] ALL ${passed} VERIFICATION SUITES PASSED ✓\n`);

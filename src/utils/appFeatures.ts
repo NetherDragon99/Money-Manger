@@ -47,6 +47,8 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
         'Clearer Expense Impact Cards: Full impact titles and notes are always readable with zero cut-off text, organized into simple everyday highlights with optional detailed numbers underneath.',
         'Accurate Budget Status Badges: The sidebar now shows a red alert only for a real budget shortfall, a calm yellow heads-up when spending dips near your limit, and stays clean green when everything is balanced — with a clear explanation right inside the budget screen.',
         'Custom In-App Notification Timing: Choose how long on-screen notifications stay visible from 3 to 15 seconds with quick presets, a 5-second default, at least 7 seconds for important action buttons, or keep them open until you close them manually.',
+        'Honest 7-Day Pace Forecast: Impact cards now measure your recent daily pace without mixing in outings, show clearly how many days your remaining money will last, and fix number direction in both Arabic and English.',
+        'Stretch Extra Days in What-If Lab: Test how your current cash stretches if payday is delayed by extra days, and apply that extension to the current cycle as a one-off exception without affecting next month.',
       ],
       ar: [
         'أهلاً بك في solv: اسم جديد وأيقونة خضراء أنيقة مع لمسات بصرية مريحة للعين في كل الشاشات.',
@@ -68,6 +70,8 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
         'رسائل تأثير المصاريف أوضح ومن غير قص: الكلام كامل ظاهر من غير نقط مقصوصة، ومتقسّم لبساطة سريعة في الأول مع زرار اختياري لو حابب تشوف الأرقام التفصيلية.',
         'شارات حالة أدق للميزانية: القائمة الجانبية بتعرض تنبيه أحمر فقط عند وجود عجز فعلي، وتنبيه أصفر هادئ عند الاقتراب من الحد، وتفضل خضراء طالما الميزانية مستقرة — مع توضيح واضح للسبب مباشرة داخل الميزانية.',
         'تحكم كامل في مدة الإشعارات داخل التطبيق: اختار مدة بقاء الإشعارات من 3 لـ 15 ثانية عبر أزرار سريعة أو شريط تمرير بافتراضي 5 ثواني، وضمان 7 ثواني على الأقل للإشعارات المهمة، مع خيار إغلاق يدوي فقط.',
+        'تنبؤ صادق بمعدل آخر 7 أيام: كارت تأثير المعاملة بيحسب وتيرة صرفك اليومي فقط بدون خلط الخروجات، ويوضحلك فلوسك تكفي كام يوم قدام بدون أي عجز وهمي مع ضبط اتجاه الأرقام في العربي والإنجليزي.',
+        'تمديد أيام إضافية في محاكي ماذا لو: اختبر لو حبيت تقعد أيام زيادة بالفلوس اللي معاك بس، وطبّق التمديد فعلياً على الشهر ده كحالة استثنائية من غير ما يأثر على الشهور الجاية.',
       ],
     },
   },
@@ -84,6 +88,8 @@ export const APP_RELEASE_NOTES: ReleaseNote[] = [
       en: [
         'Accurate Budget Status Badges: The sidebar now shows a red alert only for a real budget shortfall, a calm yellow heads-up when spending dips near your limit, and stays clean green when everything is balanced — with a clear explanation right inside the budget screen.',
         'Custom In-App Notification Timing: Choose how long on-screen notifications stay visible from 3 to 15 seconds with quick presets, a 5-second default, at least 7 seconds for important action buttons, or keep them open until you close them manually.',
+        'Honest 7-Day Pace Forecast: Impact cards now measure your recent daily pace without mixing in outings, show clearly how many days your remaining money will last, and fix number direction in both Arabic and English.',
+        'Stretch Extra Days in What-If Lab: Test how your current cash stretches if payday is delayed by extra days, and apply that extension to the current cycle as a one-off exception without affecting next month.',
       ],
       ar: [
         'شارات حالة أدق للميزانية: القائمة الجانبية بتعرض تنبيه أحمر فقط عند وجود عجز فعلي، وتنبيه أصفر هادئ عند الاقتراب من الحد، وتفضل خضراء طالما الميزانية مستقرة — مع توضيح واضح للسبب مباشرة داخل الميزانية.',
