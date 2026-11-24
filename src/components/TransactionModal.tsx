@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
-import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, LayoutGrid, RefreshCw, Trash2, CheckCircle2, AlertTriangle, AlertCircle, Check, PiggyBank, ShieldAlert, Wallet, Zap, Coins } from 'lucide-react';
+import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, ChevronUp, LayoutGrid, RefreshCw, Trash2, CheckCircle2, AlertTriangle, AlertCircle, Check, PiggyBank, ShieldAlert, Wallet, Zap, Coins, TrendingUp, Sparkles } from 'lucide-react';
 import { TransactionType, RecurringFrequency, RecurringTransaction, AdvancedScheduleConfig, Transaction, SavingsWithdrawalChoice, TaxFeeMode, TransferFeeMode, ManualFeeInputType, ExpenseBudgetPool } from '../types';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatDisplayNumber } from '../utils/dateCycle';
 import { calculateNextDueDate, getScheduleSummaryText, migrateRecurringRule, normalizeHHMM, normalizeTimesList, getNextNOccurrences, OccurrencePreviewItem } from '../utils/recurring';
 import { evaluateSmartBudget, SmartBudgetEvaluation, parseLocalDate, normalizeExpenseBudgetPool, canSendSmartBudgetNotificationToday, markSmartBudgetNotificationSentToday } from '../utils/smartBudgetEngine';
+import { analyzeTransactionImpact, type TransactionImpactReport } from '../utils/budgetImpactAnalyzer';
+import { resolveMessageLanguage } from '../utils/constants';
 import { computeTransferFee, computeTaxFee, resolveTransferFeeSettings } from '../utils/transferFee';
 import { AdvancedTaxFeeInput } from './AdvancedTaxFeeInput';
 import { Numpad } from './Numpad';
@@ -25,7 +27,7 @@ function notifyBudgetAlertIfNeeded(
     duration?: number
   ) => void,
   openSmartBudget: () => void,
-  isArabic: boolean
+  isMsgArabic: boolean
 ) {
   if (evaluation.isPaused) return;
   try {
@@ -39,12 +41,12 @@ function notifyBudgetAlertIfNeeded(
         localStorage.setItem(dedupKey, Date.now().toString());
         markSmartBudgetNotificationSentToday('daily_depleted');
         showToast(
-          isArabic
-            ? 'تنبيه الميزانية: استُنفد حوض المصروف اليومي للشهر. اضغط لإعادة التوازن.'
-            : 'Budget alert: Monthly Daily Spending pool is exhausted. Tap to rebalance.',
+          isMsgArabic
+            ? 'استنى يا صاحبي! فلوس المصروف اليومي للشهر خلصت — افتح نرتّبها سوا.'
+            : 'Heads-up: Your monthly Daily Spending pool ran dry. Tap to rebalance.',
           'error',
           {
-            label: isArabic ? 'إعادة التوازن' : 'Rebalance',
+            label: isMsgArabic ? 'نرتّب الميزانية' : 'Rebalance',
             onClick: openSmartBudget,
           },
           8000
@@ -60,12 +62,12 @@ function notifyBudgetAlertIfNeeded(
         localStorage.setItem(dedupKey, Date.now().toString());
         markSmartBudgetNotificationSentToday('outings_depleted');
         showToast(
-          isArabic
-            ? 'ملاحظة: اكتمل حوض الخروجات وسيتم استيعاب أي زيادة بهدوء من المصروف اليومي.'
-            : 'Heads-up: Outings pool is full; any extra is calmly absorbed by Daily Spending.',
+          isMsgArabic
+            ? 'كله تمام! بند الخروجات اتقفل وأي مصروف زيادة هيتشال بهدوء من اليومي.'
+            : 'Heads-up: Outings pool is full; any extra settles calmly into Daily Spending.',
           'info',
           {
-            label: isArabic ? 'مراجعة' : 'Review',
+            label: isMsgArabic ? 'مراجعة' : 'Review',
             onClick: openSmartBudget,
           },
           7000
@@ -82,12 +84,12 @@ function notifyBudgetAlertIfNeeded(
       if (!localStorage.getItem(dedupKey) && canSendSmartBudgetNotificationToday(notifType)) {
         localStorage.setItem(dedupKey, Date.now().toString());
         markSmartBudgetNotificationSentToday(notifType);
-        const msg = isArabic ? topAnomaly.message.ar : topAnomaly.message.en;
+        const msg = isMsgArabic ? topAnomaly.message.ar : topAnomaly.message.en;
         showToast(
-          `${isArabic ? 'ملاحظة ميزانية: ' : 'Budget Heads-up: '}${msg}`,
+          `${isMsgArabic ? 'تلميحة ميزانية: ' : 'Budget Heads-up: '}${msg}`,
           'info',
           {
-            label: isArabic ? 'مراجعة' : 'Review',
+            label: isMsgArabic ? 'مراجعة' : 'Review',
             onClick: openSmartBudget,
           },
           7000
@@ -401,24 +403,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     return baseDays.filter((d) => !(d in monthDayTimes));
   }, [useMonthDayFilter, selectedDaysOfMonth, monthDayTimes]);
 
-  // Visual viewport height for seamless on-screen keyboard dock support
-  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.visualViewport) return;
-    const updateViewport = () => {
-      if (window.visualViewport) {
-        setViewportHeight(window.visualViewport.height);
-      }
-    };
-    window.visualViewport.addEventListener('resize', updateViewport);
-    window.visualViewport.addEventListener('scroll', updateViewport);
-    updateViewport();
-    return () => {
-      window.visualViewport?.removeEventListener('resize', updateViewport);
-      window.visualViewport?.removeEventListener('scroll', updateViewport);
-    };
-  }, []);
+  const [isImpactExpanded, setIsImpactExpanded] = useState(false);
+  const [showExpertImpactMetrics, setShowExpertImpactMetrics] = useState(false);
+  const impactCardRef = useRef<HTMLDivElement | null>(null);
 
   // Check prefers-reduced-motion
   const prefersReducedMotion = useMemo(() => {
@@ -1314,97 +1301,82 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     isSavingsAllocation, savingsWithdrawalChoice, transferFeeMode, calculatedTransferFee, transferFeeBudgetPool, manualFeeInputType, manualFeeRawNumeric, manualFeeStr,
   ]);
 
-  // Filter out the transaction currently being edited so its previous amount isn't double-counted
-  const evalTransactions = useMemo(() => {
-    if (!activeEditingTx) return transactions;
-    return transactions.filter((t) => t.id !== activeEditingTx.id);
-  }, [transactions, activeEditingTx]);
-
-  const smartBudgetEval = useMemo(() => {
-    if (type !== 'expense') return null;
-    const cfg = {
+  const smartBudgetConfigObj = useMemo(
+    () => ({
       ...settings.smartBudget?.baseline,
       startDay: settings.defaultMonthStartDay || 1,
       overrides: settings.smartBudget?.overrides,
       adjustments: settings.smartBudget?.adjustments,
       baseCurrency: currencySymbol,
-    };
-    return evaluateSmartBudget(evalTransactions, accounts, cfg, new Date());
-  }, [type, evalTransactions, accounts, settings.smartBudget?.baseline, settings.smartBudget?.overrides, settings.smartBudget?.adjustments, settings.defaultMonthStartDay, currencySymbol]);
+    }),
+    [
+      settings.smartBudget?.baseline,
+      settings.smartBudget?.overrides,
+      settings.smartBudget?.adjustments,
+      settings.defaultMonthStartDay,
+      currencySymbol,
+    ]
+  );
 
-  const isDateInCycle = useMemo(() => {
-    if (!smartBudgetEval) return false;
-    return date >= smartBudgetEval.cycle.startDate && date <= smartBudgetEval.cycle.endDate;
-  }, [smartBudgetEval, date]);
+  const resolvedMsgLang = resolveMessageLanguage(settings);
+  const isMsgArabic = resolvedMsgLang === 'ar_eg';
 
-  const impactEstimate = useMemo(() => {
-    if (type !== 'expense' || !smartBudgetEval || smartBudgetEval.isPaused || !isDateInCycle || effectiveExpenseAmount <= 0) {
+  const impactReport: TransactionImpactReport | null = useMemo(() => {
+    if (isSharedMode || numericAmount <= 0 || !accountId) {
       return null;
     }
-
-    const todayAllowance = smartBudgetEval.dailyStatus.todayAllowance;
-    const todayRemainingBefore = smartBudgetEval.dailyStatus.todayRemaining;
-    const monthlyDailyRemBefore = smartBudgetEval.pools.daily.remaining;
-    const projectedAllowance = smartBudgetEval.projectedDailyAllowanceAfterSpend(
-      effectiveExpenseAmount,
-      budgetPool,
-      date
+    return analyzeTransactionImpact(
+      {
+        id: activeEditingTx?.id,
+        type,
+        amount: numericAmount,
+        taxAmount: type === 'expense' || type === 'income' ? numericTaxAmount : 0,
+        transferFee: type === 'transfer' ? calculatedTransferFee : 0,
+        date,
+        accountId,
+        toAccountId: type === 'transfer' ? toAccountId : undefined,
+        budgetPool:
+          type === 'expense'
+            ? budgetPool
+            : type === 'transfer' && isSavingsAllocation
+            ? 'savings'
+            : undefined,
+        isSalary: type === 'income' ? isSalary : undefined,
+        isSavingsAllocation: type === 'transfer' ? Boolean(isSavingsAllocation) : undefined,
+        savingsWithdrawalChoice:
+          type === 'transfer' && isSavingsWithdrawal && !isSavingsAllocation
+            ? savingsWithdrawalChoice || 'just_moving'
+            : undefined,
+        isRecurring,
+      },
+      activeEditingTx || null,
+      transactions,
+      accounts,
+      smartBudgetConfigObj,
+      resolvedMsgLang,
+      new Date()
     );
-
-    if (budgetPool === 'oneoff') {
-      return {
-        status: 'safe' as const,
-        todayAllowance,
-        projectedAllowance: todayAllowance,
-        overTodayBy: 0,
-        budgetPool,
-      };
-    }
-
-    let status: 'safe' | 'warning' | 'danger' = 'safe';
-    let overTodayBy = 0;
-
-    if (budgetPool === 'daily') {
-      const remAfter = todayRemainingBefore - effectiveExpenseAmount;
-      overTodayBy = remAfter < 0 ? Math.abs(remAfter) : 0;
-      const monthlyDailyRemAfter = monthlyDailyRemBefore - effectiveExpenseAmount;
-      if (monthlyDailyRemAfter <= 0) {
-        status = 'danger';
-      } else if (overTodayBy > 0 || effectiveExpenseAmount > todayAllowance * 0.8) {
-        status = 'warning';
-      } else {
-        status = 'safe';
-      }
-    } else if (budgetPool === 'outings') {
-      const outingsRem = smartBudgetEval.pools.outings.remaining;
-      const spillToDaily = Math.max(0, effectiveExpenseAmount - Math.max(0, outingsRem));
-      if (spillToDaily > 0 && monthlyDailyRemBefore - spillToDaily <= 0) {
-        status = 'danger';
-      } else if (spillToDaily > 0 || effectiveExpenseAmount > outingsRem * 0.8) {
-        status = 'warning';
-      } else {
-        status = 'safe';
-      }
-    } else if (budgetPool === 'fixed') {
-      const fixedRem = smartBudgetEval.pools.fixed.remaining;
-      const spillToDaily = Math.max(0, effectiveExpenseAmount - Math.max(0, fixedRem));
-      if (spillToDaily > 0 && monthlyDailyRemBefore - spillToDaily <= 0) {
-        status = 'danger';
-      } else if (spillToDaily > 0) {
-        status = 'warning';
-      } else {
-        status = 'safe';
-      }
-    }
-
-    return {
-      status,
-      todayAllowance,
-      projectedAllowance,
-      overTodayBy,
-      budgetPool,
-    };
-  }, [type, smartBudgetEval, isDateInCycle, effectiveExpenseAmount, budgetPool, date]);
+  }, [
+    isSharedMode,
+    numericAmount,
+    accountId,
+    activeEditingTx,
+    type,
+    numericTaxAmount,
+    calculatedTransferFee,
+    date,
+    toAccountId,
+    budgetPool,
+    isSavingsAllocation,
+    isSalary,
+    isSavingsWithdrawal,
+    savingsWithdrawalChoice,
+    isRecurring,
+    transactions,
+    accounts,
+    smartBudgetConfigObj,
+    resolvedMsgLang,
+  ]);
 
   const isTransferSameAccount = type === 'transfer' && accountId === toAccountId;
   const canSave = numericAmount > 0 && !isTransferSameAccount && isModified && !isFilterEmpty;
@@ -1654,7 +1626,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         postEval,
         showToast,
         () => setIsSmartBudgetModalOpen(true),
-        isArabic
+        isMsgArabic
       );
     }
 
@@ -1705,7 +1677,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     <div
       onClick={handleAnimatedClose}
       onTouchMove={(e) => e.stopPropagation()}
-      className={`fixed inset-0 z-[80] flex items-end sm:items-center landscape:items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 landscape:p-2 overflow-y-auto overscroll-contain transition-all duration-200 ${
+      className={`modal-safe-overlay fixed inset-0 z-[80] flex items-end sm:items-center landscape:items-center justify-center bg-black/75 p-0 sm:p-4 landscape:p-2 overflow-y-auto overscroll-contain transition-opacity duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
@@ -1719,10 +1691,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         onPointerMove={handleSwipePointerMove}
         onPointerUp={handleSwipePointerUp}
         onPointerCancel={handleSwipePointerUp}
-        style={{
-          maxHeight: viewportHeight ? `${Math.min(viewportHeight, window.innerHeight)}px` : '96dvh',
-        }}
-        className={`w-full max-w-lg my-auto flex flex-col rounded-t-3xl sm:rounded-3xl landscape:rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/80 shadow-2xl overflow-hidden text-white transition-all duration-200 touch-pan-y select-none ${
+        className={`w-full max-w-lg my-auto max-h-[94svh] flex flex-col rounded-t-3xl sm:rounded-3xl landscape:rounded-3xl bg-zinc-950 border border-zinc-800/80 shadow-2xl overflow-hidden text-white transition-all duration-200 touch-pan-y select-none ${
           isClosing ? 'modal-container-closing' : 'modal-container-anim'
         }`}
       >
@@ -1747,7 +1716,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   ? 'bg-emerald-600'
                   : type === 'expense'
                   ? 'bg-red-600'
-                  : 'bg-blue-600'
+                  : 'bg-teal-600'
               }`}
               style={{
                 width: 'calc((100% - 8px) / 3)',
@@ -1787,7 +1756,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 type === 'transfer' ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              <ArrowLeftRight className="w-3.5 h-3.5 text-blue-300" />
+              <ArrowLeftRight className="w-3.5 h-3.5 text-teal-200" />
               <span>{t('transfer')}</span>
             </button>
           </div>
@@ -1795,16 +1764,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           <div className="w-9" /> {/* Spacer */}
         </div>
 
-        {/* Scrollable Upper Section with Subtle Fluid Drag Feedback */}
+        {/* Scrollable Upper Section with Virtual Keyboard Inset Padding (Numpad Dock Stays Fixed Below) */}
         <div
           style={{
             transform: isDragging && !prefersReducedMotion ? `translateX(${dragDeltaX * 0.15}px)` : 'none',
             transition: isDragging || prefersReducedMotion ? 'none' : 'transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+            paddingBottom: 'calc(1rem + var(--kb-inset, 0px))',
           }}
-          className="flex-1 overflow-y-auto overscroll-contain touch-pan-y px-5 py-3 space-y-3.5"
+          className="flex-1 overflow-y-auto overscroll-contain touch-pan-y px-5 py-3 space-y-3.5 kb-scroll-pad"
         >
           {editingRecurring && (
-            <div className="rounded-2xl bg-blue-600/10 border border-blue-500/30 px-3 py-2 text-[11px] font-semibold text-blue-300 flex items-center gap-2">
+            <div className="rounded-2xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2 text-[11px] font-semibold text-emerald-300 flex items-center gap-2">
               <RefreshCw className="w-3.5 h-3.5 shrink-0" />
               <span>{isArabic ? 'تعديل قاعدة المعاملة الدورية' : 'Editing recurring rule'}</span>
             </div>
@@ -1832,12 +1802,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 onClick={() => setActiveKeypadTarget('amount')}
                 className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-2xl bg-zinc-900/60 border shadow-inner select-none transition cursor-pointer ${
                   activeKeypadTarget === 'amount'
-                    ? 'border-blue-500/60 ring-2 ring-blue-500/20'
+                    ? 'border-emerald-500/60 ring-2 ring-emerald-500/20'
                     : 'border-zinc-800 opacity-75 hover:opacity-100'
                 }`}
               >
                 <span className={`text-3xl sm:text-4xl font-black ${
-                  type === 'income' ? 'text-emerald-400' : type === 'expense' ? 'text-red-400' : 'text-blue-400'
+                  type === 'income' ? 'text-emerald-400' : type === 'expense' ? 'text-red-400' : 'text-teal-400'
                 }`}>
                   {currencySymbol}
                 </span>
@@ -1852,46 +1822,249 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               )}
             </div>
 
-            {/* Live Non-Blocking Impact Estimate for Expense Transactions */}
-            {type === 'expense' && impactEstimate && (
+            {/* Rich 3-Layer Friendly Future-Impact Analyzer Card (Expense, Income & Transfer) */}
+            {impactReport && (
               <div
-                className={`mt-1.5 mx-auto max-w-sm px-3.5 py-2 rounded-xl text-xs flex items-center justify-between gap-2 border transition ${
-                  impactEstimate.status === 'safe'
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                    : impactEstimate.status === 'warning'
-                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                    : 'bg-red-500/10 border-red-500/30 text-red-300'
+                ref={impactCardRef}
+                dir={isMsgArabic ? 'rtl' : 'ltr'}
+                className={`mt-2.5 mx-auto max-w-md rounded-2xl border text-start transition-colors overflow-hidden ${
+                  impactReport.severity === 'positive'
+                    ? 'bg-emerald-950/35 border-emerald-500/40 text-emerald-200'
+                    : impactReport.severity === 'safe'
+                    ? 'bg-teal-950/30 border-teal-500/35 text-teal-200'
+                    : impactReport.severity === 'caution'
+                    ? 'bg-amber-950/30 border-amber-500/40 text-amber-200'
+                    : impactReport.severity === 'warning'
+                    ? 'bg-orange-950/35 border-orange-500/45 text-orange-200'
+                    : 'bg-rose-950/40 border-rose-500/50 text-rose-200'
                 }`}
               >
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  {impactEstimate.status === 'safe' ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  ) : impactEstimate.status === 'warning' ? (
-                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 animate-pulse" />
-                  )}
-                  <span className="leading-snug break-words">
-                    {impactEstimate.budgetPool === 'oneoff' && t('poolOneOffHint')}
-                    {impactEstimate.budgetPool !== 'oneoff' &&
-                      impactEstimate.status === 'safe' &&
-                      (isArabic ? 'ضمن المسموح اليوم بهدوء' : "Within today's allowed amount")}
-                    {impactEstimate.budgetPool !== 'oneoff' &&
-                      impactEstimate.status === 'warning' &&
-                      (impactEstimate.overTodayBy > 0
-                        ? t('calmOverTodayMessage')
-                            .replace('{over}', formatCurrency(impactEstimate.overTodayBy, currencySymbol))
-                            .replace('{nextDaily}', formatCurrency(impactEstimate.projectedAllowance, currencySymbol))
-                        : isArabic
-                        ? `سيصبح المبلغ اليومي للأيام الجاية ${formatCurrency(impactEstimate.projectedAllowance, currencySymbol)}`
-                        : `Upcoming days' daily amount will be ${formatCurrency(impactEstimate.projectedAllowance, currencySymbol)}`)}
-                    {impactEstimate.budgetPool !== 'oneoff' &&
-                      impactEstimate.status === 'danger' &&
-                      (isArabic
-                        ? 'هذا المصروف يستنفد كامل حوض المصروف اليومي المتبقي لهذا الشهر'
-                        : 'This expense exhausts the remaining monthly Daily Spending pool')}
-                  </span>
-                </div>
+                {/* Layer 1: Unclipped Header & Daily Before -> After Pill */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsImpactExpanded((prev) => {
+                      const next = !prev;
+                      if (next) {
+                        requestAnimationFrame(() => {
+                          impactCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        });
+                      } else {
+                        setShowExpertImpactMetrics(false);
+                      }
+                      return next;
+                    });
+                  }}
+                  className="w-full min-h-[44px] px-3.5 py-2.5 flex items-start justify-between gap-2.5 text-xs cursor-pointer"
+                >
+                  <div className="flex items-start gap-2 min-w-0 flex-1">
+                    {impactReport.severity === 'positive' ? (
+                      <TrendingUp className="w-4 h-4 mt-0.5 text-emerald-400 shrink-0" />
+                    ) : impactReport.severity === 'safe' ? (
+                      <CheckCircle2 className="w-4 h-4 mt-0.5 text-teal-400 shrink-0" />
+                    ) : impactReport.severity === 'caution' || impactReport.severity === 'warning' ? (
+                      <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-400 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 mt-0.5 text-rose-400 shrink-0 animate-pulse" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div
+                        className={`font-bold leading-snug whitespace-normal break-words ${
+                          isImpactExpanded ? '' : 'line-clamp-2'
+                        }`}
+                      >
+                        {impactReport.headline}
+                      </div>
+                      <div className="text-[11px] opacity-90 font-mono tabular-nums mt-1 flex items-center gap-1.5 flex-wrap">
+                        <span>
+                          {isMsgArabic ? 'اليومي:' : 'Daily:'}{' '}
+                          {formatCurrency(impactReport.metrics.dailyBefore, currencySymbol)} {'->'}{' '}
+                          {formatCurrency(impactReport.metrics.dailyAfter, currencySymbol)}
+                        </span>
+                        {impactReport.metrics.dailyDelta !== 0 && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded-md font-bold tabular-nums ${
+                              impactReport.metrics.dailyDelta > 0
+                                ? 'bg-emerald-500/20 text-emerald-300'
+                                : 'bg-black/30 text-current'
+                            }`}
+                          >
+                            {impactReport.metrics.dailyDelta > 0 ? '+' : ''}
+                            {formatCurrency(impactReport.metrics.dailyDelta, currencySymbol)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0 text-[11px] font-bold opacity-85 pt-0.5">
+                    <span>
+                      {isImpactExpanded
+                        ? isMsgArabic
+                          ? 'إخفاء'
+                          : 'Less'
+                        : isMsgArabic
+                        ? 'التفاصيل'
+                        : 'Details'}
+                    </span>
+                    {isImpactExpanded ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </div>
+                </button>
+
+                {isImpactExpanded && (
+                  <div className="px-3.5 pb-3.5 pt-2.5 border-t border-white/10 space-y-3 text-xs">
+                    {/* Layer 2: 4 Simple Everyday Cards */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="p-2.5 rounded-xl bg-black/25 border border-white/10 min-w-0">
+                        <div className="text-[11px] opacity-75">
+                          {isMsgArabic ? 'متاح النهارده بعد العملية' : 'Left Today After'}
+                        </div>
+                        <div className="font-mono font-bold tabular-nums text-white mt-0.5 break-words">
+                          {formatCurrency(Math.max(0, impactReport.metrics.todayRemainingAfter), currencySymbol)}
+                        </div>
+                        {impactReport.metrics.todayRemainingAfter < 0 && (
+                          <div className="text-[10px] text-amber-300 font-semibold mt-0.5 whitespace-normal">
+                            {isMsgArabic
+                              ? `تجاوزت مسموح اليوم بـ ${formatCurrency(Math.abs(impactReport.metrics.todayRemainingAfter), currencySymbol)}`
+                              : `Over today by ${formatCurrency(Math.abs(impactReport.metrics.todayRemainingAfter), currencySymbol)}`}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-black/25 border border-white/10 min-w-0">
+                        <div className="text-[11px] opacity-75">
+                          {isMsgArabic ? 'يوميتك للأيام الجاية' : 'Daily Limit Ahead'}
+                        </div>
+                        <div className="font-mono font-bold tabular-nums text-white mt-0.5 break-words">
+                          {formatCurrency(impactReport.metrics.dailyAfter, currencySymbol)}
+                        </div>
+                        <div className="text-[10px] opacity-70 font-mono tabular-nums mt-0.5">
+                          {isMsgArabic ? 'كان' : 'was'} {formatCurrency(impactReport.metrics.dailyBefore, currencySymbol)}
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-black/25 border border-white/10 min-w-0">
+                        <div className="text-[11px] opacity-75 truncate">{impactReport.metrics.poolLabel}</div>
+                        <div className="font-mono font-bold tabular-nums text-white mt-0.5 break-words">
+                          {formatCurrency(impactReport.metrics.poolAfter, currencySymbol)}
+                        </div>
+                        <div className="text-[10px] opacity-70 font-mono tabular-nums mt-0.5">
+                          {isMsgArabic ? 'كان' : 'was'} {formatCurrency(impactReport.metrics.poolBefore, currencySymbol)}
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-black/25 border border-white/10 min-w-0">
+                        <div className="text-[11px] opacity-75">
+                          {isMsgArabic ? 'نظرة لآخر الشهر' : 'Month-End Outlook'}
+                        </div>
+                        <div className="font-bold text-white mt-0.5 leading-snug whitespace-normal break-words">
+                          {impactReport.metrics.simpleOutlookLabel}
+                        </div>
+                      </div>
+                    </div>
+
+                    {impactReport.metrics.exceedsAvgAlert && (
+                      <div className="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-400/30 text-amber-200 font-semibold flex items-start gap-2 leading-relaxed">
+                        <Sparkles className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                        <span className="whitespace-normal break-words">
+                          {isMsgArabic
+                            ? `الصرفة دي أعلى بـ ${impactReport.metrics.exceedsAvgRatio}× من متوسّط صرفك اليومي المعتاد.`
+                            : `This spend is ${impactReport.metrics.exceedsAvgRatio}× higher than your usual daily spend.`}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Conversational Human Insights */}
+                    <ul className="space-y-1.5 text-xs leading-relaxed opacity-95">
+                      {impactReport.detailedMessages.map((msg, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <span className="mt-2 w-1.5 h-1.5 rounded-full bg-current shrink-0 opacity-75" />
+                          <span className="whitespace-normal break-words">{msg}</span>
+                        </li>
+                      ))}
+                    </ul>
+
+                    {/* Clear Next-Step Action Tip */}
+                    <div className="px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 font-semibold leading-relaxed whitespace-normal break-words">
+                      {impactReport.recommendation}
+                    </div>
+
+                    {/* Layer 3: Collapsible Detailed Expert Numbers */}
+                    <div className="pt-1 border-t border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => setShowExpertImpactMetrics((prev) => !prev)}
+                        className="w-full min-h-[38px] flex items-center justify-between px-2 py-1 rounded-lg text-[11px] font-semibold opacity-80 hover:opacity-100 hover:bg-white/5 transition cursor-pointer"
+                      >
+                        <span>
+                          {showExpertImpactMetrics
+                            ? isMsgArabic
+                              ? 'إخفاء الأرقام التفصيلية للخبراء'
+                              : 'Hide Detailed Expert Metrics'
+                            : isMsgArabic
+                            ? 'عرض الأرقام التفصيلية للخبراء'
+                            : 'Show Detailed Expert Metrics'}
+                        </span>
+                        {showExpertImpactMetrics ? (
+                          <ChevronUp className="w-3.5 h-3.5 shrink-0" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                        )}
+                      </button>
+
+                      {showExpertImpactMetrics && (
+                        <div className="mt-2 grid grid-cols-2 gap-1.5 text-[11px]">
+                          <div className="p-2 rounded-xl bg-black/30 border border-white/5">
+                            <div className="text-[10px] opacity-70">
+                              {isMsgArabic ? 'عمر الميزانية المتوقع' : 'Projected Runway'}
+                            </div>
+                            <div className="font-mono font-bold tabular-nums text-white mt-0.5">
+                              {impactReport.metrics.projectedRunwayDays} {isMsgArabic ? 'يوم' : 'days'}
+                              {impactReport.metrics.projectedZeroDate
+                                ? ` (${impactReport.metrics.projectedZeroDate.slice(5)})`
+                                : ''}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-black/30 border border-white/5">
+                            <div className="text-[10px] opacity-70">
+                              {isMsgArabic ? 'يعادل كام يوم صرف' : 'Daily Equivalent'}
+                            </div>
+                            <div className="font-mono font-bold tabular-nums text-white mt-0.5">
+                              {impactReport.metrics.equivalentDailyDays}× {isMsgArabic ? 'يوم' : 'days'}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-black/30 border border-white/5">
+                            <div className="text-[10px] opacity-70">
+                              {isMsgArabic ? 'متوسّط الصرف اليومي' : 'Cycle Daily Average'}
+                            </div>
+                            <div className="font-mono font-bold tabular-nums text-white mt-0.5">
+                              {formatCurrency(impactReport.metrics.averageDailySpendInCycle, currencySymbol)}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-black/30 border border-white/5">
+                            <div className="text-[10px] opacity-70">
+                              {impactReport.metrics.dailyRecoveryNeeded > 0
+                                ? isMsgArabic
+                                  ? 'للتعافي يومياً'
+                                  : 'Daily Recovery'
+                                : isMsgArabic
+                                ? 'الرصيد المتوقع بنهاية الدورة'
+                                : 'Cycle-End Forecast'}
+                            </div>
+                            <div className="font-mono font-bold tabular-nums text-white mt-0.5">
+                              {impactReport.metrics.dailyRecoveryNeeded > 0
+                                ? `${formatCurrency(impactReport.metrics.dailyRecoveryNeeded, currencySymbol)}/${isMsgArabic ? 'يوم' : 'd'}`
+                                : formatCurrency(impactReport.metrics.projectedCycleEndBalance, currencySymbol)}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -3260,7 +3433,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       }}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition cursor-pointer ${
                         isSelected
-                          ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 ring-1 ring-blue-400/40'
+                          ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/50 ring-1 ring-emerald-400/40'
                           : 'bg-zinc-900 border border-zinc-800/90 text-zinc-300 hover:bg-zinc-800'
                       }`}
                     >
@@ -3305,7 +3478,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             </div>
           )}
 
-          {/* Full-width Blue Save / Update Transaction Button */}
+          {/* Full-width Emerald Save / Update Transaction Button */}
           <div className="pt-2">
             <button
               type="button"
@@ -3313,7 +3486,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               onClick={handleSave}
               className={`w-full py-3.5 rounded-full font-bold text-sm transition shadow-lg ${
                 canSave
-                  ? 'bg-blue-600 hover:bg-blue-500 active:scale-98 text-white shadow-blue-900/40 cursor-pointer'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 active:scale-98 text-black shadow-emerald-950/50 cursor-pointer'
                   : 'bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-60'
               }`}
             >

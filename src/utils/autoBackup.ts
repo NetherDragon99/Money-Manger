@@ -903,8 +903,9 @@ export async function writeV4ResolvedState(
     const stampedSmartBudget = effSmartBudget
       ? { ...effSmartBudget, updatedAt: now }
       : undefined;
+    const { joinBeta: _omitJoinBetaA, ...syncSafeSettings } = (state.settings || {}) as AppSettings;
     const stampedSettings = {
-      ...state.settings,
+      ...syncSafeSettings,
       updatedAt: now,
       ...(stampedSmartBudget ? { smartBudget: stampedSmartBudget } : {}),
     };
@@ -1102,8 +1103,9 @@ export async function writeGranularManifest(
   const effSmartBudget = settings.smartBudget
     ? { ...settings.smartBudget, updatedAt: settings.smartBudget.updatedAt || now }
     : undefined;
+  const { joinBeta: _omitJoinBetaB, ...syncSafeSettings } = (settings || {}) as AppSettings;
   const stampedSettings = {
-    ...settings,
+    ...syncSafeSettings,
     updatedAt: now,
     ...(effSmartBudget ? { smartBudget: effSmartBudget } : {}),
   };

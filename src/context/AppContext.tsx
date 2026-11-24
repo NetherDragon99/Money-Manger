@@ -41,6 +41,7 @@ import {
   RecurringTransaction,
   Tombstone,
   BudgetAdjustment,
+  SmartBudgetPoolKey,
 } from '../types';
 import {
   loadRecurringTransactions,
@@ -74,16 +75,35 @@ import {
 } from '../utils/storage';
 import { requestPersistentStorage, loadFullDataFromIndexedDB, saveItemToIndexedDB, savePreMigrationSnapshot } from '../utils/indexedDB';
 import { isStrictSeededDailyExpressCategory, migrateCategoryTypo } from '../utils/categoryMigration';
-import { migrateSmartBudgetSettingsToUnifiedCycle, getSalaryCycleRange } from '../utils/smartBudgetEngine';
+import {
+  migrateSmartBudgetSettingsToUnifiedCycle,
+  getSalaryCycleRange,
+  evaluateSmartBudget,
+  SmartBudgetConfig,
+  SmartBudgetEvaluation,
+  isSpendingOrCustomiseRole,
+  normalizeCurrencyCodeOrSymbol,
+} from '../utils/smartBudgetEngine';
 import { ensureBankFeesCategory, buildLinkedTransferFeeTransaction, roundHalfUpToCents } from '../utils/transferFee';
 import { syncAllAccountBalances, getHistoricalBalance } from '../utils/balanceEngine';
-import { formatDateToYYYYMMDD, formatTimeToHHMM } from '../utils/dateCycle';
+import { formatDateToYYYYMMDD, formatTimeToHHMM, DEFAULT_ADVANCED_FILTER } from '../utils/dateCycle';
 import { translations } from '../utils/translations';
-import { DEFAULT_SETTINGS } from '../utils/constants';
+import { DEFAULT_SETTINGS, resolveToastDismissMs } from '../utils/constants';
 import { CURRENT_APP_VERSION } from '../utils/versionChecker';
 import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomDialogModal';
 import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId, cleanNumericId, clearUserIdentityState } from '../utils/userId';
-import { auth, checkAndHandleGoogleRedirect, getCachedAuthUser, setCachedAuthUser, subscribeToCloudBackup, logoutUser, rtdb, getGoogleDriveAccessToken } from '../utils/firebase';
+import {
+  auth,
+  checkAndHandleGoogleRedirect,
+  getCachedAuthUser,
+  setCachedAuthUser,
+  subscribeToCloudBackup,
+  logoutUser,
+  rtdb,
+  getGoogleDriveAccessToken,
+  AuthSessionUser,
+  restoreCachedAuthUserFromIndexedDB,
+} from '../utils/firebase';
 import { ref, get, onValue, off, DataSnapshot } from 'firebase/database';
 import {
   FullAppBackupPayload,
@@ -173,6 +193,7 @@ export interface ToastItem {
     onClick: () => void;
   };
   duration?: number;
+  persistent?: boolean;
 }
 
 interface AppContextType {
@@ -250,8 +271,14 @@ interface AppContextType {
   setIsPinModalOpen: (open: boolean) => void;
   isSmartBudgetModalOpen: boolean;
   setIsSmartBudgetModalOpen: (open: boolean) => void;
-  activePoolDrillDown: 'savings' | 'fixed' | 'outings' | 'daily' | null;
-  setActivePoolDrillDown: (pool: 'savings' | 'fixed' | 'outings' | 'daily' | null) => void;
+  activePoolDrillDown: SmartBudgetPoolKey | null;
+  setActivePoolDrillDown: (pool: SmartBudgetPoolKey | null) => void;
+  updateManualPoolProgress: (
+    cycleKey: string,
+    poolKey: SmartBudgetPoolKey,
+    amountMajor: number,
+    mode: 'add' | 'subtract' | 'set' | 'reset'
+  ) => void;
   isSettingsModalOpen: boolean;
   setIsSettingsModalOpen: (open: boolean) => void;
   isTransferFeesModalOpen: boolean;
@@ -417,7 +444,13 @@ interface AppContextType {
   openSharedLiveView: (id?: string, snapshot?: any) => void;
   closeSharedLiveView: () => void;
 
-  // Cloud Sync Status Indicator
+  // Derived Lookups & Memoized Evaluations
+  accountsById: Map<string, Account>;
+  categoriesById: Map<string, Category>;
+  smartBudgetEvaluation: SmartBudgetEvaluation;
+
+  // Persistent Auth & Cloud Sync Status Indicator
+  authUser: AuthSessionUser | null;
   syncStatus: SyncStatus;
   lastSyncedAt: number | null;
 
@@ -425,7 +458,245 @@ interface AppContextType {
   t: (key: keyof typeof translations.en) => string;
 }
 
+export type AppDataContextType = Pick<
+  AppContextType,
+  | 'accounts'
+  | 'categories'
+  | 'transactions'
+  | 'recurringTransactions'
+  | 'settings'
+  | 'accountsById'
+  | 'categoriesById'
+  | 'smartBudgetEvaluation'
+  | 'budgetAlerts'
+  | 'dismissedAlertIds'
+  | 't'
+>;
+
+export type AppAuthSyncContextType = Pick<
+  AppContextType,
+  | 'authUser'
+  | 'syncStatus'
+  | 'lastSyncedAt'
+  | 'pendingSyncConflict'
+  | 'pendingCloudBackup'
+  | 'resolveSyncConflict'
+  | 'signOutUser'
+  | 'triggerCloudBackupNow'
+  | 'triggerCloudRestoreNow'
+>;
+
+export type ToastContextType = Pick<
+  AppContextType,
+  'toasts' | 'showToast' | 'dismissToast'
+>;
+
+export type AppActionsContextType = Pick<
+  AppContextType,
+  | 'setCurrentTab'
+  | 'setIsHeaderVisible'
+  | 'setHomeSubView'
+  | 'setSelectedAccountId'
+  | 'setPeriodFilter'
+  | 'setPeriodOffset'
+  | 'setCustomDateRange'
+  | 'setAdvancedFilter'
+  | 'clearAdvancedFilter'
+  | 'setIsSidebarOpen'
+  | 'openAddTxModal'
+  | 'closeAddTxModal'
+  | 'executeManualRecurringRules'
+  | 'openEditTxModal'
+  | 'closeEditTxModal'
+  | 'openEditRecurringModal'
+  | 'applyRecurringRuleEdit'
+  | 'openTxDetailsModal'
+  | 'closeTxDetailsModal'
+  | 'openAddAccountModal'
+  | 'openEditAccountModal'
+  | 'closeAccountModal'
+  | 'openAddCategoryModal'
+  | 'openEditCategoryModal'
+  | 'closeCategoryModal'
+  | 'setIsUserProfileModalOpen'
+  | 'setIsResetPeriodModalOpen'
+  | 'setIsFilterModalOpen'
+  | 'setIsFeaturesModalOpen'
+  | 'setIsWhatsNewOpen'
+  | 'setIsRecurringModalOpen'
+  | 'setIsPinModalOpen'
+  | 'setIsSmartBudgetModalOpen'
+  | 'setActivePoolDrillDown'
+  | 'updateManualPoolProgress'
+  | 'setIsSettingsModalOpen'
+  | 'setIsTransferFeesModalOpen'
+  | 'setIsExportModalOpen'
+  | 'setIsImportModalOpen'
+  | 'setIsSharedHubModalOpen'
+  | 'setIsEditingSpace'
+  | 'setEditingShareId'
+  | 'setIsAppLocked'
+  | 'unlockApp'
+  | 'lockApp'
+  | 'addRecurringTransaction'
+  | 'updateRecurringTransaction'
+  | 'deleteRecurringTransaction'
+  | 'processDueRecurring'
+  | 'dismissBudgetAlert'
+  | 'openEmojiPicker'
+  | 'closeEmojiPicker'
+  | 'selectEmoji'
+  | 'addTransaction'
+  | 'updateTransaction'
+  | 'deleteTransaction'
+  | 'addAccount'
+  | 'updateAccount'
+  | 'deleteAccount'
+  | 'reorderAccounts'
+  | 'addCategory'
+  | 'updateCategory'
+  | 'deleteCategory'
+  | 'reorderCategories'
+  | 'startAccountMultiSelect'
+  | 'toggleAccountSelection'
+  | 'selectAllAccounts'
+  | 'clearAccountSelection'
+  | 'clearGlobalSelection'
+  | 'deleteAccountWithBalanceTransfer'
+  | 'deleteMultipleAccounts'
+  | 'openShareModal'
+  | 'closeShareModal'
+  | 'openRemainingBalanceModal'
+  | 'closeRemainingBalanceModal'
+  | 'startTxMultiSelect'
+  | 'toggleTxSelection'
+  | 'toggleBatchTxs'
+  | 'selectAllTxs'
+  | 'clearTxSelection'
+  | 'deleteSelectedTxs'
+  | 'batchAssignCategory'
+  | 'startCategoryMultiSelect'
+  | 'toggleCategorySelection'
+  | 'selectAllCategories'
+  | 'clearCategorySelection'
+  | 'deleteSelectedCategories'
+  | 'updateSettings'
+  | 'applyPeriodReset'
+  | 'signOutUser'
+  | 'importFullData'
+  | 'importSingleAccountData'
+  | 'importCustomData'
+  | 'importSharedItems'
+  | 'triggerCloudBackupNow'
+  | 'triggerCloudRestoreNow'
+  | 'showToast'
+  | 'dismissToast'
+  | 'showConfirm'
+  | 'showPrompt'
+  | 'closeCustomDialog'
+  | 'setActiveShareDetailFolder'
+  | 'setSelectedFeatureId'
+  | 'setFeatureGuideLayout'
+  | 'setActiveSharedId'
+  | 'setActiveSharedSnapshot'
+  | 'openSharedLiveView'
+  | 'closeSharedLiveView'
+  | 'resolveSyncConflict'
+>;
+
+export type AppUIContextType = Pick<
+  AppContextType,
+  | 'currentTab'
+  | 'setCurrentTab'
+  | 'isHeaderVisible'
+  | 'setIsHeaderVisible'
+  | 'homeSubView'
+  | 'setHomeSubView'
+  | 'selectedAccountId'
+  | 'setSelectedAccountId'
+  | 'periodFilter'
+  | 'setPeriodFilter'
+  | 'periodOffset'
+  | 'setPeriodOffset'
+  | 'customDateRange'
+  | 'setCustomDateRange'
+  | 'advancedFilter'
+  | 'setAdvancedFilter'
+  | 'clearAdvancedFilter'
+  | 'isSidebarOpen'
+  | 'setIsSidebarOpen'
+  | 'isAddTxModalOpen'
+  | 'defaultTxAccountId'
+  | 'defaultTxAmount'
+  | 'defaultTxIsRecurring'
+  | 'editingTx'
+  | 'editingRecurring'
+  | 'viewingTx'
+  | 'isAccountModalOpen'
+  | 'editingAccount'
+  | 'isCategoryModalOpen'
+  | 'editingCategory'
+  | 'defaultCategoryType'
+  | 'isUserProfileModalOpen'
+  | 'setIsUserProfileModalOpen'
+  | 'isResetPeriodModalOpen'
+  | 'setIsResetPeriodModalOpen'
+  | 'isFilterModalOpen'
+  | 'setIsFilterModalOpen'
+  | 'isFeaturesModalOpen'
+  | 'setIsFeaturesModalOpen'
+  | 'isWhatsNewOpen'
+  | 'setIsWhatsNewOpen'
+  | 'isRecurringModalOpen'
+  | 'setIsRecurringModalOpen'
+  | 'isPinModalOpen'
+  | 'setIsPinModalOpen'
+  | 'isSmartBudgetModalOpen'
+  | 'setIsSmartBudgetModalOpen'
+  | 'activePoolDrillDown'
+  | 'setActivePoolDrillDown'
+  | 'isSettingsModalOpen'
+  | 'setIsSettingsModalOpen'
+  | 'isTransferFeesModalOpen'
+  | 'setIsTransferFeesModalOpen'
+  | 'isExportModalOpen'
+  | 'setIsExportModalOpen'
+  | 'isImportModalOpen'
+  | 'setIsImportModalOpen'
+  | 'isSharedHubModalOpen'
+  | 'setIsSharedHubModalOpen'
+  | 'isEditingSpace'
+  | 'setIsEditingSpace'
+  | 'editingShareId'
+  | 'setEditingShareId'
+  | 'isAppLocked'
+  | 'isEmojiPickerOpen'
+  | 'selectedAccountIds'
+  | 'isAccountMultiSelect'
+  | 'isGlobalMultiSelect'
+  | 'shareModalState'
+  | 'remainingBalanceModalState'
+  | 'selectedTxIds'
+  | 'isTxMultiSelect'
+  | 'selectedCategoryIds'
+  | 'isCategoryMultiSelect'
+  | 'customDialogState'
+  | 'activeShareDetailFolder'
+  | 'setActiveShareDetailFolder'
+  | 'selectedFeatureId'
+  | 'setSelectedFeatureId'
+  | 'featureGuideLayout'
+  | 'setFeatureGuideLayout'
+  | 'activeSharedId'
+  | 'activeSharedSnapshot'
+>;
+
 const AppContext = createContext<AppContextType | null>(null);
+const AppDataContext = createContext<AppDataContextType | null>(null);
+const AppAuthSyncContext = createContext<AppAuthSyncContextType | null>(null);
+const ToastContext = createContext<ToastContextType | null>(null);
+const AppActionsContext = createContext<AppActionsContextType | null>(null);
+const AppUIContext = createContext<AppUIContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [initialData] = useState(() => loadInitialData());
@@ -461,15 +732,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     endDate: formatDateToYYYYMMDD(new Date()),
   });
 
-  const [advancedFilter, setAdvancedFilter] = useState<AdvancedFilter>({
-    accountIds: [],
-    categoryIds: [],
-    minAmount: undefined,
-    maxAmount: undefined,
-    type: 'all',
-    searchQuery: undefined,
-    budgetPools: [],
-  });
+  const [advancedFilter, setAdvancedFilter] = useState<AdvancedFilter>(() => ({ ...DEFAULT_ADVANCED_FILTER }));
 
   // Modals
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -496,7 +759,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isSmartBudgetModalOpen, setIsSmartBudgetModalOpen] = useState(false);
-  const [activePoolDrillDown, setActivePoolDrillDown] = useState<'savings' | 'fixed' | 'outings' | 'daily' | null>(null);
+  const [activePoolDrillDown, setActivePoolDrillDown] = useState<SmartBudgetPoolKey | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isTransferFeesModalOpen, setIsTransferFeesModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -605,6 +868,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch {}
   }, []);
 
+  // Instant Persistent Auth State (never shows Guest while offline)
+  const [authUser, setAuthUser] = useState<AuthSessionUser | null>(() => {
+    if (auth.currentUser) {
+      return {
+        uid: auth.currentUser.uid,
+        email: auth.currentUser.email,
+        displayName: auth.currentUser.displayName,
+        photoURL: auth.currentUser.photoURL,
+        phoneNumber: auth.currentUser.phoneNumber,
+      };
+    }
+    return getCachedAuthUser();
+  });
+  const authUserRef = useRef<AuthSessionUser | null>(authUser);
+  authUserRef.current = authUser;
+  const isExplicitSignOutRef = useRef<boolean>(false);
+
   const [pendingSyncConflict, setPendingSyncConflict] = useState<SyncConflictData | null>(null);
   const [pendingCloudBackup, setPendingCloudBackup] = useState<any | null>(null);
   const pendingCloudBackupRef = useRef<any | null>(null);
@@ -614,7 +894,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Single derived source of truth for cloud synchronization status
   const syncStatus: SyncStatus = useMemo(() => {
-    if (!auth.currentUser && !getCachedAuthUser()) {
+    if (!authUser && !auth.currentUser && !getCachedAuthUser()) {
       return 'local_only';
     }
     if (pendingSyncConflict) {
@@ -629,6 +909,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     return 'online';
   }, [
+    authUser,
     pendingSyncConflict,
     isDeviceOnline,
     isConnectedToRtdb,
@@ -1154,8 +1435,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       recentToastCooldownRef.current = new Map(entries);
     }
 
-    // Scale auto-dismiss duration with message length (Math.min(8000, Math.max(3500, message.length * 60)))
-    const autoDismissDuration = duration ?? Math.min(8000, Math.max(3500, cleanMsg.length * 60));
+    // Resolve auto-dismiss duration from user settings (default 5s, >=7s for actionable toasts, or null for manual dismiss)
+    const autoDismissDuration = resolveToastDismissMs(settingsRef.current, {
+      hasAction: Boolean(action),
+      explicitDuration: duration,
+    });
+    const isPersistent = autoDismissDuration === null;
 
     const id = `${now}_${Math.random().toString(36).substring(2, 7)}`;
     setToasts((prev) => {
@@ -1165,12 +1450,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       // 3. Keep at most the latest 2 active toasts + new one (max 3)
       const trimmed = prev.slice(-2);
-      return [...trimmed, { id, message: cleanMsg, type, action, duration: autoDismissDuration }];
+      return [
+        ...trimmed,
+        {
+          id,
+          message: cleanMsg,
+          type,
+          action,
+          duration: autoDismissDuration ?? undefined,
+          persistent: isPersistent,
+        },
+      ];
     });
-
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, autoDismissDuration);
   }, []);
 
   const dismissToast = useCallback((id: string) => {
@@ -2311,6 +2602,64 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []);
 
+  // Derived Lookup Maps & Single Memoized Smart Budget Evaluation (shared across HomeView, BudgetView, Modals)
+  const accountsById = useMemo(() => {
+    const map = new Map<string, Account>();
+    for (const a of accounts) map.set(a.id, a);
+    return map;
+  }, [accounts]);
+
+  const categoriesById = useMemo(() => {
+    const map = new Map<string, Category>();
+    for (const c of categories) map.set(c.id, c);
+    return map;
+  }, [categories]);
+
+  const smartBudgetEvaluation = useMemo<SmartBudgetEvaluation>(() => {
+    const sb = settings.smartBudget;
+    const baseline = sb?.baseline || {};
+    const baseCurr = settings.currencySymbol || baseline.baseCurrency || 'EGP';
+    const normBaseCurr = normalizeCurrencyCodeOrSymbol(baseCurr);
+
+    const hasExplicitIncluded =
+      baseline.includedAccountIds && baseline.includedAccountIds.length > 0;
+    const hasLinkedFromToday =
+      baseline.fromTodayConfig?.linkedAccountIds &&
+      baseline.fromTodayConfig.linkedAccountIds.length > 0;
+
+    let defaultIncludedIds: string[];
+    if (hasExplicitIncluded) {
+      defaultIncludedIds = baseline.includedAccountIds!;
+    } else if (hasLinkedFromToday) {
+      defaultIncludedIds = baseline.fromTodayConfig!.linkedAccountIds!;
+    } else {
+      const publicBaseAccounts = accounts.filter(
+        (a) =>
+          !a.isPrivate &&
+          (!a.currency || normalizeCurrencyCodeOrSymbol(a.currency) === normBaseCurr)
+      );
+      const spendingAccounts = publicBaseAccounts.filter((a) =>
+        isSpendingOrCustomiseRole(a.accountRole)
+      );
+      defaultIncludedIds = (spendingAccounts.length > 0 ? spendingAccounts : publicBaseAccounts).map(
+        (a) => a.id
+      );
+    }
+
+    const cfg: SmartBudgetConfig = {
+      ...baseline,
+      startDay: settings.defaultMonthStartDay || baseline.startDay || 1,
+      baseCurrency: baseCurr,
+      includedAccountIds: defaultIncludedIds,
+      includePrivateAccounts:
+        baseline.includePrivateAccounts ??
+        accounts.some((a) => defaultIncludedIds.includes(a.id) && a.isPrivate),
+      overrides: sb?.overrides,
+      adjustments: sb?.adjustments,
+    };
+    return evaluateSmartBudget(transactions, accounts, cfg);
+  }, [transactions, accounts, settings.smartBudget, settings.defaultMonthStartDay, settings.currencySymbol]);
+
   // Smart Budget Alerts calculation
   const budgetAlerts = useMemo(() => {
     return evaluateBudgetAlerts(categories, transactions, settings.budgetAlertThreshold || 80);
@@ -2322,14 +2671,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   useEffect(() => {
     saveSettings(settings);
-    // Apply theme & RTL direction
-    if (settings.themeMode === 'light') {
-      document.documentElement.classList.add('light-mode');
-      document.documentElement.classList.remove('dark');
-    } else {
-      document.documentElement.classList.remove('light-mode');
-      document.documentElement.classList.add('dark');
-    }
+
+    const applyResolvedTheme = () => {
+      const prefersDark =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const isLight =
+        settings.themeMode === 'light' ||
+        (settings.themeMode === 'system' && !prefersDark);
+
+      document.documentElement.dataset.theme = isLight ? 'light' : 'dark';
+      if (isLight) {
+        document.documentElement.classList.add('light-mode');
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.remove('light-mode');
+        document.documentElement.classList.add('dark');
+      }
+
+      const metaTheme = document.querySelector('meta[name="theme-color"]');
+      if (metaTheme) {
+        metaTheme.setAttribute('content', isLight ? '#F5F5F7' : '#000000');
+      }
+    };
+
+    applyResolvedTheme();
 
     if (settings.language === 'ar') {
       document.documentElement.setAttribute('dir', 'rtl');
@@ -2337,6 +2704,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } else {
       document.documentElement.setAttribute('dir', 'ltr');
       document.documentElement.setAttribute('lang', 'en');
+    }
+
+    if (
+      settings.themeMode === 'system' &&
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function'
+    ) {
+      const mql = window.matchMedia('(prefers-color-scheme: dark)');
+      const onChange = () => applyResolvedTheme();
+      if (typeof mql.addEventListener === 'function') {
+        mql.addEventListener('change', onChange);
+        return () => mql.removeEventListener('change', onChange);
+      } else if (typeof (mql as any).addListener === 'function') {
+        (mql as any).addListener(onChange);
+        return () => (mql as any).removeListener(onChange);
+      }
     }
   }, [settings]);
 
@@ -2429,9 +2812,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setRecurringTransactions(mergedRecs);
     }
     if (d.settings && typeof d.settings === 'object') {
+      const { joinBeta: _ignoredRemoteBeta, ...safeRemoteSettings } = d.settings;
       setSettings((prev) => ({
         ...prev,
-        ...d.settings,
+        ...safeRemoteSettings,
+        joinBeta: prev.joinBeta,
         userProfile: d.settings.userProfile
           ? { ...prev.userProfile, ...d.settings.userProfile }
           : prev.userProfile,
@@ -2700,7 +3085,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setSettings((prev) => {
             const next = { ...prev };
             if (remoteSettings && remSettingsUpdated > Number(prev.updatedAt || 0)) {
-              Object.assign(next, remoteSettings);
+              const { joinBeta: _ignoredRemoteBeta, ...safeRemoteSettings } = remoteSettings;
+              Object.assign(next, safeRemoteSettings);
+              next.joinBeta = prev.joinBeta;
             }
             if (remoteProfile) {
               next.userProfile = { ...prev.userProfile, ...remoteProfile };
@@ -2903,7 +3290,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setSettings((prev) => {
             const next = { ...prev };
             if (remoteSettings && remSettingsUpdated > Number(prev.updatedAt || 0)) {
-              Object.assign(next, remoteSettings);
+              const { joinBeta: _ignoredRemoteBeta, ...safeRemoteSettings } = remoteSettings;
+              Object.assign(next, safeRemoteSettings);
+              next.joinBeta = prev.joinBeta;
             }
             if (remoteProfile) {
               next.userProfile = { ...prev.userProfile, ...remoteProfile };
@@ -3169,10 +3558,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const syncIdentity = async (user: any) => {
       if (!user) {
-        const cached = getCachedAuthUser();
-        if (cached) {
-          return;
+        if (!isExplicitSignOutRef.current) {
+          const cached = getCachedAuthUser() || authUserRef.current || (await restoreCachedAuthUserFromIndexedDB());
+          if (cached) {
+            if (isMounted) setAuthUser(cached);
+            return;
+          }
+          // Even offline or during SDK cold boot, never wipe an already-bound device session to Guest without explicit logout
+          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            return;
+          }
+          if (localStorage.getItem('mm_bound_account_uid')) {
+            return;
+          }
         }
+        setAuthUser(null);
         localStorage.removeItem('mm_bound_account_uid');
         localStorage.removeItem('mm_cached_authenticated_user');
         localStorage.removeItem('google_drive_access_token');
@@ -3212,13 +3612,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       try {
-        setCachedAuthUser({
+        isExplicitSignOutRef.current = false;
+        const sessionUser: AuthSessionUser = {
           uid: user.uid,
           email: user.email || null,
           displayName: user.displayName || null,
           photoURL: user.photoURL || null,
           phoneNumber: user.phoneNumber || null,
-        });
+        };
+        if (isMounted) {
+          setAuthUser(sessionUser);
+        }
+        setCachedAuthUser(sessionUser);
 
         const boundUid = localStorage.getItem('mm_bound_account_uid');
         const isDeviceBoundToUser = boundUid === user.uid;
@@ -3384,15 +3789,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     };
 
-    const unsubAuth = auth.onAuthStateChanged((user) => {
+    const unsubAuth = auth.onAuthStateChanged(async (user) => {
       if (user) {
+        isExplicitSignOutRef.current = false;
         syncIdentity(user);
       } else {
-        const cached = getCachedAuthUser();
+        if (isExplicitSignOutRef.current) {
+          syncIdentity(null);
+          return;
+        }
+        const cached =
+          getCachedAuthUser() || authUserRef.current || (await restoreCachedAuthUserFromIndexedDB());
         if (cached) {
-          console.log('[AppContext] Network offline: Preserving cached user session', cached.uid);
+          if (isMounted) setAuthUser(cached);
           syncIdentity(cached);
-        } else {
+        } else if (typeof navigator !== 'undefined' && navigator.onLine && !localStorage.getItem('mm_bound_account_uid')) {
           syncIdentity(null);
         }
       }
@@ -3401,23 +3812,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (auth.currentUser) {
       syncIdentity(auth.currentUser);
     } else {
-      const cached = getCachedAuthUser();
+      const cached = getCachedAuthUser() || authUserRef.current;
       if (cached) {
+        setAuthUser(cached);
         syncIdentity(cached);
+      } else {
+        restoreCachedAuthUserFromIndexedDB().then((idbUser) => {
+          if (isMounted && idbUser && !isExplicitSignOutRef.current) {
+            setAuthUser(idbUser);
+            syncIdentity(idbUser);
+          }
+        });
       }
     }
 
     const handleOnlineIdentity = () => {
-      const activeUser = auth.currentUser || getCachedAuthUser();
+      const activeUser = auth.currentUser || getCachedAuthUser() || authUserRef.current;
       if (activeUser) {
         syncIdentity(activeUser);
       }
     };
+    const handleExplicitSignOutEvent = () => {
+      isExplicitSignOutRef.current = true;
+      if (isMounted) setAuthUser(null);
+    };
     window.addEventListener('online', handleOnlineIdentity);
+    window.addEventListener('app_user_signed_out', handleExplicitSignOutEvent);
 
     return () => {
       isMounted = false;
       window.removeEventListener('online', handleOnlineIdentity);
+      window.removeEventListener('app_user_signed_out', handleExplicitSignOutEvent);
       if (unsubRemoteBackupRef.current) {
         unsubRemoteBackupRef.current();
         unsubRemoteBackupRef.current = null;
@@ -3536,15 +3961,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const clearAdvancedFilter = () => {
-    setAdvancedFilter({
-      accountIds: [],
-      categoryIds: [],
-      minAmount: undefined,
-      maxAmount: undefined,
-      type: 'all',
-      searchQuery: undefined,
-      budgetPools: [],
-    });
+    setAdvancedFilter({ ...DEFAULT_ADVANCED_FILTER });
   };
 
   // Linked Budget Adjustment Helpers for Reversible Savings/Investment Withdrawals
@@ -3771,6 +4188,46 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ...updatedTx,
       updatedAt: nowTs,
     };
+
+    // Strip incompatible fields when user edits transaction type or pool
+    if (finalTx.type === 'income') {
+      finalTx.budgetPool = undefined;
+      finalTx.toAccountId = undefined;
+      finalTx.transferFee = undefined;
+      finalTx.transferFeeMode = undefined;
+      finalTx.transferFeeInputType = undefined;
+      finalTx.transferFeeRawValue = undefined;
+      finalTx.transferFeeBudgetPool = undefined;
+      finalTx.linkedFeeTxId = undefined;
+      finalTx.isSavingsAllocation = undefined;
+      finalTx.savingsWithdrawalChoice = undefined;
+      finalTx.linkedAdjustmentId = undefined;
+      finalTx.budgetAdjustment = undefined;
+    } else if (finalTx.type === 'expense') {
+      finalTx.toAccountId = undefined;
+      finalTx.transferFee = undefined;
+      finalTx.transferFeeMode = undefined;
+      finalTx.transferFeeInputType = undefined;
+      finalTx.transferFeeRawValue = undefined;
+      finalTx.transferFeeBudgetPool = undefined;
+      finalTx.linkedFeeTxId = undefined;
+      finalTx.isSalary = undefined;
+      finalTx.savingsWithdrawalChoice = undefined;
+      finalTx.linkedAdjustmentId = undefined;
+      finalTx.budgetAdjustment = undefined;
+    } else if (finalTx.type === 'transfer') {
+      finalTx.taxAmount = undefined;
+      finalTx.taxMode = undefined;
+      finalTx.taxInputType = undefined;
+      finalTx.taxRawValue = undefined;
+      finalTx.isSalary = undefined;
+      if (finalTx.isSavingsAllocation) {
+        finalTx.budgetPool = 'savings';
+      } else {
+        finalTx.budgetPool = undefined;
+      }
+    }
+
     if (finalTx.recurringRuleId) {
       finalTx = {
         ...finalTx,
@@ -4292,6 +4749,69 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     showToast(t('updatedSuccess'), 'success');
   };
 
+  const updateManualPoolProgress = (
+    cycleKey: string,
+    poolKey: SmartBudgetPoolKey,
+    amountMajor: number,
+    mode: 'add' | 'subtract' | 'set' | 'reset'
+  ) => {
+    const cleanCycleKey = cycleKey || smartBudgetEvaluation.cycle.cycleKey;
+    const minorFactor = 100;
+    const currentOverrides = settings.smartBudget?.overrides || {};
+    const existingOverride = currentOverrides[cleanCycleKey] || {};
+    const currentManualMap: Partial<Record<SmartBudgetPoolKey, number>> = {
+      ...(existingOverride.manualProgressAdjustments || {}),
+    };
+    const prevManualMinor = Math.trunc(currentManualMap[poolKey] || 0);
+
+    if (mode === 'reset') {
+      delete currentManualMap[poolKey];
+    } else if (mode === 'add') {
+      const deltaMinor = Math.round(Math.max(0, Number(amountMajor) || 0) * minorFactor);
+      const nextMinor = prevManualMinor + deltaMinor;
+      if (nextMinor === 0) delete currentManualMap[poolKey];
+      else currentManualMap[poolKey] = nextMinor;
+    } else if (mode === 'subtract') {
+      const deltaMinor = Math.round(Math.max(0, Number(amountMajor) || 0) * minorFactor);
+      const nextMinor = prevManualMinor - deltaMinor;
+      if (nextMinor === 0) delete currentManualMap[poolKey];
+      else currentManualMap[poolKey] = nextMinor;
+    } else if (mode === 'set') {
+      const targetMinor = Math.round((Number(amountMajor) || 0) * minorFactor);
+      if (targetMinor === 0) delete currentManualMap[poolKey];
+      else currentManualMap[poolKey] = targetMinor;
+    }
+
+    const nowTs = Date.now();
+    const nextOverride = {
+      ...existingOverride,
+      manualProgressAdjustments: currentManualMap,
+    };
+    const nextSmartBudget = {
+      baseline: settings.smartBudget?.baseline || {},
+      overrides: {
+        ...currentOverrides,
+        [cleanCycleKey]: nextOverride,
+      },
+      adjustments: settings.smartBudget?.adjustments || {},
+      updatedAt: nowTs,
+    };
+    const nextSettings: AppSettings = {
+      ...settings,
+      smartBudget: nextSmartBudget,
+      updatedAt: nowTs,
+    };
+    setSettings(nextSettings);
+    saveSettings(nextSettings);
+    if (auth.currentUser && isSyncUnlockedRef.current) {
+      const uid = auth.currentUser.uid;
+      triggerGranularPush(() =>
+        writeGranularManifest(uid, nextSettings, nextSettings.userProfile, isSyncUnlockedRef.current)
+      );
+    }
+    showToast(t('updatedSuccess'), 'success');
+  };
+
   const applyPeriodReset = (type: 'now' | 'custom' | 'revert', customDate?: string) => {
     if (type === 'revert') {
       setSettings((prev) => {
@@ -4314,10 +4834,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Immediate Sign-Out: wipes cached auth, resets identity, and clears userProfile to clean Guest state
   const signOutUser = async (): Promise<void> => {
     try {
+      isExplicitSignOutRef.current = true;
+      setAuthUser(null);
       // 1. Unsubscribe active remote backup listener immediately
       if (unsubRemoteBackupRef.current) {
         unsubRemoteBackupRef.current();
         unsubRemoteBackupRef.current = null;
+      }
+      if (unsubV4ListenersRef.current) {
+        unsubV4ListenersRef.current();
+        unsubV4ListenersRef.current = null;
       }
 
       // 2. Perform low-level auth & storage cleanup
@@ -4924,7 +5450,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       let mergedSettings = { ...settingsRef.current };
       if (cloudSettings && cloudSettingsUpdated > curSettingsUpdated) {
-        mergedSettings = { ...mergedSettings, ...cloudSettings };
+        const { joinBeta: _ignoredRemoteBeta, ...safeCloudSettings } = cloudSettings;
+        mergedSettings = {
+          ...mergedSettings,
+          ...safeCloudSettings,
+          joinBeta: settingsRef.current.joinBeta,
+        };
       }
       if (cloudSmartBudget && cloudSmartUpdated > curSmartUpdated) {
         mergedSettings.smartBudget = cloudSmartBudget;
@@ -5092,6 +5623,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsPinModalOpen,
     setIsSmartBudgetModalOpen,
     setActivePoolDrillDown,
+    updateManualPoolProgress,
     setIsSettingsModalOpen,
     setIsTransferFeesModalOpen,
     setIsExportModalOpen,
@@ -5158,6 +5690,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     showConfirm,
     showPrompt,
     closeCustomDialog,
+    setActiveShareDetailFolder,
+    setSelectedFeatureId,
+    setFeatureGuideLayout,
     setActiveSharedId,
     setActiveSharedSnapshot,
     openSharedLiveView,
@@ -5165,160 +5700,268 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     resolveSyncConflict,
   });
 
-  // Context value only changes when actual STATE changes (mutators are stable)
-  const contextValue = useMemo<AppContextType>(
+  const dataValue = useMemo<AppDataContextType>(
     () => ({
-      ...stable,
-      pendingSyncConflict,
-      pendingCloudBackup,
-      resolveSyncConflict,
       accounts,
       categories,
       transactions,
-      settings,
-      currentTab,
-      isHeaderVisible,
-      homeSubView,
-      selectedAccountId,
-      periodFilter,
-      periodOffset,
-      customDateRange,
-      advancedFilter,
-      isSidebarOpen,
-      isAddTxModalOpen,
-      defaultTxAccountId,
-      defaultTxAmount,
-      defaultTxIsRecurring,
-      editingTx,
-      editingRecurring,
-      viewingTx,
-      isAccountModalOpen,
-      editingAccount,
-      isCategoryModalOpen,
-      editingCategory,
-      defaultCategoryType,
-      isUserProfileModalOpen,
-      isResetPeriodModalOpen,
-      isFilterModalOpen,
-      isFeaturesModalOpen,
-      isWhatsNewOpen,
-      isRecurringModalOpen,
-      isPinModalOpen,
-      isSmartBudgetModalOpen,
-      activePoolDrillDown,
-      isSettingsModalOpen,
-      isTransferFeesModalOpen,
-      isExportModalOpen,
-      isImportModalOpen,
-      isSharedHubModalOpen,
-      isEditingSpace,
-      editingShareId,
-      isAppLocked,
       recurringTransactions,
+      settings,
+      accountsById,
+      categoriesById,
+      smartBudgetEvaluation,
       budgetAlerts,
       dismissedAlertIds,
-      isEmojiPickerOpen,
-      selectedAccountIds,
-      isAccountMultiSelect,
-      isGlobalMultiSelect,
-      shareModalState,
-      remainingBalanceModalState,
-      selectedTxIds,
-      isTxMultiSelect,
-      selectedCategoryIds,
-      isCategoryMultiSelect,
-      toasts,
-      customDialogState,
-      activeShareDetailFolder,
-      setActiveShareDetailFolder,
-      selectedFeatureId,
-      setSelectedFeatureId,
-      featureGuideLayout,
-      setFeatureGuideLayout,
-      activeSharedId,
-      activeSharedSnapshot,
-      syncStatus,
-      lastSyncedAt,
       t,
     }),
     [
-      stable,
       accounts,
       categories,
       transactions,
-      settings,
-      currentTab,
-      homeSubView,
-      selectedAccountId,
-      periodFilter,
-      periodOffset,
-      customDateRange,
-      advancedFilter,
-      isSidebarOpen,
-      isAddTxModalOpen,
-      defaultTxAccountId,
-      defaultTxAmount,
-      defaultTxIsRecurring,
-      editingTx,
-      editingRecurring,
-      viewingTx,
-      isAccountModalOpen,
-      editingAccount,
-      isCategoryModalOpen,
-      editingCategory,
-      defaultCategoryType,
-      isUserProfileModalOpen,
-      isResetPeriodModalOpen,
-      isFilterModalOpen,
-      isFeaturesModalOpen,
-      isWhatsNewOpen,
-      isRecurringModalOpen,
-      isPinModalOpen,
-      isSmartBudgetModalOpen,
-      activePoolDrillDown,
-      isSettingsModalOpen,
-      isTransferFeesModalOpen,
-      isExportModalOpen,
-      isImportModalOpen,
-      isSharedHubModalOpen,
-      isEditingSpace,
-      editingShareId,
-      isAppLocked,
       recurringTransactions,
+      settings,
+      accountsById,
+      categoriesById,
+      smartBudgetEvaluation,
       budgetAlerts,
       dismissedAlertIds,
-      isEmojiPickerOpen,
-      selectedAccountIds,
-      isAccountMultiSelect,
-      isGlobalMultiSelect,
-      shareModalState,
-      remainingBalanceModalState,
-      isHeaderVisible,
-      selectedTxIds,
-      isTxMultiSelect,
-      selectedCategoryIds,
-      isCategoryMultiSelect,
-      toasts,
-      customDialogState,
-      activeShareDetailFolder,
-      setActiveShareDetailFolder,
-      selectedFeatureId,
-      setSelectedFeatureId,
-      featureGuideLayout,
-      setFeatureGuideLayout,
-      activeSharedId,
-      activeSharedSnapshot,
-      syncStatus,
-      lastSyncedAt,
       t,
     ]
   );
 
-  return (
-    <AppContext.Provider value={contextValue}>
-      {children}
-    </AppContext.Provider>
+  const authSyncValue = useMemo<AppAuthSyncContextType>(
+    () => ({
+      authUser,
+      syncStatus,
+      lastSyncedAt,
+      pendingSyncConflict,
+      pendingCloudBackup,
+      resolveSyncConflict: stable.resolveSyncConflict,
+      signOutUser: stable.signOutUser,
+      triggerCloudBackupNow: stable.triggerCloudBackupNow,
+      triggerCloudRestoreNow: stable.triggerCloudRestoreNow,
+    }),
+    [
+      authUser,
+      syncStatus,
+      lastSyncedAt,
+      pendingSyncConflict,
+      pendingCloudBackup,
+      stable,
+    ]
   );
+
+  const toastValue = useMemo<ToastContextType>(
+    () => ({
+      toasts,
+      showToast: stable.showToast,
+      dismissToast: stable.dismissToast,
+    }),
+    [toasts, stable]
+  );
+
+  const uiValue = useMemo<AppUIContextType>(
+    () => ({
+      currentTab,
+      setCurrentTab: stable.setCurrentTab,
+      isHeaderVisible,
+      setIsHeaderVisible: stable.setIsHeaderVisible,
+      homeSubView,
+      setHomeSubView: stable.setHomeSubView,
+      selectedAccountId,
+      setSelectedAccountId: stable.setSelectedAccountId,
+      periodFilter,
+      setPeriodFilter: stable.setPeriodFilter,
+      periodOffset,
+      setPeriodOffset: stable.setPeriodOffset,
+      customDateRange,
+      setCustomDateRange: stable.setCustomDateRange,
+      advancedFilter,
+      setAdvancedFilter: stable.setAdvancedFilter,
+      clearAdvancedFilter: stable.clearAdvancedFilter,
+      isSidebarOpen,
+      setIsSidebarOpen: stable.setIsSidebarOpen,
+      isAddTxModalOpen,
+      defaultTxAccountId,
+      defaultTxAmount,
+      defaultTxIsRecurring,
+      editingTx,
+      editingRecurring,
+      viewingTx,
+      isAccountModalOpen,
+      editingAccount,
+      isCategoryModalOpen,
+      editingCategory,
+      defaultCategoryType,
+      isUserProfileModalOpen,
+      setIsUserProfileModalOpen: stable.setIsUserProfileModalOpen,
+      isResetPeriodModalOpen,
+      setIsResetPeriodModalOpen: stable.setIsResetPeriodModalOpen,
+      isFilterModalOpen,
+      setIsFilterModalOpen: stable.setIsFilterModalOpen,
+      isFeaturesModalOpen,
+      setIsFeaturesModalOpen: stable.setIsFeaturesModalOpen,
+      isWhatsNewOpen,
+      setIsWhatsNewOpen: stable.setIsWhatsNewOpen,
+      isRecurringModalOpen,
+      setIsRecurringModalOpen: stable.setIsRecurringModalOpen,
+      isPinModalOpen,
+      setIsPinModalOpen: stable.setIsPinModalOpen,
+      isSmartBudgetModalOpen,
+      setIsSmartBudgetModalOpen: stable.setIsSmartBudgetModalOpen,
+      activePoolDrillDown,
+      setActivePoolDrillDown: stable.setActivePoolDrillDown,
+      isSettingsModalOpen,
+      setIsSettingsModalOpen: stable.setIsSettingsModalOpen,
+      isTransferFeesModalOpen,
+      setIsTransferFeesModalOpen: stable.setIsTransferFeesModalOpen,
+      isExportModalOpen,
+      setIsExportModalOpen: stable.setIsExportModalOpen,
+      isImportModalOpen,
+      setIsImportModalOpen: stable.setIsImportModalOpen,
+      isSharedHubModalOpen,
+      setIsSharedHubModalOpen: stable.setIsSharedHubModalOpen,
+      isEditingSpace,
+      setIsEditingSpace: stable.setIsEditingSpace,
+      editingShareId,
+      setEditingShareId: stable.setEditingShareId,
+      isAppLocked,
+      isEmojiPickerOpen,
+      selectedAccountIds,
+      isAccountMultiSelect,
+      isGlobalMultiSelect,
+      shareModalState,
+      remainingBalanceModalState,
+      selectedTxIds,
+      isTxMultiSelect,
+      selectedCategoryIds,
+      isCategoryMultiSelect,
+      customDialogState,
+      activeShareDetailFolder,
+      setActiveShareDetailFolder: stable.setActiveShareDetailFolder,
+      selectedFeatureId,
+      setSelectedFeatureId: stable.setSelectedFeatureId,
+      featureGuideLayout,
+      setFeatureGuideLayout: stable.setFeatureGuideLayout,
+      activeSharedId,
+      activeSharedSnapshot,
+    }),
+    [
+      stable,
+      currentTab,
+      isHeaderVisible,
+      homeSubView,
+      selectedAccountId,
+      periodFilter,
+      periodOffset,
+      customDateRange,
+      advancedFilter,
+      isSidebarOpen,
+      isAddTxModalOpen,
+      defaultTxAccountId,
+      defaultTxAmount,
+      defaultTxIsRecurring,
+      editingTx,
+      editingRecurring,
+      viewingTx,
+      isAccountModalOpen,
+      editingAccount,
+      isCategoryModalOpen,
+      editingCategory,
+      defaultCategoryType,
+      isUserProfileModalOpen,
+      isResetPeriodModalOpen,
+      isFilterModalOpen,
+      isFeaturesModalOpen,
+      isWhatsNewOpen,
+      isRecurringModalOpen,
+      isPinModalOpen,
+      isSmartBudgetModalOpen,
+      activePoolDrillDown,
+      isSettingsModalOpen,
+      isTransferFeesModalOpen,
+      isExportModalOpen,
+      isImportModalOpen,
+      isSharedHubModalOpen,
+      isEditingSpace,
+      editingShareId,
+      isAppLocked,
+      isEmojiPickerOpen,
+      selectedAccountIds,
+      isAccountMultiSelect,
+      isGlobalMultiSelect,
+      shareModalState,
+      remainingBalanceModalState,
+      selectedTxIds,
+      isTxMultiSelect,
+      selectedCategoryIds,
+      isCategoryMultiSelect,
+      customDialogState,
+      activeShareDetailFolder,
+      selectedFeatureId,
+      featureGuideLayout,
+      activeSharedId,
+      activeSharedSnapshot,
+    ]
+  );
+
+  // Legacy combined context value (backward compatibility for existing consumers)
+  const contextValue = useMemo<AppContextType>(
+    () => ({
+      ...stable,
+      ...dataValue,
+      ...authSyncValue,
+      ...toastValue,
+      ...uiValue,
+    }),
+    [stable, dataValue, authSyncValue, toastValue, uiValue]
+  );
+
+  return (
+    <AppActionsContext.Provider value={stable}>
+      <ToastContext.Provider value={toastValue}>
+        <AppAuthSyncContext.Provider value={authSyncValue}>
+          <AppDataContext.Provider value={dataValue}>
+            <AppUIContext.Provider value={uiValue}>
+              <AppContext.Provider value={contextValue}>
+                {children}
+              </AppContext.Provider>
+            </AppUIContext.Provider>
+          </AppDataContext.Provider>
+        </AppAuthSyncContext.Provider>
+      </ToastContext.Provider>
+    </AppActionsContext.Provider>
+  );
+};
+
+export const useAppData = (): AppDataContextType => {
+  const ctx = useContext(AppDataContext);
+  if (!ctx) throw new Error('useAppData must be used within an AppProvider');
+  return ctx;
+};
+
+export const useAppAuth = (): AppAuthSyncContextType => {
+  const ctx = useContext(AppAuthSyncContext);
+  if (!ctx) throw new Error('useAppAuth must be used within an AppProvider');
+  return ctx;
+};
+
+export const useAppToasts = (): ToastContextType => {
+  const ctx = useContext(ToastContext);
+  if (!ctx) throw new Error('useAppToasts must be used within an AppProvider');
+  return ctx;
+};
+
+export const useAppActions = (): AppActionsContextType => {
+  const ctx = useContext(AppActionsContext);
+  if (!ctx) throw new Error('useAppActions must be used within an AppProvider');
+  return ctx;
+};
+
+export const useAppUI = (): AppUIContextType => {
+  const ctx = useContext(AppUIContext);
+  if (!ctx) throw new Error('useAppUI must be used within an AppProvider');
+  return ctx;
 };
 
 export const useApp = () => {

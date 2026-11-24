@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "Personal Finance Tracker",
-  "short_name": "FinanceApp",
-  "description": "An offline-first, OLED dark-themed personal finance tracker PWA with running balances, multi-account management, custom cycles, and budgeting.",
+  "name": "solv",
+  "short_name": "solv",
+  "description": "solv — an offline-first, OLED dark-themed personal finance & smart budget PWA with multi-account management, custom cycles, and live future-impact insights.",
   "theme_color": "#000000",
   "background_color": "#000000",
   "display": "standalone",

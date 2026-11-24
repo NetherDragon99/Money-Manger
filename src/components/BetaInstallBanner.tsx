@@ -94,20 +94,21 @@ export const BetaInstallBanner: React.FC = () => {
   return (
     <div
       dir={isArabic ? 'rtl' : 'ltr'}
-      className="fixed top-2 inset-x-2 sm:inset-x-auto sm:end-4 sm:max-w-md z-50 p-2.5 sm:p-3 rounded-2xl bg-zinc-900/95 backdrop-blur-md border border-blue-500/30 shadow-2xl flex items-center justify-between gap-3 text-xs animate-in fade-in slide-in-from-top-3 duration-300"
+      style={{ top: 'max(0.5rem, calc(var(--safe-top, 0px) + 0.35rem))' }}
+      className="fixed inset-x-2 sm:inset-x-auto sm:end-4 sm:max-w-md z-50 p-2.5 sm:p-3 rounded-2xl bg-zinc-900 border border-emerald-500/35 shadow-2xl flex items-center justify-between gap-3 text-xs animate-in fade-in slide-in-from-top-3 duration-300"
     >
       <div className="flex items-center gap-2.5 min-w-0">
-        <div className="w-8 h-8 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center shrink-0 text-blue-400">
+        <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0 text-emerald-400">
           <Download className="w-4 h-4" />
         </div>
         <div className="min-w-0">
           <p className="font-bold text-white text-xs truncate">
-            {isArabic ? 'تثبيت تطبيق بيتا' : 'Install Beta App'}
+            {isArabic ? 'تثبيت solv' : 'Install solv'}
           </p>
           <p className="text-[10px] text-zinc-400 leading-tight line-clamp-2">
             {isArabic
-              ? 'يظل إصدار بيتا مفتوحاً ومستقلاً بعد الإغلاق عند تثبيته كتطبيق منفصل.'
-              : 'Beta stays open after closing when installed as its own app.'}
+              ? 'يظل solv مفتوحاً ومستقلاً ويعمل بدون إنترنت عند تثبيته على جهازك.'
+              : 'solv stays open and works offline when installed on your device.'}
           </p>
         </div>
       </div>
@@ -116,7 +117,7 @@ export const BetaInstallBanner: React.FC = () => {
         <button
           type="button"
           onClick={handleInstall}
-          className="min-h-[32px] px-3 py-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] transition shadow-sm cursor-pointer"
+          className="min-h-[32px] px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] transition shadow-sm cursor-pointer"
         >
           {isArabic ? 'تثبيت' : 'Install'}
         </button>

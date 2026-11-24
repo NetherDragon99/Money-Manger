@@ -19,6 +19,177 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.2.0',
+    isBeta: false,
+    releaseDate: 'November 24, 2026',
+    title: {
+      en: 'Version 2.2.0: solv Official Major Release',
+      ar: 'إصدار 2.2.0 الرسمي: التحديث الشامل لتطبيق solv',
+    },
+    highlights: {
+      en: [
+        'Welcome to solv: Fresh app name, sleek green-mint icon, and refined dark theme across every screen.',
+        'Always-Ready Offline Access: Opens reliably without internet, keeps your account signed in automatically, installs in one tap, and keeps beta testing cleanly separated.',
+        'Smarter Cycle & Live Income Rebalancing: Collapse cycle settings cleanly, automatically rebalance your daily limit when adding income to public accounts, and adjust seamlessly if moved to private.',
+        'Manual Budget Adjustments & One-Off Tracker: Fine-tune progress inside each budget pool independently without shifting your daily limit, and track one-off purchases directly.',
+        'Deeper Future-Impact & Three-Mode What-If Lab: Preview exact daily and monthly consequences before saving any transaction or testing single, multi-day, and extra-income plans.',
+        'Unified Period Picker & Smart Filters: Pick built-in durations or a custom calendar range, filter by active categories, price slider, sorting, and extra flags on both Home and Account pages.',
+        'Stable Typing & Ultra-Smooth Scrolling: The screen stays steady when opening the keyboard, and transaction lists glide smoothly even with large histories.',
+        'Clean App Name Everywhere: The app always appears simply as "solv" on your home screen, browser tab, and during installation — the Beta badge now appears only beside the version number.',
+        'Cleaner Switching Between Official & Beta: Opening either version automatically clears leftovers from the other so you always see the latest screens right away.',
+        'One-Off & Outings Protection: Spending on one-off purchases or outings no longer shrinks today\'s Spent Today counter or sends today negative — any excess spreads calmly across your remaining days.',
+        'Live Balance Obligation Math: Your daily limit now checks your actual cash across selected accounts, reserves remaining unpaid bills and savings first, and divides what is truly left fairly over the rest of the month.',
+        'Always-Ready Account Selector: Pick exactly which accounts count in Smart Budget right under your cycle settings with quick buttons for Public Only, Private Only, and All accounts.',
+        'Accurate Pool Percentages: Each budget card percentage now reflects your live updated budget total (including extra income) so all shares always add up to 100%.',
+        'Safe Notch Spacing: Top headers, drawers, and alerts now sit comfortably below phone camera notches and curved top bars so every button stays easy to tap.',
+        'Revamped Light, Dark & System Themes: Crisp daylight colors across every card, chart, and pop-up window, plus an automatic option that follows your device look.',
+        'Dedicated Budget Message Language: Choose under Settings whether smart budget advice speaks in lively Egyptian Arabic, plain English, or follows your main app language.',
+        'Clearer Expense Impact Cards: Full impact titles and notes are always readable with zero cut-off text, organized into simple everyday highlights with optional detailed numbers underneath.',
+        'Accurate Budget Status Badges: The sidebar now shows a red alert only for a real budget shortfall, a calm yellow heads-up when spending dips near your limit, and stays clean green when everything is balanced — with a clear explanation right inside the budget screen.',
+        'Custom In-App Notification Timing: Choose how long on-screen notifications stay visible from 3 to 15 seconds with quick presets, a 5-second default, at least 7 seconds for important action buttons, or keep them open until you close them manually.',
+      ],
+      ar: [
+        'أهلاً بك في solv: اسم جديد وأيقونة خضراء أنيقة مع لمسات بصرية مريحة للعين في كل الشاشات.',
+        'عمل موثوق بدون إنترنت: يفتح التطبيق مباشرة في كل مرة مع بقاء حسابك مسجلاً، وتثبيت مباشر بضغطة واحدة، وفصل كامل لنسخة البيتا التجريبية.',
+        'إعادة ترتيب ذكية مع الدخل: إعدادات دورة قابلة للطي، وتعديل تلقائي للمصروف اليومي عند إضافة دخل للحسابات العامة أو نقله لحساب خاص.',
+        'تحكم يدوي بكل حوض ومصروف الطوارئ: عدّل تقدم التحويش والفواتير والخروجات ومصروف الطوارئ يدوياً وبشكل منفصل دون تغيير مصروفك اليومي، مع متابعة مباشرة لبند المشتريات غير المتكررة.',
+        'تحليل أعمق وتجربة سيناريوهات متعددة: اعرف تأثير أي معاملة على بقية الشهر قبل الحفظ، وجرب خطط مصروف ليوم أو لعدة أيام أو دخل إضافي.',
+        'فلتر موحد للمدة وخيارات بحث دقيقة: اختر المدة أو حدد تاريخين من التقويم، مع فلاتر للفئات المستخدمة فقط وسلايدر للأسعار والترتيب في الرئيسية وداخل كل حساب.',
+        'ثبات أثناء الكتابة وسلاسة فائقة: ثبات تام للشاشة عند فتح لوحة المفاتيح مع تمرير فائق السرعة وخفيف جداً على الجهاز.',
+        'اسم نظيف للتطبيق في كل مكان: بيظهر التطبيق دايماً باسم "solv" بس على الشاشة الرئيسية وعند التثبيت، وكلمة Beta بتظهر بس جنب رقم الإصدار.',
+        'تبديل أنظف بين النسخة الرسمية والبيتا: أول ما تفتح أي نسخة بتمسح بقايا النسخة التانية تلقائياً عشان تشوف آخر التحديثات على طول.',
+        'حماية مصروفك اليومي: المصاريف الاستثنائية والخروجات لم تعد تتخصم من خانة مصروف النهاردة ولا تخلي يومك بالسالب — ولو في أي زيادة بتتوزع بهدوء على باقي أيام الشهر.',
+        'مراجعة حية لفلوس حساباتك: التطبيق بيحسب الفلوس الموجودة فعلاً في الحسابات اللي اخترتها، ويحجز منها الأول التزامات الفواتير والتحويش اللي لسه ما خلصتش، والباقي الصافي بيتقسم على الأيام المتبقية.',
+        'اختيار الحسابات واختصارات سريعة دايماً تحت إيدك: تقدر تفتح قائمة الحسابات الداخلة في الميزانية مباشرة تحت الدورة مع أزرار سريعة لاختيار العامة فقط، الخاصة فقط، أو الكل.',
+        'نسب مئوية مضبوطة 100%: نسب كل بند بقت بتتحسب صح من إجمالي ميزانيتك الحية شاملة أي دخل إضافي.',
+        'مساحة أمان لحواف التليفونات: الهيدر العلوي والقوائم والتنبيهات بقوا يبدأوا تحت النوتش والكاميرا الأمامية بوضوح عشان كل زرار يفضل سهل في الضغطة.',
+        'إعادة هيكلة كاملة للوضع الفاتح والداكن والتلقائي: ألوان فاتحة مريحة ومتناسقة في كل الكروت والرسوم البيانية، مع اختيار تلقائي يمشي ورا مظهر موبايلك.',
+        'لغة مستقلة لرسائل الميزانية: من الإعدادات تقدر تختار أسلوب ونبرة نصائح الميزانية لوحدها بين المصري الودود أو الإنجليزي البسيط أو لغة التطبيق الأساسية.',
+        'رسائل تأثير المصاريف أوضح ومن غير قص: الكلام كامل ظاهر من غير نقط مقصوصة، ومتقسّم لبساطة سريعة في الأول مع زرار اختياري لو حابب تشوف الأرقام التفصيلية.',
+        'شارات حالة أدق للميزانية: القائمة الجانبية بتعرض تنبيه أحمر فقط عند وجود عجز فعلي، وتنبيه أصفر هادئ عند الاقتراب من الحد، وتفضل خضراء طالما الميزانية مستقرة — مع توضيح واضح للسبب مباشرة داخل الميزانية.',
+        'تحكم كامل في مدة الإشعارات داخل التطبيق: اختار مدة بقاء الإشعارات من 3 لـ 15 ثانية عبر أزرار سريعة أو شريط تمرير بافتراضي 5 ثواني، وضمان 7 ثواني على الأقل للإشعارات المهمة، مع خيار إغلاق يدوي فقط.',
+      ],
+    },
+  },
+  {
+    version: '2.0.5',
+    isBeta: true,
+    rolledUpInto: '2.2.0',
+    releaseDate: 'November 24, 2026',
+    title: {
+      en: 'Version 2.0.5 Beta: Accurate Budget Status Badges & Custom Notification Timing',
+      ar: 'إصدار 2.0.5 التجريبي: شارات ميزانية أدق وتحكم كامل في مدة الإشعارات',
+    },
+    highlights: {
+      en: [
+        'Accurate Budget Status Badges: The sidebar now shows a red alert only for a real budget shortfall, a calm yellow heads-up when spending dips near your limit, and stays clean green when everything is balanced — with a clear explanation right inside the budget screen.',
+        'Custom In-App Notification Timing: Choose how long on-screen notifications stay visible from 3 to 15 seconds with quick presets, a 5-second default, at least 7 seconds for important action buttons, or keep them open until you close them manually.',
+      ],
+      ar: [
+        'شارات حالة أدق للميزانية: القائمة الجانبية بتعرض تنبيه أحمر فقط عند وجود عجز فعلي، وتنبيه أصفر هادئ عند الاقتراب من الحد، وتفضل خضراء طالما الميزانية مستقرة — مع توضيح واضح للسبب مباشرة داخل الميزانية.',
+        'تحكم كامل في مدة الإشعارات داخل التطبيق: اختار مدة بقاء الإشعارات من 3 لـ 15 ثانية عبر أزرار سريعة أو شريط تمرير بافتراضي 5 ثواني، وضمان 7 ثواني على الأقل للإشعارات المهمة، مع خيار إغلاق يدوي فقط.',
+      ],
+    },
+  },
+  {
+    version: '2.0.4',
+    isBeta: true,
+    rolledUpInto: '2.2.0',
+    releaseDate: 'November 24, 2026',
+    title: {
+      en: 'Version 2.0.4 Beta: Friendly Budget Messages, Full Light Theme & Notch Protection',
+      ar: 'إصدار 2.0.4 التجريبي: رسائل ميزانية بالعامية المصرية، مظهر فاتح متكامل وحماية لحواف الشاشة',
+    },
+    highlights: {
+      en: [
+        'Safe Notch Spacing: Top headers, drawers, and alerts now sit comfortably below phone camera notches and curved top bars so every button stays easy to tap.',
+        'Revamped Light, Dark & System Themes: Crisp daylight colors across every card, chart, and pop-up window, plus an automatic option that follows your device look.',
+        'Dedicated Budget Message Language: Choose under Settings whether smart budget advice speaks in lively Egyptian Arabic, plain English, or follows your main app language.',
+        'Clearer Expense Impact Cards: Full impact titles and notes are always readable with zero cut-off text, organized into simple everyday highlights with optional detailed numbers underneath.',
+      ],
+      ar: [
+        'مساحة أمان لحواف التليفونات: الهيدر العلوي والقوائم والتنبيهات بقوا يبدأوا تحت النوتش والكاميرا الأمامية بوضوح عشان كل زرار يفضل سهل في الضغطة.',
+        'إعادة هيكلة كاملة للوضع الفاتح والداكن والتلقائي: ألوان فاتحة مريحة ومتناسقة في كل الكروت والرسوم البيانية، مع اختيار تلقائي يمشي ورا مظهر موبايلك.',
+        'لغة مستقلة لرسائل الميزانية: من الإعدادات تقدر تختار أسلوب ونبرة نصائح الميزانية لوحدها بين المصري الودود أو الإنجليزي البسيط أو لغة التطبيق الأساسية.',
+        'رسائل تأثير المصاريف أوضح ومن غير قص: الكلام كامل ظاهر من غير نقط مقصوصة، ومتقسّم لبساطة سريعة في الأول مع زرار اختياري لو حابب تشوف الأرقام التفصيلية.',
+      ],
+    },
+  },
+  {
+    version: '2.0.3',
+    isBeta: true,
+    rolledUpInto: '2.2.0',
+    releaseDate: 'November 22, 2026',
+    title: {
+      en: 'Version 2.0.3 Beta: Smarter Daily Allowance, Live Balance Math & Account Shortcuts',
+      ar: 'إصدار 2.0.3 التجريبي: حساب أدق للمصروف اليومي وأرصدة الحسابات واختصارات أسرع',
+    },
+    highlights: {
+      en: [
+        'One-Off & Outings Protection: Spending on one-off purchases or outings no longer shrinks today\'s Spent Today counter or sends today negative — any excess spreads calmly across your remaining days.',
+        'Live Balance Obligation Math: Your daily limit now checks your actual cash across selected accounts, reserves remaining unpaid bills and savings first, and divides what is truly left fairly over the rest of the month.',
+        'Always-Ready Account Selector: Pick exactly which accounts count in Smart Budget right under your cycle settings with quick buttons for Public Only, Private Only, and All accounts.',
+        'Accurate Pool Percentages: Each budget card percentage now reflects your live updated budget total (including extra income) so all shares always add up to 100%.',
+      ],
+      ar: [
+        'حماية مصروفك اليومي: المصاريف الاستثنائية والخروجات لم تعد تتخصم من خانة مصروف النهاردة ولا تخلي يومك بالسالب — ولو في أي زيادة بتتوزع بهدوء على باقي أيام الشهر.',
+        'مراجعة حية لفلوس حساباتك: التطبيق بيحسب الفلوس الموجودة فعلاً في الحسابات اللي اخترتها، ويحجز منها الأول التزامات الفواتير والتحويش اللي لسه ما خلصتش، والباقي الصافي بيتقسم على الأيام المتبقية.',
+        'اختيار الحسابات واختصارات سريعة دايماً تحت إيدك: تقدر تفتح قائمة الحسابات الداخلة في الميزانية مباشرة تحت الدورة مع أزرار سريعة لاختيار العامة فقط، الخاصة فقط، أو الكل.',
+        'نسب مئوية مضبوطة 100%: نسب كل بند بقت بتتحسب صح من إجمالي ميزانيتك الحية شاملة أي دخل إضافي.',
+      ],
+    },
+  },
+  {
+    version: '2.0.2',
+    isBeta: true,
+    rolledUpInto: '2.2.0',
+    releaseDate: 'November 21, 2026',
+    title: {
+      en: 'Version 2.0.2 Beta: Cleaner App Name & Smoother Channel Switching',
+      ar: 'إصدار 2.0.2 التجريبي: اسم أنظف للتطبيق وتبديل أسهل بين النسخ',
+    },
+    highlights: {
+      en: [
+        'Clean App Name Everywhere: The app always appears simply as "solv" on your home screen, browser tab, and during installation — the Beta badge now appears only beside the version number.',
+        'Cleaner Switching Between Official & Beta: Opening either version automatically clears leftovers from the other so you always see the latest screens right away.',
+      ],
+      ar: [
+        'اسم نظيف للتطبيق في كل مكان: بيظهر التطبيق دايماً باسم "solv" بس على الشاشة الرئيسية وعند التثبيت، وكلمة Beta بتظهر بس جنب رقم الإصدار.',
+        'تبديل أنظف بين النسخة الرسمية والبيتا: أول ما تفتح أي نسخة بتمسح بقايا النسخة التانية تلقائياً عشان تشوف آخر التحديثات على طول.',
+      ],
+    },
+  },
+  {
+    version: '2.0.1',
+    isBeta: true,
+    rolledUpInto: '2.2.0',
+    releaseDate: 'November 21, 2026',
+    title: {
+      en: 'Version 2.0.1 Beta: Welcome to solv, Smarter Budget Control & Effortless Speed',
+      ar: 'إصدار 2.0.1 التجريبي: هوية solv الجديدة، تحكم أذكى بالميزانية وسلاسة فائقة',
+    },
+    highlights: {
+      en: [
+        'Welcome to solv: Fresh app name, sleek green-mint icon, and refined dark theme across every screen.',
+        'Always-Ready Offline Access: Opens reliably without internet, keeps your account signed in automatically, installs in one tap, and keeps beta testing cleanly separated.',
+        'Smarter Cycle & Live Income Rebalancing: Collapse cycle settings cleanly, automatically rebalance your daily limit when adding income to public accounts, and adjust seamlessly if moved to private.',
+        'Manual Budget Adjustments & One-Off Tracker: Fine-tune progress inside each budget pool independently without shifting your daily limit, and track one-off purchases directly.',
+        'Deeper Future-Impact & Three-Mode What-If Lab: Preview exact daily and monthly consequences before saving any transaction or testing single, multi-day, and extra-income plans.',
+        'Unified Period Picker & Smart Filters: Pick built-in durations or a custom calendar range, filter by active categories, price slider, sorting, and extra flags on both Home and Account pages.',
+        'Stable Typing & Ultra-Smooth Scrolling: The screen stays steady when opening the keyboard, and transaction lists glide smoothly even with large histories.',
+      ],
+      ar: [
+        'أهلاً بك في solv: اسم جديد وأيقونة خضراء أنيقة مع لمسات بصرية مريحة للعين في كل الشاشات.',
+        'عمل موثوق بدون إنترنت: يفتح التطبيق مباشرة في كل مرة مع بقاء حسابك مسجلاً، وتثبيت مباشر بضغطة واحدة، وفصل كامل لنسخة البيتا التجريبية.',
+        'إعادة ترتيب ذكية مع الدخل: إعدادات دورة قابلة للطي، وتعديل تلقائي للمصروف اليومي عند إضافة دخل للحسابات العامة أو نقله لحساب خاص.',
+        'تحكم يدوي بكل حوض ومصروف الطوارئ: عدّل تقدم التحويش والفواتير والخروجات ومصروف الطوارئ يدوياً وبشكل منفصل دون تغيير مصروفك اليومي، مع متابعة مباشرة لبند المشتريات غير المتكررة.',
+        'تحليل أعمق وتجربة سيناريوهات متعددة: اعرف تأثير أي معاملة على بقية الشهر قبل الحفظ، وجرب خطط مصروف ليوم أو لعدة أيام أو دخل إضافي.',
+        'فلتر موحد للمدة وخيارات بحث دقيقة: اختر المدة أو حدد تاريخين من التقويم، مع فلاتر للفئات المستخدمة فقط وسلايدر للأسعار والترتيب في الرئيسية وداخل كل حساب.',
+        'ثبات أثناء الكتابة وسلاسة فائقة: ثبات تام للشاشة عند فتح لوحة المفاتيح مع تمرير فائق السرعة وخفيف جداً على الجهاز.',
+      ],
+    },
+  },
+  {
     version: '2.0.0',
     isBeta: false,
     releaseDate: 'November 8, 2026',
@@ -537,8 +708,8 @@ export const APP_CORE_FEATURES: FeatureItem[] = [
       ar: 'تثبيت مباشر على الشاشة الرئيسية بدون متجر',
     },
     description: {
-      en: 'Install Money Manager directly on your phone home screen as a standalone application. It launches instantly in full screen with no browser address bar or search header, and functions at lightning speed even in airplane mode with complete local caching.',
-      ar: 'قم بتثبيت التطبيق مباشرة على شاشة هاتفك الرئيسية ليعمل كتطبيق مستقل بملء الشاشة دون شريط عناوين المتصفح. يفتح التطبيق بسرعة فائقة ويعمل بكفاءة كاملة حتى في وضع الطيران بدون أي اتصال بالإنترنت بفضل التخزين المؤقت الشامل.',
+      en: 'Install solv directly on your phone home screen as a standalone application. It launches instantly in full screen with no browser address bar or search header, and functions at lightning speed even in airplane mode with complete local storage.',
+      ar: 'قم بتثبيت التطبيق مباشرة على شاشة هاتفك الرئيسية ليعمل كتطبيق مستقل بملء الشاشة دون شريط عناوين المتصفح. يفتح التطبيق بسرعة فائقة ويعمل بكفاءة كاملة حتى في وضع الطيران بدون أي اتصال بالإنترنت بفضل التخزين المحلي الشامل.',
     },
     whereToFind: {
       en: 'Side Menu (☰) → Tap "Install App" button, or browser menu → "Add to Home screen" / "Install".',
@@ -546,10 +717,10 @@ export const APP_CORE_FEATURES: FeatureItem[] = [
     },
     howToUse: {
       en: [
-        'In your mobile browser (Chrome on Android or Safari on iOS), look for the "Install App" prompt.',
+        'In your mobile browser (Chrome on Android or Safari on iPhone), look for the "Install App" prompt.',
         'Alternatively, open the side menu (☰) and tap "Install App" to launch the native installation dialog.',
         'Confirm the installation prompt to add the application icon directly to your Home Screen.',
-        'Launch Money Manager from your phone screen to enjoy an immersive, full-screen standalone experience.',
+        'Launch solv from your phone screen to enjoy an immersive, full-screen standalone experience.',
       ],
       ar: [
         'في متصفح هاتفك (كروم على أندرويد أو سفاري على آيفون)، ستظهر رسالة تثبيت التطبيق.',

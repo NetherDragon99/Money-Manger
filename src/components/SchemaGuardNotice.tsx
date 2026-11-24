@@ -69,7 +69,7 @@ export const SchemaGuardNotice: React.FC = () => {
           <button
             type="button"
             onClick={handleOpenBeta}
-            className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-[0.98] text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
+            className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.98] text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition-all cursor-pointer"
           >
             <span>{t.openBetaApp}</span>
             <ExternalLink className={`w-4 h-4 ${isAr ? 'rotate-180' : ''}`} />
@@ -88,7 +88,7 @@ export const SchemaGuardNotice: React.FC = () => {
 
       {/* Footer Branding */}
       <div className="mt-8 text-xs font-mono text-zinc-500 tracking-wider">
-        Personal Finance Tracker • Channel Protection Guard
+        solv • Channel Protection Guard
       </div>
     </div>
   );

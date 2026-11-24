@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useApp } from '../context/AppContext';
-import { useHeaderScroll } from '../hooks/useHeaderScroll';
+import React, { useState, useEffect, memo } from 'react';
+import { useAppData, useAppActions } from '../context/AppContext';
 import {
   Menu,
   RotateCcw,
@@ -21,10 +20,9 @@ interface HistoryItem {
   timestamp: string;
 }
 
-export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
-  const { settings, openAddTxModal, setIsSidebarOpen, showToast, t } = useApp();
-  const isHeaderScrollVisible = useHeaderScroll();
-  const isHeaderVisible = isHeaderScrollVisible && (propBarsVisible !== undefined ? propBarsVisible : true);
+const CalculatorViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
+  const { settings, t } = useAppData();
+  const { openAddTxModal, setIsSidebarOpen, showToast } = useAppActions();
   const [expression, setExpression] = useState('');
   const [result, setResult] = useState<number>(0);
   const [cursorPos, setCursorPos] = useState<number | null>(null);
@@ -538,16 +536,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
   return (
     <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-hidden bg-black text-white select-none animate-in fade-in">
       {/* 1. Unified Header Bar Across All 5 Tabs */}
-      <header
-        style={{
-          transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
-          visibility: isHeaderVisible ? 'visible' : 'hidden',
-          transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
-        className={`sticky top-0 z-20 h-16 md:h-20 landscape:h-12 px-4 md:px-8 border-b border-zinc-800/80 flex items-center justify-between bg-black/90 backdrop-blur-md shrink-0 ${
-          isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-      >
+      <header className="app-auto-header app-header-safe sticky top-0 z-20 h-16 md:h-20 landscape:h-12 px-4 md:px-8 border-b border-zinc-800/80 flex items-center justify-between bg-black/95 shrink-0">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -560,7 +549,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
           <div>
             <h2 className="text-base sm:text-lg md:text-2xl font-black tracking-tight flex items-center gap-1.5 md:gap-2">
               <span>{isArabic ? 'الحاسبة المالية' : 'Calculator'}</span>
-              <span className="text-[10px] md:text-xs font-bold px-1.5 md:px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+              <span className="text-[10px] md:text-xs font-bold px-1.5 md:px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                 PRO
               </span>
             </h2>
@@ -572,7 +561,7 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
           onClick={() => setShowHistory(!showHistory)}
           className={`flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-1.5 md:py-2 rounded-xl md:rounded-2xl border text-xs md:text-sm font-semibold transition cursor-pointer active:scale-95 ${
             showHistory
-              ? 'bg-blue-600 border-blue-500 text-white shadow-md'
+              ? 'bg-emerald-600 border-emerald-500 text-white shadow-md'
               : 'bg-zinc-900 hover:bg-zinc-850 border-zinc-800 text-zinc-300'
           }`}
         >
@@ -871,3 +860,5 @@ export const CalculatorView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVi
     </div>
   );
 };
+
+export const CalculatorView = memo(CalculatorViewBase);

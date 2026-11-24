@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { navigateBack } from '../context/NavigationContext';
-import { useApp } from '../context/AppContext';
+import { useAppActions, useAppAuth, useAppData, useAppUI } from '../context/AppContext';
 import {
   X,
   Upload,
@@ -35,7 +35,6 @@ import {
 import { format16DigitId, cleanNumericId, getOrCreateNumericId } from '../utils/userId';
 import { publishUserProfileCard, propagateUserProfileToAllSharedSpaces, isRealPhotoUrl } from '../utils/shareFolders';
 import { persistDriveResolutionStatus } from '../utils/autoBackup';
-import { User } from 'firebase/auth';
 
 const CURATED_DEFAULT_AVATARS = [
   // Animals
@@ -73,16 +72,11 @@ const CURATED_DEFAULT_AVATARS = [
 ];
 
 export const UserProfileModal: React.FC = () => {
-  const {
-    isUserProfileModalOpen,
-    setIsUserProfileModalOpen,
-    settings,
-    updateSettings,
-    signOutUser,
-    t,
-    showToast,
-    triggerCloudBackupNow,
-  } = useApp();
+  const { settings, t } = useAppData();
+  const { isUserProfileModalOpen } = useAppUI();
+  const { setIsUserProfileModalOpen, updateSettings, signOutUser, showToast, triggerCloudBackupNow } = useAppActions();
+  const { authUser } = useAppAuth();
+  const currentUser = authUser;
 
   const isArabic = settings.language === 'ar';
 
@@ -95,7 +89,6 @@ export const UserProfileModal: React.FC = () => {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   // Authentication & Cloud Sync State
-  const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [copiedNumericId, setCopiedNumericId] = useState(false);
@@ -116,14 +109,6 @@ export const UserProfileModal: React.FC = () => {
     }
   };
 
-  // Sync Firebase Auth user
-  useEffect(() => {
-    const unsub = auth.onAuthStateChanged((user) => {
-      setCurrentUser(user);
-    });
-    return () => unsub();
-  }, []);
-
   const prevIsOpenRef = useRef(false);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -143,7 +128,7 @@ export const UserProfileModal: React.FC = () => {
   useEffect(() => {
     const isOpening = isUserProfileModalOpen && !prevIsOpenRef.current;
     if (isOpening) {
-      setName(settings.userProfile?.name || (auth.currentUser ? 'My Profile' : 'Guest'));
+      setName(settings.userProfile?.name || (currentUser ? (currentUser.displayName || 'My Profile') : 'Guest'));
       setAvatarEmoji(settings.userProfile?.avatarEmoji || '👤');
       setCustomAvatarUrl(settings.userProfile?.customAvatarUrl);
       setPhotoToEdit(null);
@@ -152,9 +137,9 @@ export const UserProfileModal: React.FC = () => {
       setAuthError('');
       setIsClosing(false);
 
-      // Trigger profile cloud-registration immediately if signed in
+      // Trigger profile cloud-registration immediately if signed in and online
       const user = auth.currentUser || currentUser;
-      if (user) {
+      if (user && (typeof navigator === 'undefined' || navigator.onLine)) {
         const clean16 = cleanNumericId(settings.userProfile?.numericId) || getOrCreateNumericId();
         if (clean16.length === 16) {
           publishUserProfileCard({
@@ -163,7 +148,7 @@ export const UserProfileModal: React.FC = () => {
             avatar: settings.userProfile?.avatarEmoji || '👤',
             photoURL: settings.userProfile?.customAvatarUrl || user.photoURL || '',
             uid: user.uid,
-          });
+          }).catch(() => {});
         }
       }
     } else if (isUserProfileModalOpen) {
@@ -360,7 +345,6 @@ export const UserProfileModal: React.FC = () => {
       setName(isArabic ? 'حساب ضيف' : 'Guest');
       setAvatarEmoji('👤');
       setCustomAvatarUrl(undefined);
-      setCurrentUser(null);
       setCopiedNumericId(false);
       setIsUserProfileModalOpen(false);
     } catch (err: any) {
@@ -676,7 +660,7 @@ export const UserProfileModal: React.FC = () => {
           <div className="pt-2 border-t border-zinc-800/80 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Cloud className="w-3.5 h-3.5 text-blue-400" />
+                <Cloud className="w-3.5 h-3.5 text-emerald-400" />
                 <span>{isArabic ? 'حساب المزامنة السحابية' : 'Cloud Sync & Account'}</span>
               </span>
               {currentUser && (
@@ -689,10 +673,10 @@ export const UserProfileModal: React.FC = () => {
 
             {currentUser ? (
               /* Signed In Premium Card */
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-blue-500/30 shadow-lg space-y-3.5">
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-emerald-500/30 shadow-lg space-y-3.5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-11 h-11 rounded-full bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-bold text-sm shrink-0 overflow-hidden shadow-inner">
+                    <div className="w-11 h-11 rounded-full bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-sm shrink-0 overflow-hidden shadow-inner">
                       {currentUser.photoURL ? (
                         <img src={currentUser.photoURL} alt="User" className="w-full h-full object-cover" />
                       ) : (

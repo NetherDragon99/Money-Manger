@@ -27,6 +27,7 @@ import {
   remove,
 } from 'firebase/database';
 import { AppData, Account, Transaction } from '../types';
+import { getItemFromIndexedDB, saveItemToIndexedDB } from './indexedDB';
 
 export const firebaseConfig = {
   apiKey: atob('QUl6YVN5RHZtY01iZ0o2bHJvVXdhOUc0UFhVZ2dGLXZ3NzBDX3Q4'),
@@ -61,33 +62,57 @@ export interface CachedAuthUser {
   cachedAt?: number;
 }
 
+export type AuthSessionUser = CachedAuthUser;
+
 /**
- * Retrieves the cached authenticated user session from localStorage
- * Used to keep the app working 100% offline without signing the user out.
+ * Retrieves the cached authenticated user session synchronously from localStorage
+ * Used to keep the app working 100% offline without signing the user out or showing Guest state.
  */
 export function getCachedAuthUser(): CachedAuthUser | null {
   try {
     const raw = localStorage.getItem(CACHED_AUTH_USER_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.uid) return parsed;
+    }
   } catch {}
   return null;
 }
 
 /**
- * Persists the authenticated user session to localStorage
+ * Fallback asynchronous restore of cached authenticated user from IndexedDB
+ * in case localStorage was pruned while IndexedDB persisted.
+ */
+export async function restoreCachedAuthUserFromIndexedDB(): Promise<CachedAuthUser | null> {
+  try {
+    const existing = getCachedAuthUser();
+    if (existing) return existing;
+    const idbUser = await getItemFromIndexedDB<CachedAuthUser>(CACHED_AUTH_USER_KEY);
+    if (idbUser && idbUser.uid) {
+      try {
+        localStorage.setItem(CACHED_AUTH_USER_KEY, JSON.stringify(idbUser));
+      } catch {}
+      return idbUser;
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Persists the authenticated user session to BOTH localStorage and IndexedDB
  */
 export function setCachedAuthUser(user: CachedAuthUser | null): void {
   try {
     if (user) {
-      localStorage.setItem(
-        CACHED_AUTH_USER_KEY,
-        JSON.stringify({
-          ...user,
-          cachedAt: Date.now(),
-        })
-      );
+      const payload: CachedAuthUser = {
+        ...user,
+        cachedAt: Date.now(),
+      };
+      localStorage.setItem(CACHED_AUTH_USER_KEY, JSON.stringify(payload));
+      saveItemToIndexedDB(CACHED_AUTH_USER_KEY, payload).catch(() => {});
     } else {
       localStorage.removeItem(CACHED_AUTH_USER_KEY);
+      saveItemToIndexedDB(CACHED_AUTH_USER_KEY, null).catch(() => {});
     }
   } catch (err) {
     console.warn('[Firebase] Failed to save cached auth user:', err);
@@ -250,7 +275,14 @@ export async function logoutUser(): Promise<void> {
     localStorage.removeItem(GOOGLE_DRIVE_TOKEN_KEY);
     localStorage.removeItem('google_drive_access_token');
   } catch {}
-  await fbSignOut(auth);
+  try {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('app_user_signed_out'));
+    }
+  } catch {}
+  try {
+    await fbSignOut(auth);
+  } catch {}
 }
 
 /**

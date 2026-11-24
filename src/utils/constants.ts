@@ -1,5 +1,48 @@
-import { Account, Category, AppSettings } from '../types';
+import { Account, Category, AppSettings, ResolvedMessageLanguage } from '../types';
 import { DEFAULT_TRANSFER_FEE_SETTINGS } from './transferFee';
+
+export function resolveMessageLanguage(
+  settings?: Pick<AppSettings, 'language' | 'messageLanguage'> | null
+): ResolvedMessageLanguage {
+  const mode = settings?.messageLanguage || 'app';
+  if (mode === 'en') return 'en';
+  if (mode === 'ar_eg') return 'ar_eg';
+  return settings?.language === 'ar' ? 'ar_eg' : 'en';
+}
+
+export const DEFAULT_TOAST_DURATION_SECONDS = 5;
+export const MIN_TOAST_DURATION_SECONDS = 3;
+export const MAX_TOAST_DURATION_SECONDS = 15;
+export const IMPORTANT_TOAST_MIN_MS = 7000;
+
+export function resolveToastDismissMs(
+  settings?: Pick<AppSettings, 'toastDurationSeconds' | 'toastManualDismissOnly'> | null,
+  options?: { hasAction?: boolean; explicitDuration?: number }
+): number | null {
+  if (settings?.toastManualDismissOnly) {
+    return null;
+  }
+  const rawSec =
+    typeof settings?.toastDurationSeconds === 'number' && !Number.isNaN(settings.toastDurationSeconds)
+      ? settings.toastDurationSeconds
+      : DEFAULT_TOAST_DURATION_SECONDS;
+  const clampedSec = Math.min(
+    MAX_TOAST_DURATION_SECONDS,
+    Math.max(MIN_TOAST_DURATION_SECONDS, Math.round(rawSec))
+  );
+  const baseMs = clampedSec * 1000;
+  const explicitMs =
+    typeof options?.explicitDuration === 'number' && options.explicitDuration > 0
+      ? options.explicitDuration
+      : 0;
+  if (options?.hasAction) {
+    return Math.max(baseMs, IMPORTANT_TOAST_MIN_MS, explicitMs);
+  }
+  if (explicitMs > 0) {
+    return Math.max(baseMs, explicitMs);
+  }
+  return baseMs;
+}
 
 export const DEFAULT_ACCOUNTS: Account[] = [
   {
@@ -68,7 +111,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   weekStartDay: 'sunday',
   defaultMonthStartDay: 1,
   language: 'en',
-  themeMode: 'dark',
+  messageLanguage: 'app',
+  themeMode: 'system',
+  toastDurationSeconds: DEFAULT_TOAST_DURATION_SECONDS,
+  toastManualDismissOnly: false,
   currencySymbol: '£',
   userProfile: {
     name: 'My Profile',

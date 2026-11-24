@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { ArrowRight, Check, RefreshCw, Trash2 } from 'lucide-react';
 import { Account, Transaction } from '../types';
 import { formatCurrency } from '../utils/dateCycle';
@@ -61,7 +61,7 @@ function renderAccountIcon(icon?: string, name?: string, color?: string, default
   );
 }
 
-export const TransferCard: React.FC<TransferCardProps> = ({
+const TransferCardBase: React.FC<TransferCardProps> = ({
   transaction,
   fromAccount,
   toAccount,
@@ -146,9 +146,9 @@ export const TransferCard: React.FC<TransferCardProps> = ({
       }}
       role="button"
       tabIndex={0}
-      className={`flex flex-col p-3 sm:p-3.5 rounded-2xl border transition cursor-pointer group select-none ${
+      className={`tx-row-perf flex flex-col p-3 sm:p-3.5 rounded-2xl border transition cursor-pointer group select-none ${
         isSelected
-          ? 'bg-blue-950/40 border-blue-500/80 shadow-md shadow-blue-950/50'
+          ? 'bg-emerald-950/35 border-emerald-500/80 shadow-md shadow-emerald-950/50'
           : 'bg-zinc-900/90 hover:bg-zinc-800/90 border-zinc-800/80 active:scale-[0.99]'
       } ${className}`}
     >
@@ -162,7 +162,7 @@ export const TransferCard: React.FC<TransferCardProps> = ({
               <div
                 className={`w-5 h-5 rounded-lg flex items-center justify-center transition border ${
                   isSelected
-                    ? 'bg-blue-600 border-blue-500 text-white'
+                    ? 'bg-emerald-600 border-emerald-500 text-white'
                     : 'bg-zinc-950 border-zinc-700 text-transparent'
                 }`}
               >
@@ -321,3 +321,5 @@ export const TransferCard: React.FC<TransferCardProps> = ({
     </div>
   );
 };
+
+export const TransferCard = memo(TransferCardBase);

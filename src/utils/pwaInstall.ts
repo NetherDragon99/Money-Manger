@@ -1,12 +1,21 @@
 /**
- * Shared PWA Installation Helper
- * Guarantees native WebAPK / Standalone Home Screen Installation
+ * Shared PWA Installation & Offline Readiness Helper
+ * Guarantees direct native WebAPK / Standalone Home Screen Installation without intrusive instruction popups,
+ * plus live offline cache status verification isolated strictly to the active channel.
  */
+
+import { isCurrentChannelCacheName, isRegistrationForCurrentChannel } from './channel';
 
 export interface InstallPwaOptions {
   isArabic?: boolean;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onInstalled?: () => void;
+}
+
+export interface OfflineReadinessStatus {
+  isReady: boolean;
+  cachedCount: number;
+  swActive: boolean;
 }
 
 export function isStandaloneApp(): boolean {
@@ -16,6 +25,68 @@ export function isStandaloneApp(): boolean {
     window.matchMedia('(display-mode: fullscreen)').matches ||
     Boolean((window.navigator as unknown as { standalone?: boolean }).standalone)
   );
+}
+
+/**
+ * Checks whether the current channel's Service Worker is active AND its Workbox precache holds index.html.
+ */
+export async function getOfflineReadinessStatus(): Promise<OfflineReadinessStatus> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('caches' in window)) {
+    return { isReady: false, cachedCount: 0, swActive: false };
+  }
+
+  try {
+    let swActive = Boolean(navigator.serviceWorker.controller);
+    if (!swActive) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      swActive = regs.some((r) => isRegistrationForCurrentChannel(r) && Boolean(r.active));
+    }
+
+    const cacheNames = await caches.keys();
+    let cachedCount = 0;
+    let hasIndexHtml = false;
+
+    for (const name of cacheNames) {
+      if (!isCurrentChannelCacheName(name)) continue;
+      const cache = await caches.open(name);
+      const keys = await cache.keys();
+      cachedCount += keys.length;
+      if (keys.some((req) => req.url.includes('index.html') || req.url.endsWith('/'))) {
+        hasIndexHtml = true;
+      }
+    }
+
+    return {
+      isReady: swActive && hasIndexHtml && cachedCount > 0,
+      cachedCount,
+      swActive,
+    };
+  } catch {
+    return { isReady: false, cachedCount: 0, swActive: false };
+  }
+}
+
+/**
+ * Safely updates the current channel's Service Worker & verifies its offline cache
+ * without EVER deleting precached files.
+ */
+export async function warmAndVerifyOfflineCache(): Promise<OfflineReadinessStatus> {
+  if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const reg of regs) {
+        if (!isRegistrationForCurrentChannel(reg)) continue;
+        if (typeof navigator === 'undefined' || navigator.onLine) {
+          await reg.update().catch(() => {});
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+        }
+      }
+    } catch {}
+  }
+
+  return getOfflineReadinessStatus();
 }
 
 export async function installPwa(options?: InstallPwaOptions): Promise<boolean> {
@@ -31,7 +102,6 @@ export async function installPwa(options?: InstallPwaOptions): Promise<boolean> 
 
   if (promptEvent && typeof promptEvent.prompt === 'function') {
     try {
-      // Trigger native browser install dialog synchronously inside user gesture
       promptEvent.prompt();
       const choice = await promptEvent.userChoice;
       window.deferredPwaPrompt = null;
@@ -41,8 +111,8 @@ export async function installPwa(options?: InstallPwaOptions): Promise<boolean> 
         if (showToast) {
           showToast(
             isArabic
-              ? 'تم تثبيت التطبيق بنجاح كـ تطبيق مستقل!'
-              : 'App installed successfully as a standalone app!',
+              ? 'تم تثبيت solv بنجاح كتطبيق مستقل!'
+              : 'solv installed successfully as a standalone app!',
             'success'
           );
         }
@@ -61,15 +131,15 @@ export async function installPwa(options?: InstallPwaOptions): Promise<boolean> 
     if (showToast) {
       showToast(
         isArabic
-          ? 'التطبيق مثبت بالفعل ويعمل كتطبيق مستقل على جهازك!'
-          : 'App is already installed and running as a standalone app on your device!',
+          ? 'تطبيق solv مثبت بالفعل ويعمل كتطبيق مستقل!'
+          : 'solv is already installed and running as a standalone app!',
         'success'
       );
     }
     return true;
   }
 
-  // Fallback 2: iOS Safari detection
+  // Fallback 2: iOS Safari detection (Apple blocks programmatic beforeinstallprompt)
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : '';
   const isIOS =
     /iphone|ipad|ipod/.test(ua) ||
@@ -81,21 +151,27 @@ export async function installPwa(options?: InstallPwaOptions): Promise<boolean> 
     if (showToast) {
       showToast(
         isArabic
-          ? 'لتثبيت التطبيق على iPhone/iPad: اضغط على زر المشاركة (Share) في المتصفح ثم اختر "إضافة إلى الشاشة الرئيسية (Add to Home Screen)".'
-          : 'To install on iOS: tap the browser Share button and select "Add to Home Screen".',
+          ? 'لتثبيت solv على iPhone/iPad: اضغط زر المشاركة (Share) واختر "إضافة إلى الشاشة الرئيسية".'
+          : 'To install solv on iOS: tap Share and select "Add to Home Screen".',
         'info'
       );
     }
     return false;
   }
 
-  // Fallback 3: Other browsers / unsupported / prompt already consumed
+  // Fallback 3: Non-iOS when native prompt isn't held right now — warm offline cache & inform cleanly
+  // (NEVER pop up multi-step installation instructions dialog/toast!)
+  const readiness = await warmAndVerifyOfflineCache();
   if (showToast) {
     showToast(
       isArabic
-        ? 'لتثبيت التطبيق على جهازك: افتح قائمة المتصفح (⋮ أو زر المشاركة) واختر "إضافة إلى الشاشة الرئيسية" أو "تثبيت التطبيق".'
-        : 'To install the app: open the browser menu (⋮ or Share) and select "Add to Home Screen" or "Install App".',
-      'info'
+        ? readiness.isReady
+          ? 'ملفات solv جاهزة للأوفلاين — سيظهر التثبيت التلقائي فور سماح المتصفح.'
+          : 'جاري تجهيز ملفات solv للأوفلاين...'
+        : readiness.isReady
+        ? 'solv is cached for offline use — install prompt will trigger when browser allows.'
+        : 'Preparing solv offline files...',
+      readiness.isReady ? 'success' : 'info'
     );
   }
 

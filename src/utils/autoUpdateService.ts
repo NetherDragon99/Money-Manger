@@ -2,7 +2,7 @@
  * Safe Auto-Update Service & Pre-Update Backup Snapshot Engine
  * Coordinates Service Worker registration (registerType: 'prompt'),
  * pre-update local snapshots in IndexedDB, graceful sync flushing,
- * work-loss protection, and reload-loop safeguards.
+ * channel-isolated update state, and offline-safe Beta persistence.
  */
 
 import { registerSW } from 'virtual:pwa-register';
@@ -10,15 +10,22 @@ import { getItemFromIndexedDB, saveItemToIndexedDB, saveFullDataToIndexedDB } fr
 import { loadInitialData } from './storage';
 import { loadRecurringTransactions } from './recurring';
 import { CURRENT_APP_VERSION, formatVersionLabel, isAutoUpdateEnabled } from './versionChecker';
-import { IS_BETA_BUILD, BETA_BASE_URL } from './channel';
+import {
+  IS_BETA_BUILD,
+  BETA_BASE_URL,
+  channelKey,
+  getPreferredChannel,
+  setPreferredChannel,
+  isBetaCachedOffline,
+} from './channel';
 import { auth } from './firebase';
 import { flushGranularDirtyQueue } from './autoBackup';
 import { Account, Category, Transaction, AppSettings, RecurringTransaction } from '../types';
 
 export const PRE_UPDATE_BACKUP_KEY = 'mm_pre_update_backup';
-const COLD_START_UPDATE_KEY = 'mm_apply_update_on_cold_start';
-const ATTEMPT_TIMESTAMP_KEY = 'mm_update_attempt_ts';
-const ATTEMPT_COUNT_KEY = 'mm_update_attempt_cnt';
+const COLD_START_UPDATE_KEY = channelKey('mm_apply_update_on_cold_start');
+const ATTEMPT_TIMESTAMP_KEY = channelKey('mm_update_attempt_ts');
+const ATTEMPT_COUNT_KEY = channelKey('mm_update_attempt_cnt');
 
 export interface PreUpdateSnapshot {
   id: string;
@@ -38,31 +45,93 @@ let updateServiceWorkerFn: ((reloadPage?: boolean) => Promise<void>) | null = nu
 let isUpdateReadyState = false;
 
 /**
- * Reconciles the mm_join_beta localStorage flag to the active build channel.
+ * Reconciles the device-local channel preference at startup.
+ * Guarantees a Beta user is NEVER kicked out of Beta by cloud settings or offline restarts,
+ * and NEVER redirected offline to an uncached Beta route.
  */
 export function reconcileBetaChannelStartup(): void {
   if (typeof window === 'undefined') return;
   try {
     if (IS_BETA_BUILD) {
-      localStorage.setItem('mm_join_beta', 'true');
-    } else {
-      const userJoinedBeta = localStorage.getItem('mm_join_beta') === 'true';
-      if (userJoinedBeta) {
-        // Prevent accidental drop-off if user background-closed app and reopened at root
-        if (!window.location.pathname.includes('/beta/')) {
-          console.log('[AutoUpdate] User enrolled in Beta. Redirecting to Beta channel to prevent drop-off...');
+      // Explicitly launched inside Beta: always lock local channel preference to beta
+      setPreferredChannel('beta');
+      return;
+    }
+
+    const pref = getPreferredChannel();
+    if (pref === 'beta') {
+      if (!window.location.pathname.includes('/beta/')) {
+        if (typeof navigator === 'undefined' || navigator.onLine) {
+          console.log('[AutoUpdate] Beta preference active & online. Redirecting to Beta channel...');
           window.location.replace(BETA_BASE_URL);
-          return;
+        } else {
+          // Offline safety check: only redirect if Beta's offline precache actually exists locally!
+          isBetaCachedOffline()
+            .then((cached) => {
+              if (cached) {
+                console.log('[AutoUpdate] Beta cache verified offline. Redirecting cleanly to Beta...');
+                window.location.replace(BETA_BASE_URL);
+              } else {
+                // Keep mm_preferred_channel intact — NEVER kick user out of beta!
+                console.warn('[AutoUpdate] Beta not cached offline yet; keeping subscription safe on fallback.');
+                window.dispatchEvent(new CustomEvent('mm_beta_offline_fallback'));
+              }
+            })
+            .catch(() => {});
         }
       }
-      localStorage.removeItem('mm_join_beta');
     }
   } catch {}
 }
 
 /**
- * Helper to dispatch UI toasts from non-React background operations.
+ * Cross-channel cache cleanup: when the Beta app opens, stale Stable-only caches
+ * are evicted (and vice-versa). This guarantees the browser never serves a
+ * previous-channel's stale assets when the user switches between Stable and Beta.
+ *
+ * Rules:
+ * - Beta build  → delete any cache whose name does NOT contain 'beta'
+ *                 and does NOT match a known cross-channel shared name.
+ * - Stable build → delete any cache whose name contains 'beta'.
+ * Only runs when Cache Storage is available and skips on errors silently.
  */
+export async function purgeOtherChannelCaches(): Promise<void> {
+  if (typeof window === 'undefined' || !('caches' in window)) return;
+  // Throttle: only run once per browser session to avoid startup latency
+  const SESSION_KEY = `mm_cache_purge_done_${IS_BETA_BUILD ? 'beta' : 'stable'}`;
+  try {
+    if (sessionStorage.getItem(SESSION_KEY) === '1') return;
+  } catch { /* ignore */ }
+
+  try {
+    const allCacheNames = await caches.keys();
+    const toDelete: string[] = allCacheNames.filter((name) => {
+      const lower = name.toLowerCase();
+      if (IS_BETA_BUILD) {
+        // Keep beta caches, delete obsolete stable-only caches
+        // e.g. 'solv-stable', 'solv-stable-google-fonts', 'solv-stable-avatars'
+        const isStaleStable =
+          (lower.includes('solv-stable') || lower.includes('mm-stable')) &&
+          !lower.includes('beta');
+        return isStaleStable;
+      } else {
+        // Keep stable caches, delete beta caches
+        // e.g. 'solv-beta', 'solv-beta-google-fonts', 'solv-beta-avatars'
+        return lower.includes('solv-beta') || lower.includes('mm-beta');
+      }
+    });
+
+    if (toDelete.length > 0) {
+      console.log(`[AutoUpdate] Purging ${toDelete.length} other-channel cache(s):`, toDelete);
+      await Promise.all(toDelete.map((n) => caches.delete(n).catch(() => {})));
+    }
+
+    try { sessionStorage.setItem(SESSION_KEY, '1'); } catch { /* ignore */ }
+  } catch (err) {
+    console.warn('[AutoUpdate] Cross-channel cache purge skipped:', err);
+  }
+}
+
 function dispatchToast(message: string, type: 'success' | 'error' | 'info' = 'info') {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
@@ -73,9 +142,6 @@ function dispatchToast(message: string, type: 'success' | 'error' | 'info' = 'in
   }
 }
 
-/**
- * Awaits a promise with an enforced timeout.
- */
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operationName: string): Promise<T> {
   let timer: any;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -93,10 +159,6 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operationN
   }
 }
 
-/**
- * Creates a permanent pre-update snapshot of all user data in IndexedDB.
- * Retains only the latest 2 snapshots. Works completely offline and for guest users.
- */
 export async function createPreUpdateSnapshot(): Promise<PreUpdateSnapshot> {
   const initial = loadInitialData();
   const recurring = loadRecurringTransactions();
@@ -118,7 +180,6 @@ export async function createPreUpdateSnapshot(): Promise<PreUpdateSnapshot> {
   try {
     const existing = (await getItemFromIndexedDB<PreUpdateSnapshot[]>(PRE_UPDATE_BACKUP_KEY)) || [];
     const list = Array.isArray(existing) ? existing : [];
-    // Keep only the latest 2 snapshots
     const updated = [snapshot, ...list].slice(0, 2);
     await saveItemToIndexedDB(PRE_UPDATE_BACKUP_KEY, updated);
   } catch (err) {
@@ -129,9 +190,6 @@ export async function createPreUpdateSnapshot(): Promise<PreUpdateSnapshot> {
   return snapshot;
 }
 
-/**
- * Retrieves the stored pre-update snapshots from IndexedDB.
- */
 export async function getPreUpdateSnapshots(): Promise<PreUpdateSnapshot[]> {
   try {
     const list = await getItemFromIndexedDB<PreUpdateSnapshot[]>(PRE_UPDATE_BACKUP_KEY);
@@ -141,17 +199,11 @@ export async function getPreUpdateSnapshots(): Promise<PreUpdateSnapshot[]> {
   }
 }
 
-/**
- * Retrieves the most recent pre-update snapshot.
- */
 export async function getLatestPreUpdateSnapshot(): Promise<PreUpdateSnapshot | null> {
   const list = await getPreUpdateSnapshots();
   return list.length > 0 ? list[0] : null;
 }
 
-/**
- * Restores user data from a pre-update snapshot.
- */
 export async function restoreFromPreUpdateSnapshot(snapshotId?: string): Promise<boolean> {
   try {
     const snapshots = await getPreUpdateSnapshots();
@@ -163,7 +215,6 @@ export async function restoreFromPreUpdateSnapshot(snapshotId?: string): Promise
 
     if (!target) return false;
 
-    // 1. Restore to localStorage
     if (target.accounts) localStorage.setItem('pwa_finance_accounts', JSON.stringify(target.accounts));
     if (target.categories) localStorage.setItem('pwa_finance_categories', JSON.stringify(target.categories));
     if (target.transactions) localStorage.setItem('pwa_finance_transactions', JSON.stringify(target.transactions));
@@ -172,7 +223,6 @@ export async function restoreFromPreUpdateSnapshot(snapshotId?: string): Promise
       localStorage.setItem('recurring_transactions', JSON.stringify(target.recurringTransactions));
     }
 
-    // 2. Restore to IndexedDB permanent storage
     await saveFullDataToIndexedDB({
       accounts: target.accounts || [],
       categories: target.categories || [],
@@ -188,9 +238,6 @@ export async function restoreFromPreUpdateSnapshot(snapshotId?: string): Promise
   }
 }
 
-/**
- * Flushes pending dirty queue changes to cloud if signed in and sync is unlocked.
- */
 export async function flushPendingSyncIfEligible(): Promise<number> {
   if (typeof window === 'undefined' || !navigator.onLine) return 0;
   try {
@@ -208,20 +255,14 @@ export async function flushPendingSyncIfEligible(): Promise<number> {
   return 0;
 }
 
-/**
- * Prevents update application while the user could lose unsaved work.
- * Checks for open dialogs/modals, active text input/editing, and ongoing sync flushes.
- */
 export function canSafelyReloadNow(): boolean {
   if (typeof window === 'undefined') return false;
 
-  // 1. Any modal open in React tree or DOM
   if ((window as any).__isAnyModalOpen) return false;
   if (document.querySelector('[role="dialog"]') || document.querySelector('.modal-backdrop-anim')) {
     return false;
   }
 
-  // 2. User currently typing in an input or textarea
   const activeEl = document.activeElement;
   if (
     activeEl &&
@@ -230,7 +271,6 @@ export function canSafelyReloadNow(): boolean {
     return false;
   }
 
-  // 3. Ongoing sync flush in progress
   if ((window as any).__isSyncFlushRunning) {
     return false;
   }
@@ -238,9 +278,6 @@ export function canSafelyReloadNow(): boolean {
   return true;
 }
 
-/**
- * SessionStorage guard preventing infinite reload loops.
- */
 function checkReloadLoopGuard(): boolean {
   if (typeof window === 'undefined' || !window.sessionStorage) return true;
   try {
@@ -261,13 +298,6 @@ function checkReloadLoopGuard(): boolean {
   }
 }
 
-/**
- * Safely applies an update:
- * 1. Takes pre-update IndexedDB snapshot (8s timeout).
- * 2. Flushes sync if signed in & unlocked (8s timeout).
- * 3. Notifies errors via toast without blocking reload.
- * 4. Calls updateServiceWorker(true) or reloads cleanly.
- */
 export async function applyUpdateSafely(options?: { isColdStart?: boolean; force?: boolean }): Promise<boolean> {
   const force = options?.force ?? false;
 
@@ -286,51 +316,44 @@ export async function applyUpdateSafely(options?: { isColdStart?: boolean; force
     return false;
   }
 
-  // 1. Pre-update snapshot (8-second timeout)
+  // Never force reload when completely offline unless SW waiting already exists locally
   try {
     await withTimeout(createPreUpdateSnapshot(), 8000, 'Pre-update snapshot');
-    console.log('[AutoUpdate] Pre-update snapshot saved.');
   } catch (err: any) {
     console.warn('[AutoUpdate] Pre-update snapshot warning:', err);
-    dispatchToast(err?.message || 'Snapshot creation timed out', 'error');
   }
 
-  // 2. Sync flush (8-second timeout)
   try {
     await withTimeout(flushPendingSyncIfEligible(), 8000, 'Cloud sync flush');
-    console.log('[AutoUpdate] Cloud sync flushed.');
   } catch (err: any) {
     console.warn('[AutoUpdate] Sync flush warning:', err);
-    dispatchToast(err?.message || 'Sync flush timed out', 'error');
   }
 
   try {
     localStorage.removeItem(COLD_START_UPDATE_KEY);
   } catch {}
 
-  // 3. Activate new service worker & reload
   try {
     if (updateServiceWorkerFn) {
       await updateServiceWorkerFn(true);
-    } else {
+    } else if (typeof navigator === 'undefined' || navigator.onLine) {
       window.location.reload();
     }
     return true;
   } catch (err) {
     console.error('[AutoUpdate] Error triggering updateServiceWorker:', err);
-    window.location.reload();
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      window.location.reload();
+    }
     return true;
   }
 }
 
-/**
- * Checks and applies any update queued from a previous session on cold start.
- */
 export async function checkAndApplyColdStartUpdate(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
   try {
     const isPending = localStorage.getItem(COLD_START_UPDATE_KEY) === 'true';
-    if (isPending && isAutoUpdateEnabled()) {
+    if (isPending && isAutoUpdateEnabled() && (typeof navigator === 'undefined' || navigator.onLine)) {
       localStorage.removeItem(COLD_START_UPDATE_KEY);
       console.log('[AutoUpdate] Applying queued update on cold start');
       return await applyUpdateSafely({ isColdStart: true });
@@ -350,10 +373,6 @@ export function getIsUpdateReady(): boolean {
   return isUpdateReadyState;
 }
 
-/**
- * Initializes VitePWA registration with prompt mode.
- * Wires the onNeedRefresh callback to safe snapshot & update flow.
- */
 export function initPwaAutoUpdate(onRefreshCallback?: () => void): void {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
 
@@ -380,7 +399,8 @@ export function initPwaAutoUpdate(onRefreshCallback?: () => void): void {
         }
       },
       onOfflineReady() {
-        console.log('[AutoUpdate] PWA is cached and ready for offline use');
+        console.log('[AutoUpdate] solv is precached and ready for offline use');
+        window.dispatchEvent(new CustomEvent('solv_offline_ready'));
       },
       onRegisterError(err) {
         console.warn('[AutoUpdate] Service worker registration error:', err);

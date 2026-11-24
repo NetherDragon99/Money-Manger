@@ -178,11 +178,11 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
     >
       {/* Top Header */}
       <div className="pt-4 sm:pt-10 landscape:pt-2 flex flex-col items-center text-center">
-        <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-3xl bg-zinc-900 border border-zinc-800 shadow-2xl flex items-center justify-center text-blue-400 mb-2 sm:mb-4 animate-in fade-in zoom-in duration-200">
+        <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-3xl bg-zinc-900 border border-emerald-500/30 shadow-2xl flex items-center justify-center text-emerald-400 mb-2 sm:mb-4 animate-in fade-in zoom-in duration-200">
           <Shield className="w-6 h-6 sm:w-8 sm:h-8" />
         </div>
         <h2 className="text-xl font-bold tracking-tight text-white">
-          {isArabic ? 'التطبيق مقفل' : 'Personal Finance'}
+          {isArabic ? 'التطبيق مقفل' : 'solv'}
         </h2>
         <p className="text-xs text-zinc-400 mt-1">
           {lockoutRemaining > 0
@@ -210,7 +210,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ isLocked, onUnlock
                 key={idx}
                 className={`w-4 h-4 rounded-full transition-all duration-75 ${
                   isFilled
-                    ? 'bg-blue-500 scale-110 shadow-lg shadow-blue-500/50'
+                    ? 'bg-emerald-500 scale-110 shadow-lg shadow-emerald-500/50'
                     : 'bg-zinc-800 border border-zinc-700'
                 }`}
               />

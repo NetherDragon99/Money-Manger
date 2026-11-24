@@ -1,5 +1,5 @@
-import React, { useMemo, useRef } from 'react';
-import { useApp } from '../context/AppContext';
+import React, { useMemo, useRef, memo } from 'react';
+import { useAppData, useAppUI, useAppActions } from '../context/AppContext';
 import {
   ArrowDown,
   ArrowUp,
@@ -16,7 +16,6 @@ import {
   isManualAdjustment,
 } from '../utils/dateCycle';
 import { getLocalizedCurrencySymbol } from '../utils/currencies';
-import { useHeaderScroll } from '../hooks/useHeaderScroll';
 import { useLongPress } from '../hooks/useLongPress';
 import { Account } from '../types';
 
@@ -33,7 +32,7 @@ interface AccountCardProps {
   language: 'en' | 'ar';
 }
 
-const AccountCard: React.FC<AccountCardProps> = ({
+const AccountCardBase: React.FC<AccountCardProps> = ({
   acc,
   index,
   accountsLength,
@@ -45,12 +44,8 @@ const AccountCard: React.FC<AccountCardProps> = ({
   t,
   language,
 }) => {
-  const {
-    isAccountMultiSelect,
-    selectedAccountIds,
-    toggleAccountSelection,
-    startAccountMultiSelect,
-  } = useApp();
+  const { isAccountMultiSelect, selectedAccountIds } = useAppUI();
+  const { toggleAccountSelection, startAccountMultiSelect } = useAppActions();
 
   const isSelected = selectedAccountIds.includes(acc.id);
 
@@ -246,7 +241,7 @@ const AccountCard: React.FC<AccountCardProps> = ({
             {acc.icon}
           </div>
           <div className="min-w-0">
-            <span className="text-base font-bold text-white truncate max-w-[150px] sm:max-w-xs group-hover:text-blue-300 transition block">
+            <span className="text-base font-bold text-white truncate max-w-[150px] sm:max-w-xs group-hover:text-emerald-300 transition block">
               {acc.name}
             </span>
             <div className="text-xs text-zinc-400 mt-0.5">
@@ -289,27 +284,22 @@ const AccountCard: React.FC<AccountCardProps> = ({
   );
 };
 
-export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisible: propBarsVisible }) => {
+const AccountCard = memo(AccountCardBase);
+
+const AccountsViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
+  const { accounts, transactions, settings, t } = useAppData();
+  const { isAccountMultiSelect, selectedAccountIds } = useAppUI();
   const {
-    accounts,
-    transactions,
-    settings,
     setSelectedAccountId,
     openAddAccountModal,
     reorderAccounts,
     setIsSharedHubModalOpen,
-    isAccountMultiSelect,
-    selectedAccountIds,
     startAccountMultiSelect,
     toggleAccountSelection,
     clearAccountSelection,
     setIsSidebarOpen,
     showToast,
-    t,
-  } = useApp();
-
-  const isHeaderScrollVisible = useHeaderScroll();
-  const isHeaderVisible = isHeaderScrollVisible && (propBarsVisible !== undefined ? propBarsVisible : true);
+  } = useAppActions();
 
   const handleMoveAccount = (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
@@ -380,16 +370,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
   return (
     <div className="w-full flex flex-col flex-1 pb-24">
       {/* 1. Unified Standard Top Header Bar Across All 5 Tabs */}
-      <header
-        style={{
-          transform: isHeaderVisible ? 'translateY(0%)' : 'translateY(-110%)',
-          visibility: isHeaderVisible ? 'visible' : 'hidden',
-          transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
-        className={`fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between ${
-          isHeaderVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-      >
+      <header className="app-auto-header fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/95 border-b border-zinc-800/80 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -411,7 +392,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
       </header>
 
       {/* Scrollable View Content Container */}
-      <div className="pt-20 landscape:pt-16 px-3.5 space-y-4 landscape:space-y-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto">
+      <div className="app-main-offset-lg px-3.5 space-y-4 landscape:space-y-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto">
         {/* Global Net Worth Dashboard Card */}
         <div className="p-4 sm:p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 shadow-xl space-y-4">
           <div className="md:grid md:grid-cols-3 md:items-center md:gap-6 landscape:grid landscape:grid-cols-3 landscape:items-center landscape:gap-4">
@@ -482,7 +463,7 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
             <button
               type="button"
               onClick={() => setIsSharedHubModalOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition active:scale-95 cursor-pointer shadow-md"
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition active:scale-95 cursor-pointer shadow-md"
             >
               {settings.language === 'ar' ? 'عرض الحسابات' : 'View Hub'}
             </button>
@@ -514,3 +495,5 @@ export const AccountsView: React.FC<{ isBarsVisible?: boolean }> = ({ isBarsVisi
     </div>
   );
 };
+
+export const AccountsView = memo(AccountsViewBase);

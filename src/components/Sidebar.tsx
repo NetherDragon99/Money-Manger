@@ -1,5 +1,5 @@
 import React, { useRef, useState, useMemo, useEffect } from 'react';
-import { useApp } from '../context/AppContext';
+import { useAppActions, useAppAuth, useAppData, useAppUI } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
 import {
   X,
@@ -17,18 +17,21 @@ import {
   LogOut,
   LogIn,
   ChevronRight,
+  WifiOff,
+  CheckCircle2,
 } from 'lucide-react';
 import { format16DigitId } from '../utils/userId';
 import { isRealPhotoUrl } from '../utils/shareFolders';
-import { installPwa } from '../utils/pwaInstall';
-import { CURRENT_APP_VERSION, formatVersionLabel, formatFullVersionWithBuild } from '../utils/versionChecker';
+import { CURRENT_APP_VERSION, formatFullVersionWithBuild } from '../utils/versionChecker';
 import { auth, loginWithGoogle } from '../utils/firebase';
-import { signOut, type User as FirebaseUser } from 'firebase/auth';
-import { evaluateSmartBudget } from '../utils/smartBudgetEngine';
+import { signOut } from 'firebase/auth';
+import { usePWAInstall } from '../hooks/usePWAInstall';
+import { getSmartBudgetBadgeStatus } from '../utils/smartBudgetEngine';
 
 export const Sidebar: React.FC = () => {
+  const { settings, recurringTransactions, smartBudgetEvaluation, t } = useAppData();
+  const { isSidebarOpen } = useAppUI();
   const {
-    isSidebarOpen,
     setIsSidebarOpen,
     setIsUserProfileModalOpen,
     setIsFeaturesModalOpen,
@@ -36,50 +39,25 @@ export const Sidebar: React.FC = () => {
     setIsSmartBudgetModalOpen,
     setIsSettingsModalOpen,
     setIsTransferFeesModalOpen,
-    recurringTransactions,
     processDueRecurring,
     setIsSharedHubModalOpen,
-    settings,
-    updateSettings,
     signOutUser,
-    accounts,
-    categories,
-    transactions,
     showToast,
     showConfirm,
-    syncStatus,
-    lastSyncedAt,
-    t,
-  } = useApp();
+  } = useAppActions();
+  const { authUser, syncStatus, lastSyncedAt } = useAppAuth();
+  const { isInstalled: isPwaInstalled, install: triggerPwaInstall, offlineStatus, refreshCache } = usePWAInstall();
 
+  const currentUser = authUser;
   const sidebarTouchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(auth.currentUser);
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   const isArabic = settings.language === 'ar';
 
-  const hasSmartBudgetAlert = useMemo(() => {
-    try {
-      const evaluation = evaluateSmartBudget(
-        transactions,
-        accounts,
-        {
-          ...settings.smartBudget?.baseline,
-          startDay: settings.defaultMonthStartDay || 1,
-          overrides: settings.smartBudget?.overrides,
-          adjustments: settings.smartBudget?.adjustments,
-          baseCurrency: settings.currencySymbol || 'EGP',
-        },
-        new Date()
-      );
-      return (
-        evaluation.dailyStatus.allowanceState === 'true_deficit' ||
-        evaluation.anomalies.some((a) => a.severity === 'critical')
-      );
-    } catch {
-      return false;
-    }
-  }, [transactions, accounts, settings.currencySymbol, settings.defaultMonthStartDay, settings.smartBudget]);
+  const smartBudgetBadgeStatus = useMemo(
+    () => getSmartBudgetBadgeStatus(smartBudgetEvaluation),
+    [smartBudgetEvaluation]
+  );
 
   const handleOuterSignIn = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -102,49 +80,9 @@ export const Sidebar: React.FC = () => {
       });
   };
 
-  const [isPwaInstalled, setIsPwaInstalled] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return (
-      window.matchMedia('(display-mode: standalone)').matches ||
-      window.matchMedia('(display-mode: fullscreen)').matches ||
-      (window.navigator as any).standalone === true
-    );
-  });
-
-  useEffect(() => {
-    const handleInstalled = () => {
-      setIsPwaInstalled(true);
-    };
-    window.addEventListener('appinstalled', handleInstalled);
-    window.addEventListener('app-installed-event', handleInstalled);
-    return () => {
-      window.removeEventListener('appinstalled', handleInstalled);
-      window.removeEventListener('app-installed-event', handleInstalled);
-    };
-  }, []);
-
-  const handleDirectInstallClick = () => {
-    installPwa({
-      isArabic,
-      showToast,
-      onInstalled: () => {
-        setIsPwaInstalled(true);
-      },
-    });
+  const handleDirectInstallClick = async () => {
+    await triggerPwaInstall();
   };
-
-  // Keep auth state synchronized in Sidebar
-  useEffect(() => {
-    const unsub = auth.onAuthStateChanged((user) => {
-      setCurrentUser(user);
-    });
-    const handleSignedOut = () => setCurrentUser(null);
-    window.addEventListener('app_user_signed_out', handleSignedOut);
-    return () => {
-      unsub();
-      window.removeEventListener('app_user_signed_out', handleSignedOut);
-    };
-  }, []);
 
   const [isClosing, setIsClosing] = useState(false);
 
@@ -245,28 +183,56 @@ export const Sidebar: React.FC = () => {
   };
 
   const [isRefreshingApp, setIsRefreshingApp] = useState(false);
+  const [isWarmingOffline, setIsWarmingOffline] = useState(false);
+
+  const handleWarmOfflineCache = async () => {
+    if (isWarmingOffline) return;
+    setIsWarmingOffline(true);
+    try {
+      const status = await refreshCache();
+      showToast(
+        status.isReady
+          ? isArabic
+            ? `التطبيق جاهز بالكامل للعمل بدون إنترنت (${status.cachedCount} ملف)`
+            : `Offline mode ready (${status.cachedCount} files cached)`
+          : isArabic
+          ? 'جارٍ تجهيز الملفات… أعد المحاولة عند توفر الإنترنت'
+          : 'Offline cache warming; try again when online',
+        status.isReady ? 'success' : 'info'
+      );
+    } finally {
+      setIsWarmingOffline(false);
+    }
+  };
 
   const handleReloadApp = async () => {
     if (isRefreshingApp) return;
     setIsRefreshingApp(true);
     try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const status = await refreshCache();
+        showToast(
+          isArabic
+            ? `أنت في وضع الأوفلاين — البيانات والملفات جاهزة (${status.cachedCount})`
+            : `You are offline — app cache verified (${status.cachedCount} files)`,
+          'info'
+        );
+        return;
+      }
+
       if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const reg of registrations) {
-          try {
-            await reg.unregister();
-          } catch {}
-        }
+        try {
+          const reg = await navigator.serviceWorker.getRegistration();
+          await reg?.update();
+        } catch {}
       }
-      if ('caches' in window) {
-        const cacheKeys = await caches.keys();
-        await Promise.all(cacheKeys.map((key) => caches.delete(key)));
-      }
-    } catch (e) {
-      console.warn('Failed to unregister service workers or clear caches:', e);
-    } finally {
+      await refreshCache();
       setIsSidebarOpen(false);
       window.location.reload();
+    } catch (e) {
+      console.warn('Safe refresh check failed:', e);
+    } finally {
+      setIsRefreshingApp(false);
     }
   };
 
@@ -298,7 +264,7 @@ export const Sidebar: React.FC = () => {
         opacity: isOpening || (isClosingDrag && closeDragDelta !== 0) ? backdropOpacity : undefined,
         transition: isOpening || isClosingDrag ? 'none' : undefined,
       }}
-      className={`fixed inset-0 z-[60] flex bg-black/60 backdrop-blur-md overscroll-contain transition-all duration-200 ${
+      className={`fixed inset-0 z-[60] flex bg-black/75 overscroll-contain transition-opacity duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
@@ -311,7 +277,7 @@ export const Sidebar: React.FC = () => {
           transform: drawerTransform || undefined,
           transition: isOpening || isClosingDrag ? 'none' : undefined,
         }}
-        className={`w-84 max-w-[85vw] h-full flex flex-col bg-zinc-950/95 backdrop-blur-2xl border-r rtl:border-l rtl:border-r-0 border-zinc-800/80 shadow-2xl text-white overflow-hidden transition-all duration-200 ${
+        className={`w-84 max-w-[85vw] h-full flex flex-col bg-zinc-950 border-r rtl:border-l rtl:border-r-0 border-zinc-800/80 shadow-2xl text-white overflow-hidden transition-transform duration-200 ${
           isClosing ? 'opacity-0 -translate-x-full rtl:translate-x-full' : 'animate-in slide-in-from-left rtl:slide-in-from-right duration-300'
         }`}
       >
@@ -323,10 +289,10 @@ export const Sidebar: React.FC = () => {
           }}
           role="button"
           tabIndex={0}
-          className="border-b border-zinc-800/80 bg-zinc-900/50 hover:bg-zinc-900/90 p-4 flex items-center justify-between shrink-0 cursor-pointer group active:scale-[0.99] transition select-none"
+          className="safe-area-top border-b border-zinc-800/80 bg-zinc-900/60 hover:bg-zinc-900/90 p-4 flex items-center justify-between shrink-0 cursor-pointer group active:scale-[0.99] transition select-none"
         >
           <div className="flex items-center gap-3.5 min-w-0 flex-1">
-            <div className="w-13 h-13 rounded-2xl bg-zinc-900 border-2 border-blue-500/80 overflow-hidden flex items-center justify-center text-3xl shadow-lg group-hover:scale-105 transition shrink-0">
+            <div className="w-13 h-13 rounded-2xl bg-zinc-900 border-2 border-emerald-500/80 overflow-hidden flex items-center justify-center text-3xl shadow-lg group-hover:scale-105 transition shrink-0">
               {currentUser && settings.userProfile?.customAvatarUrl && isRealPhotoUrl(settings.userProfile.customAvatarUrl) ? (
                 <img
                   src={settings.userProfile.customAvatarUrl}
@@ -339,8 +305,8 @@ export const Sidebar: React.FC = () => {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <h3 className="font-bold text-white text-base group-hover:text-blue-400 transition truncate">
-                  {currentUser ? (settings.userProfile?.name || 'My Profile') : (isArabic ? 'حساب ضيف' : 'Guest')}
+                <h3 className="font-bold text-white text-base group-hover:text-emerald-400 transition truncate">
+                  {currentUser ? (settings.userProfile?.name || currentUser.displayName || 'My Profile') : (isArabic ? 'حساب ضيف' : 'Guest')}
                 </h3>
                 {!currentUser && (
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 shrink-0 font-medium">
@@ -354,7 +320,7 @@ export const Sidebar: React.FC = () => {
                     type="button"
                     onClick={handleOuterSignIn}
                     disabled={isSigningIn}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:via-indigo-500 hover:to-blue-400 text-white text-xs font-bold shadow-md shadow-blue-600/30 active:scale-95 transition cursor-pointer disabled:opacity-60 min-h-[36px]"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-black text-xs font-bold shadow-md shadow-emerald-900/30 active:scale-95 transition cursor-pointer disabled:opacity-60 min-h-[36px]"
                     title={isArabic ? 'تسجيل الدخول بحساب Google' : 'Sign in with Google'}
                   >
                     {isSigningIn ? (
@@ -395,8 +361,8 @@ export const Sidebar: React.FC = () => {
                 {/* Subtle Live Sync Status Indicator */}
                 <div className="inline-flex items-center gap-1.5 text-[11px] shrink-0 font-medium select-none">
                   {syncStatus === 'syncing' && (
-                    <span className="inline-flex items-center gap-1 text-blue-400">
-                      <Loader2 className="w-3 h-3 animate-spin text-blue-400 shrink-0" />
+                    <span className="inline-flex items-center gap-1 text-emerald-400">
+                      <Loader2 className="w-3 h-3 animate-spin text-emerald-400 shrink-0" />
                       <span>{isArabic ? 'جاري المزامنة...' : 'Syncing...'}</span>
                     </span>
                   )}
@@ -493,10 +459,20 @@ export const Sidebar: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
-                {hasSmartBudgetAlert ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/50 text-amber-200 shadow-sm animate-pulse">
+                {smartBudgetBadgeStatus === 'deficit' ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/20 border border-red-400/50 text-red-200 shadow-sm animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                    <span>{isArabic ? 'تنبيه عجز' : 'Alert'}</span>
+                  </span>
+                ) : smartBudgetBadgeStatus === 'heads_up' ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/50 text-amber-200 shadow-sm">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    <span>{isArabic ? 'تنبيه' : 'Alert'}</span>
+                    <span>{isArabic ? 'انتباه' : 'Heads-up'}</span>
+                  </span>
+                ) : smartBudgetBadgeStatus === 'paused' ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-800/80 border border-zinc-700 text-zinc-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+                    <span>{isArabic ? 'متوقف' : 'Paused'}</span>
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300">
@@ -551,11 +527,11 @@ export const Sidebar: React.FC = () => {
               className="w-full group min-h-[48px] p-3 rounded-2xl bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-800/90 hover:border-zinc-700 text-xs font-bold text-zinc-100 transition-all cursor-pointer shadow-md shadow-black/20 active:scale-[0.99] flex items-center justify-between gap-3"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:bg-blue-500/25 transition-all">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:bg-emerald-500/25 transition-all">
                   <Sliders className="w-4.5 h-4.5" />
                 </div>
                 <div className="text-start min-w-0">
-                  <span className="block truncate text-zinc-100 group-hover:text-blue-300 transition-colors">
+                  <span className="block truncate text-zinc-100 group-hover:text-emerald-300 transition-colors">
                     {t('openSettingsModal')}
                   </span>
                   <span className="block text-[10px] text-zinc-400 font-normal truncate mt-0.5">
@@ -605,11 +581,11 @@ export const Sidebar: React.FC = () => {
               className="w-full group min-h-[48px] p-3 rounded-2xl bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-800/90 hover:border-zinc-700 text-xs font-bold text-zinc-100 transition-all cursor-pointer shadow-md shadow-black/20 active:scale-[0.99] flex items-center justify-between gap-3"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:bg-blue-500/25 transition-all">
+                <div className="w-9 h-9 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-400 flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:bg-teal-500/25 transition-all">
                   <Share2 className="w-4.5 h-4.5 stroke-[2.5]" />
                 </div>
                 <div className="text-start min-w-0">
-                  <span className="block truncate text-zinc-100 group-hover:text-blue-300 transition-colors">
+                  <span className="block truncate text-zinc-100 group-hover:text-teal-300 transition-colors">
                     {isArabic ? 'مساحات الحسابات المشتركة' : 'Shared Accounts & Spaces'}
                   </span>
                   <span className="block text-[10px] text-zinc-400 font-normal truncate mt-0.5">
@@ -619,7 +595,7 @@ export const Sidebar: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 shadow-sm">
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 shadow-sm">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   <span>{isArabic ? 'مباشر' : 'Live'}</span>
                 </span>
@@ -637,11 +613,11 @@ export const Sidebar: React.FC = () => {
               className="w-full group min-h-[48px] p-3 rounded-2xl bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-800/90 hover:border-zinc-700 text-xs font-bold text-zinc-100 transition-all cursor-pointer shadow-md shadow-black/20 active:scale-[0.99] flex items-center justify-between gap-3"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:bg-blue-500/25 transition-all">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:bg-emerald-500/25 transition-all">
                   <BookOpen className="w-4.5 h-4.5" />
                 </div>
                 <div className="text-start min-w-0">
-                  <span className="block truncate text-zinc-100 group-hover:text-blue-300 transition-colors">
+                  <span className="block truncate text-zinc-100 group-hover:text-emerald-300 transition-colors">
                     {isArabic ? 'دليل الاستخدام ومميزات التطبيق' : 'App Guide & Features'}
                   </span>
                   <span className="block text-[10px] text-zinc-400 font-normal truncate mt-0.5">
@@ -650,7 +626,7 @@ export const Sidebar: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   {isArabic ? 'دليل' : 'Guide'}
                 </span>
                 <ChevronRight className={`w-4 h-4 text-zinc-400 group-hover:text-zinc-200 group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5 transition-transform ${isArabic ? 'rotate-180' : ''}`} />
@@ -658,16 +634,55 @@ export const Sidebar: React.FC = () => {
             </button>
           </div>
 
-          {/* Section 2: Standalone PWA Installation & Factory Reset */}
+          {/* Section 2: Offline Readiness, Standalone PWA Installation & Factory Reset */}
           <div className="space-y-2.5 pt-1">
+            <div className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/90 space-y-2">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  {offlineStatus.isReady ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
+                  )}
+                  <span className={`font-bold truncate ${offlineStatus.isReady ? 'text-emerald-400' : 'text-amber-300'}`}>
+                    {offlineStatus.isReady
+                      ? isArabic
+                        ? 'جاهز للعمل أوفلاين ✓'
+                        : 'Offline Ready ✓'
+                      : isArabic
+                      ? 'جارٍ تجهيز الأوفلاين...'
+                      : 'Preparing Offline Mode...'}
+                  </span>
+                </div>
+                {offlineStatus.cachedCount > 0 && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 shrink-0">
+                    {offlineStatus.cachedCount}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleWarmOfflineCache}
+                disabled={isWarmingOffline}
+                className="w-full min-h-[38px] py-1.5 px-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-[11px] font-semibold text-zinc-200 flex items-center justify-center gap-1.5 transition active:scale-[0.99] cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isWarmingOffline ? 'animate-spin' : ''}`} />
+                <span>
+                  {isWarmingOffline
+                    ? isArabic ? 'جاري التحقق من الملفات...' : 'Verifying offline files...'
+                    : isArabic ? 'تحديث ملفات الأوفلاين' : 'Update Offline Cache'}
+                </span>
+              </button>
+            </div>
+
             {isPwaInstalled ? (
               <div className="flex items-center justify-between px-3.5 py-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-xs">
                 <div className="flex items-center gap-2 text-emerald-400 font-medium">
                   <Check className="w-4 h-4 shrink-0" />
                   <span>
                     {isArabic
-                      ? 'مثبت على الشاشة الرئيسية (PWA)'
-                      : 'Installed on Home Screen (PWA)'}
+                      ? 'مثبت على الشاشة الرئيسية ✓'
+                      : 'Installed on Home Screen ✓'}
                   </span>
                 </div>
               </div>
@@ -675,10 +690,10 @@ export const Sidebar: React.FC = () => {
               <button
                 type="button"
                 onClick={handleDirectInstallClick}
-                className="w-full min-h-[44px] py-2.5 text-xs font-bold flex items-center justify-center gap-2 rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white shadow-lg shadow-blue-900/30 transition cursor-pointer"
+                className="w-full min-h-[44px] py-2.5 text-xs font-bold flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 active:scale-95 text-black shadow-lg shadow-emerald-950/50 transition cursor-pointer"
               >
                 <Download className="w-4 h-4 shrink-0" />
-                <span>{isArabic ? 'تثبيت التطبيق على الجهاز' : 'Install App (PWA)'}</span>
+                <span>{isArabic ? 'تثبيت solv على الجهاز' : 'Install solv App'}</span>
               </button>
             )}
 
@@ -745,9 +760,12 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar Footer: Version & Refresh Button */}
+        {/* Sidebar Footer: solv Version & Refresh Button */}
         <div className="p-3.5 sm:p-4 border-t border-zinc-800/80 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400 font-mono shrink-0 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-sans font-extrabold text-[10px] tracking-wide">
+              solv
+            </span>
             <span className="font-bold text-zinc-300 truncate">
               {formatFullVersionWithBuild(CURRENT_APP_VERSION)}
             </span>
@@ -760,11 +778,11 @@ export const Sidebar: React.FC = () => {
             className="min-h-[40px] flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition cursor-pointer active:scale-95 shrink-0 disabled:opacity-50"
             title="Refresh App"
           >
-            <RotateCw className={`w-3.5 h-3.5 text-blue-400 ${isRefreshingApp ? 'animate-spin' : ''}`} />
+            <RotateCw className={`w-3.5 h-3.5 text-emerald-400 ${isRefreshingApp ? 'animate-spin' : ''}`} />
             <span className="text-[11px] font-semibold">
               {isRefreshingApp
                 ? (isArabic ? 'جاري التحديث...' : 'Refreshing...')
-                : (isArabic ? 'تحديث التطبيق' : 'Refresh App')}
+                : (isArabic ? 'فحص وتحديث' : 'Check & Refresh')}
             </span>
           </button>
         </div>

@@ -1,26 +1,32 @@
 /**
  * In-App Version Checker and Automatic Update Engine
- * Performs background version checks and coordinates seamless client-side updates.
+ * Performs background version checks and coordinates safe, offline-preserving client-side updates.
  */
 
-import { IS_BETA_BUILD, APP_CHANNEL, STABLE_BASE_URL } from './channel';
+import {
+  IS_BETA_BUILD,
+  APP_CHANNEL,
+  STABLE_BASE_URL,
+  isCurrentChannelCacheName,
+  isRegistrationForCurrentChannel,
+} from './channel';
 
-export const CURRENT_APP_VERSION = '2.0.0';
+export const CURRENT_APP_VERSION: string =
+  typeof __APP_VERSION__ !== 'undefined' && __APP_VERSION__ ? String(__APP_VERSION__) : '2.0.1';
+
+export const STABLE_BASELINE_VERSION: string =
+  typeof __STABLE_BASELINE_VERSION__ !== 'undefined' && __STABLE_BASELINE_VERSION__
+    ? String(__STABLE_BASELINE_VERSION__)
+    : CURRENT_APP_VERSION;
+
 export const BUILD_ID: string =
   typeof import.meta !== 'undefined' && import.meta.env && (import.meta.env as any).VITE_BUILD_ID
     ? String((import.meta.env as any).VITE_BUILD_ID).trim()
     : '';
 
-const BACKUP_VERSION_ENDPOINT = 'NetherDragon99/Money-Manger';
+const BACKUP_VERSION_ENDPOINT = 'NetherDragon99/solv';
 const AUTO_UPDATE_STORAGE_KEY = 'mm_auto_update_enabled';
 
-/**
- * Centralized version label formatting helper.
- * Driven by IS_BETA_BUILD:
- * - Beta build: returns `Beta vX.Y.Z` (or `Beta vX.Y.Z · <buildId>` when includeBuildId is true)
- * - Stable build: returns `vX.Y.Z` (or `vX.Y.Z · <buildId>` when includeBuildId is true)
- * Strips any existing 'Beta', 'beta', or 'v' prefixes to ensure 'Beta' is never doubled.
- */
 export function formatVersionLabel(
   version: string = CURRENT_APP_VERSION,
   includeBuildId: boolean = false
@@ -56,10 +62,6 @@ export interface UpdateCheckResult {
   source: 'version-file' | 'cloud-api' | 'none';
 }
 
-/**
- * Checks whether automatic background updates are enabled by the user.
- * Defaults to true for a seamless, hands-free experience.
- */
 export function isAutoUpdateEnabled(): boolean {
   try {
     const saved = localStorage.getItem(AUTO_UPDATE_STORAGE_KEY);
@@ -69,9 +71,6 @@ export function isAutoUpdateEnabled(): boolean {
   }
 }
 
-/**
- * Persists the user's preference for automatic background updates.
- */
 export function setAutoUpdateEnabled(enabled: boolean): void {
   try {
     localStorage.setItem(AUTO_UPDATE_STORAGE_KEY, String(enabled));
@@ -97,7 +96,7 @@ export function compareVersions(current: string, latest: string): boolean {
 
 /**
  * In the BETA build only, checks the stable channel's version.json to determine
- * whether an official stable release newer than the beta's baseline stableVersion is available.
+ * whether an official stable release newer than this beta's baseline stableVersion is available.
  * Fails silently on any network or parsing error.
  */
 export async function checkForNewerOfficialRelease(): Promise<StableReleaseCheckResult | null> {
@@ -122,9 +121,8 @@ export async function checkForNewerOfficialRelease(): Promise<StableReleaseCheck
     const data = JSON.parse(text);
     if (!data || !data.version) return null;
 
-    // Baseline is beta's own stableVersion field if available, or CURRENT_APP_VERSION
-    const baselineVersion = data.stableVersion || CURRENT_APP_VERSION;
-    if (compareVersions(baselineVersion, data.version)) {
+    // Compare live stable version against this Beta build's recorded stable baseline
+    if (compareVersions(STABLE_BASELINE_VERSION, data.version)) {
       return {
         hasNewerStable: true,
         stableVersion: data.version,
@@ -139,7 +137,6 @@ export async function checkForNewerOfficialRelease(): Promise<StableReleaseCheck
 }
 
 export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
-  // If offline, do not block
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return {
       hasUpdate: false,
@@ -151,9 +148,14 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
 
   // 1. Check live version.json on deployed host (bypassing browser cache)
   try {
-    const baseUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL)
-      ? import.meta.env.BASE_URL
-      : (typeof window !== 'undefined' && window.location.pathname.startsWith('/Money-Manger') ? '/Money-Manger/' : './');
+    const baseUrl =
+      typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL
+        ? import.meta.env.BASE_URL
+        : typeof window !== 'undefined' && window.location.pathname.startsWith('/solv')
+        ? '/solv/'
+        : typeof window !== 'undefined' && window.location.pathname.startsWith('/Money-Manger')
+        ? '/Money-Manger/'
+        : './';
     const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
     const versionUrl = `${cleanBase}version.json?_t=${Date.now()}`;
     const res = await fetch(versionUrl, {
@@ -163,7 +165,6 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
     });
     if (res.ok) {
       const text = await res.text();
-      // Guard against HTML 404/SPA responses starting with '<'
       if (text && !text.trim().startsWith('<')) {
         try {
           const data = JSON.parse(text);
@@ -189,18 +190,20 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
   // 2. Secondary fallback: query cloud repository endpoint
   try {
     const branch = IS_BETA_BUILD ? 'beta' : 'main';
-    const res = await fetch(`https://api.github.com/repos/${BACKUP_VERSION_ENDPOINT}/commits/${branch}?_t=${Date.now()}`, {
-      signal: AbortSignal.timeout(4000),
-      cache: 'no-store',
-      headers: { Accept: 'application/vnd.github.v3+json' },
-    });
+    const res = await fetch(
+      `https://api.github.com/repos/${BACKUP_VERSION_ENDPOINT}/commits/${branch}?_t=${Date.now()}`,
+      {
+        signal: AbortSignal.timeout(4000),
+        cache: 'no-store',
+        headers: { Accept: 'application/vnd.github.v3+json' },
+      }
+    );
     if (res.ok) {
       const text = await res.text();
       if (text && !text.trim().startsWith('<')) {
         try {
           const commitData = JSON.parse(text);
           const message = commitData?.commit?.message || '';
-          // Check if commit message mentions a newer version (e.g. 2.0.0 or 1.0.x)
           const versionMatch = message.match(/([0-9]+\.[0-9]+\.[0-9]+)/);
           if (versionMatch) {
             const foundVersion = versionMatch[1];
@@ -233,39 +236,50 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
 }
 
 /**
- * Clears outdated Service Worker caches, updates worker registrations,
- * reports progress steps, and seamlessly reloads the application.
+ * Safely updates ONLY the current channel's Service Worker without EVER deleting
+ * Workbox precaches or another channel's caches (preventing offline breakage).
  */
 export async function applyLatestAppUpdate(onProgress?: (step: string) => void): Promise<void> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return;
+  }
+
   try {
     onProgress?.('service_worker');
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
       for (const reg of registrations) {
+        if (!isRegistrationForCurrentChannel(reg)) continue;
         try {
           await reg.update();
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
         } catch {}
       }
     }
 
     onProgress?.('cache_cleanup');
-    // Delete old application runtime caches to fetch fresh assets
+    // Only clear non-precache runtime caches belonging strictly to the current channel
     if ('caches' in window) {
       const cacheNames = await caches.keys();
       for (const name of cacheNames) {
-        if (!name.includes('offline-permanent-user-data')) {
-          try {
-            await caches.delete(name);
-          } catch {}
-        }
+        if (!isCurrentChannelCacheName(name)) continue;
+        // NEVER delete Workbox precache! Workbox manages precache diffing automatically.
+        if (name.includes('workbox-precache')) continue;
+        if (name.includes('offline-permanent-user-data')) continue;
+        try {
+          await caches.delete(name);
+        } catch {}
       }
     }
 
     onProgress?.('reloading');
   } catch (err) {
-    console.error('[VersionChecker] Error while refreshing caches:', err);
+    console.error('[VersionChecker] Error while updating SW cleanly:', err);
   } finally {
-    // Force reload bypassing browser cache
-    window.location.reload();
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      window.location.reload();
+    }
   }
 }

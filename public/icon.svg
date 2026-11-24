@@ -1,32 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="112" fill="#141414"/>
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#09090b" />
-      <stop offset="100%" stop-color="#18181b" />
+    <linearGradient id="solvTop" x1="120" y1="90" x2="390" y2="310" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#34D399"/>
     </linearGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#3b82f6" />
-      <stop offset="100%" stop-color="#1d4ed8" />
-    </linearGradient>
-    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#fbbf24" />
-      <stop offset="100%" stop-color="#d97706" />
+    <linearGradient id="solvBottom" x1="120" y1="210" x2="390" y2="430" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6EE7B7"/>
+      <stop offset="100%" stop-color="#2DD4BF"/>
     </linearGradient>
   </defs>
-  <!-- Background with safe rounded squircle -->
-  <rect width="512" height="512" rx="112" fill="url(#bg)" stroke="#27272a" stroke-width="8" />
-  <!-- Wallet / Vault / Finance shield icon inside safe zone -->
-  <circle cx="256" cy="256" r="160" fill="#18181b" stroke="#3b82f6" stroke-width="6" opacity="0.4" />
-  <g transform="translate(136, 136)">
-    <!-- Main Finance Emblem -->
-    <path d="M40 70 C40 50 60 30 90 30 L190 30 C210 30 220 45 220 65 L220 180 C220 200 200 215 180 215 L60 215 C40 215 40 200 40 180 Z" fill="url(#accent)" />
-    <!-- Flap -->
-    <path d="M40 70 L140 130 C150 136 160 136 170 130 L220 95" fill="none" stroke="#60a5fa" stroke-width="10" stroke-linecap="round" />
-    <!-- Golden Coin Badge -->
-    <circle cx="155" cy="150" r="38" fill="url(#gold)" stroke="#fef3c7" stroke-width="4" />
-    <text x="155" y="162" font-family="system-ui, -apple-system, sans-serif" font-size="34" font-weight="900" fill="#78350f" text-anchor="middle">£</text>
-    <!-- Uptrend Arrow -->
-    <path d="M75 145 L105 115 L125 130 L145 105" fill="none" stroke="#22c55e" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
-    <polyline points="135 105 145 105 145 115" fill="none" stroke="#22c55e" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
-  </g>
+  <path d="M356 176C356 124 311 86 254 86C190 86 144 128 144 184C144 234 180 264 246 280L274 287C304 295 316 308 316 328C316 352 292 370 256 370C214 370 192 346 188 314H128C134 380 184 426 256 426C326 426 378 380 378 322C378 268 340 238 272 220L244 212C216 205 204 192 204 174C204 150 226 134 256 134C290 134 308 152 312 176H356Z" fill="url(#solvTop)"/>
+  <path d="M144 316C144 378 192 426 258 426C326 426 378 380 378 320C378 272 344 242 280 225L254 218C228 211 214 198 214 180L154 196C154 242 190 272 254 288L282 295C310 302 320 315 320 332C320 356 296 374 258 374C216 374 194 348 190 316H144Z" fill="url(#solvBottom)" opacity="0.92"/>
 </svg>

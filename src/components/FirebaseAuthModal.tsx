@@ -3,7 +3,7 @@
  * Strictly supports Google Sign-In only
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   X,
   Cloud,
@@ -13,13 +13,8 @@ import {
   Shield,
   Loader2,
 } from 'lucide-react';
-import { User } from 'firebase/auth';
-import { useApp } from '../context/AppContext';
-import {
-  auth,
-  loginWithGoogle,
-  logoutUser,
-} from '../utils/firebase';
+import { useAppActions, useAppAuth, useAppData } from '../context/AppContext';
+import { loginWithGoogle } from '../utils/firebase';
 
 interface FirebaseAuthModalProps {
   isOpen: boolean;
@@ -27,20 +22,15 @@ interface FirebaseAuthModalProps {
 }
 
 export const FirebaseAuthModal: React.FC<FirebaseAuthModalProps> = ({ isOpen, onClose }) => {
-  const { settings, showToast } = useApp();
+  const { settings } = useAppData();
+  const { authUser } = useAppAuth();
+  const { showToast, signOutUser } = useAppActions();
   const isArabic = settings.language === 'ar';
+  const currentUser = authUser;
 
-  const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [isClosing, setIsClosing] = useState(false);
-
-  useEffect(() => {
-    const unsub = auth.onAuthStateChanged((user) => {
-      setCurrentUser(user);
-    });
-    return () => unsub();
-  }, []);
 
   const handleAnimatedClose = () => {
     setIsClosing(true);
@@ -70,8 +60,7 @@ export const FirebaseAuthModal: React.FC<FirebaseAuthModalProps> = ({ isOpen, on
   const handleSignOut = async () => {
     setIsLoading(true);
     try {
-      await logoutUser();
-      showToast(isArabic ? 'تم تسجيل الخروج بنجاح' : 'Signed out successfully', 'info');
+      await signOutUser();
       handleAnimatedClose();
     } catch (err: any) {
       setError(err?.message || 'Failed to sign out');
@@ -86,7 +75,7 @@ export const FirebaseAuthModal: React.FC<FirebaseAuthModalProps> = ({ isOpen, on
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 animate-in fade-in"
       onClick={handleAnimatedClose}
     >
       <div
@@ -99,7 +88,7 @@ export const FirebaseAuthModal: React.FC<FirebaseAuthModalProps> = ({ isOpen, on
         {/* Header */}
         <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Cloud className="w-5 h-5 text-blue-500" />
+            <Cloud className="w-5 h-5 text-emerald-400" />
             <h3 className="font-bold text-white text-base">
               {isArabic ? 'حساب السحابة' : 'Cloud Account'}
             </h3>
@@ -132,7 +121,7 @@ export const FirebaseAuthModal: React.FC<FirebaseAuthModalProps> = ({ isOpen, on
                     className="w-12 h-12 rounded-full object-cover"
                   />
                 ) : (
-                  <div className="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-lg">
+                  <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold text-lg">
                     {currentUser.displayName?.[0] || currentUser.email?.[0] || 'U'}
                   </div>
                 )}
@@ -162,7 +151,7 @@ export const FirebaseAuthModal: React.FC<FirebaseAuthModalProps> = ({ isOpen, on
             </div>
           ) : (
             <div className="space-y-4 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mx-auto">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
                 <Shield className="w-6 h-6" />
               </div>
               <div>
