@@ -9,12 +9,13 @@ interface ToastCardProps {
 
 const ToastCard: React.FC<ToastCardProps> = ({ toast, onDismiss }) => {
   useEffect(() => {
-    const duration = toast.duration ?? Math.min(8000, Math.max(3500, toast.message.length * 60));
+    if (toast.persistent) return;
+    const duration = toast.duration ?? 5000;
     const timer = setTimeout(() => {
       onDismiss(toast.id);
     }, duration);
     return () => clearTimeout(timer);
-  }, [toast.id, toast.duration, toast.message, onDismiss]);
+  }, [toast.id, toast.duration, toast.persistent, onDismiss]);
 
   return (
     <div
@@ -58,7 +59,7 @@ const ToastCard: React.FC<ToastCardProps> = ({ toast, onDismiss }) => {
             e.stopPropagation();
             onDismiss(toast.id);
           }}
-          className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition cursor-pointer"
+          className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition cursor-pointer"
           aria-label="Dismiss notification"
         >
           <X className="w-3.5 h-3.5" />

@@ -1929,3 +1929,24 @@ export function evaluateSmartBudget(
     projectedDailyAllowanceAfterSpend,
   };
 }
+
+export type SmartBudgetBadgeStatus = 'deficit' | 'heads_up' | 'active' | 'paused';
+
+export function getSmartBudgetBadgeStatus(
+  evaluation: Pick<SmartBudgetEvaluation, 'isPaused' | 'dailyStatus' | 'rebalanceScenarios'>
+): SmartBudgetBadgeStatus {
+  if (evaluation.isPaused) return 'paused';
+  if (
+    evaluation.dailyStatus.allowanceState === 'true_deficit' ||
+    evaluation.rebalanceScenarios.hasDeficit
+  ) {
+    return 'deficit';
+  }
+  if (
+    evaluation.dailyStatus.allowanceState === 'heads_up' ||
+    evaluation.dailyStatus.overBudgetBy > 0
+  ) {
+    return 'heads_up';
+  }
+  return 'active';
+}

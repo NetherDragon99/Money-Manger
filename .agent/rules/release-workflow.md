@@ -44,10 +44,10 @@ Apply these rules on **EVERY** task in this repository without exception:
    - Whenever the user tests on the live GitHub Pages URL or installed PWA, explicitly note whether the latest commit has been pushed yet so there is zero confusion between local commits and live deployment.
    - Whenever a push **IS** explicitly requested and executed (on `beta` or `main`):
      1. Check that `origin/main` is on the expected official Stable release commit (never lagging behind on an ancient version).
-     2. Wait for and verify the `Deploy to GitHub Pages` workflow run via the GitHub Actions API (`https://api.github.com/repos/NetherDragon99/Money-Manger/actions/runs?per_page=3`) — NEVER assume a push succeeded just because `git push` exited 0 (GitHub Pages can fail transiently with `"No artifacts named github-pages"`).
+     2. Wait for and verify the `Deploy to GitHub Pages` workflow run via the GitHub Actions API (`https://api.github.com/repos/NetherDragon99/solv/actions/runs?per_page=3`) — NEVER assume a push succeeded just because `git push` exited 0 (GitHub Pages can fail transiently with `"No artifacts named github-pages"`).
      3. After the workflow reports `completed/success`, fetch and verify BOTH live endpoints:
-        - `https://netherdragon99.github.io/Money-Manger/version.json` (must match official Stable version)
-        - `https://netherdragon99.github.io/Money-Manger/beta/version.json` (must match latest Beta version & `buildId`)
+        - `https://netherdragon99.github.io/solv/version.json` (must match official Stable version)
+        - `https://netherdragon99.github.io/solv/beta/version.json` (must match latest Beta version & `buildId`)
      4. Only report deployment success after both live endpoints confirm the exact expected versions.
 
 7. **Strict `solv` App Name — Never Append "Beta" to the App Name**:

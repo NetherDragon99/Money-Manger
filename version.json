@@ -1,6 +1,6 @@
 {
-  "version": "2.0.4",
+  "version": "2.2.0",
   "channel": "beta",
   "isBeta": true,
-  "stableVersion": "2.0.0"
+  "stableVersion": "2.2.0"
 }

@@ -2038,9 +2038,10 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   />
                 </div>
 
-                {/* Calm Absorption Message */}
+                {/* Calm Absorption Message (Over Today) */}
                 {evaluation.dailyStatus.overBudgetBy > 0 &&
-                  evaluation.dailyStatus.allowanceState !== 'true_deficit' && (
+                  evaluation.dailyStatus.allowanceState !== 'true_deficit' &&
+                  !evaluation.rebalanceScenarios.hasDeficit && (
                     <div
                       dir={isMsgArabic ? 'rtl' : 'ltr'}
                       className="mt-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 leading-relaxed flex items-start gap-2"
@@ -2054,8 +2055,26 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                     </div>
                   )}
 
+                {/* Heads-up Threshold Notice (Upcoming Daily Dipped Below Threshold) */}
+                {evaluation.dailyStatus.allowanceState === 'heads_up' &&
+                  evaluation.dailyStatus.overBudgetBy <= 0 &&
+                  !evaluation.rebalanceScenarios.hasDeficit && (
+                    <div
+                      dir={isMsgArabic ? 'rtl' : 'ltr'}
+                      className="mt-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 leading-relaxed flex items-start gap-2"
+                    >
+                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <span className="whitespace-normal break-words">
+                        {isMsgArabic
+                          ? `سبب تنبيه (انتباه): يوميتك للأيام الجاية (${formatCurrency(evaluation.dailyStatus.upcomingDailyAllowance, currency)}) نزلت تحت ${headsUpThresholdPercent}% من اليومية المخططة (${formatCurrency(evaluation.dailyStatus.plannedDailyAllowance, currency)}) — خفّف الصرف شوية أو عدّل نسبة التنبيه تحت.`
+                          : `Why Heads-up is active: Your upcoming daily allowance (${formatCurrency(evaluation.dailyStatus.upcomingDailyAllowance, currency)}) dipped below ${headsUpThresholdPercent}% of your planned daily pace (${formatCurrency(evaluation.dailyStatus.plannedDailyAllowance, currency)}) — ease spending slightly or adjust the threshold below.`}
+                      </span>
+                    </div>
+                  )}
+
                 {/* True Deficit Message */}
-                {evaluation.dailyStatus.allowanceState === 'true_deficit' && (
+                {(evaluation.dailyStatus.allowanceState === 'true_deficit' ||
+                  evaluation.rebalanceScenarios.hasDeficit) && (
                   <div
                     dir={isMsgArabic ? 'rtl' : 'ltr'}
                     className="mt-2.5 p-3 rounded-2xl bg-red-500/15 border border-red-500/30 text-xs text-red-200 leading-relaxed flex items-start gap-2"
@@ -2067,6 +2086,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                         {formatCurrency(
                           Math.max(
                             evaluation.dailyStatus.overBudgetBy,
+                            evaluation.rebalanceScenarios.deficit,
                             Math.abs(Math.min(0, evaluation.pools.daily.remaining))
                           ),
                           currency

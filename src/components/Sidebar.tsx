@@ -26,6 +26,7 @@ import { CURRENT_APP_VERSION, formatFullVersionWithBuild } from '../utils/versio
 import { auth, loginWithGoogle } from '../utils/firebase';
 import { signOut } from 'firebase/auth';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { getSmartBudgetBadgeStatus } from '../utils/smartBudgetEngine';
 
 export const Sidebar: React.FC = () => {
   const { settings, recurringTransactions, smartBudgetEvaluation, t } = useAppData();
@@ -53,11 +54,8 @@ export const Sidebar: React.FC = () => {
 
   const isArabic = settings.language === 'ar';
 
-  const hasSmartBudgetAlert = useMemo(
-    () =>
-      !smartBudgetEvaluation.isPaused &&
-      (smartBudgetEvaluation.dailyStatus.allowanceState === 'true_deficit' ||
-        smartBudgetEvaluation.anomalies.some((a) => a.severity === 'critical')),
+  const smartBudgetBadgeStatus = useMemo(
+    () => getSmartBudgetBadgeStatus(smartBudgetEvaluation),
     [smartBudgetEvaluation]
   );
 
@@ -461,10 +459,20 @@ export const Sidebar: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
-                {hasSmartBudgetAlert ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/50 text-amber-200 shadow-sm animate-pulse">
+                {smartBudgetBadgeStatus === 'deficit' ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/20 border border-red-400/50 text-red-200 shadow-sm animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                    <span>{isArabic ? 'تنبيه عجز' : 'Alert'}</span>
+                  </span>
+                ) : smartBudgetBadgeStatus === 'heads_up' ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/50 text-amber-200 shadow-sm">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    <span>{isArabic ? 'تنبيه' : 'Alert'}</span>
+                    <span>{isArabic ? 'انتباه' : 'Heads-up'}</span>
+                  </span>
+                ) : smartBudgetBadgeStatus === 'paused' ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-800/80 border border-zinc-700 text-zinc-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+                    <span>{isArabic ? 'متوقف' : 'Paused'}</span>
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300">

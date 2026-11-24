@@ -133,7 +133,7 @@ export function downloadOfflineAppBundle(currentData: AppData, lang: 'en' | 'ar'
       }
 
       function openLiveApp() {
-        window.location.href = 'https://netherdragon99.github.io/Money-Manger/';
+        window.location.href = 'https://netherdragon99.github.io/solv/';
       }
 
       function restoreBackup() {

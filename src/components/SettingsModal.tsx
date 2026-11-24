@@ -40,6 +40,7 @@ import {
   Sun,
   Monitor,
   MessageSquare,
+  Bell,
   Shield,
   KeyRound,
   Clock,
@@ -58,6 +59,11 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { WeekStartDay, ThemeMode, MessageLanguageMode } from '../types';
+import {
+  DEFAULT_TOAST_DURATION_SECONDS,
+  MIN_TOAST_DURATION_SECONDS,
+  MAX_TOAST_DURATION_SECONDS,
+} from '../utils/constants';
 import { WORLD_CURRENCIES, CurrencyOption } from '../utils/currencies';
 import {
   loadSecuritySettings,
@@ -681,6 +687,167 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               </div>
             </div>
           </div>
+
+          {/* Section 3b: In-App Notification (Toast) Duration & Manual Dismiss */}
+          {(() => {
+            const toastSec = Math.min(
+              MAX_TOAST_DURATION_SECONDS,
+              Math.max(
+                MIN_TOAST_DURATION_SECONDS,
+                Math.round(settings.toastDurationSeconds ?? DEFAULT_TOAST_DURATION_SECONDS)
+              )
+            );
+            const manualOnly = Boolean(settings.toastManualDismissOnly);
+            const sliderPercent =
+              ((toastSec - MIN_TOAST_DURATION_SECONDS) /
+                (MAX_TOAST_DURATION_SECONDS - MIN_TOAST_DURATION_SECONDS)) *
+              100;
+            const presets = [3, 5, 8, 12];
+            return (
+              <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3.5">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                    <Bell className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{isArabic ? 'مدة الإشعارات داخل التطبيق' : 'In-App Notification Duration'}</span>
+                  </h4>
+                  <span className="text-xs font-mono tabular-nums font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    {manualOnly
+                      ? isArabic
+                        ? 'يدوي'
+                        : 'Manual'
+                      : `${toastSec}${isArabic ? 'ث' : 's'}`}
+                  </span>
+                </div>
+
+                {/* Preset Quick Pills */}
+                <div
+                  className={`space-y-3 transition-opacity ${
+                    manualOnly ? 'opacity-45 pointer-events-none' : ''
+                  }`}
+                >
+                  <div className="grid grid-cols-4 gap-1.5 p-1 rounded-xl bg-zinc-950 border border-zinc-800">
+                    {presets.map((sec) => {
+                      const isActive = toastSec === sec;
+                      return (
+                        <button
+                          key={sec}
+                          type="button"
+                          disabled={manualOnly}
+                          onClick={() => updateSettings({ toastDurationSeconds: sec })}
+                          className={`min-h-[44px] py-1.5 text-xs font-semibold font-mono tabular-nums rounded-lg transition active:scale-[0.97] cursor-pointer ${
+                            isActive
+                              ? 'bg-emerald-600 text-white shadow-md'
+                              : 'text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          {sec}
+                          {isArabic ? 'ث' : 's'}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Custom Styled Track Slider (3s - 15s) */}
+                  <div className="space-y-1.5 px-1">
+                    <div className="relative h-8 flex items-center select-none">
+                      <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500 rounded-full"
+                          style={{ width: `${sliderPercent}%` }}
+                        />
+                      </div>
+                      <div
+                        className="pointer-events-none absolute top-1/2 w-5 h-5 rounded-full bg-white border-2 border-emerald-500 shadow-md"
+                        style={{
+                          insetInlineStart: `${sliderPercent}%`,
+                          transform: isArabic ? 'translate(50%, -50%)' : 'translate(-50%, -50%)',
+                        }}
+                      />
+                      <input
+                        type="range"
+                        aria-label={isArabic ? 'مدة الإشعارات بالثواني' : 'Notification duration in seconds'}
+                        min={MIN_TOAST_DURATION_SECONDS}
+                        max={MAX_TOAST_DURATION_SECONDS}
+                        step={1}
+                        disabled={manualOnly}
+                        value={toastSec}
+                        onChange={(e) =>
+                          updateSettings({ toastDurationSeconds: parseInt(e.target.value, 10) })
+                        }
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] font-mono tabular-nums text-zinc-500">
+                      <span>{MIN_TOAST_DURATION_SECONDS}{isArabic ? 'ث' : 's'}</span>
+                      <span>{isArabic ? 'الافتراضي 5ث' : 'Default 5s'}</span>
+                      <span>{MAX_TOAST_DURATION_SECONDS}{isArabic ? 'ث' : 's'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Manual Dismiss Only Toggle */}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={manualOnly}
+                  onClick={() => updateSettings({ toastManualDismissOnly: !manualOnly })}
+                  className="w-full min-h-[48px] px-3 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-zinc-700 flex items-center justify-between gap-3 text-start transition cursor-pointer"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-white">
+                      {isArabic ? 'إغلاق يدوي فقط' : 'Require Manual Close'}
+                    </div>
+                    <div className="text-[11px] text-zinc-400 mt-0.5 leading-snug">
+                      {isArabic
+                        ? 'الإشعارات تفضل ظاهرة لحد ما تقفلها بنفسك من علامة (×).'
+                        : 'Keep notifications on screen until you tap the close button.'}
+                    </div>
+                  </div>
+                  <div
+                    className={`w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 ${
+                      manualOnly ? 'bg-emerald-600' : 'bg-zinc-700'
+                    }`}
+                  >
+                    <div
+                      className={`w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                        manualOnly
+                          ? isArabic
+                            ? '-translate-x-5'
+                            : 'translate-x-5'
+                          : 'translate-x-0'
+                      }`}
+                    />
+                  </div>
+                </button>
+
+                <div className="flex items-center justify-between gap-2 pt-0.5">
+                  <p className="text-[11px] text-zinc-500 leading-relaxed">
+                    {isArabic
+                      ? 'الإشعارات المهمة (اللي فيها زر تراجع أو إعادة توازن) مدتها لا تقل عن 7 ثواني تلقائياً.'
+                      : 'Important actionable alerts (Undo, Rebalance) always stay at least 7s.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      showToast(
+                        manualOnly
+                          ? isArabic
+                            ? 'إشعار تجريبي — هيفضل ظاهر لحد ما تقفله بنفسك من ×'
+                            : 'Test notification — stays open until you dismiss it'
+                          : isArabic
+                          ? `إشعار تجريبي — هيختفي تلقائياً بعد ${toastSec} ثواني`
+                          : `Test notification — auto-dismisses in ${toastSec}s`,
+                        'info'
+                      )
+                    }
+                    className="min-h-[38px] px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] font-bold shrink-0 transition active:scale-[0.97] cursor-pointer"
+                  >
+                    {isArabic ? 'تجربة' : 'Test'}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Section 4: Transfer Fees & Taxes Shortcut */}
           <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 flex items-center justify-between gap-3">

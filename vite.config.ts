@@ -13,7 +13,7 @@ export default defineConfig(({ command, mode }) => {
 
   // Base URL configuration:
   // Stable keeps the exact existing base: isDev ? '/' : './'
-  // When process.env.BASE_URL is provided (e.g. on GitHub Pages /Money-Manger/), normalize and append beta/ for beta
+  // When process.env.BASE_URL is provided (e.g. on GitHub Pages /solv/), normalize and append beta/ for beta
   const rawBase = process.env.BASE_URL || (isDev ? '/' : './');
   const existingBase = rawBase.endsWith('/') ? rawBase : `${rawBase}/`;
   const betaBase = existingBase === './' ? './' : `${existingBase}beta/`;

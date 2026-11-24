@@ -88,7 +88,7 @@ import { ensureBankFeesCategory, buildLinkedTransferFeeTransaction, roundHalfUpT
 import { syncAllAccountBalances, getHistoricalBalance } from '../utils/balanceEngine';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, DEFAULT_ADVANCED_FILTER } from '../utils/dateCycle';
 import { translations } from '../utils/translations';
-import { DEFAULT_SETTINGS } from '../utils/constants';
+import { DEFAULT_SETTINGS, resolveToastDismissMs } from '../utils/constants';
 import { CURRENT_APP_VERSION } from '../utils/versionChecker';
 import { ConfirmDialogOptions, PromptDialogOptions } from '../components/CustomDialogModal';
 import { getOrCreateNumericId, syncNumericIdToFirebase, resolvePermanent16DigitId, cleanNumericId, clearUserIdentityState } from '../utils/userId';
@@ -193,6 +193,7 @@ export interface ToastItem {
     onClick: () => void;
   };
   duration?: number;
+  persistent?: boolean;
 }
 
 interface AppContextType {
@@ -1434,8 +1435,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       recentToastCooldownRef.current = new Map(entries);
     }
 
-    // Scale auto-dismiss duration with message length (Math.min(8000, Math.max(3500, message.length * 60)))
-    const autoDismissDuration = duration ?? Math.min(8000, Math.max(3500, cleanMsg.length * 60));
+    // Resolve auto-dismiss duration from user settings (default 5s, >=7s for actionable toasts, or null for manual dismiss)
+    const autoDismissDuration = resolveToastDismissMs(settingsRef.current, {
+      hasAction: Boolean(action),
+      explicitDuration: duration,
+    });
+    const isPersistent = autoDismissDuration === null;
 
     const id = `${now}_${Math.random().toString(36).substring(2, 7)}`;
     setToasts((prev) => {
@@ -1445,12 +1450,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       // 3. Keep at most the latest 2 active toasts + new one (max 3)
       const trimmed = prev.slice(-2);
-      return [...trimmed, { id, message: cleanMsg, type, action, duration: autoDismissDuration }];
+      return [
+        ...trimmed,
+        {
+          id,
+          message: cleanMsg,
+          type,
+          action,
+          duration: autoDismissDuration ?? undefined,
+          persistent: isPersistent,
+        },
+      ];
     });
-
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, autoDismissDuration);
   }, []);
 
   const dismissToast = useCallback((id: string) => {

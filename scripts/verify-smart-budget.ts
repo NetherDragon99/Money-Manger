@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   evaluateSmartBudget,
   getTransactionBudgetPool,
+  getSmartBudgetBadgeStatus,
   SmartBudgetConfig,
 } from '../src/utils/smartBudgetEngine';
 import {
@@ -26,7 +27,7 @@ import {
   APP_RELEASE_NOTES,
   getReleaseNotesForChannel,
 } from '../src/utils/appFeatures';
-import { resolveMessageLanguage } from '../src/utils/constants';
+import { resolveMessageLanguage, resolveToastDismissMs } from '../src/utils/constants';
 import type { Account, Category, Transaction } from '../src/types';
 
 let passed = 0;
@@ -690,30 +691,37 @@ test('8. resolveDateRange & applyAdvancedTransactionFilter cover all durations, 
 // ============================================================================
 // 9. Channel Release Notes Isolation & Plain-Language Jargon Guard
 // ============================================================================
-test('9. Beta release notes (2.0.1, 2.0.3 & 2.0.4) stay hidden on Stable, visible on Beta, and pass jargon rules', () => {
+test('9. Official release 2.2.0 is visible on Stable, rolled-up betas stay hidden on Stable, and all pass jargon rules', () => {
   const stableNotes = getReleaseNotesForChannel(APP_RELEASE_NOTES, false);
   const betaNotes = getReleaseNotesForChannel(APP_RELEASE_NOTES, true);
 
-  for (const ver of ['2.0.1', '2.0.3', '2.0.4']) {
-    assert.equal(stableNotes.some((n) => n.version === ver), false, `Stable hides ${ver} beta note`);
+  const official220 = stableNotes.find((n) => n.version === '2.2.0');
+  assert.ok(official220, 'Stable includes official 2.2.0 release note');
+  assert.equal(official220.isBeta, false, '2.2.0 marked isBeta: false');
+
+  for (const ver of ['2.0.1', '2.0.2', '2.0.3', '2.0.4', '2.0.5']) {
+    assert.equal(stableNotes.some((n) => n.version === ver), false, `Stable hides rolled-up ${ver} beta note`);
     const note = betaNotes.find((n) => n.version === ver);
     assert.ok(note, `Beta includes ${ver} note`);
     assert.equal(note.isBeta, true, `${ver} marked isBeta: true`);
+  }
 
-    const JARGON_WORDS = [
-      'api', 'firebase', 'rtdb', 'tdz', 'hook', 'hooks', 'refactor', 'refactored', 'refactoring',
-      'bundle', 'bundled', 'cache', 'cached', 'service worker', 'commit', 'commits',
-    ];
-    const JARGON_PATTERNS: Array<[RegExp, string]> = [
-      [/\b[\w./-]+\.(tsx?|jsx?|mjs|cjs|json|css|html|md|yml|yaml)\b/i, 'file extension'],
-      [/`[^`]*`/, 'inline code'],
-      [/\b[a-z]+[A-Z][A-Za-z0-9]*\b/, 'camelCase'],
-      [/\b[A-Za-z0-9]+_[A-Za-z0-9_]+\b/, 'snake_case'],
-      [/\w+\(\)/, 'function call'],
-      [/\$\{[^}]*\}/, 'template expr'],
-      [/\b[\w-]+\/[\w-]+\//, 'path'],
-    ];
+  const JARGON_WORDS = [
+    'api', 'firebase', 'rtdb', 'tdz', 'hook', 'hooks', 'refactor', 'refactored', 'refactoring',
+    'bundle', 'bundled', 'cache', 'cached', 'service worker', 'commit', 'commits',
+  ];
+  const JARGON_PATTERNS: Array<[RegExp, string]> = [
+    [/\b[\w./-]+\.(tsx?|jsx?|mjs|cjs|json|css|html|md|yml|yaml)\b/i, 'file extension'],
+    [/`[^`]*`/, 'inline code'],
+    [/\b[a-z]+[A-Z][A-Za-z0-9]*\b/, 'camelCase'],
+    [/\b[A-Za-z0-9]+_[A-Za-z0-9_]+\b/, 'snake_case'],
+    [/\w+\(\)/, 'function call'],
+    [/\$\{[^}]*\}/, 'template expr'],
+    [/\b[\w-]+\/[\w-]+\//, 'path'],
+  ];
 
+  for (const ver of ['2.2.0', '2.0.1', '2.0.3', '2.0.4', '2.0.5']) {
+    const note = betaNotes.find((n) => n.version === ver)!;
     const textsToCheck = [
       note.title.en,
       note.title.ar,
@@ -901,6 +909,81 @@ test('11. Advisor message language resolves independently and produces friendly 
   assert.equal(/[\u0600-\u06FF]/.test(enSim.recommendation), false, 'en What-If recommendation contains no Arabic');
   assert.equal(arSim.poolComparison.length, 3, 'ar_eg What-If includes 3-way pool comparison');
   assert.equal(enSim.poolComparison.length, 3, 'en What-If includes 3-way pool comparison');
+});
+
+// ============================================================================
+// 12. Smart Budget Sidebar Badge Parity & Toast Duration / Manual Close Rules
+// ============================================================================
+test('12. Sidebar badge matches real deficit/heads-up states (zero phantom anomaly alert) and toast duration honors 5s default, 7s important floor & manual close', () => {
+  const baseEval = {
+    isPaused: false,
+    dailyStatus: { allowanceState: 'normal' as const, overBudgetBy: 0 } as any,
+    rebalanceScenarios: { hasDeficit: false } as any,
+  };
+  assert.equal(getSmartBudgetBadgeStatus(baseEval), 'active', 'Normal budget shows active (no phantom Alert)');
+
+  assert.equal(
+    getSmartBudgetBadgeStatus({
+      ...baseEval,
+      dailyStatus: { allowanceState: 'heads_up', overBudgetBy: 0 } as any,
+    }),
+    'heads_up',
+    'Heads-up state shows yellow heads_up badge'
+  );
+
+  assert.equal(
+    getSmartBudgetBadgeStatus({
+      ...baseEval,
+      dailyStatus: { allowanceState: 'normal', overBudgetBy: 25 } as any,
+    }),
+    'heads_up',
+    'Over-today without true deficit shows yellow heads_up badge'
+  );
+
+  assert.equal(
+    getSmartBudgetBadgeStatus({
+      ...baseEval,
+      dailyStatus: { allowanceState: 'true_deficit', overBudgetBy: 100 } as any,
+    }),
+    'deficit',
+    'True deficit shows red deficit badge'
+  );
+
+  assert.equal(
+    getSmartBudgetBadgeStatus({
+      ...baseEval,
+      rebalanceScenarios: { hasDeficit: true } as any,
+    }),
+    'deficit',
+    'Rebalance deficit shows red deficit badge'
+  );
+
+  assert.equal(
+    getSmartBudgetBadgeStatus({ ...baseEval, isPaused: true }),
+    'paused',
+    'Paused budget shows paused badge'
+  );
+
+  // Toast duration logic
+  assert.equal(resolveToastDismissMs(undefined), 5000, 'Default toast duration is 5s (5000ms)');
+  assert.equal(resolveToastDismissMs({ toastDurationSeconds: 3 }), 3000, 'Custom 3s applies to normal toast');
+  assert.equal(
+    resolveToastDismissMs({ toastDurationSeconds: 3 }, { hasAction: true }),
+    7000,
+    'Important actionable toast enforces 7s minimum floor even when user picked 3s'
+  );
+  assert.equal(
+    resolveToastDismissMs({ toastDurationSeconds: 12 }, { hasAction: true }),
+    12000,
+    'Longer user setting (12s) overrides 7s floor cleanly'
+  );
+  assert.equal(resolveToastDismissMs({ toastDurationSeconds: 1 }), 3000, 'Clamps minimum to 3s');
+  assert.equal(resolveToastDismissMs({ toastDurationSeconds: 99 }), 15000, 'Clamps maximum to 15s');
+  assert.equal(
+    resolveToastDismissMs({ toastDurationSeconds: 5, toastManualDismissOnly: true }, { hasAction: true }),
+    null,
+    'Manual close toggle returns null (persistent until user dismisses)'
+  );
 });
 
 console.log(`\n[solv] ALL ${passed} VERIFICATION SUITES PASSED ✓\n`);

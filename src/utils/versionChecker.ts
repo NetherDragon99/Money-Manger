@@ -24,7 +24,7 @@ export const BUILD_ID: string =
     ? String((import.meta.env as any).VITE_BUILD_ID).trim()
     : '';
 
-const BACKUP_VERSION_ENDPOINT = 'NetherDragon99/Money-Manger';
+const BACKUP_VERSION_ENDPOINT = 'NetherDragon99/solv';
 const AUTO_UPDATE_STORAGE_KEY = 'mm_auto_update_enabled';
 
 export function formatVersionLabel(
@@ -151,6 +151,8 @@ export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
     const baseUrl =
       typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL
         ? import.meta.env.BASE_URL
+        : typeof window !== 'undefined' && window.location.pathname.startsWith('/solv')
+        ? '/solv/'
         : typeof window !== 'undefined' && window.location.pathname.startsWith('/Money-Manger')
         ? '/Money-Manger/'
         : './';

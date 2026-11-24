@@ -323,6 +323,8 @@ export interface AppSettings {
   resetStartDate?: string; // ISO date/time if reset period counter was triggered
   budgetAlertsEnabled?: boolean;
   budgetAlertThreshold?: number; // default 80
+  toastDurationSeconds?: number; // 3 to 15 seconds (default: 5)
+  toastManualDismissOnly?: boolean; // when true, toasts stay until manually dismissed
   security?: SecuritySettings;
   joinBeta?: boolean;
   smartBudget?: SmartBudgetSettings;
