@@ -198,7 +198,7 @@ const InsightsViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
   const currencySymbol = settings.currencySymbol || '£';
 
   return (
-    <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
+    <div className="bg-black text-white flex flex-col pb-24 app-main-offset animate-in fade-in">
       {/* 1. Standardized Top Header Across All Views */}
       <header className="app-auto-header fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/95 border-b border-zinc-800/80 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -356,7 +356,7 @@ const InsightsViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-6 pt-2">
                   <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
                     <svg width="170" height="170" viewBox="0 0 160 160" className="transform -rotate-90">
-                      <circle cx="80" cy="80" r="64" fill="none" stroke="#18181b" strokeWidth="24" />
+                      <circle cx="80" cy="80" r="64" fill="none" stroke="var(--bg-tertiary)" strokeWidth="24" />
                       {expenseDonutPaths.map((slice) => (
                         <circle
                           key={slice.id}
@@ -480,7 +480,7 @@ const InsightsViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-6 pt-2">
                   <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
                     <svg width="170" height="170" viewBox="0 0 160 160" className="transform -rotate-90">
-                      <circle cx="80" cy="80" r="64" fill="none" stroke="#18181b" strokeWidth="24" />
+                      <circle cx="80" cy="80" r="64" fill="none" stroke="var(--bg-tertiary)" strokeWidth="24" />
                       {incomeDonutPaths.map((slice) => (
                         <circle
                           key={slice.id}

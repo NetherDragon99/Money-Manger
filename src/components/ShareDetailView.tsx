@@ -1649,7 +1649,7 @@ export const ShareDetailView: React.FC<ShareDetailViewProps> = ({ folder: initia
     >
       <div className="w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto min-h-screen flex flex-col bg-black pb-20">
         {/* Top Header Bar: Responsive 2-Row Layout with Min 44px Touch Targets */}
-        <header className="sticky top-0 z-20 px-3 sm:px-4 py-2.5 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex flex-col gap-2 shrink-0">
+        <header className="app-header-sticky-safe sticky top-0 z-20 px-3 sm:px-4 py-2.5 bg-black/90 backdrop-blur-md border-b border-zinc-800/80 flex flex-col gap-2 shrink-0">
           {/* Row 1: Back + Title + Action Buttons */}
           <div className="flex items-center justify-between gap-2 w-full min-w-0">
             <div className="flex items-center gap-2 min-w-0 flex-1">

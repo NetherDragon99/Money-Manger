@@ -392,7 +392,7 @@ const AccountsViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
       </header>
 
       {/* Scrollable View Content Container */}
-      <div className="pt-20 landscape:pt-16 px-3.5 space-y-4 landscape:space-y-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto">
+      <div className="app-main-offset-lg px-3.5 space-y-4 landscape:space-y-3 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto">
         {/* Global Net Worth Dashboard Card */}
         <div className="p-4 sm:p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 shadow-xl space-y-4">
           <div className="md:grid md:grid-cols-3 md:items-center md:gap-6 landscape:grid landscape:grid-cols-3 landscape:items-center landscape:gap-4">

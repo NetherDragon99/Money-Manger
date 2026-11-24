@@ -65,6 +65,7 @@ export interface TransactionImpactMetrics {
   projectedRunwayDays: number;
   projectedZeroDate: string | null;
   projectedCycleEndBalance: number;
+  simpleOutlookLabel: string;
   savingsProgressBefore: number;
   savingsProgressAfter: number;
   dailyRecoveryNeeded: number;
@@ -179,10 +180,10 @@ function getPoolDisplayName(pool: string, isAr: boolean): string {
   if (pool === 'daily') return isAr ? 'المصروف اليومي' : 'Daily Spending';
   if (pool === 'outings') return isAr ? 'الخروجات' : 'Outings';
   if (pool === 'fixed') return isAr ? 'الفواتير والالتزامات' : 'Bills & Fixed';
-  if (pool === 'oneoff') return isAr ? 'المصاريف الاستثنائية (One-Off)' : 'One-Off';
+  if (pool === 'oneoff') return isAr ? 'المصاريف الاستثنائية' : 'One-Off';
   if (pool === 'savings') return isAr ? 'التحويش' : 'Savings';
   if (pool === 'income') return isAr ? 'إجمالي الميزانية' : 'Total Budget';
-  return isAr ? 'تحويل' : 'Transfer';
+  return isAr ? 'تحويل بين الحسابات' : 'Transfer';
 }
 
 export function analyzeTransactionImpact(
@@ -191,10 +192,10 @@ export function analyzeTransactionImpact(
   allTransactions: Transaction[],
   accounts: Account[],
   config: SmartBudgetConfig,
-  lang: 'en' | 'ar' = 'ar',
+  lang: 'en' | 'ar' | 'ar_eg' = 'ar_eg',
   asOf: Date = new Date()
 ): TransactionImpactReport | null {
-  const isAr = lang === 'ar';
+  const isAr = lang === 'ar' || lang === 'ar_eg';
   const curr = config.baseCurrency || 'EGP';
   const baseAmount = Math.max(0, Number(draft.amount) || 0);
   const tax = draft.type === 'expense' || draft.type === 'income' ? Math.max(0, Number(draft.taxAmount) || 0) : 0;
@@ -339,19 +340,22 @@ export function analyzeTransactionImpact(
   let poolAfter = evalAfter.pools.daily.remaining;
   let spilloverAmount = 0;
 
+  let simpleOutlookLabel = '';
+
   if (isOutOfCycle) {
     severity = 'safe';
     headline = isAr
-      ? `هذه المعاملة (${draft.date}) خارج دورة الميزانية الحالية`
-      : `Transaction date (${draft.date}) is outside the active budget cycle`;
+      ? `التاريخ ده (${draft.date}) برة دورة الشهر ده خالص`
+      : `This date (${draft.date}) falls outside your current budget cycle`;
     detailedMessages.push(
       isAr
-        ? `الدورة الحالية من ${evalBefore.cycle.startDate} إلى ${evalBefore.cycle.endDate} — لن تؤثر على مسموح هذه الدورة.`
-        : `Active cycle is ${evalBefore.cycle.startDate} to ${evalBefore.cycle.endDate} — current cycle limits remain unchanged.`
+        ? `دورتك الحالية من ${evalBefore.cycle.startDate} لـ ${evalBefore.cycle.endDate} — يعني المبلغ ده مش هيلعب في مصروفك اليومي دلوقتي.`
+        : `Your active cycle runs ${evalBefore.cycle.startDate} to ${evalBefore.cycle.endDate}, so today's daily allowance stays unchanged.`
     );
     recommendation = isAr
-      ? 'سيتم حسابها تلقائياً عند الانتقال لدورتها الزمنية.'
-      : 'It will automatically be included when viewing that cycle.';
+      ? 'هيتحسب تلقائي أول ما توصل للدورة بتاعته — كله تمام!'
+      : 'It will automatically count when viewing that cycle.';
+    simpleOutlookLabel = isAr ? 'خارج الدورة الحالية' : 'Outside this cycle';
   } else if (draft.type === 'income') {
     poolKey = 'income';
     poolLabel = getPoolDisplayName('income', isAr);
@@ -361,35 +365,44 @@ export function analyzeTransactionImpact(
     if (fromAcc?.isPrivate) {
       severity = 'safe';
       headline = isAr
-        ? `دخل لحساب خاص (${fromAcc.name}) — لا يغيّر خطة المصروف العام`
-        : `Income to Private account (${fromAcc.name}) — budget stays isolated`;
+        ? `فلوس داخلة حساب خاص (${fromAcc.name}) — مصروفك اليومي زي ما هو`
+        : `Added to Private account (${fromAcc.name}) — public budget untouched`;
       detailedMessages.push(
         isAr
-          ? 'الحسابات الخاصة معزولة عن الصرف اليومي والخطة العامة، ويمكنك تحويل جزء منها للحساب العام متى أردت.'
-          : 'Private accounts are excluded from public budget pools until transferred to a public account.'
+          ? 'الحسابات الخاصة متشالة على جنب ومش بتأثر على مصروفك اليومي ولا خطة الشهر.'
+          : 'Private accounts stay separate from your everyday spending plan until transferred.'
       );
       recommendation = isAr
-        ? 'لو حابب تزود مصروفك اليومي من هذا المبلغ، انقله إلى أحد الحسابات العامة.'
+        ? 'لو حابب تزود مصروف اليوم من المبلغ ده، اعمل تحويل بسيط لحساب عام وقت ما تحب.'
         : 'Transfer any portion to a public account whenever you want to boost daily spending.';
+      simpleOutlookLabel = isAr ? 'متشال على جنب (حساب خاص)' : 'Parked safely (Private)';
     } else {
       severity = 'positive';
       const boostPerDay = Math.max(0, dailyDelta);
       headline = isAr
-        ? `دفعة إيجابية! مصروفك اليومي هيرتفع بـ +${fmtShort(boostPerDay, curr)} (${dailyDeltaPercent > 0 ? `+${dailyDeltaPercent}%` : 'مباشر'})`
-        : `Positive boost! Daily allowance rises by +${fmtShort(boostPerDay, curr)}/day`;
+        ? `يا مسهل! يوميتك هتزيد +${fmtShort(boostPerDay, curr)} في اليوم (${dailyDeltaPercent > 0 ? `+${dailyDeltaPercent}%` : 'مباشر'})`
+        : `Nice boost! Your daily spending jumps +${fmtShort(boostPerDay, curr)}/day`;
       detailedMessages.push(
         isAr
-          ? `إضافة ${fmt(effectiveAmount, curr)} في "${fromAcc?.name || 'حساب عام'}" بترفع إجمالي الخطة إلى ${fmt(evalAfter.pools.total.income, curr)} مع الحفاظ على أهداف التحويش والفواتير ثابتة.`
-          : `Adding ${fmt(effectiveAmount, curr)} into "${fromAcc?.name || 'public account'}" lifts your total budget to ${fmt(evalAfter.pools.total.income, curr)} while keeping Savings & Bills targets intact.`
+          ? `إضافة ${fmt(effectiveAmount, curr)} في "${fromAcc?.name || 'حسابك العام'}" رفعت إجمالي الميزانية لـ ${fmt(evalAfter.pools.total.income, curr)} من غير ما تيجي جنب التحويش أو الفواتير.`
+          : `Adding ${fmt(effectiveAmount, curr)} to "${fromAcc?.name || 'public account'}" lifts your cycle budget to ${fmt(evalAfter.pools.total.income, curr)} while keeping Savings and Bills steady.`
       );
       detailedMessages.push(
         isAr
-          ? `المسموح اليومي لباقي ${remDays} أيام: ${fmtShort(dailyBefore, curr)} ← ${fmtShort(dailyAfter, curr)} / يوم (يعادل ${equivalentDailyDays} يوم صرف إضافي).`
-          : `Daily allowance for the remaining ${remDays} days: ${fmtShort(dailyBefore, curr)} → ${fmtShort(dailyAfter, curr)}/day (+${equivalentDailyDays} days of spending).`
+          ? `يوميتك لباقي الـ ${remDays} يوم بقت ${fmtShort(dailyAfter, curr)} بدل ${fmtShort(dailyBefore, curr)} — كأنك زودت ${equivalentDailyDays} يوم صرف زيادة!`
+          : `Over the next ${remDays} days you get ${fmtShort(dailyAfter, curr)}/day instead of ${fmtShort(dailyBefore, curr)} (+${equivalentDailyDays} extra days of runway).`
       );
       recommendation = isAr
-        ? `تقدر تستفيد بجزء من الزيادة في التحويش لو حابب تقفل هدف التحويش بدري (المتبقي للهدف: ${fmtShort(evalAfter.pools.savings.remaining, curr)}).`
-        : `Consider allocating part of this inflow toward Savings (${fmtShort(evalAfter.pools.savings.remaining, curr)} remaining to target).`;
+        ? `فكرة حلوة: شيل جزء من الزيادة دي في التحويش عشان تقفل هدفك بدري (ناقصلك ${fmtShort(evalAfter.pools.savings.remaining, curr)} بس).`
+        : `Smart move: Tuck part of this inflow into Savings (${fmtShort(evalAfter.pools.savings.remaining, curr)} remaining to target).`;
+      simpleOutlookLabel =
+        projectedCycleEndBalance >= 0
+          ? isAr
+            ? `متوقع توفر +${fmtShort(projectedCycleEndBalance, curr)}`
+            : `+${fmtShort(projectedCycleEndBalance, curr)} likely left`
+          : isAr
+          ? `عجز متوقع ${fmtShort(Math.abs(projectedCycleEndBalance), curr)}`
+          : `-${fmtShort(Math.abs(projectedCycleEndBalance), curr)} likely short`;
     }
   } else if (draft.type === 'transfer') {
     poolKey = 'transfer';
@@ -406,57 +419,67 @@ export function analyzeTransactionImpact(
       const pBefore = evalBefore.pools.savings.progressPercent;
       const pAfter = evalAfter.pools.savings.progressPercent;
       headline = isAr
-        ? `ممتاز! تقدم التحويش هيرتفع من ${pBefore}% إلى ${pAfter}%`
-        : `Great! Savings progress jumps from ${pBefore}% to ${pAfter}%`;
+        ? `عاش يا بطل! تحويشك نط من ${pBefore}% لـ ${pAfter}%`
+        : `Nice discipline! Savings jumps from ${pBefore}% to ${pAfter}%`;
       detailedMessages.push(
         isAr
-          ? `تحويل ${fmt(baseAmount, curr)} للتحويش بيقربك أكتر لهدف الدورة (${fmtShort(evalAfter.pools.savings.remaining, curr)} متبقي).`
+          ? `شلت ${fmt(baseAmount, curr)} على جنب في التحويش، ولسه فاضل ${fmtShort(evalAfter.pools.savings.remaining, curr)} وتكمل هدف الشهر.`
           : `Moving ${fmt(baseAmount, curr)} to savings leaves ${fmtShort(evalAfter.pools.savings.remaining, curr)} left to reach your cycle goal.`
       );
+      simpleOutlookLabel = isAr ? `تحويشك وصل ${pAfter}%` : `Savings at ${pAfter}%`;
     } else if (fromAcc?.isPrivate !== toAcc?.isPrivate) {
       if (fromAcc?.isPrivate && !toAcc?.isPrivate) {
         severity = 'positive';
         headline = isAr
-          ? `نقل للحساب العام: +${fmtShort(Math.max(0, dailyDelta), curr)}/يوم للمصروف اليومي`
-          : `Moved to Public account: +${fmtShort(Math.max(0, dailyDelta), curr)}/day to Daily`;
+          ? `ضخّيت سيولة للحساب العام: يوميتك زادت +${fmtShort(Math.max(0, dailyDelta), curr)}/يوم`
+          : `Fresh cash in! Daily allowance grows +${fmtShort(Math.max(0, dailyDelta), curr)}/day`;
         detailedMessages.push(
           isAr
-            ? `نقل الفلوس من حساب خاص إلى حساب عام يضيفها للخطة فوراً ويرفع المسموح اليومي لـ ${fmtShort(dailyAfter, curr)}.`
+            ? `نقل الفلوس من الحساب الخاص للعام دخلهم في الخطة فوراً، ويوميتك بقت ${fmtShort(dailyAfter, curr)}.`
             : `Moving funds into a public account adds them directly to Daily Spending (${fmtShort(dailyAfter, curr)}/day).`
         );
       } else {
         severity = dailyDelta < 0 ? 'caution' : 'safe';
         headline = isAr
-          ? `نقل لحساب خاص: ينقص الصرف اليومي بـ ${fmtShort(Math.abs(dailyDelta), curr)}/يوم`
-          : `Moved to Private account: Daily allowance adjusts by -${fmtShort(Math.abs(dailyDelta), curr)}/day`;
+          ? `شلت مبلغ في حساب خاص: يوميتك هتقل ${fmtShort(Math.abs(dailyDelta), curr)}/يوم`
+          : `Tucked into Private: Daily allowance dips -${fmtShort(Math.abs(dailyDelta), curr)}/day`;
         detailedMessages.push(
           isAr
-            ? `عند نقل ${fmt(baseAmount, curr)} لحساب خاص، يتم استبعادها من رصيد الخطة العامة تلقائياً (${fmtShort(dailyBefore, curr)} ← ${fmtShort(dailyAfter, curr)}).`
-            : `Moving ${fmt(baseAmount, curr)} to a private account removes it from the public budget (${fmtShort(dailyBefore, curr)} → ${fmtShort(dailyAfter, curr)}/day).`
+            ? `طالما حولت ${fmt(baseAmount, curr)} لحساب خاص، اتشالوا من حسبة اليومي تلقائي (${fmtShort(dailyBefore, curr)} ← ${fmtShort(dailyAfter, curr)}).`
+            : `Moving ${fmt(baseAmount, curr)} to a private account sets it aside safely (${fmtShort(dailyBefore, curr)} → ${fmtShort(dailyAfter, curr)}/day).`
         );
       }
+      simpleOutlookLabel =
+        evalAfter.pools.daily.remaining <= 0
+          ? isAr
+            ? 'الميزانية مش هتستحمل'
+            : 'Runs short before payday'
+          : isAr
+          ? `متكفي لآخر الشهر (${evalAfter.cycle.endDate.slice(5)})`
+          : `Safe until ${evalAfter.cycle.endDate.slice(5)}`;
     } else {
       severity = 'safe';
       headline = isAr
-        ? 'تحويل داخلي آمن — لا يستهلك من أحواض الصرف'
-        : 'Internal transfer — zero impact on expense budget pools';
+        ? 'تحويل عادي بين حساباتك — يوميتك في التمام وماتغيرتش'
+        : 'Internal move between accounts — daily allowance stays unchanged';
       detailedMessages.push(
         isAr
-          ? 'التحويلات بين الحسابات العامة لا تُحسب كمصروف.'
-          : 'Transfers between public accounts never reduce your spending pools.'
+          ? 'التحويل بين نفس نوع الحسابات مجرد ترتيب محافظ، مش بيتحسب مصروف.'
+          : 'Shuffling money between same-type accounts never reduces your spending limits.'
       );
+      simpleOutlookLabel = isAr ? 'الوضع مستقر' : 'Steady on track';
     }
     if (fee > 0) {
       detailedMessages.push(
         isAr
-          ? `تنبيه: رسوم التحويل (${fmt(fee, curr)}) يتم خصمها كمصروف من حوض الميزانية المختار.`
-          : `Note: The ${fmt(fee, curr)} transfer fee is deducted as an expense from your selected pool.`
+          ? `خلي بالك: رسوم التحويل (${fmt(fee, curr)}) اتخصمت كمصروف من الميزانية.`
+          : `Heads-up: The ${fmt(fee, curr)} transfer fee counts as a small expense from your budget.`
       );
     }
     recommendation =
       recommendation ||
       (isAr
-        ? `مسموحك اليومي بعد العملية: ${fmtShort(dailyAfter, curr)} / يوم.`
+        ? `يوميتك بعد التحويل بقت ${fmtShort(dailyAfter, curr)} في اليوم.`
         : `Post-transfer daily allowance: ${fmtShort(dailyAfter, curr)} / day.`);
   } else {
     // EXPENSE ANALYSIS
@@ -477,40 +500,40 @@ export function analyzeTransactionImpact(
         severity = 'safe';
         headline = isAr
           ? emergencyUsed > 0
-            ? `مصروف One-Off مغطى برصيد الطوارئ وميزانية الـ One-Off`
-            : `مصروف One-Off ضمن المخصص المحدد له بدون ضغط على اليومي`
-          : `One-Off expense covered within its reserve — Daily allowance protected`;
+            ? 'أمان يا صاحبي! مبلغ الطوارئ والـ One-Off شايلينها ومصروفك اليومي سليم'
+            : 'مية مية! المصروف الاستثنائي متغطي من مخصصه ومن غير ضغط على يوميتك'
+          : 'All good! Covered within its One-Off reserve — Daily allowance protected';
       } else if (fundingSrc === 'savings') {
         severity = evalAfter.pools.daily.remaining < 0 ? 'danger' : 'warning';
         headline = isAr
-          ? `مصروف One-Off سيخصم ${fmtShort(uncoveredDelta, curr)} من وسادة التحويش`
-          : `One-Off expense draws ${fmtShort(uncoveredDelta, curr)} from Savings cushion`;
+          ? `المصروف الاستثنائي ده هياكل ${fmtShort(uncoveredDelta, curr)} من وسادة التحويش`
+          : `One-Off expense dips ${fmtShort(uncoveredDelta, curr)} into your Savings cushion`;
       } else if (fundingSrc === 'outings') {
         severity = dailyDelta < 0 ? 'warning' : 'caution';
         headline = isAr
           ? dailyDelta < 0
-            ? `تجاوز One-Off والخروجات وهيقلل اليومي لـ ${fmtShort(dailyAfter, curr)}/يوم`
-            : `مصروف One-Off هيتم استيعابه من فائض الخروجات`
+            ? `تخطى مخصص الطوارئ والخروجات وهينزل يوميتك لـ ${fmtShort(dailyAfter, curr)}/يوم`
+            : 'تمام! المصروف الاستثنائي اتشال بهدوء من فائض الخروجات'
           : dailyDelta < 0
-          ? `One-Off exceeds Outings and trims Daily to ${fmtShort(dailyAfter, curr)}/day`
-          : `One-Off absorbed by remaining Outings balance`;
+          ? `Overflows Outings too, trimming Daily to ${fmtShort(dailyAfter, curr)}/day`
+          : 'One-Off absorbed cleanly by your remaining Outings balance';
       } else {
         severity = evalAfter.pools.daily.remaining <= 0 ? 'danger' : 'warning';
         headline = isAr
-          ? `مصروف One-Off هينزل مصروفك اليومي من ${fmtShort(dailyBefore, curr)} إلى ${fmtShort(dailyAfter, curr)}`
-          : `One-Off adjusts Daily allowance from ${fmtShort(dailyBefore, curr)} to ${fmtShort(dailyAfter, curr)}/day`;
+          ? `المصروف ده هينزل يوميتك من ${fmtShort(dailyBefore, curr)} لـ ${fmtShort(dailyAfter, curr)}/يوم`
+          : `One-Off trims Daily allowance from ${fmtShort(dailyBefore, curr)} to ${fmtShort(dailyAfter, curr)}/day`;
       }
 
       detailedMessages.push(
         isAr
-          ? `هذا المصروف (${fmtShort(effectiveAmount, curr)}) يساوي ${equivalentDailyDays} يوم من مصروفك اليومي المخطط، ومصدر التغطية الفائض مضبوط على "${srcLabel}".`
-          : `This ${fmtShort(effectiveAmount, curr)} One-Off equals ${equivalentDailyDays} planned spending days; uncovered excess routes to ${srcLabel}.`
+          ? `المبلغ ده (${fmtShort(effectiveAmount, curr)}) قد مصروف ${equivalentDailyDays} يوم كاملين من خطتك، والزيادة بتروح على "${srcLabel}".`
+          : `This ${fmtShort(effectiveAmount, curr)} spend equals ${equivalentDailyDays} planned spending days; overflow routes to ${srcLabel}.`
       );
       if (evalAfter.pools.savings.absorbedOneOff > evalBefore.pools.savings.absorbedOneOff) {
         detailedMessages.push(
           isAr
-            ? `تأثير التحويش: متبقي التحويش اتأثر وأصبح التقدم ${evalAfter.pools.savings.progressPercent}%.`
-            : `Savings impact: Savings cushion drops and goal completion adjusts to ${evalAfter.pools.savings.progressPercent}%.`
+            ? `ملاحظة تحويش: رصيد الأمان قل شوية وتقدم التحويش بقى ${evalAfter.pools.savings.progressPercent}%.`
+            : `Savings impact: Cushion drops slightly and goal progress adjusts to ${evalAfter.pools.savings.progressPercent}%.`
         );
       }
     } else if (targetPool === 'outings' || targetPool === 'fixed') {
@@ -524,22 +547,22 @@ export function analyzeTransactionImpact(
           : 100;
         severity = pctUsed >= 85 ? 'caution' : 'safe';
         headline = isAr
-          ? `داخل ميزانية ${poolLabel} (المتبقي بعدها ${fmtShort(poolAfter, curr)}) — اليومي آمن`
-          : `Within ${poolLabel} budget (${fmtShort(poolAfter, curr)} left) — Daily unaffected`;
+          ? `في الأمان جوه "${poolLabel}" (باقي فيه ${fmtShort(poolAfter, curr)}) — يوميتك مالمستش`
+          : `Fits cleanly in ${poolLabel} (${fmtShort(poolAfter, curr)} left) — Daily untouched`;
         detailedMessages.push(
           isAr
-            ? `استهلاك ${poolLabel} هيوصل لـ ${pctUsed}% من المخصص الشهري، ومصروفك اليومي يفضل ثابت عند ${fmtShort(dailyAfter, curr)} / يوم.`
-            : `${poolLabel} reaches ${pctUsed}% of its cycle budget while your Daily allowance stays steady at ${fmtShort(dailyAfter, curr)}/day.`
+            ? `كده استهلكت ${pctUsed}% من ميزانية ${poolLabel} للشهر، ومصروفك اليومي ثابت عند ${fmtShort(dailyAfter, curr)}/يوم.`
+            : `${poolLabel} moves to ${pctUsed}% used while your Daily allowance stays steady at ${fmtShort(dailyAfter, curr)}/day.`
         );
       } else {
         severity = evalAfter.pools.daily.remaining <= 0 ? 'danger' : 'warning';
         headline = isAr
-          ? `هيتجاوز ${poolLabel} بـ ${fmtShort(spilloverAmount, curr)} ويقلل اليومي إلى ${fmtShort(dailyAfter, curr)}`
-          : `Exceeds ${poolLabel} by ${fmtShort(spilloverAmount, curr)} → Daily drops to ${fmtShort(dailyAfter, curr)}/day`;
+          ? `أكبر من المتبقي في ${poolLabel} بـ ${fmtShort(spilloverAmount, curr)} وهيقلل يوميتك لـ ${fmtShort(dailyAfter, curr)}`
+          : `Spills ${fmtShort(spilloverAmount, curr)} past ${poolLabel} → Daily dips to ${fmtShort(dailyAfter, curr)}/day`;
         detailedMessages.push(
           isAr
-            ? `الفارق (${fmtShort(spilloverAmount, curr)}) هيتوزع على باقي الـ ${remDays} أيام فيخفض المسموح اليومي بنسبة ${Math.abs(dailyDeltaPercent)}%.`
-            : `The ${fmtShort(spilloverAmount, curr)} overflow spreads over ${remDays} days, lowering daily allowance by ${Math.abs(dailyDeltaPercent)}%.`
+            ? `الزيادة (${fmtShort(spilloverAmount, curr)}) اتوزعت بهدوء على باقي الـ ${remDays} يوم فنزلت يوميتك بنسبة ${Math.abs(dailyDeltaPercent)}%.`
+            : `That extra ${fmtShort(spilloverAmount, curr)} spreads over ${remDays} days, trimming daily spending by ${Math.abs(dailyDeltaPercent)}%.`
         );
       }
     } else {
@@ -552,38 +575,50 @@ export function analyzeTransactionImpact(
       if (poolAfter <= 0 || evalAfter.dailyStatus.allowanceState === 'true_deficit') {
         severity = 'danger';
         headline = isAr
-          ? `تحذير عجز! المصروف ده يستنفد باقي ميزانية الشهر (${fmtShort(Math.abs(poolAfter), curr)} عجز)`
-          : `Deficit alert! Exhausts remaining Daily pool (${fmtShort(Math.abs(poolAfter), curr)} short)`;
+          ? `استنى شوية! الصرف ده هيخلّص فلوس اليومي تماماً (عجز ${fmtShort(Math.abs(poolAfter), curr)})`
+          : `Hold on! This uses up your remaining Daily pool (${fmtShort(Math.abs(poolAfter), curr)} short)`;
       } else if (overToday > 0 || dailyDeltaPercent <= -15) {
         severity = 'warning';
         headline = isAr
-          ? `تجاوزت مسموح النهارده بـ ${fmtShort(overToday, curr)} — الأيام الجاية هتبقى ${fmtShort(dailyAfter, curr)}/يوم`
-          : `Over today by ${fmtShort(overToday, curr)} → upcoming days become ${fmtShort(dailyAfter, curr)}/day`;
+          ? `عديت مسموح النهارده بـ ${fmtShort(overToday, curr)} — يومية الأيام الجاية بقت ${fmtShort(dailyAfter, curr)}/يوم`
+          : `Over today's limit by ${fmtShort(overToday, curr)} → upcoming days adjust to ${fmtShort(dailyAfter, curr)}/day`;
       } else if (todayRemAfter < evalBefore.dailyStatus.todayAllowance * 0.25) {
         severity = 'caution';
         headline = isAr
-          ? `هيسيبلك ${fmtShort(Math.max(0, todayRemAfter), curr)} بس لباقي اليوم`
-          : `Leaves only ${fmtShort(Math.max(0, todayRemAfter), curr)} for the rest of today`;
+          ? `قربت تخلص مسموح النهارده — هيفضلك ${fmtShort(Math.max(0, todayRemAfter), curr)} بس لباقي اليوم`
+          : `Getting tight today — leaves just ${fmtShort(Math.max(0, todayRemAfter), curr)} for the rest of the day`;
       } else {
         severity = 'safe';
         headline = isAr
-          ? `في الأمان! باقي لك اليوم ${fmtShort(todayRemAfter, curr)} والأيام الجاية ${fmtShort(dailyAfter, curr)}/يوم`
-          : `Safely on track! ${fmtShort(todayRemAfter, curr)} left today · ${fmtShort(dailyAfter, curr)}/day next`;
+          ? `مية مية وزي الفل! باقي لك النهارده ${fmtShort(todayRemAfter, curr)} والأيام الجاية ${fmtShort(dailyAfter, curr)}/يوم`
+          : `Right on track! ${fmtShort(todayRemAfter, curr)} left today · ${fmtShort(dailyAfter, curr)}/day next`;
       }
 
       detailedMessages.push(
         isAr
-          ? `المبلغ يساوي ${equivalentDailyDays} يوم صرف من خطتك اليومية، ومتوقع تخلص الدورة ${projectedCycleEndBalance >= 0 ? `بفائض ${fmtShort(projectedCycleEndBalance, curr)}` : `بعجز ${fmtShort(Math.abs(projectedCycleEndBalance), curr)}`}.`
-          : `Equals ${equivalentDailyDays} planned spending days; projected cycle end: ${projectedCycleEndBalance >= 0 ? `+${fmtShort(projectedCycleEndBalance, curr)} surplus` : `-${fmtShort(Math.abs(projectedCycleEndBalance), curr)} deficit`}.`
+          ? `الصرفة دي لوحدها قد ${equivalentDailyDays} يوم صرف من خطتك، ولو كملت بنفس الريتم هتخلص الشهر ${projectedCycleEndBalance >= 0 ? `بفائض حلو +${fmtShort(projectedCycleEndBalance, curr)}` : `بعجز ${fmtShort(Math.abs(projectedCycleEndBalance), curr)}`}.`
+          : `On its own, this equals ${equivalentDailyDays} planned spending days — finishing the cycle ${projectedCycleEndBalance >= 0 ? `+${fmtShort(projectedCycleEndBalance, curr)} ahead` : `-${fmtShort(Math.abs(projectedCycleEndBalance), curr)} short`}.`
       );
+    }
+
+    if (evalAfter.pools.daily.remaining <= 0 || evalAfter.dailyStatus.allowanceState === 'true_deficit') {
+      simpleOutlookLabel = isAr ? 'الميزانية هتخلص قبل آخر الشهر' : 'Runs out before cycle ends';
+    } else if (runwayAfter.zeroDate) {
+      simpleOutlookLabel = isAr
+        ? `هتكفي لحد يوم ${runwayAfter.zeroDate.slice(5)} (${runwayAfter.runwayDays} يوم)`
+        : `Lasts until ${runwayAfter.zeroDate.slice(5)} (${runwayAfter.runwayDays} days)`;
+    } else {
+      simpleOutlookLabel = isAr
+        ? `متكفي لآخر الشهر! (+${fmtShort(Math.max(0, projectedCycleEndBalance), curr)} وفر)`
+        : `Safe until payday! (${projectedCycleEndBalance >= 0 ? `+${fmtShort(projectedCycleEndBalance, curr)}` : fmtShort(projectedCycleEndBalance, curr)})`;
     }
 
     // Daily Average Spike Warning
     if (exceedsAvgAlert) {
       detailedMessages.push(
         isAr
-          ? `⚡ تنبيه مقارنة: المبلغ ده أعلى بـ ${exceedsAvgRatio}× من متوسط صرفك اليومي في هذه الدورة (${fmtShort(averageDailySpendInCycle, curr)}/يوم).`
-          : `⚡ Spend spike alert: ${exceedsAvgRatio}× higher than your cycle daily average (${fmtShort(averageDailySpendInCycle, curr)}/day).`
+          ? `⚡ خد بالك: المبلغ ده أعلى بـ ${exceedsAvgRatio}× من متوسّط صرفك اليومي المعتاد (${fmtShort(averageDailySpendInCycle, curr)}/يوم).`
+          : `⚡ Big jump: ${exceedsAvgRatio}× higher than your usual daily spend (${fmtShort(averageDailySpendInCycle, curr)}/day).`
       );
     }
 
@@ -591,28 +626,28 @@ export function analyzeTransactionImpact(
     if (runwayAfter.zeroDate && evalAfter.pools.daily.remaining > 0) {
       detailedMessages.push(
         isAr
-          ? `📅 بمعدل الصرف الحالي، الميزانية هتكفي لحد يوم ${runwayAfter.zeroDate} (${runwayAfter.runwayDays} يوم من ${remDays} متبقية).`
-          : `📅 At current burn rate, budget lasts until ${runwayAfter.zeroDate} (${runwayAfter.runwayDays} of ${remDays} days left).`
+          ? `📅 بنفس سرعة الصرف دي، الفلوس هتكفيك لحد يوم ${runwayAfter.zeroDate} (${runwayAfter.runwayDays} يوم من أصل ${remDays} فاضلين).`
+          : `📅 At this pace, your cash lasts until ${runwayAfter.zeroDate} (${runwayAfter.runwayDays} of ${remDays} days remaining).`
       );
     } else if (cyclePhase === 'early' && severity !== 'safe') {
       detailedMessages.push(
         isAr
-          ? '💡 إحنا لسه في أول الشهر، فأي ضغط دلوقتي لسه قدامه وقت طويل يتعوض بهدوء.'
-          : '💡 Since it is early in the cycle, you have plenty of days to smooth this out.'
+          ? '💡 إحنا لسه في أول الشهر — قدامك وقت طويل تلمّ الفرق ده بهدوء ومفيش قلق.'
+          : '💡 Still early in the cycle — plenty of days ahead to smooth this out easily.'
       );
     } else if (cyclePhase === 'late' && severity === 'safe') {
       detailedMessages.push(
         isAr
-          ? '🎯 أداء ممتاز في آخر الشهر — محافظ على التوازن بدون ضغط على التحويش.'
-          : '🎯 Strong finish near cycle end — staying balanced without touching savings.'
+          ? '🎯 شابوه! قفلة شهر ممتازة ومظبط الدنيا من غير ما تيجي جنب التحويش.'
+          : '🎯 Strong finish near payday — staying balanced without touching savings.'
       );
     }
 
     if (draft.isRecurring) {
       detailedMessages.push(
         isAr
-          ? '🔁 لأنها معاملة متكررة، يفضل إضافتها داخل حوض الفواتير والالتزامات لو لسه مش متسجلة فيه.'
-          : '🔁 Because this is recurring, consider keeping it under Bills & Fixed so future cycles plan for it.'
+          ? '🔁 بما إن المصروف ده متكرر، سجّله في الفواتير والالتزامات عشان يتعمل حسابه من أول الشهر.'
+          : '🔁 Since this repeats, keeping it under Bills & Fixed helps future cycles plan for it.'
       );
     }
 
@@ -625,16 +660,16 @@ export function analyzeTransactionImpact(
 
     if (severity === 'danger') {
       recommendation = isAr
-        ? `نصيحة عملية: ممكن تخفف الضغط إما بتحويل جزء للـ One-Off من التحويش، أو توفير ${fmtShort(dailyRecoveryNeeded, curr)}/يوم، أو فتح إعادة التوازن.`
-        : `Actionable tip: Trim ${fmtShort(dailyRecoveryNeeded, curr)}/day, cover via Outings/Savings cushion, or run Rebalance.`;
+        ? `تعمل إيه؟ لو المصروف ده طارئ سجّله كـ "استثنائي" عشان ميبوّظش اليومي، أو وفّر ${fmtShort(dailyRecoveryNeeded, curr)}/يوم، أو افتح إعادة التوازن.`
+        : `What helps: Tag urgent surprises as One-Off, trim ${fmtShort(dailyRecoveryNeeded, curr)}/day ahead, or open Smart Budget to rebalance.`;
     } else if (severity === 'warning') {
       recommendation = isAr
-        ? `تقدر تعوض الفارق بسهولة لو قللت صرفك اليومي حوالي ${fmtShort(Math.max(1, dailyRecoveryNeeded), curr)} بس في كل يوم من الـ ${remDays} أيام الجاية.`
-        : `To stay on your original track, aim to spend about ${fmtShort(Math.max(1, dailyRecoveryNeeded), curr)} less per day over the next ${remDays} days.`;
+        ? `عشان ترجع لنفس خطتك القديمة بسهولة، حاول توفّر حوالي ${fmtShort(Math.max(1, dailyRecoveryNeeded), curr)} بس كل يوم في الـ ${remDays} يوم الجايين.`
+        : `Easy recovery: Spend about ${fmtShort(Math.max(1, dailyRecoveryNeeded), curr)} less per day over the next ${remDays} days to bounce right back.`;
     } else {
       recommendation = isAr
-        ? `الوضع مستقر: مسموحك للأيام الجاية ${fmtShort(dailyAfter, curr)}/يوم.${evalAfter.pools.outings.remaining > 0 ? ` وعندك كمان ${fmtShort(evalAfter.pools.outings.remaining, curr)} في الخروجات.` : ''}`
-        : `All steady at ${fmtShort(dailyAfter, curr)}/day ahead.${evalAfter.pools.outings.remaining > 0 ? ` Outings still has ${fmtShort(evalAfter.pools.outings.remaining, curr)}.` : ''}`;
+        ? `كله تحت السيطرة! يوميتك الجاية ${fmtShort(dailyAfter, curr)}/يوم.${evalAfter.pools.outings.remaining > 0 ? ` ومعاك كمان ${fmtShort(evalAfter.pools.outings.remaining, curr)} فايضين للخروجات.` : ''}`
+        : `Smooth sailing at ${fmtShort(dailyAfter, curr)}/day ahead.${evalAfter.pools.outings.remaining > 0 ? ` Plus ${fmtShort(evalAfter.pools.outings.remaining, curr)} still free in Outings.` : ''}`;
     }
 
     return {
@@ -663,6 +698,7 @@ export function analyzeTransactionImpact(
         projectedRunwayDays: runwayAfter.runwayDays,
         projectedZeroDate: runwayAfter.zeroDate,
         projectedCycleEndBalance,
+        simpleOutlookLabel,
         savingsProgressBefore: evalBefore.pools.savings.progressPercent,
         savingsProgressAfter: evalAfter.pools.savings.progressPercent,
         dailyRecoveryNeeded,
@@ -698,6 +734,7 @@ export function analyzeTransactionImpact(
       projectedRunwayDays: runwayAfter.runwayDays,
       projectedZeroDate: runwayAfter.zeroDate,
       projectedCycleEndBalance,
+      simpleOutlookLabel,
       savingsProgressBefore: evalBefore.pools.savings.progressPercent,
       savingsProgressAfter: evalAfter.pools.savings.progressPercent,
       dailyRecoveryNeeded: 0,
@@ -718,10 +755,10 @@ export function simulateWhatIfScenario(
   transactions: Transaction[],
   accounts: Account[],
   config: SmartBudgetConfig,
-  lang: 'en' | 'ar' = 'ar',
+  lang: 'en' | 'ar' | 'ar_eg' = 'ar_eg',
   asOf: Date = new Date()
 ): WhatIfSimulationReport {
-  const isAr = lang === 'ar';
+  const isAr = lang === 'ar' || lang === 'ar_eg';
   const curr = evaluation.baseCurrency || 'EGP';
   const remDays = Math.max(1, evaluation.dailyStatus.remainingDaysInCycle);
   const isLastDay = remDays <= 1;
@@ -878,18 +915,18 @@ export function simulateWhatIfScenario(
         note:
           p === 'outings' && pRemAfter >= 0
             ? isAr
-              ? 'يغطيه حوض الخروجات بدون لمس اليومي'
+              ? 'الخروجات هتشيلها من غير ما تلمس اليومي'
               : 'Absorbed cleanly inside Outings'
             : p === 'oneoff' && savImpact > 0
             ? isAr
-              ? `يخصم ${fmtShort(savImpact, curr)} من وسادة التحويش`
+              ? `هيسحب ${fmtShort(savImpact, curr)} من وسادة التحويش`
               : `Uses ${fmtShort(savImpact, curr)} from Savings`
             : pDelta === 0
             ? isAr
-              ? 'بدون تأثير على اليومي'
+              ? 'مش هيأثر على يوميتك خالص'
               : 'Zero daily allowance drop'
             : isAr
-            ? `يغيّر اليومي بـ ${fmtShort(pDelta, curr)}`
+            ? `هيغيّر يوميتك بـ ${fmtShort(pDelta, curr)}`
             : `Shifts Daily by ${fmtShort(pDelta, curr)}`,
       };
     });
@@ -918,80 +955,80 @@ export function simulateWhatIfScenario(
   const detailedMessages: string[] = [];
 
   if (totalAmount <= 0) {
-    headline = isAr ? 'أدخل مبلغاً لمعاينة التأثير المستقبلي الكامل' : 'Enter an amount to preview full future impact';
+    headline = isAr ? 'اكتب أي مبلغ عشان تشوف هيأثر إزاي على شهرك' : 'Enter an amount to preview how it affects your month';
     recommendation = isAr
-      ? 'تقدر تجرب مصروف مرة واحدة، مصروف متكرر لعدة أيام، أو دخل إضافي وتقارن النتيجة على كل الأحواض.'
-      : 'Simulate a single spend, multi-day streak, or extra income and compare across pools.';
+      ? 'جرب تحسب مصروف مرة واحدة، مصروف كام يوم، أو فلوس زيادة جاية وشوف الأرقام هتقول إيه.'
+      : 'Test a single spend, multi-day streak, or extra income and compare across pools.';
   } else if (params.mode === 'extra_income') {
     severity = 'positive';
     headline = isAr
-      ? `إضافة ${fmtShort(totalAmount, curr)} بترفع مصروفك اليومي بـ +${fmtShort(Math.max(0, dailyDelta), curr)}/يوم (+${dailyDeltaPercent}%)`
-      : `Adding ${fmtShort(totalAmount, curr)} raises Daily Allowance by +${fmtShort(Math.max(0, dailyDelta), curr)}/day`;
+      ? `حلو أوي! لو دخلت ${fmtShort(totalAmount, curr)} يوميتك هتزيد +${fmtShort(Math.max(0, dailyDelta), curr)}/يوم (+${dailyDeltaPercent}%)`
+      : `Nice lift! Adding ${fmtShort(totalAmount, curr)} raises Daily Allowance by +${fmtShort(Math.max(0, dailyDelta), curr)}/day`;
     detailedMessages.push(
       isAr
-        ? `المصروف اليومي للأيام المتبقية (${remDays} يوم) ينتقل من ${fmtShort(allowanceBefore, curr)} إلى ${fmtShort(allowanceAfter, curr)}.`
+        ? `يوميتك في الـ ${remDays} يوم اللي فاضلين هتنط من ${fmtShort(allowanceBefore, curr)} لـ ${fmtShort(allowanceAfter, curr)}.`
         : `Daily allowance for the next ${remDays} days rises from ${fmtShort(allowanceBefore, curr)} to ${fmtShort(allowanceAfter, curr)}.`
     );
     detailedMessages.push(
       isAr
-        ? `صافي نهاية الدورة المتوقع يتحسن ليصبح ${projectedCycleEndBalance >= 0 ? `فائض +${fmtShort(projectedCycleEndBalance, curr)}` : `عجز ${fmtShort(projectedCycleEndBalance, curr)}`}.`
+        ? `صافي آخر الشهر المتوقع هيتحسن لـ ${projectedCycleEndBalance >= 0 ? `وفر حلو +${fmtShort(projectedCycleEndBalance, curr)}` : `عجز ${fmtShort(projectedCycleEndBalance, curr)}`}.`
         : `Projected cycle finish improves to ${projectedCycleEndBalance >= 0 ? `+${fmtShort(projectedCycleEndBalance, curr)} surplus` : fmtShort(projectedCycleEndBalance, curr)}.`
     );
     recommendation = isAr
-      ? `خيار ذكي: تقدر تزود هدف التحويش أو تغطي أي عجز في البنود التانية من هذه الزيادة.`
-      : `Smart move: allocate part of this boost to accelerate your Savings goal.`;
+      ? 'فكرة ذكية: زوّد بيهم التحويش أو قفّل لو فيه بند واقع معاك.'
+      : 'Smart move: Put part of this boost toward your Savings goal.';
   } else {
     const modePrefix =
       params.mode === 'multi_day_expense'
         ? isAr
-          ? `صرف ${fmtShort(perDayAmount, curr)} لمدة ${daysCount} أيام (إجمالي ${fmtShort(totalAmount, curr)}): `
+          ? `صرف ${fmtShort(perDayAmount, curr)} لمدة ${daysCount} يوم (إجمالي ${fmtShort(totalAmount, curr)}): `
           : `${daysCount} days at ${fmtShort(perDayAmount, curr)}/day (total ${fmtShort(totalAmount, curr)}): `
         : '';
 
     if (simEval.pools.daily.remaining <= 0 || simEval.dailyStatus.allowanceState === 'true_deficit') {
       severity = 'danger';
       headline = isAr
-        ? `${modePrefix}يدخل الميزانية في عجز (${fmtShort(Math.abs(simEval.pools.daily.remaining), curr)})`
+        ? `${modePrefix}هيدخّل الميزانية في عجز (${fmtShort(Math.abs(simEval.pools.daily.remaining), curr)})`
         : `${modePrefix}triggers a budget deficit (${fmtShort(Math.abs(simEval.pools.daily.remaining), curr)})`;
     } else if (dailyDelta < 0 || poolAfter < 0) {
       severity = Math.abs(dailyDeltaPercent) >= 20 ? 'warning' : 'caution';
       headline = isAr
-        ? `${modePrefix}يخفض المسموح اليومي إلى ${fmtShort(allowanceAfter, curr)}/يوم (${dailyDeltaPercent}%)`
+        ? `${modePrefix}هينزّل يوميتك لـ ${fmtShort(allowanceAfter, curr)}/يوم (${dailyDeltaPercent}%)`
         : `${modePrefix}lowers Daily Allowance to ${fmtShort(allowanceAfter, curr)}/day (${dailyDeltaPercent}%)`;
     } else {
       severity = 'safe';
       headline = isAr
-        ? `${modePrefix}آمن بالكامل — مسموحك اليومي يظل ${fmtShort(allowanceAfter, curr)}/يوم`
+        ? `${modePrefix}زي الفل وأمان تماماً — يوميتك ثابتة عند ${fmtShort(allowanceAfter, curr)}/يوم`
         : `${modePrefix}completely safe — Daily stays ${fmtShort(allowanceAfter, curr)}/day`;
     }
 
     detailedMessages.push(
       isAr
-        ? `معدل الحرق اليومي: ${fmtShort(burnRateBefore, curr)} ← ${fmtShort(burnRateAfter, curr)} / يوم.`
-        : `Daily burn rate shifts: ${fmtShort(burnRateBefore, curr)} → ${fmtShort(burnRateAfter, curr)} / day.`
+        ? `متوسط صرفك اليومي هيتغير من ${fmtShort(burnRateBefore, curr)} لـ ${fmtShort(burnRateAfter, curr)} في اليوم.`
+        : `Your daily burn rate shifts from ${fmtShort(burnRateBefore, curr)} to ${fmtShort(burnRateAfter, curr)}/day.`
     );
     if (runwayAfter.zeroDate) {
       detailedMessages.push(
         isAr
-          ? `تاريخ النفاد المتوقع لو استمر نفس المعدل: ${runwayAfter.zeroDate} (يتبقى ${runwayAfter.runwayDays} يوم من ${remDays}).`
-          : `Estimated zero date at this pace: ${runwayAfter.zeroDate} (${runwayAfter.runwayDays} of ${remDays} days).`
+          ? `لو فضلت على نفس السرعة، الميزانية هتقفل يوم ${runwayAfter.zeroDate} (يعني ${runwayAfter.runwayDays} يوم من ${remDays}).`
+          : `At this pace, funds last until ${runwayAfter.zeroDate} (${runwayAfter.runwayDays} of ${remDays} days).`
       );
     } else {
       detailedMessages.push(
         isAr
-          ? `الرصيد يكفي حتى نهاية الدورة يوم ${evaluation.cycle.endDate} بصافي متوقع ${projectedCycleEndBalance >= 0 ? `+${fmtShort(projectedCycleEndBalance, curr)}` : fmtShort(projectedCycleEndBalance, curr)}.`
-          : `Covers full cycle through ${evaluation.cycle.endDate} (projected end balance: ${fmtShort(projectedCycleEndBalance, curr)}).`
+          ? `الفلوس متكفي لآخر الدورة يوم ${evaluation.cycle.endDate} بباقي متوقع ${projectedCycleEndBalance >= 0 ? `+${fmtShort(projectedCycleEndBalance, curr)}` : fmtShort(projectedCycleEndBalance, curr)}.`
+          : `Covers the full cycle through ${evaluation.cycle.endDate} (projected end balance: ${fmtShort(projectedCycleEndBalance, curr)}).`
       );
     }
 
     const bestOption = poolComparison.find((p) => p.isOptimal);
     recommendation = bestOption
       ? isAr
-        ? `أفضل خيار لتسجيل المبلغ: "${bestOption.label}" (${bestOption.note}).${dailyRecoveryNeeded > 0 ? ` خطة التعويض: توفير ${fmtShort(dailyRecoveryNeeded, curr)}/يوم.` : ''}`
-        : `Best pool choice: "${bestOption.label}" (${bestOption.note}).${dailyRecoveryNeeded > 0 ? ` Recovery plan: trim ${fmtShort(dailyRecoveryNeeded, curr)}/day.` : ''}`
+        ? `أحسن مكان تسجل فيه الصرفة دي: "${bestOption.label}" (${bestOption.note}).${dailyRecoveryNeeded > 0 ? ` وعشان تعوّض، وفّر ${fmtShort(dailyRecoveryNeeded, curr)}/يوم.` : ''}`
+        : `Best pool choice: "${bestOption.label}" (${bestOption.note}).${dailyRecoveryNeeded > 0 ? ` Easy recovery: trim ${fmtShort(dailyRecoveryNeeded, curr)}/day.` : ''}`
       : isAr
-      ? 'الوضع متزن وتقدر تنفذ القرار بأمان.'
-      : 'Balanced outlook — safe to proceed.';
+      ? 'الوضع متزن وتقدر تنفذ الخطة بأمان!'
+      : 'Balanced outlook — safe to proceed!';
   }
 
   return {

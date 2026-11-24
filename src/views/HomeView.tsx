@@ -262,7 +262,7 @@ const HomeViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
   );
 
   return (
-    <div className="bg-black text-white flex flex-col pb-24 pt-16 animate-in fade-in">
+    <div className="bg-black text-white flex flex-col pb-24 app-main-offset animate-in fade-in">
       {/* 1. Top Header Bar with GPU CSS Auto-Hide on Scroll */}
       <header className="app-auto-header fixed top-0 left-0 right-0 max-w-full md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/95 border-b border-zinc-800/80 flex items-center justify-between">
         {/* Left: Hamburger Menu Button (☰) */}

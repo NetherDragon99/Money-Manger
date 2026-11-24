@@ -84,7 +84,10 @@ export const ToastContainer: React.FC = () => {
   const visibleToasts = uniqueToasts.slice(-3);
 
   return (
-    <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] flex flex-col items-center gap-2 pointer-events-none px-4 w-full max-w-md sm:max-w-lg">
+    <div
+      style={{ top: 'max(1.25rem, calc(var(--safe-top, 0px) + 0.5rem))' }}
+      className="fixed left-1/2 -translate-x-1/2 z-[9999] flex flex-col items-center gap-2 pointer-events-none px-4 w-full max-w-md sm:max-w-lg"
+    >
       {visibleToasts.map((toast) => (
         <ToastCard key={toast.id} toast={toast} onDismiss={dismissToast} />
       ))}

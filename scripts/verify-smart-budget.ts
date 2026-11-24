@@ -26,6 +26,7 @@ import {
   APP_RELEASE_NOTES,
   getReleaseNotesForChannel,
 } from '../src/utils/appFeatures';
+import { resolveMessageLanguage } from '../src/utils/constants';
 import type { Account, Category, Transaction } from '../src/types';
 
 let passed = 0;
@@ -689,11 +690,11 @@ test('8. resolveDateRange & applyAdvancedTransactionFilter cover all durations, 
 // ============================================================================
 // 9. Channel Release Notes Isolation & Plain-Language Jargon Guard
 // ============================================================================
-test('9. Beta release notes (2.0.1 & 2.0.3) stay hidden on Stable, visible on Beta, and pass jargon rules', () => {
+test('9. Beta release notes (2.0.1, 2.0.3 & 2.0.4) stay hidden on Stable, visible on Beta, and pass jargon rules', () => {
   const stableNotes = getReleaseNotesForChannel(APP_RELEASE_NOTES, false);
   const betaNotes = getReleaseNotesForChannel(APP_RELEASE_NOTES, true);
 
-  for (const ver of ['2.0.1', '2.0.3']) {
+  for (const ver of ['2.0.1', '2.0.3', '2.0.4']) {
     assert.equal(stableNotes.some((n) => n.version === ver), false, `Stable hides ${ver} beta note`);
     const note = betaNotes.find((n) => n.version === ver);
     assert.ok(note, `Beta includes ${ver} note`);
@@ -824,6 +825,82 @@ test('10. One-Off/Outings keep Spent Today isolated, reserve unpaid obligations 
   );
   assert.equal(plainEval.dailyStatus.todaySpent, 0, 'Same-day Outings/One-Off excess keeps Spent Today = 0');
   assert.ok(plainEval.dailyStatus.todayRemaining > 0, 'Same-day Outings/One-Off excess leaves today positive across 13 days');
+});
+
+// ============================================================================
+// 11. Advisor Message Language Resolution & Friendly Impact / What-If Output
+// ============================================================================
+test('11. Advisor message language resolves independently and produces friendly ar_eg & en impact/what-if copy', () => {
+  assert.equal(resolveMessageLanguage({ language: 'en', messageLanguage: 'app' }), 'en');
+  assert.equal(resolveMessageLanguage({ language: 'ar', messageLanguage: 'app' }), 'ar_eg');
+  assert.equal(resolveMessageLanguage({ language: 'en', messageLanguage: 'ar_eg' }), 'ar_eg');
+  assert.equal(resolveMessageLanguage({ language: 'ar', messageLanguage: 'en' }), 'en');
+  assert.equal(resolveMessageLanguage({ language: 'en' }), 'en');
+  assert.equal(resolveMessageLanguage({ language: 'ar' }), 'ar_eg');
+
+  const asOf = new Date(2026, 10, 18, 12, 0, 0);
+  const accs: Account[] = [pubAcc('acc_main', 3500)];
+  const txs: Transaction[] = [
+    mkTx({ id: 'tx_food', type: 'expense', amount: 120, date: '2026-11-18', accountId: 'acc_main', budgetPool: 'daily' }),
+  ];
+  const cfg: SmartBudgetConfig = {
+    startDay: 1,
+    calculationMode: 'full_cycle',
+    plannedIncome: 6000,
+    savings: { type: 'fixed', value: 1000 },
+    plannedFixedObligations: 1500,
+    outingsBudget: 600,
+    oneOffBudget: 300,
+    oneOffFundingSource: 'daily',
+    baseCurrency: 'EGP',
+  };
+
+  const draft = {
+    type: 'expense' as const,
+    amount: 450,
+    date: '2026-11-18',
+    accountId: 'acc_main',
+    budgetPool: 'daily' as const,
+  };
+
+  const arImpact = analyzeTransactionImpact(draft, null, txs, accs, cfg, 'ar_eg', asOf);
+  const enImpact = analyzeTransactionImpact(draft, null, txs, accs, cfg, 'en', asOf);
+  assert.ok(arImpact && enImpact, 'Both impact reports exist');
+
+  assert.ok(/[\u0600-\u06FF]/.test(arImpact.headline), 'ar_eg impact headline uses Arabic text');
+  assert.ok(/[\u0600-\u06FF]/.test(arImpact.metrics.simpleOutlookLabel), 'ar_eg simpleOutlookLabel uses Arabic');
+  assert.ok(arImpact.detailedMessages.length >= 1 && arImpact.recommendation.length > 0, 'ar_eg bullets and tip present');
+
+  assert.equal(/[\u0600-\u06FF]/.test(enImpact.headline), false, 'en impact headline contains no Arabic chars');
+  assert.equal(/[\u0600-\u06FF]/.test(enImpact.metrics.simpleOutlookLabel), false, 'en simpleOutlookLabel contains no Arabic chars');
+  assert.ok(enImpact.detailedMessages.length >= 1 && enImpact.recommendation.length > 0, 'en bullets and tip present');
+
+  const baseEval = evaluateSmartBudget(txs, accs, cfg, asOf);
+  const arSim = simulateWhatIfScenario(
+    { mode: 'single_expense', amount: 500, pool: 'outings' },
+    baseEval,
+    txs,
+    accs,
+    cfg,
+    'ar_eg',
+    asOf
+  );
+  const enSim = simulateWhatIfScenario(
+    { mode: 'single_expense', amount: 500, pool: 'outings' },
+    baseEval,
+    txs,
+    accs,
+    cfg,
+    'en',
+    asOf
+  );
+
+  assert.ok(/[\u0600-\u06FF]/.test(arSim.headline), 'ar_eg What-If headline uses Arabic');
+  assert.ok(/[\u0600-\u06FF]/.test(arSim.recommendation), 'ar_eg What-If recommendation uses Arabic');
+  assert.equal(/[\u0600-\u06FF]/.test(enSim.headline), false, 'en What-If headline contains no Arabic');
+  assert.equal(/[\u0600-\u06FF]/.test(enSim.recommendation), false, 'en What-If recommendation contains no Arabic');
+  assert.equal(arSim.poolComparison.length, 3, 'ar_eg What-If includes 3-way pool comparison');
+  assert.equal(enSim.poolComparison.length, 3, 'en What-If includes 3-way pool comparison');
 });
 
 console.log(`\n[solv] ALL ${passed} VERIFICATION SUITES PASSED ✓\n`);

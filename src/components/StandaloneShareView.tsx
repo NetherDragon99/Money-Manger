@@ -423,7 +423,7 @@ export const StandaloneShareView: React.FC<StandaloneShareViewProps> = ({
     <div className="min-h-screen bg-zinc-950 text-white flex flex-col items-center selection:bg-blue-600 selection:text-white" dir={isArabic ? 'rtl' : 'ltr'}>
       <div className="w-full max-w-none md:max-w-7xl landscape:max-w-none min-h-screen bg-black flex flex-col shadow-2xl relative">
         {/* Top Header Bar: Clean Flexbox Container (No Absolute Positioning, Prominent Space Name Center, Refresh Far Right) */}
-        <header className="sticky top-0 z-30 px-3 sm:px-6 py-3 bg-black/95 backdrop-blur-xl border-b border-zinc-800/80 flex items-center justify-between gap-3 w-full">
+        <header className="app-header-sticky-safe sticky top-0 z-30 px-3 sm:px-6 py-3 bg-black/95 backdrop-blur-xl border-b border-zinc-800/80 flex items-center justify-between gap-3 w-full">
           {/* Left Actions: Open in App / Copy Link */}
           <div className="flex items-center gap-2 shrink-0">
             {onExploreApp && (

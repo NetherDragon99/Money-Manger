@@ -291,7 +291,7 @@ export const Sidebar: React.FC = () => {
           }}
           role="button"
           tabIndex={0}
-          className="border-b border-zinc-800/80 bg-zinc-900/60 hover:bg-zinc-900/90 p-4 flex items-center justify-between shrink-0 cursor-pointer group active:scale-[0.99] transition select-none"
+          className="safe-area-top border-b border-zinc-800/80 bg-zinc-900/60 hover:bg-zinc-900/90 p-4 flex items-center justify-between shrink-0 cursor-pointer group active:scale-[0.99] transition select-none"
         >
           <div className="flex items-center gap-3.5 min-w-0 flex-1">
             <div className="w-13 h-13 rounded-2xl bg-zinc-900 border-2 border-emerald-500/80 overflow-hidden flex items-center justify-center text-3xl shadow-lg group-hover:scale-105 transition shrink-0">

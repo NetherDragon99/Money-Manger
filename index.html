@@ -10,6 +10,63 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="theme-color" content="#000000" />
+    <script>
+      // Synchronous Zero-FOUC theme & direction bootstrap before first paint
+      try {
+        var resolvedTheme = 'dark';
+        var rawSettings = localStorage.getItem('pwa_finance_settings');
+        var themeMode = 'system';
+        var appLang = 'en';
+        if (rawSettings) {
+          var parsedSettings = JSON.parse(rawSettings);
+          if (parsedSettings && parsedSettings.themeMode) {
+            themeMode = parsedSettings.themeMode;
+          }
+          if (parsedSettings && parsedSettings.language === 'ar') {
+            appLang = 'ar';
+          }
+        }
+        var prefersDark =
+          typeof window.matchMedia === 'function'
+            ? window.matchMedia('(prefers-color-scheme: dark)').matches
+            : true;
+        var isLight = themeMode === 'light' || (themeMode === 'system' && !prefersDark);
+        resolvedTheme = isLight ? 'light' : 'dark';
+        var rootEl = document.documentElement;
+        rootEl.dataset.theme = resolvedTheme;
+        if (isLight) {
+          rootEl.classList.add('light-mode');
+          rootEl.classList.remove('dark');
+        } else {
+          rootEl.classList.remove('light-mode');
+          rootEl.classList.add('dark');
+        }
+        rootEl.setAttribute('dir', appLang === 'ar' ? 'rtl' : 'ltr');
+        rootEl.setAttribute('lang', appLang);
+        var themeMeta = document.querySelector('meta[name="theme-color"]');
+        if (themeMeta) {
+          themeMeta.setAttribute('content', isLight ? '#F5F5F7' : '#000000');
+        }
+      } catch (e) {}
+    </script>
+    <style>
+      :root, [data-theme="light"] {
+        color-scheme: light dark;
+        --bg-primary: #F5F5F7;
+        --bg-secondary: #FFFFFF;
+        --text-primary: #1D1D1F;
+        --accent-primary: #059669;
+        --border-subtle: rgba(0, 0, 0, 0.08);
+      }
+      [data-theme="dark"], html.dark {
+        color-scheme: dark;
+        --bg-primary: #000000;
+        --bg-secondary: #1C1C1E;
+        --text-primary: #F5F5F7;
+        --accent-primary: #10B981;
+        --border-subtle: rgba(255, 255, 255, 0.10);
+      }
+    </style>
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -58,40 +115,40 @@
     </noscript>
     <div id="root"></div>
 
-    <!-- Dark Mode Boot Loader (Native Pure HTML/CSS) -->
-    <div id="app-boot-loader" style="position: fixed; inset: 0; z-index: 999999; background: #000000; color: #ffffff; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; box-sizing: border-box; overflow: hidden; user-select: none;">
+    <!-- Zero-FOUC Theme-Aware Boot Loader (Native Pure HTML/CSS) -->
+    <div id="app-boot-loader" style="position: fixed; inset: 0; z-index: 999999; background: var(--bg-primary, #000000); color: var(--text-primary, #ffffff); display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; padding-top: max(24px, env(safe-area-inset-top)); box-sizing: border-box; overflow: hidden; user-select: none;">
       <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 420px; width: 100%; text-align: center;">
         <!-- solv Logo / Icon -->
-        <div style="width: 72px; height: 72px; border-radius: 20px; background: #141414; border: 1px solid rgba(16, 185, 129, 0.25); display: flex; align-items: center; justify-content: center; margin-bottom: 18px; overflow: hidden; box-shadow: 0 12px 30px -5px rgba(16, 185, 129, 0.18);">
+        <div style="width: 72px; height: 72px; border-radius: 20px; background: var(--bg-secondary, #141414); border: 1px solid rgba(16, 185, 129, 0.28); display: flex; align-items: center; justify-content: center; margin-bottom: 18px; overflow: hidden; box-shadow: 0 12px 30px -5px rgba(16, 185, 129, 0.18);">
           <img src="./pwa-192x192.png" alt="solv" style="width: 100%; height: 100%; object-fit: cover; display: block;" />
         </div>
 
         <!-- App Title -->
-        <div style="font-size: 24px; font-weight: 800; color: #f8fafc; letter-spacing: -0.03em; margin-bottom: 6px;">
+        <div style="font-size: 24px; font-weight: 800; color: var(--text-primary, #f8fafc); letter-spacing: -0.03em; margin-bottom: 6px;">
           solv
         </div>
-        <div style="font-size: 12px; color: #6ee7b7; margin-bottom: 24px; direction: rtl; opacity: 0.85;">
+        <div style="font-size: 12px; color: var(--accent-primary, #10b981); margin-bottom: 24px; direction: rtl; opacity: 0.9; font-weight: 600;">
           إدارة أموالك بذكاء • Smart Finance
         </div>
 
         <!-- Emerald Spinner -->
-        <div id="app-boot-spinner" style="width: 32px; height: 32px; border: 3px solid rgba(16, 185, 129, 0.18); border-top-color: #10b981; border-radius: 50%; animation: bootSpin 0.75s linear infinite; margin-bottom: 12px;"></div>
+        <div id="app-boot-spinner" style="width: 32px; height: 32px; border: 3px solid rgba(16, 185, 129, 0.18); border-top-color: var(--accent-primary, #10b981); border-radius: 50%; animation: bootSpin 0.75s linear infinite; margin-bottom: 12px;"></div>
 
         <!-- Error Card (Hidden by default, shown ONLY if boot fails before React mounts) -->
-        <div id="app-boot-error" style="display: none; width: 100%; background: #09090b; border: 1px solid #dc2626; border-radius: 18px; padding: 20px; margin-top: 16px; box-shadow: 0 15px 30px rgba(0,0,0,0.6); box-sizing: border-box;">
+        <div id="app-boot-error" style="display: none; width: 100%; background: var(--bg-secondary, #09090b); border: 1px solid #dc2626; border-radius: 18px; padding: 20px; margin-top: 16px; box-shadow: 0 15px 30px rgba(0,0,0,0.2); box-sizing: border-box;">
           <div style="font-size: 28px; margin-bottom: 8px;">⚠️</div>
-          <div id="app-boot-error-title" style="font-size: 14px; font-weight: 700; color: #f87171; margin-bottom: 6px;">
+          <div id="app-boot-error-title" style="font-size: 14px; font-weight: 700; color: #ef4444; margin-bottom: 6px;">
             Startup Issue Detected
           </div>
-          <div id="app-boot-error-msg" style="font-size: 11px; color: #cbd5e1; background: #000000; border: 1px solid #27272a; border-radius: 10px; padding: 10px; margin-bottom: 14px; word-break: break-all; max-height: 120px; overflow-y: auto; font-family: monospace; text-align: left; direction: ltr;"></div>
-          <button id="app-boot-reload-btn" type="button" onclick="window.location.reload()" style="display: inline-flex; align-items: center; justify-content: center; width: 100%; padding: 11px 18px; background: #10b981; color: #000000; border: none; border-radius: 9999px; font-size: 13px; font-weight: 700; cursor: pointer;">
+          <div id="app-boot-error-msg" style="font-size: 11px; color: var(--text-primary, #cbd5e1); background: var(--bg-primary, #000000); border: 1px solid var(--border-subtle, #27272a); border-radius: 10px; padding: 10px; margin-bottom: 14px; word-break: break-all; max-height: 120px; overflow-y: auto; font-family: monospace; text-align: left; direction: ltr;"></div>
+          <button id="app-boot-reload-btn" type="button" onclick="window.location.reload()" style="display: inline-flex; align-items: center; justify-content: center; width: 100%; padding: 11px 18px; background: var(--accent-primary, #10b981); color: #ffffff; border: none; border-radius: 9999px; font-size: 13px; font-weight: 700; cursor: pointer;">
             Reload solv
           </button>
         </div>
       </div>
 
       <!-- Exact App Version at Bottom -->
-      <div style="position: absolute; bottom: 20px; font-size: 11px; font-family: monospace; color: #52525b; letter-spacing: 0.04em;">
+      <div style="position: absolute; bottom: max(20px, env(safe-area-inset-bottom)); font-size: 11px; font-family: monospace; color: #71717a; letter-spacing: 0.04em;">
         %BOOT_VERSION_LABEL%
       </div>
     </div>

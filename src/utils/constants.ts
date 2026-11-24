@@ -1,5 +1,14 @@
-import { Account, Category, AppSettings } from '../types';
+import { Account, Category, AppSettings, ResolvedMessageLanguage } from '../types';
 import { DEFAULT_TRANSFER_FEE_SETTINGS } from './transferFee';
+
+export function resolveMessageLanguage(
+  settings?: Pick<AppSettings, 'language' | 'messageLanguage'> | null
+): ResolvedMessageLanguage {
+  const mode = settings?.messageLanguage || 'app';
+  if (mode === 'en') return 'en';
+  if (mode === 'ar_eg') return 'ar_eg';
+  return settings?.language === 'ar' ? 'ar_eg' : 'en';
+}
 
 export const DEFAULT_ACCOUNTS: Account[] = [
   {
@@ -68,7 +77,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   weekStartDay: 'sunday',
   defaultMonthStartDay: 1,
   language: 'en',
-  themeMode: 'dark',
+  messageLanguage: 'app',
+  themeMode: 'system',
   currencySymbol: '£',
   userProfile: {
     name: 'My Profile',

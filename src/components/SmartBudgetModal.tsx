@@ -55,6 +55,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { resolveMessageLanguage } from '../utils/constants';
 import { formatNumberWithCommas } from '../utils/formatters';
 import {
   evaluateSmartBudget,
@@ -210,6 +211,8 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
   } = useApp();
 
   const isArabic = settings.language === 'ar';
+  const resolvedMsgLang = resolveMessageLanguage(settings);
+  const isMsgArabic = resolvedMsgLang === 'ar_eg';
   const currency = settings.currencySymbol || 'EGP';
   const formatCurrency = (amount: number, curr = currency) =>
     `${formatNumberWithCommas(amount, 2)} ${curr}`;
@@ -1092,7 +1095,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       transactions,
       accounts,
       effectiveBudgetConfig,
-      settings.language || 'ar',
+      resolvedMsgLang,
       new Date()
     );
   }, [
@@ -1104,7 +1107,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
     transactions,
     accounts,
     effectiveBudgetConfig,
-    settings.language,
+    resolvedMsgLang,
   ]);
 
   // ==========================================================================
@@ -1351,7 +1354,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 transition-opacity duration-200"
+      className="modal-safe-overlay fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 transition-opacity duration-200"
       onClick={onClose}
     >
       <div
@@ -2038,32 +2041,29 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                 {/* Calm Absorption Message */}
                 {evaluation.dailyStatus.overBudgetBy > 0 &&
                   evaluation.dailyStatus.allowanceState !== 'true_deficit' && (
-                    <div className="mt-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 leading-relaxed flex items-start gap-2">
+                    <div
+                      dir={isMsgArabic ? 'rtl' : 'ltr'}
+                      className="mt-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 leading-relaxed flex items-start gap-2"
+                    >
                       <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                      <span>
-                        {t('calmOverTodayMessage')
-                          .replace(
-                            '{over}',
-                            formatCurrency(evaluation.dailyStatus.overBudgetBy, currency)
-                          )
-                          .replace(
-                            '{nextDaily}',
-                            formatCurrency(
-                              evaluation.dailyStatus.upcomingDailyAllowance,
-                              currency
-                            )
-                          )}
+                      <span className="whitespace-normal break-words">
+                        {isMsgArabic
+                          ? `النهارده عدّينا بمبلغ ${formatCurrency(evaluation.dailyStatus.overBudgetBy, currency)}، وببساطة يوميتك للأيام الجاية اتظبطت على ${formatCurrency(evaluation.dailyStatus.upcomingDailyAllowance, currency)} عشان الشهر يكمل معاك مرتاح.`
+                          : `Over today's limit by ${formatCurrency(evaluation.dailyStatus.overBudgetBy, currency)} — no stress, upcoming days gently adjust to ${formatCurrency(evaluation.dailyStatus.upcomingDailyAllowance, currency)}/day.`}
                       </span>
                     </div>
                   )}
 
                 {/* True Deficit Message */}
                 {evaluation.dailyStatus.allowanceState === 'true_deficit' && (
-                  <div className="mt-2.5 p-3 rounded-2xl bg-red-500/15 border border-red-500/30 text-xs text-red-200 leading-relaxed flex items-start gap-2">
+                  <div
+                    dir={isMsgArabic ? 'rtl' : 'ltr'}
+                    className="mt-2.5 p-3 rounded-2xl bg-red-500/15 border border-red-500/30 text-xs text-red-200 leading-relaxed flex items-start gap-2"
+                  >
                     <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                    <span>
-                      {t('overBudgetBy')}:{' '}
-                      <strong className="font-mono">
+                    <span className="whitespace-normal break-words">
+                      {isMsgArabic ? 'الميزانية اليومية دخلت في عجز ' : 'Daily budget is short by '}
+                      <strong className="font-mono tabular-nums">
                         {formatCurrency(
                           Math.max(
                             evaluation.dailyStatus.overBudgetBy,
@@ -2072,6 +2072,9 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                           currency
                         )}
                       </strong>
+                      {isMsgArabic
+                        ? ' — انزل تحت عند اقتراحات التوازن ونرتّبها في ضغطة.'
+                        : ' — scroll to Rebalance Options below to smooth it out.'}
                     </span>
                   </div>
                 )}
@@ -2922,7 +2925,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
               {/* Instant Rich Forecast & 3-Way Pool Comparison Display */}
               {whatIfReport && (
-                <div className="pt-3 border-t border-zinc-800 space-y-3">
+                <div dir={isMsgArabic ? 'rtl' : 'ltr'} className="pt-3 border-t border-zinc-800 space-y-3">
                   {/* Severity Headline Banner */}
                   <div
                     className={`p-3.5 rounded-2xl border space-y-1.5 ${
@@ -2937,18 +2940,18 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                         : 'bg-rose-950/40 border-rose-500/50 text-rose-200'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold leading-snug">{whatIfReport.headline}</span>
-                      <TrendingUp className="w-4 h-4 shrink-0 opacity-85" />
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-xs font-bold leading-snug whitespace-normal break-words">{whatIfReport.headline}</span>
+                      <TrendingUp className="w-4 h-4 shrink-0 opacity-85 mt-0.5" />
                     </div>
-                    <p className="text-[11px] leading-relaxed opacity-90">{whatIfReport.recommendation}</p>
+                    <p className="text-[11px] leading-relaxed opacity-90 whitespace-normal break-words">{whatIfReport.recommendation}</p>
                   </div>
 
                   {/* Rich KPI Telemetry Grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <div className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800/80">
                       <div className="text-[10px] text-zinc-400">{whatIfReport.poolName}</div>
-                      <div className="text-xs font-mono font-bold text-white mt-0.5">
+                      <div className="text-xs font-mono tabular-nums font-bold text-white mt-0.5">
                         {formatCurrency(whatIfReport.poolBefore, currency)} {'->'}{' '}
                         <span className={whatIfReport.poolAfter < 0 ? 'text-rose-400' : 'text-emerald-400'}>
                           {formatCurrency(whatIfReport.poolAfter, currency)}
@@ -2958,9 +2961,9 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
                     <div className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800/80">
                       <div className="text-[10px] text-zinc-400">
-                        {isArabic ? 'المسموح اليومي' : 'Daily Allowance'}
+                        {isMsgArabic ? 'يوميتك للأيام الجاية' : 'Daily Limit Ahead'}
                       </div>
-                      <div className="text-xs font-mono font-bold text-white mt-0.5">
+                      <div className="text-xs font-mono tabular-nums font-bold text-white mt-0.5">
                         {formatCurrency(whatIfReport.allowanceBefore, currency)} {'->'}{' '}
                         <span className={whatIfReport.dailyDelta >= 0 ? 'text-emerald-400' : 'text-amber-300'}>
                           {formatCurrency(whatIfReport.allowanceAfter, currency)}
@@ -2970,10 +2973,10 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
                     <div className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800/80">
                       <div className="text-[10px] text-zinc-400">
-                        {isArabic ? 'عمر الميزانية' : 'Runway Days'}
+                        {isMsgArabic ? 'هتكفّي كام يوم' : 'Budget Runway'}
                       </div>
-                      <div className="text-xs font-mono font-bold text-white mt-0.5">
-                        {whatIfReport.runwayDaysBefore}d {'->'}{' '}
+                      <div className="text-xs font-mono tabular-nums font-bold text-white mt-0.5">
+                        {whatIfReport.runwayDaysBefore}{isMsgArabic ? 'ي' : 'd'} {'->'}{' '}
                         <span
                           className={
                             whatIfReport.runwayDaysAfter < whatIfReport.remainingDaysInCycle
@@ -2981,7 +2984,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                               : 'text-emerald-400'
                           }
                         >
-                          {whatIfReport.runwayDaysAfter}d
+                          {whatIfReport.runwayDaysAfter}{isMsgArabic ? 'ي' : 'd'}
                         </span>
                       </div>
                     </div>
@@ -2989,12 +2992,12 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                     <div className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800/80">
                       <div className="text-[10px] text-zinc-400">
                         {whatIfReport.dailyRecoveryNeeded > 0
-                          ? isArabic ? 'تعويض يومي' : 'Daily Recovery'
-                          : isArabic ? 'نهاية الدورة المتوقعة' : 'Projected End'}
+                          ? isMsgArabic ? 'توفّر كام في اليوم' : 'Daily Recovery'
+                          : isMsgArabic ? 'المتبقي لآخر الشهر' : 'Month-End Outlook'}
                       </div>
-                      <div className="text-xs font-mono font-bold text-white mt-0.5">
+                      <div className="text-xs font-mono tabular-nums font-bold text-white mt-0.5">
                         {whatIfReport.dailyRecoveryNeeded > 0
-                          ? `${formatCurrency(whatIfReport.dailyRecoveryNeeded, currency)}/${isArabic ? 'ي' : 'd'}`
+                          ? `${formatCurrency(whatIfReport.dailyRecoveryNeeded, currency)}/${isMsgArabic ? 'ي' : 'd'}`
                           : formatCurrency(whatIfReport.projectedCycleEndBalance, currency)}
                       </div>
                     </div>
@@ -3006,7 +3009,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                       {whatIfReport.detailedMessages.map((msg, idx) => (
                         <li key={idx} className="flex items-start gap-2">
                           <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                          <span className="leading-relaxed">{msg}</span>
+                          <span className="leading-relaxed whitespace-normal break-words">{msg}</span>
                         </li>
                       ))}
                     </ul>
@@ -3016,7 +3019,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                   {whatIfReport.poolComparison && whatIfReport.poolComparison.length > 0 && (
                     <div className="space-y-1.5">
                       <div className="text-[11px] font-bold text-zinc-300">
-                        {isArabic ? 'مقارنة تأثير الخصم من كل بند:' : '3-Way Pool Comparison:'}
+                        {isMsgArabic ? 'لو سجّلتها في كل بند هيحصل إيه:' : 'How Each Pool Handles This:'}
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         {whatIfReport.poolComparison.map((item) => (
@@ -3032,14 +3035,14 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                               <span className="text-xs font-bold text-white">{item.label}</span>
                               {item.isOptimal && (
                                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                  {isArabic ? 'الأفضل ✓' : 'Best ✓'}
+                                  {isMsgArabic ? 'أحسن اختيار ✓' : 'Best Choice ✓'}
                                 </span>
                               )}
                             </div>
-                            <div className="text-[11px] font-mono text-zinc-300">
-                              {isArabic ? 'اليومي:' : 'Daily:'} {formatCurrency(item.dailyAllowanceAfter, currency)}
+                            <div className="text-[11px] font-mono tabular-nums text-zinc-300">
+                              {isMsgArabic ? 'يوميتك:' : 'Daily:'} {formatCurrency(item.dailyAllowanceAfter, currency)}
                             </div>
-                            <div className="text-[10px] text-zinc-400 leading-snug">{item.note}</div>
+                            <div className="text-[10px] text-zinc-400 leading-snug whitespace-normal break-words">{item.note}</div>
                           </div>
                         ))}
                       </div>
@@ -3051,20 +3054,25 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
             {/* Rebalance Options (Shown ONLY if there is a deficit) */}
             {evaluation.rebalanceScenarios.hasDeficit && (
-              <div className="p-4 sm:p-5 rounded-3xl bg-red-950/20 border border-red-500/30 space-y-4">
+              <div
+                dir={isMsgArabic ? 'rtl' : 'ltr'}
+                className="p-4 sm:p-5 rounded-3xl bg-red-950/20 border border-red-500/30 space-y-4"
+              >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <AlertCircle className="w-4.5 h-4.5 text-red-400 shrink-0" />
                     <div>
                       <h4 className="text-xs sm:text-sm font-bold text-white">
-                        {t('rebalanceTitle')}
+                        {isMsgArabic ? 'إزاي نلمّ العجز ده بسرعة؟' : 'Easy Ways to Balance Your Month'}
                       </h4>
                       <p className="text-[11px] text-zinc-400">
-                        {t('rebalanceSubtitle')}
+                        {isMsgArabic
+                          ? 'اختار الطريقة اللي تريحك وهنظبّطلك باقي الشهر في ضغطة واحدة:'
+                          : 'Pick whichever tweak feels easiest — we will adjust the rest cleanly:'}
                       </p>
                     </div>
                   </div>
-                  <span className="text-xs font-mono font-extrabold text-red-400 bg-red-500/10 px-2.5 py-1 rounded-full border border-red-500/20">
+                  <span className="text-xs font-mono tabular-nums font-extrabold text-red-400 bg-red-500/10 px-2.5 py-1 rounded-full border border-red-500/20">
                     -{formatCurrency(evaluation.rebalanceScenarios.deficit, currency)}
                   </span>
                 </div>
@@ -3073,7 +3081,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                 {topOverspendCategories.length > 0 && (
                   <div className="p-3 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2">
                     <div className="text-[11px] font-semibold text-zinc-400">
-                      {isArabic ? 'أكثر الفئات المسببة لزيادة الصرف:' : 'Top overspend categories:'}
+                      {isMsgArabic ? 'أكتر حاجات سحبت من الميزانية:' : 'Biggest drains this cycle:'}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       {topOverspendCategories.map((c, i) => (
@@ -3082,7 +3090,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                             <span>{c.icon}</span>
                             <span className="text-zinc-200 truncate">{c.name}</span>
                           </span>
-                          <span className="font-mono font-bold text-red-400 shrink-0">
+                          <span className="font-mono tabular-nums font-bold text-red-400 shrink-0">
                             {formatCurrency(c.amount, currency)}
                           </span>
                         </div>
@@ -3098,18 +3106,20 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                     <div className="space-y-1.5">
                       <span className="text-xs font-bold text-purple-400 flex items-center gap-1.5">
                         <ShoppingBag className="w-3.5 h-3.5" />
-                        {t('scenarioATitle')}
+                        {isMsgArabic ? 'اخفض الخروجات أو الفواتير' : 'Trim Outings & Bills'}
                       </span>
-                      <p className="text-[11px] text-zinc-400 leading-relaxed">
-                        {t('scenarioADesc')}
+                      <p className="text-[11px] text-zinc-400 leading-relaxed whitespace-normal break-words">
+                        {isMsgArabic
+                          ? 'نشيل الفرق من مخصص الفواتير أو الخروجات ونسيب يوميتك والتحويش في أمان.'
+                          : 'Trim discretionary planned space first so your daily cash and Savings stay intact.'}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => handleApplyScenario('scenario_a')}
-                      className="w-full min-h-[38px] py-1.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition cursor-pointer"
+                      className="w-full min-h-[44px] py-1.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition cursor-pointer"
                     >
-                      {t('applyScenarioBtn')}
+                      {isMsgArabic ? 'نفّذ الخيار ده' : 'Apply This'}
                     </button>
                   </div>
 
@@ -3118,18 +3128,20 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                     <div className="space-y-1.5">
                       <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
                         <PiggyBank className="w-3.5 h-3.5" />
-                        {t('scenarioBTitle')}
+                        {isMsgArabic ? 'غطّي من وسادة التحويش' : 'Cover via Savings Cushion'}
                       </span>
-                      <p className="text-[11px] text-zinc-400 leading-relaxed">
-                        {t('scenarioBDesc')}
+                      <p className="text-[11px] text-zinc-400 leading-relaxed whitespace-normal break-words">
+                        {isMsgArabic
+                          ? 'نسحب الفرق من تحويش الشهر ده مؤقتاً عشان مصروفك اليومي يكمل مستريح.'
+                          : 'Use part of this cycle’s Savings target to absorb the bump without squeezing daily spending.'}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => handleApplyScenario('scenario_b')}
-                      className="w-full min-h-[38px] py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition cursor-pointer"
+                      className="w-full min-h-[44px] py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition cursor-pointer"
                     >
-                      {t('applyScenarioBtn')}
+                      {isMsgArabic ? 'نفّذ الخيار ده' : 'Apply This'}
                     </button>
                   </div>
 
@@ -3138,18 +3150,20 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                     <div className="space-y-1.5">
                       <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
                         <Wallet className="w-3.5 h-3.5" />
-                        {t('scenarioCTitle')}
+                        {isMsgArabic ? 'قسّمها على باقي الأيام' : 'Spread Over Remaining Days'}
                       </span>
-                      <p className="text-[11px] text-zinc-400 leading-relaxed">
-                        {t('scenarioCDesc')}
+                      <p className="text-[11px] text-zinc-400 leading-relaxed whitespace-normal break-words">
+                        {isMsgArabic
+                          ? 'نوزع الفرق بهدوء على يومية باقي الشهر ومنجيش جنب هدف التحويش خالص.'
+                          : 'Gently lower your daily limit ahead while keeping Savings and Bills targets untouched.'}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => handleApplyScenario('scenario_c')}
-                      className="w-full min-h-[38px] py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer"
+                      className="w-full min-h-[44px] py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer"
                     >
-                      {t('applyScenarioBtn')}
+                      {isMsgArabic ? 'نفّذ الخيار ده' : 'Apply This'}
                     </button>
                   </div>
                 </div>
@@ -3160,7 +3174,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
                     <button
                       type="button"
                       onClick={handleRevertToBaseline}
-                      className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-300 text-xs font-bold border border-amber-500/30 flex items-center gap-1.5 transition cursor-pointer"
+                      className="min-h-[44px] px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-300 text-xs font-bold border border-amber-500/30 flex items-center gap-1.5 transition cursor-pointer"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
                       <span>{t('revertToBaseline')}</span>
@@ -3221,7 +3235,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       {/* Pool Transactions Inspection Modal */}
       {inspectPoolKey && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/80 transition-opacity duration-200"
+          className="modal-safe-overlay fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/80 transition-opacity duration-200"
           onClick={() => setInspectPoolKey(null)}
         >
           <div

@@ -141,7 +141,7 @@ export const SharedAccountLiveView: React.FC<SharedAccountLiveViewProps> = ({
       dir={isArabic ? 'rtl' : 'ltr'}
     >
       {/* Top Banner / Navbar */}
-      <header className="sticky top-0 z-40 h-16 bg-zinc-950/95 backdrop-blur-md border-b border-zinc-800/80 px-4 flex items-center justify-between">
+      <header className="app-header-sticky-safe sticky top-0 z-40 min-h-16 h-auto bg-zinc-950/95 backdrop-blur-md border-b border-zinc-800/80 px-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-2xl">{icon}</span>
           <div>

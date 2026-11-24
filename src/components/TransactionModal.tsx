@@ -7,6 +7,7 @@ import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatDisplayNu
 import { calculateNextDueDate, getScheduleSummaryText, migrateRecurringRule, normalizeHHMM, normalizeTimesList, getNextNOccurrences, OccurrencePreviewItem } from '../utils/recurring';
 import { evaluateSmartBudget, SmartBudgetEvaluation, parseLocalDate, normalizeExpenseBudgetPool, canSendSmartBudgetNotificationToday, markSmartBudgetNotificationSentToday } from '../utils/smartBudgetEngine';
 import { analyzeTransactionImpact, type TransactionImpactReport } from '../utils/budgetImpactAnalyzer';
+import { resolveMessageLanguage } from '../utils/constants';
 import { computeTransferFee, computeTaxFee, resolveTransferFeeSettings } from '../utils/transferFee';
 import { AdvancedTaxFeeInput } from './AdvancedTaxFeeInput';
 import { Numpad } from './Numpad';
@@ -26,7 +27,7 @@ function notifyBudgetAlertIfNeeded(
     duration?: number
   ) => void,
   openSmartBudget: () => void,
-  isArabic: boolean
+  isMsgArabic: boolean
 ) {
   if (evaluation.isPaused) return;
   try {
@@ -40,12 +41,12 @@ function notifyBudgetAlertIfNeeded(
         localStorage.setItem(dedupKey, Date.now().toString());
         markSmartBudgetNotificationSentToday('daily_depleted');
         showToast(
-          isArabic
-            ? 'تنبيه الميزانية: استُنفد حوض المصروف اليومي للشهر. اضغط لإعادة التوازن.'
-            : 'Budget alert: Monthly Daily Spending pool is exhausted. Tap to rebalance.',
+          isMsgArabic
+            ? 'استنى يا صاحبي! فلوس المصروف اليومي للشهر خلصت — افتح نرتّبها سوا.'
+            : 'Heads-up: Your monthly Daily Spending pool ran dry. Tap to rebalance.',
           'error',
           {
-            label: isArabic ? 'إعادة التوازن' : 'Rebalance',
+            label: isMsgArabic ? 'نرتّب الميزانية' : 'Rebalance',
             onClick: openSmartBudget,
           },
           8000
@@ -61,12 +62,12 @@ function notifyBudgetAlertIfNeeded(
         localStorage.setItem(dedupKey, Date.now().toString());
         markSmartBudgetNotificationSentToday('outings_depleted');
         showToast(
-          isArabic
-            ? 'ملاحظة: اكتمل حوض الخروجات وسيتم استيعاب أي زيادة بهدوء من المصروف اليومي.'
-            : 'Heads-up: Outings pool is full; any extra is calmly absorbed by Daily Spending.',
+          isMsgArabic
+            ? 'كله تمام! بند الخروجات اتقفل وأي مصروف زيادة هيتشال بهدوء من اليومي.'
+            : 'Heads-up: Outings pool is full; any extra settles calmly into Daily Spending.',
           'info',
           {
-            label: isArabic ? 'مراجعة' : 'Review',
+            label: isMsgArabic ? 'مراجعة' : 'Review',
             onClick: openSmartBudget,
           },
           7000
@@ -83,12 +84,12 @@ function notifyBudgetAlertIfNeeded(
       if (!localStorage.getItem(dedupKey) && canSendSmartBudgetNotificationToday(notifType)) {
         localStorage.setItem(dedupKey, Date.now().toString());
         markSmartBudgetNotificationSentToday(notifType);
-        const msg = isArabic ? topAnomaly.message.ar : topAnomaly.message.en;
+        const msg = isMsgArabic ? topAnomaly.message.ar : topAnomaly.message.en;
         showToast(
-          `${isArabic ? 'ملاحظة ميزانية: ' : 'Budget Heads-up: '}${msg}`,
+          `${isMsgArabic ? 'تلميحة ميزانية: ' : 'Budget Heads-up: '}${msg}`,
           'info',
           {
-            label: isArabic ? 'مراجعة' : 'Review',
+            label: isMsgArabic ? 'مراجعة' : 'Review',
             onClick: openSmartBudget,
           },
           7000
@@ -403,6 +404,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   }, [useMonthDayFilter, selectedDaysOfMonth, monthDayTimes]);
 
   const [isImpactExpanded, setIsImpactExpanded] = useState(false);
+  const [showExpertImpactMetrics, setShowExpertImpactMetrics] = useState(false);
+  const impactCardRef = useRef<HTMLDivElement | null>(null);
 
   // Check prefers-reduced-motion
   const prefersReducedMotion = useMemo(() => {
@@ -1315,6 +1318,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     ]
   );
 
+  const resolvedMsgLang = resolveMessageLanguage(settings);
+  const isMsgArabic = resolvedMsgLang === 'ar_eg';
+
   const impactReport: TransactionImpactReport | null = useMemo(() => {
     if (isSharedMode || numericAmount <= 0 || !accountId) {
       return null;
@@ -1347,7 +1353,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       transactions,
       accounts,
       smartBudgetConfigObj,
-      settings.language || 'ar',
+      resolvedMsgLang,
       new Date()
     );
   }, [
@@ -1369,7 +1375,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     transactions,
     accounts,
     smartBudgetConfigObj,
-    settings.language,
+    resolvedMsgLang,
   ]);
 
   const isTransferSameAccount = type === 'transfer' && accountId === toAccountId;
@@ -1620,7 +1626,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         postEval,
         showToast,
         () => setIsSmartBudgetModalOpen(true),
-        isArabic
+        isMsgArabic
       );
     }
 
@@ -1671,7 +1677,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     <div
       onClick={handleAnimatedClose}
       onTouchMove={(e) => e.stopPropagation()}
-      className={`fixed inset-0 z-[80] flex items-end sm:items-center landscape:items-center justify-center bg-black/75 p-0 sm:p-4 landscape:p-2 overflow-y-auto overscroll-contain transition-opacity duration-200 ${
+      className={`modal-safe-overlay fixed inset-0 z-[80] flex items-end sm:items-center landscape:items-center justify-center bg-black/75 p-0 sm:p-4 landscape:p-2 overflow-y-auto overscroll-contain transition-opacity duration-200 ${
         isClosing ? 'modal-backdrop-closing' : 'modal-backdrop-anim'
       }`}
     >
@@ -1816,9 +1822,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               )}
             </div>
 
-            {/* Rich Expandable Future-Impact Analyzer Card (Expense, Income & Transfer) */}
+            {/* Rich 3-Layer Friendly Future-Impact Analyzer Card (Expense, Income & Transfer) */}
             {impactReport && (
               <div
+                ref={impactCardRef}
+                dir={isMsgArabic ? 'rtl' : 'ltr'}
                 className={`mt-2.5 mx-auto max-w-md rounded-2xl border text-start transition-colors overflow-hidden ${
                   impactReport.severity === 'positive'
                     ? 'bg-emerald-950/35 border-emerald-500/40 text-emerald-200'
@@ -1831,32 +1839,51 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     : 'bg-rose-950/40 border-rose-500/50 text-rose-200'
                 }`}
               >
+                {/* Layer 1: Unclipped Header & Daily Before -> After Pill */}
                 <button
                   type="button"
-                  onClick={() => setIsImpactExpanded((prev) => !prev)}
-                  className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs cursor-pointer"
+                  onClick={() => {
+                    setIsImpactExpanded((prev) => {
+                      const next = !prev;
+                      if (next) {
+                        requestAnimationFrame(() => {
+                          impactCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        });
+                      } else {
+                        setShowExpertImpactMetrics(false);
+                      }
+                      return next;
+                    });
+                  }}
+                  className="w-full min-h-[44px] px-3.5 py-2.5 flex items-start justify-between gap-2.5 text-xs cursor-pointer"
                 >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <div className="flex items-start gap-2 min-w-0 flex-1">
                     {impactReport.severity === 'positive' ? (
-                      <TrendingUp className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <TrendingUp className="w-4 h-4 mt-0.5 text-emerald-400 shrink-0" />
                     ) : impactReport.severity === 'safe' ? (
-                      <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+                      <CheckCircle2 className="w-4 h-4 mt-0.5 text-teal-400 shrink-0" />
                     ) : impactReport.severity === 'caution' || impactReport.severity === 'warning' ? (
-                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                      <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-400 shrink-0" />
                     ) : (
-                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 animate-pulse" />
+                      <AlertCircle className="w-4 h-4 mt-0.5 text-rose-400 shrink-0 animate-pulse" />
                     )}
                     <div className="min-w-0 flex-1">
-                      <div className="font-bold leading-snug truncate">{impactReport.headline}</div>
-                      <div className="text-[10px] opacity-85 font-mono mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <div
+                        className={`font-bold leading-snug whitespace-normal break-words ${
+                          isImpactExpanded ? '' : 'line-clamp-2'
+                        }`}
+                      >
+                        {impactReport.headline}
+                      </div>
+                      <div className="text-[11px] opacity-90 font-mono tabular-nums mt-1 flex items-center gap-1.5 flex-wrap">
                         <span>
-                          {isArabic ? 'اليومي:' : 'Daily:'}{' '}
+                          {isMsgArabic ? 'اليومي:' : 'Daily:'}{' '}
                           {formatCurrency(impactReport.metrics.dailyBefore, currencySymbol)} {'->'}{' '}
                           {formatCurrency(impactReport.metrics.dailyAfter, currencySymbol)}
                         </span>
                         {impactReport.metrics.dailyDelta !== 0 && (
                           <span
-                            className={`px-1.5 py-0.2 rounded-md font-bold ${
+                            className={`px-1.5 py-0.5 rounded-md font-bold tabular-nums ${
                               impactReport.metrics.dailyDelta > 0
                                 ? 'bg-emerald-500/20 text-emerald-300'
                                 : 'bg-black/30 text-current'
@@ -1869,79 +1896,172 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0 text-[10px] font-bold opacity-80">
-                    <span>{isImpactExpanded ? (isArabic ? 'إخفاء' : 'Less') : (isArabic ? 'التفاصيل' : 'Details')}</span>
-                    {isImpactExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  <div className="flex items-center gap-1 shrink-0 text-[11px] font-bold opacity-85 pt-0.5">
+                    <span>
+                      {isImpactExpanded
+                        ? isMsgArabic
+                          ? 'إخفاء'
+                          : 'Less'
+                        : isMsgArabic
+                        ? 'التفاصيل'
+                        : 'Details'}
+                    </span>
+                    {isImpactExpanded ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
                   </div>
                 </button>
 
                 {isImpactExpanded && (
-                  <div className="px-3.5 pb-3 pt-1.5 border-t border-white/10 space-y-2.5 text-[11px]">
-                    {/* Key Forecast Telemetry Grid */}
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <div className="p-2 rounded-xl bg-black/30 border border-white/5">
-                        <div className="text-[10px] opacity-70">{impactReport.metrics.poolLabel}</div>
-                        <div className="font-mono font-bold text-white mt-0.5">
-                          {formatCurrency(impactReport.metrics.poolBefore, currencySymbol)} {'->'}{' '}
+                  <div className="px-3.5 pb-3.5 pt-2.5 border-t border-white/10 space-y-3 text-xs">
+                    {/* Layer 2: 4 Simple Everyday Cards */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="p-2.5 rounded-xl bg-black/25 border border-white/10 min-w-0">
+                        <div className="text-[11px] opacity-75">
+                          {isMsgArabic ? 'متاح النهارده بعد العملية' : 'Left Today After'}
+                        </div>
+                        <div className="font-mono font-bold tabular-nums text-white mt-0.5 break-words">
+                          {formatCurrency(Math.max(0, impactReport.metrics.todayRemainingAfter), currencySymbol)}
+                        </div>
+                        {impactReport.metrics.todayRemainingAfter < 0 && (
+                          <div className="text-[10px] text-amber-300 font-semibold mt-0.5 whitespace-normal">
+                            {isMsgArabic
+                              ? `تجاوزت مسموح اليوم بـ ${formatCurrency(Math.abs(impactReport.metrics.todayRemainingAfter), currencySymbol)}`
+                              : `Over today by ${formatCurrency(Math.abs(impactReport.metrics.todayRemainingAfter), currencySymbol)}`}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-black/25 border border-white/10 min-w-0">
+                        <div className="text-[11px] opacity-75">
+                          {isMsgArabic ? 'يوميتك للأيام الجاية' : 'Daily Limit Ahead'}
+                        </div>
+                        <div className="font-mono font-bold tabular-nums text-white mt-0.5 break-words">
+                          {formatCurrency(impactReport.metrics.dailyAfter, currencySymbol)}
+                        </div>
+                        <div className="text-[10px] opacity-70 font-mono tabular-nums mt-0.5">
+                          {isMsgArabic ? 'كان' : 'was'} {formatCurrency(impactReport.metrics.dailyBefore, currencySymbol)}
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-black/25 border border-white/10 min-w-0">
+                        <div className="text-[11px] opacity-75 truncate">{impactReport.metrics.poolLabel}</div>
+                        <div className="font-mono font-bold tabular-nums text-white mt-0.5 break-words">
                           {formatCurrency(impactReport.metrics.poolAfter, currencySymbol)}
                         </div>
-                      </div>
-                      <div className="p-2 rounded-xl bg-black/30 border border-white/5">
-                        <div className="text-[10px] opacity-70">
-                          {isArabic ? 'عمر الميزانية المتوقع' : 'Projected Runway'}
-                        </div>
-                        <div className="font-mono font-bold text-white mt-0.5">
-                          {impactReport.metrics.projectedRunwayDays} {isArabic ? 'يوم' : 'days'}
-                          {impactReport.metrics.projectedZeroDate
-                            ? ` (${impactReport.metrics.projectedZeroDate.slice(5)})`
-                            : ''}
+                        <div className="text-[10px] opacity-70 font-mono tabular-nums mt-0.5">
+                          {isMsgArabic ? 'كان' : 'was'} {formatCurrency(impactReport.metrics.poolBefore, currencySymbol)}
                         </div>
                       </div>
-                      <div className="p-2 rounded-xl bg-black/30 border border-white/5">
-                        <div className="text-[10px] opacity-70">
-                          {isArabic ? 'يعادل كام يوم صرف' : 'Daily Equivalent'}
+
+                      <div className="p-2.5 rounded-xl bg-black/25 border border-white/10 min-w-0">
+                        <div className="text-[11px] opacity-75">
+                          {isMsgArabic ? 'نظرة لآخر الشهر' : 'Month-End Outlook'}
                         </div>
-                        <div className="font-mono font-bold text-white mt-0.5">
-                          {impactReport.metrics.equivalentDailyDays}x {isArabic ? 'يوم' : 'days'}
-                        </div>
-                      </div>
-                      <div className="p-2 rounded-xl bg-black/30 border border-white/5">
-                        <div className="text-[10px] opacity-70">
-                          {impactReport.metrics.dailyRecoveryNeeded > 0
-                            ? isArabic ? 'للتعافي يومياً' : 'Daily Recovery'
-                            : isArabic ? 'الرصيد المتوقع بنهاية الدورة' : 'Cycle-End Forecast'}
-                        </div>
-                        <div className="font-mono font-bold text-white mt-0.5">
-                          {impactReport.metrics.dailyRecoveryNeeded > 0
-                            ? `${formatCurrency(impactReport.metrics.dailyRecoveryNeeded, currencySymbol)}/${isArabic ? 'يوم' : 'd'}`
-                            : formatCurrency(impactReport.metrics.projectedCycleEndBalance, currencySymbol)}
+                        <div className="font-bold text-white mt-0.5 leading-snug whitespace-normal break-words">
+                          {impactReport.metrics.simpleOutlookLabel}
                         </div>
                       </div>
                     </div>
 
                     {impactReport.metrics.exceedsAvgAlert && (
-                      <div className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 border border-amber-400/30 text-amber-200 font-semibold flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                        <span>
-                          {isArabic
-                            ? `أعلى من متوسط صرفك اليومي بـ ${impactReport.metrics.exceedsAvgRatio}x`
-                            : `${impactReport.metrics.exceedsAvgRatio}x higher than your daily spend average`}
+                      <div className="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-400/30 text-amber-200 font-semibold flex items-start gap-2 leading-relaxed">
+                        <Sparkles className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                        <span className="whitespace-normal break-words">
+                          {isMsgArabic
+                            ? `الصرفة دي أعلى بـ ${impactReport.metrics.exceedsAvgRatio}× من متوسّط صرفك اليومي المعتاد.`
+                            : `This spend is ${impactReport.metrics.exceedsAvgRatio}× higher than your usual daily spend.`}
                         </span>
                       </div>
                     )}
 
-                    {/* Detailed Natural Language Messages */}
-                    <ul className="space-y-1 text-[11px] leading-relaxed opacity-95">
+                    {/* Conversational Human Insights */}
+                    <ul className="space-y-1.5 text-xs leading-relaxed opacity-95">
                       {impactReport.detailedMessages.map((msg, idx) => (
-                        <li key={idx} className="flex items-start gap-1.5">
-                          <span className="mt-1 w-1 h-1 rounded-full bg-current shrink-0 opacity-75" />
-                          <span>{msg}</span>
+                        <li key={idx} className="flex items-start gap-2">
+                          <span className="mt-2 w-1.5 h-1.5 rounded-full bg-current shrink-0 opacity-75" />
+                          <span className="whitespace-normal break-words">{msg}</span>
                         </li>
                       ))}
                     </ul>
 
-                    <div className="px-2.5 py-2 rounded-xl bg-black/35 border border-white/10 font-semibold leading-snug">
+                    {/* Clear Next-Step Action Tip */}
+                    <div className="px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 font-semibold leading-relaxed whitespace-normal break-words">
                       {impactReport.recommendation}
+                    </div>
+
+                    {/* Layer 3: Collapsible Detailed Expert Numbers */}
+                    <div className="pt-1 border-t border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => setShowExpertImpactMetrics((prev) => !prev)}
+                        className="w-full min-h-[38px] flex items-center justify-between px-2 py-1 rounded-lg text-[11px] font-semibold opacity-80 hover:opacity-100 hover:bg-white/5 transition cursor-pointer"
+                      >
+                        <span>
+                          {showExpertImpactMetrics
+                            ? isMsgArabic
+                              ? 'إخفاء الأرقام التفصيلية للخبراء'
+                              : 'Hide Detailed Expert Metrics'
+                            : isMsgArabic
+                            ? 'عرض الأرقام التفصيلية للخبراء'
+                            : 'Show Detailed Expert Metrics'}
+                        </span>
+                        {showExpertImpactMetrics ? (
+                          <ChevronUp className="w-3.5 h-3.5 shrink-0" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                        )}
+                      </button>
+
+                      {showExpertImpactMetrics && (
+                        <div className="mt-2 grid grid-cols-2 gap-1.5 text-[11px]">
+                          <div className="p-2 rounded-xl bg-black/30 border border-white/5">
+                            <div className="text-[10px] opacity-70">
+                              {isMsgArabic ? 'عمر الميزانية المتوقع' : 'Projected Runway'}
+                            </div>
+                            <div className="font-mono font-bold tabular-nums text-white mt-0.5">
+                              {impactReport.metrics.projectedRunwayDays} {isMsgArabic ? 'يوم' : 'days'}
+                              {impactReport.metrics.projectedZeroDate
+                                ? ` (${impactReport.metrics.projectedZeroDate.slice(5)})`
+                                : ''}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-black/30 border border-white/5">
+                            <div className="text-[10px] opacity-70">
+                              {isMsgArabic ? 'يعادل كام يوم صرف' : 'Daily Equivalent'}
+                            </div>
+                            <div className="font-mono font-bold tabular-nums text-white mt-0.5">
+                              {impactReport.metrics.equivalentDailyDays}× {isMsgArabic ? 'يوم' : 'days'}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-black/30 border border-white/5">
+                            <div className="text-[10px] opacity-70">
+                              {isMsgArabic ? 'متوسّط الصرف اليومي' : 'Cycle Daily Average'}
+                            </div>
+                            <div className="font-mono font-bold tabular-nums text-white mt-0.5">
+                              {formatCurrency(impactReport.metrics.averageDailySpendInCycle, currencySymbol)}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-black/30 border border-white/5">
+                            <div className="text-[10px] opacity-70">
+                              {impactReport.metrics.dailyRecoveryNeeded > 0
+                                ? isMsgArabic
+                                  ? 'للتعافي يومياً'
+                                  : 'Daily Recovery'
+                                : isMsgArabic
+                                ? 'الرصيد المتوقع بنهاية الدورة'
+                                : 'Cycle-End Forecast'}
+                            </div>
+                            <div className="font-mono font-bold tabular-nums text-white mt-0.5">
+                              {impactReport.metrics.dailyRecoveryNeeded > 0
+                                ? `${formatCurrency(impactReport.metrics.dailyRecoveryNeeded, currencySymbol)}/${isMsgArabic ? 'يوم' : 'd'}`
+                                : formatCurrency(impactReport.metrics.projectedCycleEndBalance, currencySymbol)}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

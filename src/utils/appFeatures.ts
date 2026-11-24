@@ -19,6 +19,29 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.0.4',
+    isBeta: true,
+    releaseDate: 'November 24, 2026',
+    title: {
+      en: 'Version 2.0.4 Beta: Friendly Budget Messages, Full Light Theme & Notch Protection',
+      ar: 'إصدار 2.0.4 التجريبي: رسائل ميزانية بالعامية المصرية، مظهر فاتح متكامل وحماية لحواف الشاشة',
+    },
+    highlights: {
+      en: [
+        'Safe Notch Spacing: Top headers, drawers, and alerts now sit comfortably below phone camera notches and curved top bars so every button stays easy to tap.',
+        'Revamped Light, Dark & System Themes: Crisp daylight colors across every card, chart, and pop-up window, plus an automatic option that follows your device look.',
+        'Dedicated Budget Message Language: Choose under Settings whether smart budget advice speaks in lively Egyptian Arabic, plain English, or follows your main app language.',
+        'Clearer Expense Impact Cards: Full impact titles and notes are always readable with zero cut-off text, organized into simple everyday highlights with optional detailed numbers underneath.',
+      ],
+      ar: [
+        'مساحة أمان لحواف التليفونات: الهيدر العلوي والقوائم والتنبيهات بقوا يبدأوا تحت النوتش والكاميرا الأمامية بوضوح عشان كل زرار يفضل سهل في الضغطة.',
+        'إعادة هيكلة كاملة للوضع الفاتح والداكن والتلقائي: ألوان فاتحة مريحة ومتناسقة في كل الكروت والرسوم البيانية، مع اختيار تلقائي يمشي ورا مظهر موبايلك.',
+        'لغة مستقلة لرسائل الميزانية: من الإعدادات تقدر تختار أسلوب ونبرة نصائح الميزانية لوحدها بين المصري الودود أو الإنجليزي البسيط أو لغة التطبيق الأساسية.',
+        'رسائل تأثير المصاريف أوضح ومن غير قص: الكلام كامل ظاهر من غير نقط مقصوصة، ومتقسّم لبساطة سريعة في الأول مع زرار اختياري لو حابب تشوف الأرقام التفصيلية.',
+      ],
+    },
+  },
+  {
     version: '2.0.3',
     isBeta: true,
     releaseDate: 'November 22, 2026',

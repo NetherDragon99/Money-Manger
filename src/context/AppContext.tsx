@@ -2660,14 +2660,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   useEffect(() => {
     saveSettings(settings);
-    // Apply theme & RTL direction
-    if (settings.themeMode === 'light') {
-      document.documentElement.classList.add('light-mode');
-      document.documentElement.classList.remove('dark');
-    } else {
-      document.documentElement.classList.remove('light-mode');
-      document.documentElement.classList.add('dark');
-    }
+
+    const applyResolvedTheme = () => {
+      const prefersDark =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const isLight =
+        settings.themeMode === 'light' ||
+        (settings.themeMode === 'system' && !prefersDark);
+
+      document.documentElement.dataset.theme = isLight ? 'light' : 'dark';
+      if (isLight) {
+        document.documentElement.classList.add('light-mode');
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.remove('light-mode');
+        document.documentElement.classList.add('dark');
+      }
+
+      const metaTheme = document.querySelector('meta[name="theme-color"]');
+      if (metaTheme) {
+        metaTheme.setAttribute('content', isLight ? '#F5F5F7' : '#000000');
+      }
+    };
+
+    applyResolvedTheme();
 
     if (settings.language === 'ar') {
       document.documentElement.setAttribute('dir', 'rtl');
@@ -2675,6 +2693,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } else {
       document.documentElement.setAttribute('dir', 'ltr');
       document.documentElement.setAttribute('lang', 'en');
+    }
+
+    if (
+      settings.themeMode === 'system' &&
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function'
+    ) {
+      const mql = window.matchMedia('(prefers-color-scheme: dark)');
+      const onChange = () => applyResolvedTheme();
+      if (typeof mql.addEventListener === 'function') {
+        mql.addEventListener('change', onChange);
+        return () => mql.removeEventListener('change', onChange);
+      } else if (typeof (mql as any).addListener === 'function') {
+        (mql as any).addListener(onChange);
+        return () => (mql as any).removeListener(onChange);
+      }
     }
   }, [settings]);
 

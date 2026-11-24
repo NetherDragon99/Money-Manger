@@ -38,6 +38,8 @@ import {
   Globe,
   Moon,
   Sun,
+  Monitor,
+  MessageSquare,
   Shield,
   KeyRound,
   Clock,
@@ -55,7 +57,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { WeekStartDay } from '../types';
+import { WeekStartDay, ThemeMode, MessageLanguageMode } from '../types';
 import { WORLD_CURRENCIES, CurrencyOption } from '../utils/currencies';
 import {
   loadSecuritySettings,
@@ -404,7 +406,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md transition-opacity duration-200"
+      className="modal-safe-overlay fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md transition-opacity duration-200"
       onClick={onClose}
     >
       <div
@@ -566,9 +568,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <button
                   type="button"
                   onClick={() => updateSettings({ language: 'en' })}
-                  className={`min-h-[40px] py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                  className={`min-h-[44px] py-1.5 text-xs font-semibold rounded-lg transition active:scale-[0.97] cursor-pointer ${
                     settings.language === 'en'
-                      ? 'bg-blue-600 text-white shadow-md'
+                      ? 'bg-emerald-600 text-white shadow-md'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
@@ -577,9 +579,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <button
                   type="button"
                   onClick={() => updateSettings({ language: 'ar' })}
-                  className={`min-h-[40px] py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                  className={`min-h-[44px] py-1.5 text-xs font-semibold rounded-lg transition active:scale-[0.97] cursor-pointer ${
                     settings.language === 'ar'
-                      ? 'bg-blue-600 text-white shadow-md'
+                      ? 'bg-emerald-600 text-white shadow-md'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
@@ -588,33 +590,93 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               </div>
             </div>
 
-            {/* Theme Mode Toggle */}
+            {/* Advisor & Budget Message Language Toggle */}
+            <div>
+              <label className="flex items-center gap-1.5 text-xs text-zinc-400 mb-1.5">
+                <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{isArabic ? 'لغة ونبرة رسائل الميزانية' : 'Advisor & Budget Message Language'}</span>
+              </label>
+              <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-zinc-950 border border-zinc-800">
+                {(
+                  [
+                    {
+                      value: 'app' as MessageLanguageMode,
+                      label: isArabic ? 'لغة التطبيق' : 'Follow App',
+                    },
+                    {
+                      value: 'ar_eg' as MessageLanguageMode,
+                      label: 'مصري 🇪🇬',
+                    },
+                    {
+                      value: 'en' as MessageLanguageMode,
+                      label: 'English',
+                    },
+                  ] as const
+                ).map((opt) => {
+                  const activeMsgLang: MessageLanguageMode = settings.messageLanguage ?? 'app';
+                  const isSelected = activeMsgLang === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => updateSettings({ messageLanguage: opt.value })}
+                      className={`min-h-[44px] px-2 py-1.5 text-xs font-semibold rounded-lg transition active:scale-[0.97] cursor-pointer ${
+                        isSelected
+                          ? 'bg-emerald-600 text-white shadow-md'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1.5 text-[11px] text-zinc-500 leading-relaxed">
+                {isArabic
+                  ? 'يتحكم في لغة ونبرة نصائح الميزانية وتأثير المصاريف فقط بدون تغيير قوائم التطبيق.'
+                  : 'Changes the language & tone of budget advice and expense insights only.'}
+              </p>
+            </div>
+
+            {/* Theme Mode Toggle (Dark / Light / System) */}
             <div>
               <label className="block text-xs text-zinc-400 mb-1.5">{t('theme')}</label>
-              <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-zinc-950 border border-zinc-800">
+              <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-zinc-950 border border-zinc-800">
                 <button
                   type="button"
-                  onClick={() => updateSettings({ themeMode: 'dark' })}
-                  className={`min-h-[40px] flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                  onClick={() => updateSettings({ themeMode: 'dark' as ThemeMode })}
+                  className={`min-h-[44px] flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-lg transition active:scale-[0.97] cursor-pointer ${
                     settings.themeMode === 'dark'
-                      ? 'bg-blue-600 text-white shadow-md'
+                      ? 'bg-emerald-600 text-white shadow-md'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
-                  <Moon className="w-3.5 h-3.5 text-indigo-400" />
+                  <Moon className="w-3.5 h-3.5 text-indigo-300" />
                   <span>{t('darkMode')}</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => updateSettings({ themeMode: 'light' })}
-                  className={`min-h-[40px] flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                  onClick={() => updateSettings({ themeMode: 'light' as ThemeMode })}
+                  className={`min-h-[44px] flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-lg transition active:scale-[0.97] cursor-pointer ${
                     settings.themeMode === 'light'
-                      ? 'bg-blue-600 text-white shadow-md'
+                      ? 'bg-emerald-600 text-white shadow-md'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
-                  <Sun className="w-3.5 h-3.5 text-amber-400" />
+                  <Sun className="w-3.5 h-3.5 text-amber-300" />
                   <span>{t('lightMode')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateSettings({ themeMode: 'system' as ThemeMode })}
+                  className={`min-h-[44px] flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-lg transition active:scale-[0.97] cursor-pointer ${
+                    (settings.themeMode ?? 'system') === 'system'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Monitor className="w-3.5 h-3.5 text-emerald-300" />
+                  <span>{isArabic ? 'تلقائي' : 'System'}</span>
                 </button>
               </div>
             </div>

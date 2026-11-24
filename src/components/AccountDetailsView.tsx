@@ -252,7 +252,7 @@ const AccountDetailsViewBase: React.FC = () => {
       />
 
       {/* Header: Left Back Arrow, Center Account Icon + Name, Right Three-dots Menu */}
-      <header className="sticky top-0 z-40 bg-black/95 px-4 py-3.5 flex items-center justify-between border-b border-zinc-800/80">
+      <header className="app-header-sticky-safe sticky top-0 z-40 bg-black/95 px-4 py-3.5 flex items-center justify-between border-b border-zinc-800/80">
         <button
           type="button"
           onClick={() => navigateBack()}

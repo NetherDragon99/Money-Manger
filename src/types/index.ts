@@ -306,11 +306,16 @@ export interface SmartBudgetSettings {
   updatedAt: number;
 }
 
+export type ThemeMode = 'dark' | 'light' | 'system';
+export type MessageLanguageMode = 'app' | 'en' | 'ar_eg';
+export type ResolvedMessageLanguage = 'en' | 'ar_eg';
+
 export interface AppSettings {
   weekStartDay: WeekStartDay;
   defaultMonthStartDay: number; // 1 to 31 (default: 1)
   language: 'en' | 'ar';
-  themeMode: 'dark' | 'light';
+  messageLanguage?: MessageLanguageMode;
+  themeMode: ThemeMode;
   currencySymbol: string;
   userProfile: UserProfile;
   categoryOrder?: string[];

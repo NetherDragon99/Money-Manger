@@ -536,7 +536,7 @@ const CalculatorViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
   return (
     <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-hidden bg-black text-white select-none animate-in fade-in">
       {/* 1. Unified Header Bar Across All 5 Tabs */}
-      <header className="app-auto-header sticky top-0 z-20 h-16 md:h-20 landscape:h-12 px-4 md:px-8 border-b border-zinc-800/80 flex items-center justify-between bg-black/95 shrink-0">
+      <header className="app-auto-header app-header-safe sticky top-0 z-20 h-16 md:h-20 landscape:h-12 px-4 md:px-8 border-b border-zinc-800/80 flex items-center justify-between bg-black/95 shrink-0">
         <div className="flex items-center gap-2">
           <button
             type="button"

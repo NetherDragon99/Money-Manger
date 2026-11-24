@@ -1,13 +1,61 @@
 @import "tailwindcss";
 
-:root {
+/* ==========================================================================
+   1. MASTER APPLE HIG + SOLV EMERALD COLOR TOKENS & SAFE-AREA VARIABLES
+   ========================================================================== */
+:root,
+[data-theme="light"],
+html.light-mode {
+  color-scheme: light dark;
   --kb-inset: 0px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  --bg-primary: #F5F5F7;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #E5E5EA;
+  --bg-elevated: rgba(255, 255, 255, 0.88);
+  --text-primary: #1D1D1F;
+  --text-secondary: #6E6E73;
+  --text-tertiary: #AEAEB2;
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.16);
+  --accent-primary: #059669;
+  --accent-hover: #047857;
+  --accent-soft: rgba(5, 150, 105, 0.12);
+  --status-success: #28CD41;
+  --status-warning: #FF9F0A;
+  --status-danger: #FF3B30;
 }
 
-/* Modern Web & PWA base styles - Anchored viewport prevents virtual keyboard lift */
+[data-theme="dark"],
+html.dark {
+  color-scheme: dark;
+  --bg-primary: #000000;
+  --bg-secondary: #1C1C1E;
+  --bg-tertiary: #2C2C2E;
+  --bg-elevated: rgba(28, 28, 30, 0.88);
+  --text-primary: #F5F5F7;
+  --text-secondary: #98989D;
+  --text-tertiary: #636366;
+  --border-subtle: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.20);
+  --accent-primary: #10B981;
+  --accent-hover: #34D399;
+  --accent-soft: rgba(16, 185, 129, 0.18);
+  --status-success: #32D74B;
+  --status-warning: #FFD60A;
+  --status-danger: #FF453A;
+}
+
+/* ==========================================================================
+   2. BASE VIEWPORT, TYPOGRAPHY & NATIVE-FEEL ARCHITECTURE
+   ========================================================================== */
 html {
   -webkit-tap-highlight-color: transparent;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   font-size: clamp(13px, 3.6vw, 16px);
@@ -21,8 +69,9 @@ html, body {
   max-width: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  background-color: #000000;
-  color: #ffffff;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.18s ease, border-color 0.18s ease;
 }
 
 #root {
@@ -34,9 +83,17 @@ html, body {
   flex-direction: column;
 }
 
-/* High-Zoom & Large OS Display Scaling Guard */
 *, ::before, ::after {
   box-sizing: border-box;
+}
+
+button, a, [role="button"], input, select, textarea, label {
+  touch-action: manipulation;
+}
+
+.font-mono,
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
 header, nav, [role="dialog"], .modal-container-anim, .card, [class*="card"] {
@@ -48,10 +105,75 @@ header, nav {
   min-height: fit-content;
 }
 
-/* GPU-composited scroll hide (zero React re-renders) */
+/* Focus-visible outline for accessibility */
+button:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   3. NOTCH & SAFE-AREA HEADER / OFFSET UTILITIES
+   ========================================================================== */
 .app-auto-header {
+  padding-top: var(--safe-top, 0px) !important;
+  height: calc(4rem + var(--safe-top, 0px)) !important;
   transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease;
 }
+
+@media screen and (orientation: landscape) and (max-height: 600px) {
+  .app-auto-header {
+    height: calc(3.5rem + var(--safe-top, 0px)) !important;
+  }
+}
+
+.app-header-safe {
+  padding-top: var(--safe-top, 0px) !important;
+  min-height: calc(4rem + var(--safe-top, 0px));
+}
+
+.app-header-sticky-safe {
+  padding-top: max(0.75rem, calc(0.5rem + var(--safe-top, 0px))) !important;
+}
+
+.app-main-offset {
+  padding-top: calc(4rem + var(--safe-top, 0px)) !important;
+}
+
+.app-main-offset-lg {
+  padding-top: calc(5rem + var(--safe-top, 0px)) !important;
+}
+
+@media screen and (orientation: landscape) and (max-height: 600px) {
+  .app-main-offset-lg {
+    padding-top: calc(4rem + var(--safe-top, 0px)) !important;
+  }
+}
+
+.modal-safe-overlay {
+  padding-top: max(0.5rem, calc(0.35rem + var(--safe-top, 0px)));
+  padding-bottom: max(0.5rem, var(--safe-bottom, 0px));
+}
+
+.safe-area-top {
+  padding-top: max(0.5rem, var(--safe-top, 0px));
+}
+.safe-area-bottom {
+  padding-bottom: max(0.5rem, var(--safe-bottom, 0px));
+}
+.safe-area-left {
+  padding-left: max(0.5rem, var(--safe-left, 0px));
+}
+.safe-area-right {
+  padding-right: max(0.5rem, var(--safe-right, 0px));
+}
+
+/* ==========================================================================
+   4. 120FPS SCROLL-HIDE, VIRTUALIZATION & KEYBOARD VIEWPORT UTILITIES
+   ========================================================================== */
 [data-bars-hidden="true"] .app-auto-header,
 .app-auto-header[data-hidden="true"] {
   transform: translate3d(0, -110%, 0);
@@ -79,19 +201,16 @@ header, nav {
   pointer-events: none;
 }
 
-/* Virtual keyboard scroll padding for scrollable modal/form regions */
 .kb-scroll-pad {
   padding-bottom: calc(1.25rem + var(--kb-inset, 0px));
 }
 
-/* Virtualized off-screen transaction rows (120fps scrolling) */
 .tx-row-perf {
   content-visibility: auto;
   contain-intrinsic-size: auto 76px;
   contain: layout style;
 }
 
-/* Modals fluid viewport constraint on high zoom */
 [role="dialog"] {
   max-height: 92vh;
   max-height: 92dvh;
@@ -99,37 +218,29 @@ header, nav {
   overscroll-behavior: contain;
 }
 
-/* Safe area padding utilities */
-.safe-area-top {
-  padding-top: max(0.5rem, env(safe-area-inset-top));
-}
-.safe-area-bottom {
-  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
-}
-.safe-area-left {
-  padding-left: max(0.5rem, env(safe-area-inset-left));
-}
-.safe-area-right {
-  padding-right: max(0.5rem, env(safe-area-inset-right));
+/* ==========================================================================
+   5. THEME-MATCHED SLEEK SCROLLBARS & CONTAINMENT
+   ========================================================================== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
-/* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: var(--border-strong);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: var(--text-tertiary);
 }
 
-/* Hide scrollbars utility */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -138,7 +249,6 @@ header, nav {
   scrollbar-width: none;
 }
 
-/* Modal Overscroll Containment (Bug Fix for Background Scroll Lock) */
 .modal-backdrop-anim,
 .modal-backdrop-closing,
 [role="dialog"],
@@ -146,163 +256,334 @@ header, nav {
   overscroll-behavior: contain !important;
 }
 
-/* Light Mode Theme Overrides */
-html.light-mode {
+/* ==========================================================================
+   6. TOKEN-DRIVEN LIGHT MODE SYSTEM (NO MIXED DARK GRADIENTS OR PASTELS)
+   ========================================================================== */
+html.light-mode,
+[data-theme="light"] {
   color-scheme: light;
 }
 
 html.light-mode body {
-  background-color: #f8fafc !important;
-  color: #0f172a !important;
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
 }
 
-/* Backgrounds */
-html.light-mode .bg-black {
-  background-color: #f8fafc !important;
+/* Neutral Surfaces & Fixed Hex Dark Surfaces */
+html.light-mode .bg-black,
+html.light-mode .bg-\[\#050505\],
+html.light-mode .bg-\[\#07090b\],
+html.light-mode .bg-\[\#090d16\] {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary);
 }
+
+html.light-mode .bg-\[\#0e1422\],
+html.light-mode .bg-\[\#111827\],
+html.light-mode [class*="bg-zinc-950"],
+html.light-mode [class*="bg-zinc-900"] {
+  background-color: var(--bg-secondary) !important;
+}
+
+html.light-mode .bg-zinc-950\/40,
+html.light-mode .bg-zinc-950\/60,
+html.light-mode .bg-zinc-950\/70,
+html.light-mode .bg-zinc-950\/80 {
+  background-color: #F5F5F7 !important;
+}
+
+html.light-mode [class*="bg-zinc-850"],
+html.light-mode [class*="bg-zinc-800"],
+html.light-mode [class*="bg-zinc-750"] {
+  background-color: #EBEBF0 !important;
+}
+
+html.light-mode .bg-\[\#07090b\]\/95 {
+  background-color: var(--bg-elevated) !important;
+}
+
+/* Fixed Headers & Bottom Nav in Light Mode (Apple Translucent Frosted Bar) */
+html.light-mode header.sticky,
+html.light-mode header.fixed,
+html.light-mode nav.fixed.bottom-0 {
+  background-color: var(--bg-elevated) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-color: var(--border-subtle) !important;
+  color: var(--text-primary);
+}
+
+/* Modal Scrims vs Inner Dark Translucency */
+html.light-mode .fixed.inset-0[class*="bg-black/"] {
+  background-color: rgba(15, 23, 42, 0.45) !important;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
 html.light-mode .bg-black\/90,
 html.light-mode .bg-black\/95 {
-  background-color: rgba(255, 255, 255, 0.95) !important;
-  color: #0f172a !important;
+  background-color: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
 }
-html.light-mode .bg-zinc-950,
-html.light-mode .bg-zinc-950\/95,
-html.light-mode .bg-zinc-950\/90,
-html.light-mode .bg-zinc-950\/80,
-html.light-mode .bg-zinc-900,
-html.light-mode .bg-zinc-900\/95,
-html.light-mode .bg-zinc-900\/90,
-html.light-mode .bg-zinc-900\/80,
-html.light-mode .bg-zinc-900\/70,
-html.light-mode .bg-zinc-900\/60,
-html.light-mode .bg-zinc-900\/50,
-html.light-mode .bg-zinc-900\/40 {
-  background-color: #ffffff !important;
+
+html.light-mode [class*="bg-black/"]:not(.fixed):not(.bg-black\/90):not(.bg-black\/95) {
+  background-color: rgba(255, 255, 255, 0.78) !important;
 }
-html.light-mode .bg-zinc-950\/60 {
-  background-color: #f8fafc !important;
+
+/* Tinted Card Surfaces (Previously *-950/* and *-900/* Dark Tints) */
+html.light-mode [class*="bg-emerald-950"],
+html.light-mode [class*="bg-teal-950"] {
+  background-color: #ECFDF5 !important;
+  color: #065F46 !important;
 }
-html.light-mode .bg-zinc-800,
-html.light-mode .bg-zinc-850,
-html.light-mode .bg-zinc-800\/90,
-html.light-mode .bg-zinc-800\/80,
-html.light-mode .bg-zinc-800\/50,
-html.light-mode .bg-zinc-800\/40 {
-  background-color: #f1f5f9 !important;
+html.light-mode [class*="bg-amber-950"],
+html.light-mode [class*="bg-orange-950"] {
+  background-color: #FFFBEB !important;
+  color: #92400E !important;
+}
+html.light-mode [class*="bg-red-950"],
+html.light-mode [class*="bg-red-900"],
+html.light-mode [class*="bg-rose-950"] {
+  background-color: #FEF2F2 !important;
+  color: #991B1B !important;
+}
+html.light-mode [class*="bg-blue-950"] {
+  background-color: #EFF6FF !important;
+  color: #1E40AF !important;
+}
+html.light-mode [class*="bg-purple-950"] {
+  background-color: #FAF5FF !important;
+  color: #5B21B6 !important;
+}
+
+/* Gradient Stop Harmonization (Prevents Dark-to-Light Color Collisions!) */
+html.light-mode [class*="from-zinc-9"],
+html.light-mode [class*="from-zinc-8"],
+html.light-mode [class*="from-black"] {
+  --tw-gradient-from: #FFFFFF !important;
+}
+html.light-mode [class*="via-zinc-9"],
+html.light-mode [class*="via-zinc-8"],
+html.light-mode [class*="via-black"] {
+  --tw-gradient-via: #FFFFFF !important;
+}
+html.light-mode [class*="to-zinc-9"],
+html.light-mode [class*="to-zinc-8"],
+html.light-mode [class*="to-black"] {
+  --tw-gradient-to: #F5F5F7 !important;
+}
+
+html.light-mode [class*="from-emerald-950"],
+html.light-mode [class*="from-emerald-900"],
+html.light-mode [class*="from-teal-950"] {
+  --tw-gradient-from: #ECFDF5 !important;
+}
+html.light-mode [class*="to-teal-950"],
+html.light-mode [class*="to-teal-900"],
+html.light-mode [class*="to-emerald-950"] {
+  --tw-gradient-to: #F0FDFA !important;
+}
+html.light-mode [class*="from-amber-950"] {
+  --tw-gradient-from: #FFFBEB !important;
+}
+html.light-mode [class*="from-red-950"],
+html.light-mode [class*="from-rose-950"] {
+  --tw-gradient-from: #FEF2F2 !important;
+}
+html.light-mode [class*="from-blue-950"] {
+  --tw-gradient-from: #EFF6FF !important;
+}
+html.light-mode [class*="to-blue-950"],
+html.light-mode [class*="to-indigo-950"] {
+  --tw-gradient-to: #EEF2FF !important;
+}
+html.light-mode [class*="from-purple-950"] {
+  --tw-gradient-from: #FAF5FF !important;
+}
+html.light-mode [class*="to-purple-950"] {
+  --tw-gradient-to: #F5F3FF !important;
 }
 
 /* Hover States */
 html.light-mode .hover\:bg-zinc-800:hover,
+html.light-mode .hover\:bg-zinc-850:hover,
 html.light-mode .hover\:bg-zinc-900:hover,
-html.light-mode .hover\:bg-zinc-850:hover {
-  background-color: #f1f5f9 !important;
+html.light-mode .hover\:bg-zinc-750:hover,
+html.light-mode .hover\:bg-zinc-700:hover {
+  background-color: #E5E5EA !important;
 }
 
-/* Form Inputs, Selects, Textareas */
-html.light-mode input:not([type="checkbox"]):not([type="radio"]),
-html.light-mode select,
-html.light-mode textarea {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
-  border-color: #cbd5e1 !important;
-}
-html.light-mode input::placeholder,
-html.light-mode textarea::placeholder {
-  color: #94a3b8 !important;
+html.light-mode .hover\:text-white:hover,
+html.light-mode .hover\:text-zinc-200:hover,
+html.light-mode .hover\:text-zinc-300:hover {
+  color: var(--text-primary) !important;
 }
 
 /* Borders */
-html.light-mode .border-zinc-800,
-html.light-mode .border-zinc-800\/90,
-html.light-mode .border-zinc-800\/80,
-html.light-mode .border-zinc-800\/60,
-html.light-mode .border-zinc-800\/50,
-html.light-mode .border-zinc-850,
-html.light-mode .border-zinc-700,
-html.light-mode .border-zinc-700\/80 {
-  border-color: #e2e8f0 !important;
+html.light-mode [class*="border-zinc-8"],
+html.light-mode [class*="border-zinc-7"],
+html.light-mode [class*="border-zinc-9"],
+html.light-mode [class*="border-white/"] {
+  border-color: var(--border-subtle) !important;
+}
+html.light-mode .border-red-900\/40 {
+  border-color: rgba(220, 38, 38, 0.25) !important;
+}
+html.light-mode .border-amber-900\/40 {
+  border-color: rgba(217, 119, 6, 0.28) !important;
 }
 
-/* General Typography */
+/* Typography & Semantic Text High Contrast in Light Mode */
 html.light-mode .text-white {
-  color: #0f172a;
+  color: var(--text-primary) !important;
 }
+html.light-mode .text-zinc-100,
 html.light-mode .text-zinc-200,
 html.light-mode .text-zinc-300 {
-  color: #334155 !important;
+  color: #3A3A3C !important;
 }
 html.light-mode .text-zinc-400 {
-  color: #64748b !important;
+  color: var(--text-secondary) !important;
 }
-html.light-mode .text-zinc-500 {
-  color: #94a3b8 !important;
+html.light-mode .text-zinc-500,
+html.light-mode .text-zinc-600 {
+  color: #8E8E93 !important;
 }
 
-/* High Contrast Semantic Colors in Light Mode */
+html.light-mode [class*="text-emerald-2"],
+html.light-mode [class*="text-emerald-3"],
 html.light-mode .text-emerald-400,
 html.light-mode .text-emerald-500 {
-  color: #059669 !important;
+  color: #047857 !important;
 }
+html.light-mode [class*="text-teal-2"],
+html.light-mode [class*="text-teal-3"],
+html.light-mode .text-teal-400 {
+  color: #0F766E !important;
+}
+html.light-mode [class*="text-red-2"],
+html.light-mode [class*="text-red-3"],
 html.light-mode .text-red-400,
-html.light-mode .text-red-500 {
-  color: #dc2626 !important;
+html.light-mode .text-red-500,
+html.light-mode [class*="text-rose-2"],
+html.light-mode [class*="text-rose-3"],
+html.light-mode .text-rose-400 {
+  color: #DC2626 !important;
 }
+html.light-mode [class*="text-blue-2"],
+html.light-mode [class*="text-blue-3"],
 html.light-mode .text-blue-400,
 html.light-mode .text-blue-500 {
-  color: #2563eb !important;
+  color: #1D4ED8 !important;
 }
+html.light-mode [class*="text-amber-2"],
+html.light-mode [class*="text-amber-3"],
 html.light-mode .text-amber-400,
 html.light-mode .text-amber-500 {
-  color: #d97706 !important;
+  color: #B45309 !important;
 }
+html.light-mode [class*="text-orange-2"],
+html.light-mode [class*="text-orange-3"],
+html.light-mode .text-orange-400 {
+  color: #C2410C !important;
+}
+html.light-mode [class*="text-purple-2"],
+html.light-mode [class*="text-purple-3"],
 html.light-mode .text-purple-400 {
-  color: #7c3aed !important;
+  color: #6D28D9 !important;
 }
+html.light-mode [class*="text-cyan-2"],
+html.light-mode [class*="text-cyan-3"],
 html.light-mode .text-cyan-400 {
-  color: #0284c7 !important;
+  color: #0369A1 !important;
 }
 
-/* Bottom Navigation in Light Mode */
-html.light-mode nav.fixed.bottom-0 {
-  background-color: rgba(255, 255, 255, 0.95) !important;
-  border-top-color: #e2e8f0 !important;
+/* Inputs, Textareas & Modals in Light Mode */
+html.light-mode input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+html.light-mode select,
+html.light-mode textarea {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-strong) !important;
+}
+html.light-mode input::placeholder,
+html.light-mode textarea::placeholder {
+  color: var(--text-tertiary) !important;
 }
 
-/* Cards & Floating Elements Shadows */
+/* Clean Apple Shadows on Light Cards & Modals */
 html.light-mode .shadow-2xl,
 html.light-mode .shadow-xl {
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.09), 0 4px 12px -4px rgba(0, 0, 0, 0.04) !important;
 }
 
-/* CRITICAL: Protect Solid Colored Buttons and Active Pills from turning text black */
+/* CRITICAL: Keep Solid Saturated Buttons Crisp White-on-Color in Light Mode */
 html.light-mode .bg-blue-600,
 html.light-mode .bg-blue-500,
 html.light-mode .bg-red-600,
 html.light-mode .bg-red-500,
 html.light-mode .bg-emerald-600,
 html.light-mode .bg-emerald-500,
+html.light-mode .bg-teal-600,
+html.light-mode .bg-purple-600,
+html.light-mode .bg-amber-600,
+html.light-mode .bg-rose-600,
+html.light-mode .bg-indigo-600,
 html.light-mode .bg-blue-600 *,
 html.light-mode .bg-blue-500 *,
 html.light-mode .bg-red-600 *,
 html.light-mode .bg-red-500 *,
 html.light-mode .bg-emerald-600 *,
-html.light-mode .bg-emerald-500 * {
-  color: #ffffff !important;
+html.light-mode .bg-emerald-500 *,
+html.light-mode .bg-teal-600 *,
+html.light-mode .bg-purple-600 *,
+html.light-mode .bg-amber-600 *,
+html.light-mode .bg-rose-600 *,
+html.light-mode .bg-indigo-600 * {
+  color: #FFFFFF !important;
 }
 
-/* Numpad in Light Mode */
+/* Explicit dark text on bright emerald-500 -> teal-400 pill CTA buttons */
+html.light-mode .from-emerald-500.text-black,
+html.light-mode .from-emerald-500.text-black *,
+html.light-mode .bg-emerald-500.text-black,
+html.light-mode .bg-emerald-500.text-black * {
+  color: #062219 !important;
+}
+
+/* Numpad Keys in Light Mode */
 html.light-mode .grid-cols-4 button,
 html.light-mode .grid-cols-3 button {
-  background-color: #ffffff;
-  color: #0f172a;
-  border-color: #e2e8f0;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
 }
 html.light-mode .grid-cols-4 button:active,
 html.light-mode .grid-cols-3 button:active {
-  background-color: #e2e8f0;
+  background-color: var(--bg-tertiary);
 }
 
-/* Calculator Equals Button in Light Mode (Item 7) */
+/* Re-protect colored active buttons inside 3-column grids in Light Mode */
+html.light-mode .grid-cols-3 button.bg-emerald-600,
+html.light-mode .grid-cols-3 button.bg-blue-600,
+html.light-mode .grid-cols-3 button.bg-amber-600,
+html.light-mode .grid-cols-3 button.bg-teal-600 {
+  color: #FFFFFF !important;
+}
+html.light-mode .grid-cols-3 button.bg-emerald-600 {
+  background-color: #059669 !important;
+}
+html.light-mode .grid-cols-3 button.bg-blue-600 {
+  background-color: #2563EB !important;
+}
+html.light-mode .grid-cols-3 button.bg-amber-600 {
+  background-color: #D97706 !important;
+}
+html.light-mode .grid-cols-3 button.bg-teal-600 {
+  background-color: #0D9488 !important;
+}
+
+/* Calculator Equals Button in Light Mode */
 button.calc-equals-btn,
 html.light-mode button.calc-equals-btn,
 html.light-mode .grid-cols-4 button.calc-equals-btn,
@@ -311,109 +592,89 @@ html.light-mode .grid-cols-4 button.calc-equals-btn,
   background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
   color: #ffffff !important;
   border-color: #059669 !important;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4) !important;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35) !important;
 }
-
 button.calc-equals-btn:active,
 html.light-mode button.calc-equals-btn:active,
-html.light-mode .grid-cols-4 button.calc-equals-btn:active,
-.light button.calc-equals-btn:active,
-.light-mode button.calc-equals-btn:active {
+html.light-mode .grid-cols-4 button.calc-equals-btn:active {
   background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
   color: #ffffff !important;
 }
-
 button.calc-equals-btn span,
 html.light-mode button.calc-equals-btn span,
-html.light-mode .grid-cols-4 button.calc-equals-btn span,
-.light button.calc-equals-btn span,
-.light-mode button.calc-equals-btn span {
+html.light-mode .grid-cols-4 button.calc-equals-btn span {
   color: #ffffff !important;
 }
 
 /* Calculator Special Action Buttons in Light Mode */
 html.light-mode .grid-cols-4 button.text-amber-400 {
-  color: #d97706 !important;
-  background-color: #fef3c7 !important;
-  border-color: #fde68a !important;
+  color: #B45309 !important;
+  background-color: #FEF3C7 !important;
+  border-color: #FDE68A !important;
 }
 html.light-mode .grid-cols-4 button.text-cyan-400 {
-  color: #0284c7 !important;
-  background-color: #f0fdf4 !important;
-  border-color: #e2e8f0 !important;
+  color: #0369A1 !important;
+  background-color: #ECFDF5 !important;
+  border-color: var(--border-subtle) !important;
 }
 html.light-mode .grid-cols-4 button.text-blue-400 {
-  color: #2563eb !important;
-  background-color: #eff6ff !important;
-  border-color: #bfdbfe !important;
+  color: #1D4ED8 !important;
+  background-color: #EFF6FF !important;
+  border-color: #BFDBFE !important;
 }
 html.light-mode .grid-cols-4 button.text-emerald-400 {
-  color: #059669 !important;
-  background-color: #ecfdf5 !important;
-  border-color: #a7f3d0 !important;
+  color: #047857 !important;
+  background-color: #ECFDF5 !important;
+  border-color: #A7F3D0 !important;
 }
 html.light-mode .grid-cols-4 button[aria-label="Backspace"] {
-  background-color: #fff1f2 !important;
-  color: #e11d48 !important;
-  border-color: #fecdd3 !important;
+  background-color: #FFF1F2 !important;
+  color: #E11D48 !important;
+  border-color: #FECDD3 !important;
 }
 
-
-/* Calculator Display & History Panel Theme-Aware Overrides (Item 5) */
-html.light-mode .calc-display-screen,
-.light .calc-display-screen {
-  background-color: #f8fafc !important;
-  border-color: #e2e8f0 !important;
-  color: #0f172a !important;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05) !important;
+/* Calculator Display & History Panel Theme-Aware Overrides */
+html.light-mode .calc-display-screen {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--border-subtle) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
 }
-
-html.light-mode .calc-history-drawer,
-.light .calc-history-drawer {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  color: #0f172a !important;
+html.light-mode .calc-history-drawer {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--border-subtle) !important;
+  color: var(--text-primary) !important;
 }
-
-html.light-mode .calc-history-item,
-.light .calc-history-item {
-  background-color: #f8fafc !important;
-  border-color: #e2e8f0 !important;
-  color: #1e293b !important;
+html.light-mode .calc-history-item {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-subtle) !important;
+  color: var(--text-primary) !important;
 }
-
-html.light-mode .calc-history-item:hover,
-.light .calc-history-item:hover {
-  background-color: #f1f5f9 !important;
+html.light-mode .calc-history-item:hover {
+  background-color: var(--bg-tertiary) !important;
 }
-
-html.light-mode .calc-history-item .text-zinc-400,
-.light .calc-history-item .text-zinc-400 {
-  color: #475569 !important;
+html.light-mode .calc-history-item .text-zinc-400 {
+  color: var(--text-secondary) !important;
 }
-
-html.light-mode .calc-display-result,
-.light .calc-display-result {
-  color: #0f172a !important;
+html.light-mode .calc-display-result {
+  color: var(--text-primary) !important;
 }
-
-html.light-mode .calc-display-expression,
-.light .calc-display-expression {
-  color: #334155 !important;
+html.light-mode .calc-display-expression {
+  color: var(--text-secondary) !important;
 }
-
-html.light-mode .calc-display-zero,
-.light .calc-display-zero {
-  color: #94a3b8 !important;
+html.light-mode .calc-display-zero {
+  color: var(--text-tertiary) !important;
 }
 
 /* Disabled State */
 html.light-mode button:disabled {
-  background-color: #e2e8f0 !important;
-  color: #94a3b8 !important;
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-tertiary) !important;
 }
 
-/* Tactile Press Micro-interactions for All Interactive Elements */
+/* ==========================================================================
+   7. APPLE SPRING MICRO-INTERACTIONS, MODALS & ACCORDION MOTION
+   ========================================================================== */
 button,
 [role="button"] {
   transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
@@ -421,56 +682,55 @@ button,
 
 button:active:not(:disabled),
 [role="button"]:active:not(:disabled) {
-  transform: scale(0.96);
+  transform: scale(0.97);
 }
 
-/* Smooth Spring & Fade Animations for All Modals and Windows */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @keyframes modalSlideUp {
   0% {
     opacity: 0;
-    transform: translateY(18px) scale(0.97);
+    transform: translate3d(0, 18px, 0) scale(0.97);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
 @keyframes modalSlideDown {
   0% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translateY(18px) scale(0.96);
+    transform: translate3d(0, 18px, 0) scale(0.96);
   }
 }
 
 @keyframes backdropFadeIn {
-  0% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
+  0% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 @keyframes backdropFadeOut {
-  0% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
+  0% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .modal-backdrop-anim {
-  animation: backdropFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: backdropFadeIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .modal-container-anim {
-  animation: modalSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: modalSlideUp 0.22s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .modal-backdrop-closing {
@@ -481,11 +741,10 @@ button:active:not(:disabled),
   animation: modalSlideDown 0.18s cubic-bezier(0.4, 0, 1, 1) forwards !important;
 }
 
-/* Page Scroll Animation Track */
 .page-scroll-track {
   display: flex;
   width: 500%;
-  transition: transform 0.32s cubic-bezier(0.25, 1, 0.5, 1);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
 
@@ -497,40 +756,34 @@ button:active:not(:disabled),
   min-height: 100%;
 }
 
-/* Smooth Accordion / Collapsible Transitions */
 .accordion-wrapper {
   display: grid;
-  transition: grid-template-rows 0.28s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.22s ease;
+  transition: grid-template-rows 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
 }
-
 .accordion-wrapper.closed {
   grid-template-rows: 0fr;
   opacity: 0;
   pointer-events: none;
 }
-
 .accordion-wrapper.open {
   grid-template-rows: 1fr;
   opacity: 1;
 }
-
 .accordion-inner {
   overflow: hidden;
   min-height: 0;
 }
 
-/* Pin Shake Animation */
 @keyframes shakeHorizontal {
-  0%, 100% { transform: translateX(0); }
-  20%, 60% { transform: translateX(-8px); }
-  40%, 80% { transform: translateX(8px); }
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  20%, 60% { transform: translate3d(-8px, 0, 0); }
+  40%, 80% { transform: translate3d(8px, 0, 0); }
 }
 
 .animate-shake {
   animation: shakeHorizontal 0.35s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
 
-/* Tablet & Mobile Landscape Full-Width & Compact Vertical Spacing Optimization */
 @media screen and (orientation: landscape) {
   html, body, #root {
     width: 100% !important;
@@ -542,6 +795,6 @@ button:active:not(:disabled),
 
 @media screen and (orientation: landscape) and (max-height: 600px) {
   .safe-area-bottom {
-    padding-bottom: max(0.25rem, env(safe-area-inset-bottom)) !important;
+    padding-bottom: max(0.25rem, var(--safe-bottom, 0px)) !important;
   }
 }

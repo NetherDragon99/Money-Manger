@@ -6,12 +6,14 @@
 import React, { useState, memo } from 'react';
 import { AlertTriangle, AlertCircle, TrendingUp, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useAppData, useAppActions } from '../context/AppContext';
+import { resolveMessageLanguage } from '../utils/constants';
 
 const SmartBudgetAlertBannerBase: React.FC = () => {
   const { budgetAlerts, dismissedAlertIds, settings } = useAppData();
   const { dismissBudgetAlert, setCurrentTab } = useAppActions();
   const [isExpanded, setIsExpanded] = useState(true);
-  const isArabic = settings.language === 'ar';
+  const msgLang = resolveMessageLanguage(settings);
+  const isMsgArabic = msgLang === 'ar_eg';
 
   const activeAlerts = budgetAlerts.filter((a) => !dismissedAlertIds.includes(a.categoryId));
 
@@ -21,7 +23,7 @@ const SmartBudgetAlertBannerBase: React.FC = () => {
   const isDanger = activeAlerts.some((a) => a.status === 'danger');
 
   return (
-    <div className="mb-4 rounded-2xl overflow-hidden border border-zinc-800 shadow-xl transition-all duration-200">
+    <div dir={isMsgArabic ? 'rtl' : 'ltr'} className="mb-4 rounded-2xl overflow-hidden border border-zinc-800 shadow-xl transition-all duration-200">
       {/* Banner Header */}
       <div
         onClick={() => setIsExpanded(!isExpanded)}
@@ -39,12 +41,12 @@ const SmartBudgetAlertBannerBase: React.FC = () => {
           )}
           <span className="text-xs font-bold whitespace-normal break-words leading-relaxed max-w-full min-w-0 py-1">
             {isDanger
-              ? isArabic
-                ? `تحذير: تجاوزت الميزانية في ${topAlert.categoryName}!`
-                : `Budget Exceeded in ${topAlert.categoryName}!`
-              : isArabic
-              ? `تنبيه: اقتراب حد الميزانية في ${topAlert.categoryName} (${topAlert.percentage}%)`
-              : `Budget Alert: ${topAlert.categoryName} at ${topAlert.percentage}%`}
+              ? isMsgArabic
+                ? `خلي بالك! صرف "${topAlert.categoryName}" عدى الميزانية بتاعته!`
+                : `Heads-up! Spending in "${topAlert.categoryName}" crossed its budget!`
+              : isMsgArabic
+              ? `قرّبت على حد "${topAlert.categoryName}" (${topAlert.percentage}%) — خليك واخد بالك`
+              : `Getting close in "${topAlert.categoryName}" (${topAlert.percentage}%)`}
           </span>
           {activeAlerts.length > 1 && (
             <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-zinc-900/80 text-zinc-300 border border-zinc-700 shrink-0">
@@ -62,7 +64,7 @@ const SmartBudgetAlertBannerBase: React.FC = () => {
             }}
             className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-zinc-900/90 text-white hover:bg-zinc-800 transition cursor-pointer"
           >
-            {isArabic ? 'عرض' : 'View'}
+            {isMsgArabic ? 'عرض' : 'View'}
           </button>
           {isExpanded ? (
             <ChevronUp className="w-4 h-4 text-zinc-400" />
