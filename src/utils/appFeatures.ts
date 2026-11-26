@@ -19,6 +19,25 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.2.1',
+    isBeta: true,
+    releaseDate: 'November 26, 2026',
+    title: {
+      en: 'Beta v2.2.1: Sleek Single-Line Transfer Cards',
+      ar: 'بيتا v2.2.1: بطاقات تحويل مدمجة وأنيقة في سطر واحد',
+    },
+    highlights: {
+      en: [
+        'Single-Line Transfer Layout: Transfers between accounts now sit cleanly on a single horizontal row (From ➔ To) without taking excessive vertical space.',
+        'Smart Icon Fallback: On mobile screens or when account names are long, the card shows the account icons with From/To tags to prevent multi-line clutter while keeping full names visible on wider screens.',
+      ],
+      ar: [
+        'تصميم مدمج للتحويلات في سطر واحد: معاملات التحويل بين الحسابات أصبحت تظهر بشكل أفقي أنيق ومريح للعين (من ➔ إلى) دون أن تأخذ أسطر متعددة أو تزدحم الشاشة.',
+        'اقتصار ذكي على الأيقونات: في الشاشات الصغيرة أو عند طول أسماء الحسابات، يكتفي الكارت بإظهار أيقونات الحسابات مع وسوم (من / إلى) لمنع الزحمة، مع عرض الأسماء كاملة على الشاشات الأكبر.',
+      ],
+    },
+  },
+  {
     version: '2.2.0',
     isBeta: false,
     releaseDate: 'November 24, 2026',

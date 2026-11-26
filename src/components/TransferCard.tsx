@@ -113,6 +113,13 @@ const TransferCardBase: React.FC<TransferCardProps> = ({
     ? `من ${effectiveFromName} إلى ${effectiveToName}`
     : `From ${effectiveFromName} → To ${effectiveToName}`;
 
+  // Combined character length of both account names to intelligently preserve single-row layout
+  const combinedNamesLength = (effectiveFromName || '').length + (effectiveToName || '').length;
+  // If names are very short (<= 10 chars total), they fit side-by-side even on small screens.
+  // When longer or space is tight, mobile (< sm) omits names and displays icon-only with 'From'/'To'
+  // to strictly prevent multi-line vertical clutter, while wider screens (>= sm) show names cleanly truncated.
+  const isShortNamesOnMobile = combinedNamesLength <= 10;
+
   // Dual Historical Balances resolution: check prop first, then transaction fields
   const fromBalBefore = historicalBalances?.fromBalanceBefore ?? transaction.fromBalanceBefore;
   const fromBalAfter = historicalBalances?.fromBalanceAfter ?? transaction.fromBalanceAfter;
@@ -153,12 +160,12 @@ const TransferCardBase: React.FC<TransferCardProps> = ({
       } ${className}`}
     >
       {/* Top Main Section: Route Structure (Left) + Amount (Right) */}
-      <div className="flex items-start justify-between gap-2.5 w-full">
+      <div className="flex items-center justify-between gap-2 sm:gap-2.5 w-full">
         {/* Route Container + Checkbox with min-w-0 to prevent flex blowout */}
-        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1 overflow-hidden">
           {/* Multi-Select Checkbox */}
           {isMultiSelect && (
-            <div className="pt-1 shrink-0">
+            <div className="shrink-0 flex items-center">
               <div
                 className={`w-5 h-5 rounded-lg flex items-center justify-center transition border ${
                   isSelected
@@ -171,45 +178,59 @@ const TransferCardBase: React.FC<TransferCardProps> = ({
             </div>
           )}
 
-          {/* Two-row pill structure on narrow viewports (< sm), responsive inline on wider screens */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 flex-1 min-w-0 max-w-full">
+          {/* Strict single-line horizontal route (never breaks or wraps vertically) */}
+          <div className="flex items-center gap-1 sm:gap-1.5 flex-nowrap min-w-0 flex-1 overflow-hidden">
             {/* Source Account (From) Pill */}
             <div
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-500/10 border border-blue-500/25 min-w-0 max-w-full"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl bg-blue-500/10 border border-blue-500/25 min-w-0 shrink"
               style={effectiveFromColor ? { borderColor: `${effectiveFromColor}66` } : undefined}
+              title={effectiveFromName}
             >
               <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 shrink-0">
                 {isArabic ? 'من' : 'From'}
               </span>
               {renderAccountIcon(effectiveFromIcon, effectiveFromName, effectiveFromColor, 'S')}
-              <span className="text-xs sm:text-sm font-bold text-white min-w-0 break-words leading-tight">
-                {effectiveFromName}
-              </span>
+              {isShortNamesOnMobile ? (
+                <span className="text-xs sm:text-sm font-bold text-white truncate max-w-[65px] sm:max-w-[130px] leading-tight">
+                  {effectiveFromName}
+                </span>
+              ) : (
+                <span className="hidden sm:inline text-xs sm:text-sm font-bold text-white truncate max-w-[110px] md:max-w-[170px] leading-tight">
+                  {effectiveFromName}
+                </span>
+              )}
             </div>
 
             {/* Directional Arrow Indicator (Flipped in RTL) */}
-            <div className="w-5 h-5 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 self-center sm:self-auto shadow-sm my-0.5 sm:my-0">
+            <div className="w-5 h-5 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 shadow-sm">
               <ArrowRight className="w-3 h-3 stroke-[2.5] rtl:rotate-180 transition-transform" />
             </div>
 
             {/* Destination Account (To) Pill */}
             <div
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/25 min-w-0 max-w-full"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/25 min-w-0 shrink"
               style={effectiveToColor ? { borderColor: `${effectiveToColor}66` } : undefined}
+              title={effectiveToName}
             >
               <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 shrink-0">
                 {isArabic ? 'إلى' : 'To'}
               </span>
               {renderAccountIcon(effectiveToIcon, effectiveToName, effectiveToColor, 'D')}
-              <span className="text-xs sm:text-sm font-bold text-white min-w-0 break-words leading-tight">
-                {effectiveToName}
-              </span>
+              {isShortNamesOnMobile ? (
+                <span className="text-xs sm:text-sm font-bold text-white truncate max-w-[65px] sm:max-w-[130px] leading-tight">
+                  {effectiveToName}
+                </span>
+              ) : (
+                <span className="hidden sm:inline text-xs sm:text-sm font-bold text-white truncate max-w-[110px] md:max-w-[170px] leading-tight">
+                  {effectiveToName}
+                </span>
+              )}
             </div>
           </div>
         </div>
 
         {/* Right Section: Formatted Amount (Always 100% visible, never clipped) + Actions */}
-        <div className="flex flex-col items-end shrink-0 pt-0.5 text-right rtl:text-left pl-1 rtl:pr-1 rtl:pl-0">
+        <div className="flex flex-col items-end shrink-0 text-right rtl:text-left ps-1">
           <div className="flex items-center gap-1.5">
             <div className="text-sm sm:text-base font-mono font-bold text-blue-400 shrink-0 min-w-fit">
               {formatCurrency(transaction.amount, currencySymbol, isArabic ? 'ar' : 'en')}
@@ -235,7 +256,7 @@ const TransferCardBase: React.FC<TransferCardProps> = ({
           </div>
 
           {Boolean(transaction.transferFee && transaction.transferFee > 0) && (
-            <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0">
+            <span className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0">
               <span>
                 {isArabic
                   ? `+ رسوم: ${formatCurrency(transaction.transferFee!, currencySymbol, 'ar')}`
@@ -252,6 +273,15 @@ const TransferCardBase: React.FC<TransferCardProps> = ({
           <span>⇄</span>
           <span>{defaultTransferLabel}</span>
         </span>
+
+        {!isShortNamesOnMobile && !hasCustomDescription && !hasDualBalances && (
+          <>
+            <span className="text-zinc-600 sm:hidden">•</span>
+            <span className="text-zinc-400 sm:hidden font-medium truncate max-w-[200px]">
+              {transferTitle}
+            </span>
+          </>
+        )}
 
         {hasCustomDescription && (
           <>
