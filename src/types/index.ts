@@ -1,3 +1,6 @@
+import type { TransactionBillSplitRef } from './billSplit';
+export * from './billSplit';
+
 export type TransactionType = 'expense' | 'income' | 'transfer';
 export type TabType = 'home' | 'budget' | 'insights' | 'accounts' | 'calculator';
 export type AccountRole = 'spending' | 'savings' | 'saving' | 'investment' | 'investing' | 'customise';
@@ -118,6 +121,7 @@ export interface Transaction {
   sender16Id?: string;
   shareId?: string;
   excludedShareIds?: string[]; // IDs of shared spaces where this transaction was deleted by owner and should not be propagated
+  billSplit?: TransactionBillSplitRef;
 }
 
 export type WeekStartDay = 'saturday' | 'sunday' | 'monday';

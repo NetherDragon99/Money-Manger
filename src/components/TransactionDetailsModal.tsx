@@ -2,7 +2,7 @@ import { TransferBadge } from './TransferBadge';
 import React, { useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
-import { X, Trash2, Edit3, ArrowRight, Share2, RefreshCw } from 'lucide-react';
+import { X, Trash2, Edit3, ArrowRight, Share2, RefreshCw, ReceiptText } from 'lucide-react';
 import { getHistoricalBalance, getTransferHistoricalBalances } from '../utils/balanceEngine';
 import { formatCurrency, formatFullDateTime, isManualAdjustment } from '../utils/dateCycle';
 
@@ -20,6 +20,7 @@ export const TransactionDetailsModal: React.FC = () => {
     settings,
     showConfirm,
     openShareModal,
+    openBillSplit,
     t,
   } = useApp();
 
@@ -471,6 +472,34 @@ export const TransactionDetailsModal: React.FC = () => {
               {viewingTx.description}
             </p>
           </div>
+        )}
+
+        {/* Linked Bill Split Shortcut (Reopen collaborative bill page) */}
+        {viewingTx.billSplit?.id && (
+          <button
+            type="button"
+            onClick={() => {
+              const billId = viewingTx.billSplit!.id;
+              handleAnimatedClose();
+              setTimeout(() => {
+                openBillSplit(billId);
+              }, 190);
+            }}
+            className="w-full flex items-center justify-between gap-3 p-3.5 min-h-[48px] rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-300 transition cursor-pointer active:scale-[0.98]"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <ReceiptText className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div className="min-w-0 text-start">
+                <div className="text-xs font-extrabold text-emerald-200 truncate">
+                  {t('billOpenFromTransaction')}
+                </div>
+                <div dir="auto" className="text-[11px] text-zinc-300 truncate">
+                  {viewingTx.billSplit.title}
+                </div>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-emerald-400 rtl:rotate-180 shrink-0" />
+          </button>
         )}
 
         {/* Action Buttons at Bottom */}

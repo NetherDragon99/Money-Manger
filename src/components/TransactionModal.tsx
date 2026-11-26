@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
-import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, ChevronUp, LayoutGrid, RefreshCw, Trash2, CheckCircle2, AlertTriangle, AlertCircle, Check, PiggyBank, ShieldAlert, Wallet, Zap, Coins, TrendingUp, Sparkles } from 'lucide-react';
+import { X, ArrowDown, ArrowUp, ArrowLeftRight, Calendar, Clock, Plus, ChevronDown, ChevronUp, LayoutGrid, RefreshCw, Trash2, CheckCircle2, AlertTriangle, AlertCircle, Check, PiggyBank, ShieldAlert, Wallet, Zap, Coins, TrendingUp, Sparkles, ReceiptText } from 'lucide-react';
 import { TransactionType, RecurringFrequency, RecurringTransaction, AdvancedScheduleConfig, Transaction, SavingsWithdrawalChoice, TaxFeeMode, TransferFeeMode, ManualFeeInputType, ExpenseBudgetPool } from '../types';
 import { formatDateToYYYYMMDD, formatTimeToHHMM, formatCurrency, formatDisplayNumber } from '../utils/dateCycle';
 import { calculateNextDueDate, getScheduleSummaryText, migrateRecurringRule, normalizeHHMM, normalizeTimesList, getNextNOccurrences, OccurrencePreviewItem } from '../utils/recurring';
@@ -174,6 +174,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     applyRecurringRuleEdit,
     transactions,
     setIsSmartBudgetModalOpen,
+    openBillSplit,
     showToast,
     showConfirm,
   } = useApp();
@@ -1778,6 +1779,28 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               <RefreshCw className="w-3.5 h-3.5 shrink-0" />
               <span>{isArabic ? 'تعديل قاعدة المعاملة الدورية' : 'Editing recurring rule'}</span>
             </div>
+          )}
+
+          {editingTx?.billSplit?.id && !isSharedMode && (
+            <button
+              type="button"
+              onClick={() => {
+                const billId = editingTx.billSplit!.id;
+                handleAnimatedClose();
+                setTimeout(() => {
+                  openBillSplit(billId);
+                }, 190);
+              }}
+              className="w-full rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 px-3.5 py-2.5 min-h-[44px] text-xs font-bold text-emerald-300 flex items-center justify-between gap-2 transition cursor-pointer"
+            >
+              <span className="flex items-center gap-2 min-w-0 truncate">
+                <ReceiptText className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="truncate">{t('billOpenFromTransaction')}</span>
+              </span>
+              <span dir="auto" className="text-[11px] text-zinc-300 truncate max-w-[120px]">
+                {editingTx.billSplit.title}
+              </span>
+            </button>
           )}
 
           {/* Amount Display & Read-Only Context in Edit Mode */}

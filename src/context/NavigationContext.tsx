@@ -77,6 +77,9 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (s.selectedAccountId) {
       stack.push(`subview:account_details:${s.selectedAccountId}`);
     }
+    if (s.isBillSplitOpen) {
+      stack.push(`subview:bill_split:${s.activeBillSplitId || 'draft'}`);
+    }
     if (s.isSidebarOpen) {
       stack.push('modal:sidebar');
     }
@@ -197,6 +200,8 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [
     app.currentTab,
     app.selectedAccountId,
+    app.isBillSplitOpen,
+    app.activeBillSplitId,
     app.isSidebarOpen,
     app.isSharedHubModalOpen,
     app.activeShareDetailFolder,
@@ -391,6 +396,12 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Layer: Sidebar Drawer
       if (s.isSidebarOpen) {
         s.setIsSidebarOpen(false);
+        return;
+      }
+
+      // Layer: Sub-page Bill Split View
+      if (s.isBillSplitOpen) {
+        s.closeBillSplit();
         return;
       }
 

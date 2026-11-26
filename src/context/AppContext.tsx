@@ -9,6 +9,7 @@ import React, {
   useRef,
 } from 'react';
 import { debouncedPersist, flushOfflineQueue } from '../utils/persistQueue';
+import { loadBillSplitBundle, importBillSplitBundle } from '../utils/billSplitStore';
 
 /**
  * Wraps every mutator in a permanently stable callback (useCallback with [] deps) that always
@@ -312,7 +313,7 @@ interface AppContextType {
   selectEmoji: (emoji: string) => void;
 
   // Transactions CRUD
-  addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => string;
   updateTransaction: (tx: Transaction) => void;
   deleteTransaction: (id: string) => void;
 
@@ -443,6 +444,12 @@ interface AppContextType {
   setActiveSharedSnapshot: (snapshot: any | null) => void;
   openSharedLiveView: (id?: string, snapshot?: any) => void;
   closeSharedLiveView: () => void;
+
+  // Collaborative Bill Split Full-Page Subview
+  isBillSplitOpen: boolean;
+  activeBillSplitId: string | null;
+  openBillSplit: (sessionId?: string) => void;
+  closeBillSplit: () => void;
 
   // Derived Lookups & Memoized Evaluations
   accountsById: Map<string, Account>;
@@ -601,6 +608,8 @@ export type AppActionsContextType = Pick<
   | 'setActiveSharedSnapshot'
   | 'openSharedLiveView'
   | 'closeSharedLiveView'
+  | 'openBillSplit'
+  | 'closeBillSplit'
   | 'resolveSyncConflict'
 >;
 
@@ -689,6 +698,8 @@ export type AppUIContextType = Pick<
   | 'setFeatureGuideLayout'
   | 'activeSharedId'
   | 'activeSharedSnapshot'
+  | 'isBillSplitOpen'
+  | 'activeBillSplitId'
 >;
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -2752,6 +2763,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         myFolders: loadMyShareFolders(),
         receivedFolders: loadReceivedShareFolders(),
       },
+      billSplitData: loadBillSplitBundle(),
       userProfile: {
         name: effectiveSettings.userProfile?.name || 'User',
         numericId: effectiveSettings.userProfile?.numericId || '',
@@ -2840,6 +2852,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       const my16 = cleanNumericId(settings.userProfile?.numericId || getOrCreateNumericId());
       repairAndMigrateSharedSpaces(my16, auth.currentUser?.uid || settings.userProfile?.uid);
+    }
+    if (d.billSplitData && typeof d.billSplitData === 'object') {
+      importBillSplitBundle(d.billSplitData, 'replace');
     }
   };
 
@@ -4079,7 +4094,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // CRUD TRANSACTIONS
-  const addTransaction = (txData: Omit<Transaction, 'id' | 'createdAt'>) => {
+  const addTransaction = (txData: Omit<Transaction, 'id' | 'createdAt'>): string => {
     const nowTs = Date.now();
     const txId = `tx_${nowTs}_${Math.random().toString(36).slice(2, 7)}`;
     const hasTransferFee = Boolean(
@@ -4180,6 +4195,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     showToast(t('savedSuccess'), 'success');
+    return newTx.id;
   };
 
   const updateTransaction = (updatedTx: Transaction) => {
@@ -5239,6 +5255,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         saveReceivedShareFolders(data.sharedSpaces.receivedFolders);
       }
     }
+    if (data.billSplitData && typeof data.billSplitData === 'object') {
+      importBillSplitBundle(data.billSplitData, 'replace');
+    }
     setTimeout(() => {
       isHydratingCloudRef.current = false;
     }, 1000);
@@ -5427,6 +5446,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const my16 = cleanNumericId(settings.userProfile?.numericId || getOrCreateNumericId());
         repairAndMigrateSharedSpaces(my16, uid);
       }
+      if (d.billSplitData && typeof d.billSplitData === 'object') {
+        importBillSplitBundle(d.billSplitData, 'merge');
+      }
 
       await hydrateAndPublishUserProfile(uid, d);
 
@@ -5570,6 +5592,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     window.history.replaceState({}, '', u.pathname + (u.search ? u.search : ''));
   };
 
+  // Collaborative Bill Split Full-Page Subview
+  const [isBillSplitOpen, setIsBillSplitOpen] = useState<boolean>(false);
+  const [activeBillSplitId, setActiveBillSplitId] = useState<string | null>(null);
+
+  const openBillSplit = (sessionId?: string) => {
+    setActiveBillSplitId(sessionId || null);
+    setIsBillSplitOpen(true);
+  };
+
+  const closeBillSplit = () => {
+    setIsBillSplitOpen(false);
+    setActiveBillSplitId(null);
+  };
+
   // When an invitation link is opened (?share=...), automatically register it into "Shared with Me"
   useEffect(() => {
     if (!activeSharedId) return;
@@ -5697,6 +5733,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setActiveSharedSnapshot,
     openSharedLiveView,
     closeSharedLiveView,
+    openBillSplit,
+    closeBillSplit,
     resolveSyncConflict,
   });
 
@@ -5845,6 +5883,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setFeatureGuideLayout: stable.setFeatureGuideLayout,
       activeSharedId,
       activeSharedSnapshot,
+      isBillSplitOpen,
+      activeBillSplitId,
     }),
     [
       stable,
@@ -5902,6 +5942,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       featureGuideLayout,
       activeSharedId,
       activeSharedSnapshot,
+      isBillSplitOpen,
+      activeBillSplitId,
     ]
   );
 

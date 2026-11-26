@@ -19,6 +19,31 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.2.2',
+    isBeta: true,
+    releaseDate: 'November 26, 2026',
+    title: {
+      en: 'Beta v2.2.2: Group Bill Splitting & Smart Receipt Sharing',
+      ar: 'بيتا v2.2.2: صفحة لمّ الحساب وتقسيم الفواتير بالكامل',
+    },
+    highlights: {
+      en: [
+        'Full Bill Split Page: Tap the new receipt button in the Home header to enter ordered dishes, quantities, and people in seconds — works smoothly even without internet.',
+        'Smart Taxes, Fees & Exemptions: Add service charges, tax, delivery, tips, or discounts in any order, split proportionally or equally, exempt specific people, or pin a fixed amount for anyone.',
+        'Automatic Bill Total Check: Enter the printed receipt total to spot missing fees, rounding cents, or extra items right away with clear explanations and quick fix buttons.',
+        'Paste Receipt Text & Saved Groups: Paste restaurant order text in Arabic or English to fill items automatically, reuse saved friends and groups in one tap, and keep unfinished drafts safe.',
+        'Share as Dark or Light Image & Link to Your Account: Share clean receipt cards or messages for the whole bill, chosen people, or each friend separately with transfer details, and reopen any bill directly from its saved transaction.',
+      ],
+      ar: [
+        'صفحة لمّ الحساب وتقسيم الفواتير: اضغط على أيقونة الفاتورة الجديدة في الشريط العلوي للرئيسية لإضافة الأصناف والكميات والناس بسرعة فائقة وبدون الحاجة لإنترنت.',
+        'ضريبة وخدمة وخصومات بمرونة كاملة: أضف الخدمة والضريبة والتوصيل والبخشيش والخصم بأي ترتيب، مع إمكانية إعفاء أشخاص محددين أو تحديد مبلغ ثابت لأي شخص.',
+        'مطابقة ذكية لإجمالي الفاتورة: اكتب الإجمالي المكتوب على الفاتورة والنظام يكتشف لك أي فرق أو نسبة ناقصة أو فكة تقريب ويديك حلول جاهزة بضغطة واحدة.',
+        'لصق الفاتورة ومجموعات الصحاب: الصق نص الفاتورة بالعربي أو الإنجليزي لتوزيع الأصناف تلقائياً، واحفظ مجموعات صحابك ومسوداتك وسجل الفواتير السابقة.',
+        'مشاركة كصورة داكنة أو فاتحة وربط بحسابك: ابعت الفاتورة كلها أو حساب كل شخص لوحده كصورة أنيقة أو رسالة شاملة بيانات التحويل، وسجل اللي دفعته كمعاملة تقدر ترجع تفتح منها صفحة الحساب في أي وقت.',
+      ],
+    },
+  },
+  {
     version: '2.2.1',
     isBeta: true,
     releaseDate: 'November 26, 2026',
@@ -952,6 +977,45 @@ export const APP_CORE_FEATURES: FeatureItem[] = [
     proTip: {
       en: 'Your customized category order is automatically respected in the transaction keypad sticky category bar for rapid single-tap selection.',
       ar: 'ترتيبك المخصص للفئات ينعكس تلقائياً في شريط الفئات الثابت فوق لوحة الأرقام لسرعة الاختيار بلمسة واحدة.',
+    },
+  },
+  {
+    id: 'bill-split',
+    icon: '🧾',
+    category: 'finance',
+    title: {
+      en: 'Group Bill Split & Receipt Sharing',
+      ar: 'لمّ الحساب وتقسيم الفواتير',
+    },
+    subtitle: {
+      en: 'Split group tabs with taxes, checks & image cards',
+      ar: 'قسّم فاتورة الشلة بالضريبة والمطابقة وصور جاهزة للمشاركة',
+    },
+    description: {
+      en: 'Manage restaurant meals, group outings, and shared orders effortlessly. Enter items with unit quantities or paste receipt text directly, configure flexible service/tax/delivery/discount rules with per-person exemptions, check your total against the printed bill, mark who paid, share dark or light receipt cards per person, and record your payment as a linked expense transaction.',
+      ar: 'نظّم حسابات المطاعم والخروجات والطلبات المشتركة بكل سهولة. أضف الأصناف والكميات أو الصق نص الفاتورة، اضبط الخدمة والضريبة والتوصيل والخصم مع إعفاء أو تثبيت مبلغ لأشخاص محددين، طابق الإجمالي المكتوب، علّم من دفع، شارك صور فاتورة داكنة أو فاتحة لكل شخص، وسجّل ما دفعته كمعاملة مرتبطة يمكنك الرجوع إليها في أي وقت.',
+    },
+    whereToFind: {
+      en: 'Home Screen → Tap the Receipt Icon in the top-right header bar beside the Reset button.',
+      ar: 'الشاشة الرئيسية ← اضغط على أيقونة الفاتورة في الشريط العلوي بجانب زر إعادة الضبط.',
+    },
+    howToUse: {
+      en: [
+        'Add people by name, from your saved friends, or using one-tap friend groups.',
+        'Add items quickly or paste receipt text, then tap people to split equally, share with everyone, or assign exact units.',
+        'Add service, tax, delivery, or discounts and enter the written receipt total so solv verifies every cent.',
+        'Mark who paid, share Dark or Light receipt images or individual messages, and tap Done to record your expense.',
+      ],
+      ar: [
+        'أضف الأشخاص بالاسم أو من الأصدقاء المحفوظين أو المجموعات الجاهزة بضغطة واحدة.',
+        'أضف الأصناف بسرعة أو الصق نص الفاتورة، ثم اضغط على الأسماء للتقسيم العادل أو للكل أو حسب الوحدات.',
+        'أضف الخدمة والضريبة والتوصيل والخصم واكتب الإجمالي المطبوع للتأكد من عدم وجود أي فرق.',
+        'علّم على من دفع، وشارك صور داكنة أو فاتحة أو رسائل لكل شخص منفصل، ثم اضغط تم لتسجيل المصروف.',
+      ],
+    },
+    proTip: {
+      en: 'You can reopen any saved Bill Split directly from its transaction details or edit screen whenever someone pays later.',
+      ar: 'تقدر تفتح صفحة أي حساب مقسّم تاني مباشرة من شاشة تفاصيل أو تعديل المعاملة لو حد دفع لاحقاً أو حبيت تعدل حاجة.',
     },
   },
 ];

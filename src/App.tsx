@@ -59,6 +59,10 @@ const loadAppFeaturesModal = () =>
   import('./components/AppFeaturesModal').then((m) => ({ default: m.AppFeaturesModal }));
 let AppFeaturesModal = React.lazy(loadAppFeaturesModal);
 
+const loadBillSplitPage = () =>
+  import('./components/BillSplitPage').then((m) => ({ default: m.BillSplitPage }));
+let BillSplitPage = React.lazy(loadBillSplitPage);
+
 interface LazyChunkErrorBoundaryProps {
   isOpen: boolean;
   isArabic: boolean;
@@ -83,6 +87,7 @@ class LazyChunkErrorBoundary extends React.Component<
 
   handleRetry = () => {
     AppFeaturesModal = React.lazy(loadAppFeaturesModal);
+    BillSplitPage = React.lazy(loadBillSplitPage);
     this.setState((prev) => ({ hasError: false, retryCount: prev.retryCount + 1 }));
   };
 
@@ -226,6 +231,8 @@ const MainAppContent: React.FC = () => {
     activeSharedId,
     activeSharedSnapshot,
     closeSharedLiveView,
+    isBillSplitOpen,
+    closeBillSplit,
     customDialogState,
     closeCustomDialog,
     shareModalState,
@@ -268,7 +275,8 @@ const MainAppContent: React.FC = () => {
     !!customDialogState ||
     shareModalState.isOpen ||
     !!remainingBalanceModalState?.isOpen ||
-    !!selectedAccountId;
+    !!selectedAccountId ||
+    isBillSplitOpen;
 
   // Capture PWA beforeinstallprompt event immediately in React state and window.deferredPwaPrompt
   const [deferredPwaPrompt, setDeferredPwaPrompt] = useState<any>(() => {
@@ -837,6 +845,28 @@ const MainAppContent: React.FC = () => {
                   <AccountDetailsView />
                 </React.Suspense>
               </div>
+            </div>
+          )}
+
+          {isBillSplitOpen && (
+            <div className="fixed inset-0 z-40 bg-[var(--bg-primary)] animate-in slide-in-from-right rtl:slide-in-from-left duration-250 flex flex-col overflow-hidden">
+              <LazyChunkErrorBoundary
+                isOpen={isBillSplitOpen}
+                isArabic={settings.language === 'ar'}
+                onClose={closeBillSplit}
+              >
+                <React.Suspense
+                  fallback={
+                    <div className="w-full h-[100dvh] bg-[var(--bg-primary)] p-6 space-y-4">
+                      <div className="h-12 rounded-2xl bg-[var(--bg-secondary)] animate-pulse" />
+                      <div className="h-24 rounded-2xl bg-[var(--bg-secondary)] animate-pulse" />
+                      <div className="h-44 rounded-2xl bg-[var(--bg-secondary)] animate-pulse" />
+                    </div>
+                  }
+                >
+                  <BillSplitPage />
+                </React.Suspense>
+              </LazyChunkErrorBoundary>
             </div>
           )}
 

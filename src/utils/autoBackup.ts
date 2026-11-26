@@ -4,7 +4,7 @@
  * and background execution loops on visibilitychange / intervals.
  */
 
-import { AppData, Account, Category, Transaction, AppSettings, RecurringTransaction, Tombstone, GranularDirtyQueueItem } from '../types';
+import { AppData, Account, Category, Transaction, AppSettings, RecurringTransaction, Tombstone, GranularDirtyQueueItem, BillSplitStorageBundle } from '../types';
 import {
   getGoogleDriveAccessToken,
   setGoogleDriveAccessToken,
@@ -19,6 +19,7 @@ import { queueOfflineCloudBackup } from './persistQueue';
 import { INITIAL_CATEGORIES } from './constants';
 import { migrateRecurringRule } from './recurring';
 import { formatVersionLabel, CURRENT_APP_VERSION } from './versionChecker';
+import { loadBillSplitBundle } from './billSplitStore';
 
 export interface FullAppBackupPayload {
   version: string;
@@ -32,6 +33,7 @@ export interface FullAppBackupPayload {
   categories: Category[];
   transactions: Transaction[];
   recurringTransactions?: RecurringTransaction[];
+  billSplitData?: BillSplitStorageBundle;
   tombstones?: Record<string, Tombstone>;
   settings: AppSettings;
   sharedSpaces?: {
@@ -178,6 +180,7 @@ export async function executeAutoBackup(data: AppData): Promise<{ success: boole
     type: 'automated_backup',
     backupDate: new Date().toISOString(),
     ...data,
+    billSplitData: loadBillSplitBundle(),
   };
   const jsonStr = JSON.stringify(backupPayload, null, 2);
 

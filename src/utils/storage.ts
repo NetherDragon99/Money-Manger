@@ -1,5 +1,5 @@
 import { parseFormattedNumber } from './formatters';
-import { Account, Category, Transaction, AppSettings, AppData, RecurringTransaction } from '../types';
+import { Account, Category, Transaction, AppSettings, AppData, RecurringTransaction, BillSplitStorageBundle } from '../types';
 import { DEFAULT_ACCOUNTS, INITIAL_CATEGORIES, DEFAULT_SETTINGS } from './constants';
 import { isStrictSeededDailyExpressCategory, CORRECTED_SEEDED_EXPENSE_CATEGORY_NAME } from './categoryMigration';
 import { syncAllAccountBalances } from './balanceEngine';
@@ -8,6 +8,7 @@ import { debouncedPersist } from './persistQueue';
 import { loadRecurringTransactions, migrateRecurringRule } from './recurring';
 import { writeCurrentSchemaVersion } from './schemaGuard';
 import { formatVersionLabel, CURRENT_APP_VERSION } from './versionChecker';
+import { loadBillSplitBundle, importBillSplitBundle } from './billSplitStore';
 import {
   loadMyShareFolders,
   saveMyShareFolders,
@@ -110,7 +111,7 @@ export function saveSettings(settings: AppSettings): void {
 /**
  * Exports full app data as a downloadable JSON file
  */
-export function exportAllDataAsJSON(data: AppData & { recurringTransactions?: RecurringTransaction[] }): void {
+export function exportAllDataAsJSON(data: AppData & { recurringTransactions?: RecurringTransaction[]; billSplitData?: BillSplitStorageBundle }): void {
   const recurring = (data.recurringTransactions || loadRecurringTransactions()).map(migrateRecurringRule);
   const exportPayload = {
     version: CURRENT_APP_VERSION,
@@ -118,6 +119,7 @@ export function exportAllDataAsJSON(data: AppData & { recurringTransactions?: Re
     exportDate: new Date().toISOString(),
     ...data,
     recurringTransactions: recurring,
+    billSplitData: data.billSplitData || loadBillSplitBundle(),
   };
   const jsonStr = JSON.stringify(exportPayload, null, 2);
   const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -530,6 +532,11 @@ export function executeCustomDataImport(
     try {
       window.dispatchEvent(new CustomEvent('shared_folders_updated'));
     } catch {}
+  }
+
+  // 4b. BILL SPLITS IMPORT (Preserves history, drafts, friends & groups)
+  if (payload.billSplitData && typeof payload.billSplitData === 'object') {
+    importBillSplitBundle(payload.billSplitData, config.mode);
   }
 
   // 5. ACCURATE BALANCE RECALCULATION

@@ -1,9 +1,10 @@
 import { SwipeableTabs } from '../components/SwipeableTabs';
-import React, { useState, useMemo, memo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { useAppData, useAppUI, useAppActions } from '../context/AppContext';
 import {
   Menu,
   RotateCcw,
+  ReceiptText,
   ChevronLeft,
   ChevronRight,
   ArrowDown,
@@ -32,6 +33,7 @@ import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
 import { getTransactionBudgetPool } from '../utils/smartBudgetEngine';
 import { IS_BETA_BUILD } from '../utils/channel';
 import { useLongPress } from '../hooks/useLongPress';
+import { getActiveBillDraft } from '../utils/billSplitStore';
 
 const HomeViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
   const {
@@ -66,7 +68,15 @@ const HomeViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
     toggleBatchTxs,
     setCurrentTab,
     setIsSmartBudgetModalOpen,
+    openBillSplit,
   } = useAppActions();
+
+  const [hasActiveBillDraft, setHasActiveBillDraft] = useState<boolean>(() => Boolean(getActiveBillDraft()));
+  useEffect(() => {
+    const syncDraft = () => setHasActiveBillDraft(Boolean(getActiveBillDraft()));
+    window.addEventListener('bill_splits_updated', syncDraft);
+    return () => window.removeEventListener('bill_splits_updated', syncDraft);
+  }, []);
 
   const isArabic = settings.language === 'ar';
   const currencySymbol = settings.currencySymbol || '£';
@@ -290,8 +300,20 @@ const HomeViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
           )}
         </div>
 
-        {/* Right: Reset Counter Button */}
+        {/* Right: Bill Split & Reset Counter Buttons */}
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => openBillSplit()}
+            aria-label={t('billOpen')}
+            title={t('billOpen')}
+            className="relative min-w-[44px] min-h-[44px] w-10 h-10 rounded-xl flex items-center justify-center hover:bg-zinc-800 text-emerald-400 hover:text-emerald-300 transition cursor-pointer active:scale-95"
+          >
+            <ReceiptText className="w-5 h-5" />
+            {hasActiveBillDraft && (
+              <span className="absolute top-2 end-2 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-black" />
+            )}
+          </button>
           <button
             type="button"
             onClick={() => setIsResetPeriodModalOpen(true)}

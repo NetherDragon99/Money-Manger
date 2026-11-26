@@ -30,6 +30,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = React.memo(({ i
     activeSharedId,
     activeSharedSnapshot,
     activeShareDetailFolder,
+    isBillSplitOpen,
     isTxMultiSelect,
     isCategoryMultiSelect,
     isAccountMultiSelect,
@@ -68,6 +69,7 @@ export const Navigation: React.FC<{ isBarsVisible?: boolean }> = React.memo(({ i
     activeSharedId ||
     activeSharedSnapshot ||
     activeShareDetailFolder ||
+    isBillSplitOpen ||
     isTxMultiSelect ||
     isCategoryMultiSelect ||
     isAccountMultiSelect ||
