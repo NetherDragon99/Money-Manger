@@ -31,7 +31,6 @@ import { GroupedTransactionList } from '../components/GroupedTransactionList';
 import { TransactionFilterBar } from '../components/TransactionFilterBar';
 import { SmartBudgetAlertBanner } from '../components/SmartBudgetAlertBanner';
 import { getTransactionBudgetPool } from '../utils/smartBudgetEngine';
-import { IS_BETA_BUILD } from '../utils/channel';
 import { useLongPress } from '../hooks/useLongPress';
 import { getActiveBillDraft } from '../utils/billSplitStore';
 
@@ -272,9 +271,9 @@ const HomeViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
   );
 
   return (
-    <div className="bg-black text-white flex flex-col pb-24 app-main-offset animate-in fade-in">
-      {/* 1. Top Header Bar with GPU CSS Auto-Hide on Scroll */}
-      <header className="app-auto-header fixed top-0 left-0 right-0 max-w-full md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/95 border-b border-zinc-800/80 flex items-center justify-between">
+    <div className="bg-black text-white flex flex-col pb-24 animate-in fade-in">
+      {/* 1. Top Header Bar — Sticky inside Home slide so tabs never overlap */}
+      <header className="app-auto-header sticky top-0 w-full shrink-0 z-20 h-16 landscape:h-14 px-4 bg-black/95 border-b border-zinc-800/80 flex items-center justify-between">
         {/* Left: Hamburger Menu Button (☰) */}
         <button
           type="button"
@@ -293,11 +292,6 @@ const HomeViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
             className="w-7 h-7 rounded-lg shrink-0"
           />
           <span className="text-base font-black tracking-tight text-white">solv</span>
-          {IS_BETA_BUILD && (
-            <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/35 text-[9px] font-extrabold uppercase tracking-wider text-emerald-400">
-              Beta
-            </span>
-          )}
         </div>
 
         {/* Right: Bill Split & Reset Counter Buttons */}

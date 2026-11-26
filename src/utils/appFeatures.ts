@@ -19,6 +19,25 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.2.3',
+    isBeta: true,
+    releaseDate: 'November 27, 2026',
+    title: {
+      en: 'Beta v2.2.3: Clean Per-Tab Headers & Visible Bill Split Icon',
+      ar: 'بيتا v2.2.3: إصلاح تداخل الهيدر وإظهار أيقونة لمّ الحساب',
+    },
+    highlights: {
+      en: [
+        'Each Tab Shows Its Own Header: Fixed the top bar sticking on Accounts while browsing Home, Budget, or Insights so every page displays its own title and buttons cleanly.',
+        'Always-Visible Bill Split Button: The receipt icon in the Home header now appears right beside the reset button with zero overlap, keeping the solv brand mark clean.',
+      ],
+      ar: [
+        'هيدر مستقل لكل صفحة: تم إصلاح تداخل الشريط العلوي الذي كان يُظهر عنوان «الحسابات» فوق الرئيسية والميزانية والتحليلات، فأصبحت كل صفحة تعرض عنوانها وأزرارها بشكل صحيح.',
+        'ظهور أيقونة لمّ الحساب بوضوح: أيقونة الفاتورة في الشريط العلوي للرئيسية أصبحت ظاهرة بوضوح بجانب زر إعادة الضبط مع بقاء شعار solv نظيفاً.',
+      ],
+    },
+  },
+  {
     version: '2.2.2',
     isBeta: true,
     releaseDate: 'November 26, 2026',

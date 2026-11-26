@@ -198,9 +198,9 @@ const InsightsViewBase: React.FC<{ isBarsVisible?: boolean }> = () => {
   const currencySymbol = settings.currencySymbol || '£';
 
   return (
-    <div className="bg-black text-white flex flex-col pb-24 app-main-offset animate-in fade-in">
-      {/* 1. Standardized Top Header Across All Views */}
-      <header className="app-auto-header fixed top-0 left-0 right-0 w-full max-w-none md:max-w-7xl landscape:max-w-none mx-auto z-20 h-16 landscape:h-14 px-4 bg-black/95 border-b border-zinc-800/80 flex items-center justify-between">
+    <div className="bg-black text-white flex flex-col pb-24 animate-in fade-in">
+      {/* 1. Standardized Top Header — Sticky inside Insights slide */}
+      <header className="app-auto-header sticky top-0 w-full shrink-0 z-20 h-16 landscape:h-14 px-4 bg-black/95 border-b border-zinc-800/80 flex items-center justify-between">
         <div className="flex items-center gap-2">
           {/* Universal Sidebar Menu Button (☰) */}
           <button
