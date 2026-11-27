@@ -13,7 +13,12 @@ import {
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
 import { BillExtra, BillItem, BillPerson, BillSession, ExpenseBudgetPool } from '../types';
-import { computeBill, formatMinorMoney, generateBillId } from '../utils/billSplitEngine';
+import {
+  computeBill,
+  formatMinorMoney,
+  generateBillId,
+  mergeCloudClaimsIntoItem,
+} from '../utils/billSplitEngine';
 import {
   cleanupExpiredCloudBillsClientSide,
   createNewBillSession,
@@ -206,10 +211,9 @@ export const BillSplitPage: React.FC = () => {
           }));
         }
         if (patch.claims) {
-          nextItems = nextItems.map((it) => ({
-            ...it,
-            claims: patch.claims![it.id] ? { ...patch.claims![it.id] } : {},
-          }));
+          nextItems = nextItems.map((it) =>
+            mergeCloudClaimsIntoItem(it, patch.claims![it.id])
+          );
         }
         return {
           ...prev,

@@ -139,6 +139,30 @@ export function getEffectivePersonPermission(
   return session.live?.defaultPermission ?? 'view_only';
 }
 
+export function mergeCloudClaimsIntoItem(
+  item: BillItem,
+  itemClaims: Record<string, number> | undefined
+): BillItem {
+  const cleanClaims: Record<string, number> = {};
+  if (itemClaims && typeof itemClaims === 'object') {
+    for (const [pid, val] of Object.entries(itemClaims)) {
+      const n = Number(val);
+      if (Number.isFinite(n) && n > 0) cleanClaims[pid] = n;
+    }
+  }
+  if (item.mode === 'equal_among') {
+    return {
+      ...item,
+      claims: cleanClaims,
+      equalAmong: Object.keys(cleanClaims),
+    };
+  }
+  return {
+    ...item,
+    claims: cleanClaims,
+  };
+}
+
 export function getApprovedPeople(session: BillSession): BillPerson[] {
   return session.people.filter((p) => p.approval === 'approved');
 }

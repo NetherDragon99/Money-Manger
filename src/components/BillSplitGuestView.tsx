@@ -148,9 +148,13 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
   };
 
   const handleToggleClaim = async (item: BillItem) => {
-    if (!boundPerson || !canClaimOwn) return;
-    const current = Number(item.claims?.[boundPerson.id]) || 0;
-    const nextUnits = current > 0 ? 0 : 1;
+    if (!boundPerson || !canClaimOwn || item.mode === 'everyone') return;
+    const currentlyClaimed =
+      item.mode === 'equal_among'
+        ? (item.equalAmong || []).includes(boundPerson.id) ||
+          (Number(item.claims?.[boundPerson.id]) || 0) > 0
+        : (Number(item.claims?.[boundPerson.id]) || 0) > 0;
+    const nextUnits = currentlyClaimed ? 0 : 1;
     try {
       await guestToggleItemClaim(billId, item.id, boundPerson.id, nextUnits);
     } catch {
@@ -452,18 +456,24 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
-                          {canClaimOwn && (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleClaim(item)}
-                              className={`min-h-[36px] px-3 rounded-xl border text-xs font-bold cursor-pointer transition ${
-                                claimed
-                                  ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)] text-white'
-                                  : 'bg-[var(--bg-tertiary)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
-                              }`}
-                            >
-                              {claimed ? t('billGuestMineDoneBtn') : t('billGuestMineBtn')}
-                            </button>
+                          {item.mode === 'everyone' ? (
+                            <span className="px-2.5 py-1 rounded-full bg-[var(--accent-soft)] text-[var(--accent-primary)] text-[11px] font-bold">
+                              {t('billModeEveryone')}
+                            </span>
+                          ) : (
+                            canClaimOwn && (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleClaim(item)}
+                                className={`min-h-[36px] px-3 rounded-xl border text-xs font-bold cursor-pointer transition ${
+                                  claimed
+                                    ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)] text-white'
+                                    : 'bg-[var(--bg-tertiary)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
+                                }`}
+                              >
+                                {claimed ? t('billGuestMineDoneBtn') : t('billGuestMineBtn')}
+                              </button>
+                            )
                           )}
                           {canEditItems && (
                             <button

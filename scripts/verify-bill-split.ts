@@ -12,6 +12,7 @@ import {
   computeExtras,
   distributeLargestRemainder,
   getEffectivePersonPermission,
+  mergeCloudClaimsIntoItem,
   reconcile,
   settle,
   toMinor,
@@ -570,6 +571,23 @@ test('11. exact item split mode blocks mismatches until exact sum matches, and g
     ),
     'view_only'
   );
+
+  // Cloud claims merge updates equalAmong for equal_among items
+  const eqItem: BillItem = {
+    id: 'it_eq',
+    name: 'Pasta',
+    unitPriceMinor: 20000,
+    qty: 1,
+    mode: 'equal_among',
+    claims: {},
+    equalAmong: [],
+  };
+  const merged = mergeCloudClaimsIntoItem(eqItem, { p_ahmed: 1, p_mona: 1 });
+  assert.deepEqual(merged.equalAmong, ['p_ahmed', 'p_mona']);
+  const mergedSession = makeBaseSession({ items: [merged] });
+  const mergedComp = computeBill(mergedSession);
+  assert.equal(mergedComp.finalPersonTotalsMinor.p_ahmed, 10000);
+  assert.equal(mergedComp.finalPersonTotalsMinor.p_mona, 10000);
 });
 
 console.log(`\n[solv] ALL ${passed} BILL SPLIT VERIFICATION SUITES PASSED ✓\n`);

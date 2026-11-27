@@ -5,7 +5,11 @@ import {
   BillPerson,
   BillSession,
 } from '../types';
-import { generateBillId, getEffectivePersonPermission } from './billSplitEngine';
+import {
+  generateBillId,
+  getEffectivePersonPermission,
+  mergeCloudClaimsIntoItem,
+} from './billSplitEngine';
 import { auth, ensureFirebaseAuth, rtdb } from './firebase';
 
 const initializedCloudBills = new Set<string>();
@@ -100,7 +104,15 @@ export async function publishOrSyncBillToCloud(session: BillSession): Promise<bo
       note: it.note || null,
       order: idx,
     });
-    if (it.claims && Object.keys(it.claims).length > 0) {
+    if (it.mode === 'equal_among') {
+      const eqClaims: Record<string, number> = {};
+      for (const pid of it.equalAmong || []) {
+        eqClaims[pid] = 1;
+      }
+      if (Object.keys(eqClaims).length > 0) {
+        claimsMap[it.id] = eqClaims;
+      }
+    } else if (it.claims && Object.keys(it.claims).length > 0) {
       claimsMap[it.id] = stripUndefined(it.claims);
     }
   });
@@ -151,18 +163,26 @@ export function reconstructSessionFromCloud(billId: string, val: any): BillSessi
 
   const items: BillItem[] = Object.values(itemsObj)
     .sort((a: any, b: any) => (Number(a.order) || 0) - (Number(b.order) || 0))
-    .map((it: any) => ({
-      id: String(it.id),
-      name: String(it.name || ''),
-      unitPriceMinor: Number(it.unitPriceMinor) || 0,
-      qty: Number(it.qty) > 0 ? Number(it.qty) : 1,
-      mode: it.mode || 'equal_among',
-      claims: claimsObj[it.id] && typeof claimsObj[it.id] === 'object' ? claimsObj[it.id] : {},
-      equalAmong: Array.isArray(it.equalAmong) ? it.equalAmong : [],
-      exactAmountsMinor:
-        it.exactAmountsMinor && typeof it.exactAmountsMinor === 'object' ? it.exactAmountsMinor : {},
-      note: it.note || undefined,
-    }));
+    .map((it: any) => {
+      const baseItem: BillItem = {
+        id: String(it.id),
+        name: String(it.name || ''),
+        unitPriceMinor: Number(it.unitPriceMinor) || 0,
+        qty: Number(it.qty) > 0 ? Number(it.qty) : 1,
+        mode: it.mode || 'equal_among',
+        claims: {},
+        equalAmong: Array.isArray(it.equalAmong) ? it.equalAmong : [],
+        exactAmountsMinor:
+          it.exactAmountsMinor && typeof it.exactAmountsMinor === 'object' ? it.exactAmountsMinor : {},
+        note: it.note || undefined,
+      };
+      return mergeCloudClaimsIntoItem(
+        baseItem,
+        claimsObj[baseItem.id] && typeof claimsObj[baseItem.id] === 'object'
+          ? claimsObj[baseItem.id]
+          : undefined
+      );
+    });
 
   const extras = Array.isArray(meta.extras)
     ? meta.extras.map((ex: any) => ({
