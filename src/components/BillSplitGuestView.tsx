@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   Clock,
@@ -24,7 +25,7 @@ import {
   toMinor,
 } from '../utils/billSplitEngine';
 import {
-  guestClaimExistingPerson,
+  guestRenameSelf,
   guestRequestJoin,
   guestToggleItemClaim,
   helperDeleteItem,
@@ -48,10 +49,11 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
   const [loadError, setLoadError] = useState(false);
   const [myUid, setMyUid] = useState<string>(auth.currentUser?.uid || '');
 
-  // Join / Identity states
+  // Mandatory join / pending rename states
   const [joinName, setJoinName] = useState('');
   const [joining, setJoining] = useState(false);
-  const [browseAsViewer, setBrowseAsViewer] = useState(false);
+  const [pendingNameDraft, setPendingNameDraft] = useState('');
+  const [savingName, setSavingName] = useState(false);
   const [copiedPayField, setCopiedPayField] = useState<string | null>(null);
 
   // Helper add item inputs
@@ -87,23 +89,39 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
 
   const boundPerson: BillPerson | null = useMemo(() => {
     if (!session || !myUid) return null;
-    return session.people.find((p) => p.boundUid === myUid) || null;
+    return (
+      session.people.find((p) => p.boundUid === myUid) ||
+      (session.ownerUid && session.ownerUid === myUid
+        ? session.people.find((p) => p.kind === 'owner') || null
+        : null)
+    );
   }, [session, myUid]);
+
+  useEffect(() => {
+    if (boundPerson?.approval === 'pending') {
+      setPendingNameDraft(boundPerson.name);
+    }
+  }, [boundPerson?.id, boundPerson?.approval, boundPerson?.name]);
 
   const effectivePermission = useMemo(() => {
     if (!session) return 'view_only';
-    if (!boundPerson) return session.live?.defaultPermission || 'view_only';
+    if (!boundPerson || boundPerson.approval !== 'approved') return 'view_only';
     return getEffectivePersonPermission(session, boundPerson);
   }, [session, boundPerson]);
 
-  const isLinkActive = session?.live?.linkActive ?? false;
-  const isBillOpen = session?.status === 'open' || session?.status === 'draft';
+  const isLinkActive = Boolean(session?.live?.linkActive);
+  const isDeletedGrace = Boolean(session?.deletedByOwner);
+  const isSettled = session?.status === 'settled';
+  const isBillOpen =
+    !isDeletedGrace && (session?.status === 'open' || session?.status === 'draft');
+
   const canClaimOwn =
     Boolean(boundPerson) &&
     boundPerson?.approval === 'approved' &&
     isLinkActive &&
     isBillOpen &&
     (effectivePermission === 'claim_own' || effectivePermission === 'helper');
+
   const canEditItems =
     Boolean(boundPerson) &&
     boundPerson?.approval === 'approved' &&
@@ -111,30 +129,22 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
     isBillOpen &&
     effectivePermission === 'helper';
 
-  const handleClaimPerson = async (person: BillPerson) => {
-    setJoining(true);
-    try {
-      const user = auth.currentUser || (await ensureFirebaseAuth());
-      if (!user?.uid) throw new Error('Auth unavailable');
-      setMyUid(user.uid);
-      await guestClaimExistingPerson(billId, person, user.uid, Boolean(session?.live?.autoAccept));
-      showToast(isAr ? `أهلاً بك يا ${person.name}` : `Joined as ${person.name}`, 'success');
-    } catch {
-      showToast(t('billLiveActionDenied'), 'error');
-    } finally {
-      setJoining(false);
-    }
-  };
+  // External visitors must enter their name before viewing the bill (unless the bill is in its 24h post-delete view window)
+  const mustEnterNameFirst = Boolean(session && isLinkActive && !boundPerson && !isDeletedGrace);
 
   const handleRequestJoin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!joinName.trim()) return;
+    const cleaned = joinName.trim().slice(0, 50);
+    if (!cleaned) {
+      showToast(t('billGuestNameRequired'), 'error');
+      return;
+    }
     setJoining(true);
     try {
-      const user = auth.currentUser || (await ensureFirebaseAuth());
+      const user = await ensureFirebaseAuth();
       if (!user?.uid) throw new Error('Auth unavailable');
       setMyUid(user.uid);
-      await guestRequestJoin(billId, joinName.trim(), user.uid, Boolean(session?.live?.autoAccept));
+      await guestRequestJoin(billId, cleaned, user.uid, Boolean(session?.live?.autoAccept));
       setJoinName('');
       showToast(
         session?.live?.autoAccept ? t('billLiveJoinedToast') : t('billLivePendingToast'),
@@ -144,6 +154,24 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
       showToast(t('billLiveActionDenied'), 'error');
     } finally {
       setJoining(false);
+    }
+  };
+
+  const handleSavePendingName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!boundPerson || boundPerson.approval !== 'pending') return;
+    const cleaned = pendingNameDraft.trim().slice(0, 50);
+    if (!cleaned || cleaned === boundPerson.name) return;
+    setSavingName(true);
+    try {
+      const user = await ensureFirebaseAuth();
+      if (!user?.uid) throw new Error('Auth unavailable');
+      await guestRenameSelf(billId, boundPerson, user.uid, cleaned);
+      showToast(t('updatedSuccess'), 'success');
+    } catch {
+      showToast(t('billLiveActionDenied'), 'error');
+    } finally {
+      setSavingName(false);
     }
   };
 
@@ -214,8 +242,8 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
             <button
               type="button"
               onClick={onExit}
-              className="min-w-[44px] min-h-[44px] w-10 h-10 rounded-xl flex items-center justify-center hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] cursor-pointer shrink-0"
-              aria-label="Back to solv"
+              className="min-w-[44px] min-h-[44px] w-10 h-10 rounded-xl flex items-center justify-center hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] cursor-pointer shrink-0 active:scale-[0.97] transition"
+              aria-label="solv"
             >
               <ArrowLeft className="w-5 h-5 rtl:scale-x-[-1]" />
             </button>
@@ -235,14 +263,14 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
                     <span>{t('billLiveActiveBadge')}</span>
                   </span>
                 ) : (
-                  <span>{t('billLivePausedBadge')}</span>
+                  <span>{t('billLiveOffBadge')}</span>
                 )}
               </div>
             </div>
           </div>
 
           {/* Permission indicator pill */}
-          {session && (
+          {session && isLinkActive && !mustEnterNameFirst && (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[11px] font-bold text-[var(--text-secondary)] shrink-0">
               {canEditItems ? (
                 <>
@@ -282,73 +310,104 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
               <button
                 type="button"
                 onClick={onExit}
-                className="min-h-[44px] px-5 rounded-xl bg-[var(--accent-primary)] text-white text-sm font-bold cursor-pointer"
+                className="min-h-[44px] px-5 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--text-on-accent)] text-sm font-bold cursor-pointer active:scale-[0.97] transition"
               >
                 {t('billGuestOpenAppBtn')}
               </button>
             </div>
+          ) : mustEnterNameFirst ? (
+            <form
+              onSubmit={handleRequestJoin}
+              className="rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)] p-6 space-y-4 shadow-sm"
+            >
+              <div className="space-y-1 text-center">
+                <div className="text-3xl leading-none">{session.icon || '🧾'}</div>
+                <h2 className="text-base font-extrabold text-[var(--text-primary)] pt-1">
+                  {t('billGuestNameGateTitle')}
+                </h2>
+                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                  {t('billGuestNameGateDesc')}
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-[var(--text-secondary)] block">
+                  {t('billGuestNameLabel')}
+                </label>
+                <input
+                  type="text"
+                  dir="auto"
+                  autoFocus
+                  required
+                  maxLength={50}
+                  value={joinName}
+                  onChange={(e) => setJoinName(e.target.value)}
+                  placeholder={t('billAddGuestPlaceholder')}
+                  className="w-full min-h-[46px] px-3.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[16px] sm:text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={joining || !joinName.trim()}
+                className="w-full min-h-[46px] px-4 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--text-on-accent)] text-sm font-bold disabled:opacity-45 cursor-pointer active:scale-[0.97] transition"
+              >
+                {t('billGuestJoinBtn')}
+              </button>
+            </form>
           ) : (
             <>
-              {/* Identity Claim / Join Card if not bound yet */}
-              {!boundPerson && !browseAsViewer && (
-                <div className="rounded-2xl bg-[var(--bg-secondary)] border border-[var(--accent-primary)]/40 p-4 space-y-3">
-                  <h2 className="text-sm font-bold text-[var(--text-primary)]">
-                    {t('billGuestWhoAreYouTitle')}
-                  </h2>
-
-                  {session.people.filter((p) => p.kind === 'guest' && !p.boundUid).length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {session.people
-                        .filter((p) => p.kind === 'guest' && !p.boundUid)
-                        .map((p) => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            disabled={joining}
-                            onClick={() => handleClaimPerson(p)}
-                            className="px-3 py-2 min-h-[40px] rounded-xl bg-[var(--accent-soft)] border border-[var(--accent-primary)]/40 text-xs font-bold text-[var(--text-primary)] cursor-pointer"
-                          >
-                            {p.avatar || '👤'} {p.name}
-                          </button>
-                        ))}
-                    </div>
-                  )}
-
-                  {session.live?.defaultPermission !== 'view_only' && (
-                    <form onSubmit={handleRequestJoin} className="flex gap-2">
-                      <input
-                        type="text"
-                        dir="auto"
-                        value={joinName}
-                        onChange={(e) => setJoinName(e.target.value)}
-                        placeholder={t('billAddGuestPlaceholder')}
-                        className="flex-1 min-w-0 min-h-[44px] px-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[16px] sm:text-sm text-[var(--text-primary)]"
-                      />
-                      <button
-                        type="submit"
-                        disabled={joining || !joinName.trim()}
-                        className="min-h-[44px] px-4 rounded-xl bg-[var(--accent-primary)] text-white text-xs font-bold disabled:opacity-45 cursor-pointer"
-                      >
-                        {t('billGuestJoinBtn')}
-                      </button>
-                    </form>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => setBrowseAsViewer(true)}
-                    className="text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
-                  >
-                    {t('billGuestContinueViewOnly')}
-                  </button>
+              {/* Deleted by owner (24-hour grace view-only notice) */}
+              {isDeletedGrace && (
+                <div className="rounded-2xl bg-[var(--status-danger)]/12 border border-[var(--status-danger)]/40 p-3.5 flex items-center gap-2.5 text-xs font-bold text-[var(--status-danger)]">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{t('billGuestDeletedBanner')}</span>
                 </div>
               )}
 
-              {/* Pending Approval Banner */}
-              {boundPerson?.approval === 'pending' && (
-                <div className="rounded-2xl bg-[var(--status-warning)]/15 border border-[var(--status-warning)]/40 p-3.5 flex items-center gap-2.5 text-xs font-bold text-[var(--status-warning)]">
-                  <Clock className="w-4 h-4 shrink-0" />
-                  <span>{t('billLivePendingToast')}</span>
+              {/* Settled read-only notice */}
+              {!isDeletedGrace && isSettled && (
+                <div className="rounded-2xl bg-[var(--accent-soft)] border border-[var(--accent-primary)]/35 p-3.5 flex items-center gap-2.5 text-xs font-bold text-[var(--accent-primary)]">
+                  <Lock className="w-4 h-4 shrink-0" />
+                  <span>{t('billGuestSettledBanner')}</span>
+                </div>
+              )}
+
+              {/* Pending Approval Banner + Editable Name */}
+              {boundPerson?.approval === 'pending' && !isDeletedGrace && (
+                <div className="rounded-2xl bg-[var(--status-warning)]/12 border border-[var(--status-warning)]/40 p-3.5 space-y-2.5">
+                  <div className="flex items-start gap-2.5 text-xs font-bold text-[var(--status-warning)]">
+                    <Clock className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <div>{t('billLivePendingToast')}</div>
+                      <div className="font-medium text-[var(--text-secondary)]">
+                        {t('billGuestPendingReadOnly')}
+                      </div>
+                    </div>
+                  </div>
+                  <form onSubmit={handleSavePendingName} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      dir="auto"
+                      maxLength={50}
+                      value={pendingNameDraft}
+                      onChange={(e) => setPendingNameDraft(e.target.value)}
+                      aria-label={t('billGuestNameLabel')}
+                      className="flex-1 min-w-0 min-h-[40px] px-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)] text-[16px] sm:text-xs font-bold text-[var(--text-primary)]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={
+                        savingName ||
+                        !pendingNameDraft.trim() ||
+                        pendingNameDraft.trim() === boundPerson.name
+                      }
+                      className="min-h-[40px] px-3 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--text-on-accent)] text-xs font-bold disabled:opacity-45 cursor-pointer shrink-0 active:scale-[0.97] transition"
+                    >
+                      {t('billGuestSaveNameBtn')}
+                    </button>
+                  </form>
+                  <p className="text-[11px] text-[var(--text-secondary)]">{t('billGuestRenameHint')}</p>
                 </div>
               )}
 
@@ -357,13 +416,13 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
                 <div className="rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)] p-4 flex items-center justify-between gap-3">
                   <div>
                     <span className="text-xs font-bold text-[var(--text-secondary)] block">
-                      {boundPerson
+                      {boundPerson && boundPerson.approval === 'approved'
                         ? `${boundPerson.avatar || '👤'} ${boundPerson.name}`
                         : t('billTotalLabel')}
                     </span>
                     <div className="text-2xl font-mono tabular-nums font-black text-[var(--accent-primary)] mt-0.5">
                       {formatMinorMoney(
-                        boundPerson
+                        boundPerson && boundPerson.approval === 'approved'
                           ? computation.finalPersonTotalsMinor[boundPerson.id] || 0
                           : computation.computedTotalMinor,
                         session.currency,
@@ -417,7 +476,7 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
                   <button
                     type="submit"
                     disabled={addingItem || !newItemName.trim() || !(Number(newItemPrice) > 0)}
-                    className="col-span-2 min-h-[42px] rounded-xl bg-[var(--accent-primary)] text-white flex items-center justify-center disabled:opacity-45 cursor-pointer"
+                    className="col-span-2 min-h-[42px] rounded-xl bg-[var(--accent-primary)] text-[var(--text-on-accent)] flex items-center justify-center disabled:opacity-45 cursor-pointer active:scale-[0.97] transition"
                     aria-label={t('billAddItemBtn')}
                   >
                     <Plus className="w-4 h-4" />
@@ -430,10 +489,13 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
                 <div className="space-y-2">
                   {session.items.map((item) => {
                     const lineTotal = getItemLineTotalMinor(item);
-                    const myUnits = boundPerson ? Number(item.claims?.[boundPerson.id]) || 0 : 0;
-                    const myShare = boundPerson
-                      ? computation.allocation.itemAllocations[item.id]?.[boundPerson.id] || 0
-                      : 0;
+                    const isApproved = boundPerson?.approval === 'approved';
+                    const myUnits =
+                      boundPerson && isApproved ? Number(item.claims?.[boundPerson.id]) || 0 : 0;
+                    const myShare =
+                      boundPerson && isApproved
+                        ? computation.allocation.itemAllocations[item.id]?.[boundPerson.id] || 0
+                        : 0;
                     const claimed = myUnits > 0 || myShare > 0;
 
                     return (
@@ -465,9 +527,9 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
                               <button
                                 type="button"
                                 onClick={() => handleToggleClaim(item)}
-                                className={`min-h-[36px] px-3 rounded-xl border text-xs font-bold cursor-pointer transition ${
+                                className={`min-h-[36px] px-3 rounded-xl border text-xs font-bold cursor-pointer active:scale-[0.97] transition ${
                                   claimed
-                                    ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)] text-white'
+                                    ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)] text-[var(--text-on-accent)]'
                                     : 'bg-[var(--bg-tertiary)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
                                 }`}
                               >
@@ -532,9 +594,9 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
                     <button
                       type="button"
                       onClick={() => copyPaymentField(session.paymentInfo!.instaPay!, 'ipa')}
-                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[var(--bg-tertiary)] text-xs font-mono cursor-pointer"
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[var(--bg-tertiary)] text-xs font-mono cursor-pointer active:scale-[0.97] transition"
                     >
-                      <span>InstaPay: {session.paymentInfo.instaPay}</span>
+                      <span dir="ltr">InstaPay: {session.paymentInfo.instaPay}</span>
                       {copiedPayField === 'ipa' ? (
                         <Check className="w-4 h-4 text-[var(--status-success)]" />
                       ) : (
@@ -546,9 +608,9 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
                     <button
                       type="button"
                       onClick={() => copyPaymentField(session.paymentInfo!.wallet!, 'wallet')}
-                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[var(--bg-tertiary)] text-xs font-mono cursor-pointer"
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[var(--bg-tertiary)] text-xs font-mono cursor-pointer active:scale-[0.97] transition"
                     >
-                      <span>Wallet: {session.paymentInfo.wallet}</span>
+                      <span dir="ltr">Wallet: {session.paymentInfo.wallet}</span>
                       {copiedPayField === 'wallet' ? (
                         <Check className="w-4 h-4 text-[var(--status-success)]" />
                       ) : (

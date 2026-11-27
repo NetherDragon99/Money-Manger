@@ -15,6 +15,8 @@ interface BillHistorySheetProps {
   language: 'ar' | 'en';
   onClose: () => void;
   onSelectSession: (session: BillSession) => void;
+  onDeleteSession?: (session: BillSession) => Promise<void> | void;
+  hasLinkedTransaction?: (session: BillSession) => boolean;
   showConfirm: (opts: { title: string; message: string; confirmText?: string; isDanger?: boolean }) => Promise<boolean>;
   t: (key: keyof typeof translations.en) => string;
 }
@@ -25,6 +27,8 @@ export const BillHistorySheet: React.FC<BillHistorySheetProps> = ({
   language,
   onClose,
   onSelectSession,
+  onDeleteSession,
+  hasLinkedTransaction,
   showConfirm,
   t,
 }) => {
@@ -194,13 +198,25 @@ export const BillHistorySheet: React.FC<BillHistorySheetProps> = ({
                     <button
                       type="button"
                       onClick={async () => {
+                        const linked = hasLinkedTransaction ? hasLinkedTransaction(s) : false;
+                        const hasMembers = s.people.some((p) => p.kind !== 'owner');
+                        const msg = linked
+                          ? t('billDeleteWithTxConfirm')
+                          : s.live?.enabled && hasMembers
+                          ? t('billDeleteWithGuestsConfirm')
+                          : t('billDeleteBillConfirm');
                         const ok = await showConfirm({
                           title: s.title.trim() || t('billDefaultTitle'),
-                          message: t('billDeleteBillConfirm'),
+                          message: msg,
+                          confirmText: t('billDeleteBillBtn'),
                           isDanger: true,
                         });
                         if (ok) {
-                          deleteBillSession(s.id);
+                          if (onDeleteSession) {
+                            await onDeleteSession(s);
+                          } else {
+                            deleteBillSession(s.id);
+                          }
                           reload();
                         }
                       }}

@@ -96,6 +96,10 @@ export interface BillSession {
     linkActive: boolean;
   };
   linkedTransactionId?: string;
+  /** Guest-side only: epoch ms after which the public link stops working (owner deleted the bill). */
+  cloudExpiresAt?: number;
+  /** Guest-side only: owner deleted this bill; link stays read-only until cloudExpiresAt. */
+  deletedByOwner?: boolean;
 }
 
 export interface SavedBillFriend {

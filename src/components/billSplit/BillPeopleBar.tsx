@@ -11,7 +11,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { BillGuestPermission, BillPerson, SavedBillFriend, SavedBillGroup } from '../../types';
+import { BillGuestPermission, BillPerson, BillSession, SavedBillFriend, SavedBillGroup } from '../../types';
 import { formatMinorMoney, generateBillId } from '../../utils/billSplitEngine';
 import {
   deleteSavedFriend,
@@ -23,6 +23,7 @@ import {
 } from '../../utils/billSplitStore';
 import { lookupUserByNumericId, cleanNumericId } from '../../utils/userId';
 import { translations } from '../../utils/translations';
+import { BillLivePanel } from './BillLivePanel';
 
 interface BillPeopleBarProps {
   people: BillPerson[];
@@ -30,6 +31,18 @@ interface BillPeopleBarProps {
   currency: string;
   language: 'ar' | 'en';
   myNumericId?: string;
+  isAddSheetOpen: boolean;
+  onAddSheetOpenChange: (open: boolean) => void;
+  liveSession: BillSession;
+  isCloudSyncing: boolean;
+  onSetPublic: (enabled: boolean) => Promise<boolean>;
+  onEnsurePublished: () => Promise<boolean>;
+  onUpdateLiveConfig: (patch: Partial<NonNullable<BillSession['live']>>) => void;
+  onRegenerateLink: () => Promise<void>;
+  onReopenBill: () => void;
+  onApprovePerson: (personId: string) => void;
+  onLinkPendingToExisting: (pendingId: string, existingId: string) => void;
+  onRejectPerson: (personId: string) => void;
   onAddPerson: (person: BillPerson) => void;
   onAddMultiplePeople: (persons: BillPerson[]) => void;
   onUpdatePerson: (personId: string, patch: Partial<BillPerson>) => void;
@@ -45,6 +58,18 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
   currency,
   language,
   myNumericId,
+  isAddSheetOpen,
+  onAddSheetOpenChange,
+  liveSession,
+  isCloudSyncing,
+  onSetPublic,
+  onEnsurePublished,
+  onUpdateLiveConfig,
+  onRegenerateLink,
+  onReopenBill,
+  onApprovePerson,
+  onLinkPendingToExisting,
+  onRejectPerson,
   onAddPerson,
   onAddMultiplePeople,
   onUpdatePerson,
@@ -54,8 +79,15 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
   t,
 }) => {
   const isAr = language === 'ar';
-  const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
+  const setIsAddSheetOpen = onAddSheetOpenChange;
   const [activePersonMenuId, setActivePersonMenuId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [linkPickerFor, setLinkPickerFor] = useState<string | null>(null);
+
+  const pendingPeople = people.filter((p) => p.approval === 'pending');
+  const linkCandidates = people.filter(
+    (p) => p.kind !== 'owner' && !p.boundUid && p.approval === 'approved'
+  );
 
   const [guestName, setGuestName] = useState('');
   const [idLookupInput, setIdLookupInput] = useState('');
@@ -73,6 +105,19 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
   useEffect(() => {
     if (isAddSheetOpen) refreshSaved();
   }, [isAddSheetOpen]);
+
+  useEffect(() => {
+    const p = people.find((x) => x.id === activePersonMenuId);
+    setRenameDraft(p ? p.name : '');
+  }, [activePersonMenuId]);
+
+  const commitRename = () => {
+    const target = people.find((x) => x.id === activePersonMenuId);
+    const next = renameDraft.trim().slice(0, 50);
+    if (target && next && next !== target.name) {
+      onUpdatePerson(target.id, { name: next });
+    }
+  };
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
@@ -235,10 +280,15 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
         <button
           type="button"
           onClick={() => setIsAddSheetOpen(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] rounded-full text-xs font-bold bg-[var(--accent-soft)] text-[var(--accent-primary)] border border-[var(--accent-primary)]/30 hover:opacity-90 active:scale-[0.97] transition cursor-pointer"
+          className="relative inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] rounded-full text-xs font-bold bg-[var(--accent-soft)] text-[var(--accent-primary)] border border-[var(--accent-primary)]/30 hover:opacity-90 active:scale-[0.97] transition cursor-pointer"
         >
           <UserPlus className="w-3.5 h-3.5" />
           <span>{t('billAddPersonBtn')}</span>
+          {pendingPeople.length > 0 && (
+            <span className="absolute -top-1.5 -end-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--status-danger)] text-[var(--text-on-accent)] text-[10px] font-bold tabular-nums flex items-center justify-center">
+              {pendingPeople.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -336,6 +386,29 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
             </div>
 
             <div className="space-y-3">
+              {/* Rename */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-[var(--text-secondary)] block">
+                  {t('billPersonRenameLabel')}
+                </label>
+                <input
+                  type="text"
+                  dir="auto"
+                  value={renameDraft}
+                  maxLength={50}
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitRename();
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  className="w-full min-h-[44px] px-3.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[16px] sm:text-sm text-[var(--text-primary)]"
+                />
+              </div>
+
               {/* Role Override Selector */}
               <div className="space-y-1.5">
                 <span className="text-xs font-bold text-[var(--text-secondary)] block">
@@ -442,6 +515,80 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
               </button>
             </div>
 
+            {/* Join requests from the public link (always shown first) */}
+            {pendingPeople.length > 0 && (
+              <div className="space-y-2 rounded-2xl bg-[var(--status-warning)]/10 border border-[var(--status-warning)]/35 p-3">
+                <span className="text-xs font-bold text-[var(--status-warning)] block">
+                  {t('billJoinRequestsTitle')} ({pendingPeople.length})
+                </span>
+                {pendingPeople.map((p) => (
+                  <div
+                    key={p.id}
+                    className="space-y-2 p-2.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)]"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span dir="auto" className="text-sm font-bold text-[var(--text-primary)] truncate">
+                        {p.avatar || '🙋'} {p.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onRejectPerson(p.id)}
+                        className="px-2.5 py-1.5 min-h-[36px] rounded-xl bg-[var(--status-danger)]/15 text-[var(--status-danger)] text-xs font-bold cursor-pointer active:scale-[0.97] transition"
+                      >
+                        {t('billRejectBtn')}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onApprovePerson(p.id)}
+                        className="min-h-[40px] px-2 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--text-on-accent)] text-xs font-bold cursor-pointer active:scale-[0.97] transition"
+                      >
+                        {t('billJoinAcceptNewBtn')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLinkPickerFor((cur) => (cur === p.id ? null : p.id))}
+                        className={`min-h-[40px] px-2 rounded-xl border text-xs font-bold cursor-pointer active:scale-[0.97] transition ${
+                          linkPickerFor === p.id
+                            ? 'bg-[var(--accent-soft)] border-[var(--accent-primary)] text-[var(--accent-primary)]'
+                            : 'bg-[var(--bg-tertiary)] border-[var(--border-strong)] text-[var(--text-primary)]'
+                        }`}
+                      >
+                        {t('billJoinLinkExistingBtn')}
+                      </button>
+                    </div>
+                    {linkPickerFor === p.id && (
+                      <div className="space-y-1.5">
+                        <p className="text-[11px] text-[var(--text-secondary)]">{t('billJoinLinkPickHint')}</p>
+                        {linkCandidates.length === 0 ? (
+                          <p className="text-[11px] text-[var(--text-tertiary)]">{t('billJoinNoUnlinked')}</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {linkCandidates.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => {
+                                  onLinkPendingToExisting(p.id, c.id);
+                                  setLinkPickerFor(null);
+                                }}
+                                className="px-3 py-2 min-h-[40px] rounded-xl bg-[var(--accent-soft)] border border-[var(--accent-primary)]/40 text-xs font-bold text-[var(--text-primary)] cursor-pointer active:scale-[0.97] transition"
+                              >
+                                <span dir="auto">
+                                  {c.avatar || '👤'} {c.name}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Quick Guest Form */}
             <form onSubmit={handleAddGuestSubmit} className="flex items-center gap-2">
               <input
@@ -482,6 +629,21 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
                 <span>{t('billAddBy16IdBtn')}</span>
               </button>
             </div>
+
+            {/* Link sharing, permissions & auto-accept */}
+            <BillLivePanel
+              session={liveSession}
+              language={language}
+              isSyncing={isCloudSyncing}
+              onSetPublic={onSetPublic}
+              onEnsurePublished={onEnsurePublished}
+              onUpdateLiveConfig={onUpdateLiveConfig}
+              onRegenerateLink={onRegenerateLink}
+              onReopenBill={onReopenBill}
+              showConfirm={showConfirm}
+              showToast={showToast}
+              t={t}
+            />
 
             {/* Saved Groups */}
             <div className="space-y-2 pt-1">

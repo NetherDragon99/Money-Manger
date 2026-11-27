@@ -44,9 +44,9 @@ export const BillScanOcrModal: React.FC<BillScanOcrModalProps> = ({
   onApply,
   t,
 }) => {
-  const isAr = language === 'ar';
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const lastCompressedRef = useRef<{ base64: string; mimeType: string; previewDataUrl: string } | null>(null);
 
   const [phase, setPhase] = useState<'pick' | 'scanning' | 'review' | 'error'>('pick');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -59,6 +59,7 @@ export const BillScanOcrModal: React.FC<BillScanOcrModalProps> = ({
   const [priceMode, setPriceMode] = useState<'unit' | 'line_total'>('unit');
 
   const resetModal = () => {
+    lastCompressedRef.current = null;
     setPhase('pick');
     setPreviewUrl(null);
     setTitle('');
@@ -81,15 +82,10 @@ export const BillScanOcrModal: React.FC<BillScanOcrModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-
+  const runAiScan = async (compressed: { base64: string; mimeType: string; previewDataUrl: string }) => {
     setPhase('scanning');
+    setPreviewUrl(compressed.previewDataUrl);
     try {
-      const compressed = await compressReceiptImage(file);
-      setPreviewUrl(compressed.previewDataUrl);
       const res = await scanReceiptWithAi(compressed);
       setTitle(res.title || '');
       setItems(res.items);
@@ -104,6 +100,35 @@ export const BillScanOcrModal: React.FC<BillScanOcrModalProps> = ({
         setErrorCode('failed');
       }
       setPhase('error');
+    }
+  };
+
+  const handleFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setPhase('scanning');
+    try {
+      const compressed = await compressReceiptImage(file);
+      lastCompressedRef.current = compressed;
+      await runAiScan(compressed);
+    } catch (err) {
+      lastCompressedRef.current = null;
+      if (err instanceof OcrScanError) {
+        setErrorCode(err.code);
+      } else {
+        setErrorCode('failed');
+      }
+      setPhase('error');
+    }
+  };
+
+  const handleRetrySamePhoto = () => {
+    if (lastCompressedRef.current && errorCode !== 'no_items') {
+      runAiScan(lastCompressedRef.current);
+    } else {
+      resetModal();
     }
   };
 
@@ -141,8 +166,8 @@ export const BillScanOcrModal: React.FC<BillScanOcrModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] cursor-pointer"
-            aria-label="Close"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] cursor-pointer active:scale-[0.97] transition"
+            aria-label={t('billOcrCloseAria')}
           >
             <X className="w-5 h-5" />
           </button>
@@ -222,18 +247,30 @@ export const BillScanOcrModal: React.FC<BillScanOcrModalProps> = ({
                 ? t('billOcrErrOffline')
                 : errorCode === 'not_enabled'
                 ? t('billOcrErrNotEnabled')
+                : errorCode === 'rate_limit'
+                ? t('billOcrErrRateLimit')
                 : errorCode === 'no_items'
                 ? t('billOcrErrNoItems')
                 : t('billOcrErrFailed')}
             </p>
             <div className="flex gap-2">
+              {lastCompressedRef.current && errorCode !== 'no_items' && (
+                <button
+                  type="button"
+                  onClick={resetModal}
+                  className="min-h-[44px] px-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.97] transition"
+                >
+                  <ImagePlus className="w-3.5 h-3.5" />
+                  <span>{t('billOcrPickAnotherBtn')}</span>
+                </button>
+              )}
               <button
                 type="button"
-                onClick={resetModal}
-                className="flex-1 min-h-[42px] rounded-xl bg-[var(--accent-primary)] text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                onClick={handleRetrySamePhoto}
+                className="flex-1 min-h-[44px] rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.97] transition"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>{isAr ? 'حاول مجدداً' : 'Try Again'}</span>
+                <span>{t('billOcrTryAgainBtn')}</span>
               </button>
             </div>
           </div>
@@ -244,7 +281,7 @@ export const BillScanOcrModal: React.FC<BillScanOcrModalProps> = ({
             {/* Optional extracted store title */}
             {title && (
               <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-[var(--bg-tertiary)] text-xs">
-                <span className="text-[var(--text-secondary)]">{isAr ? 'المكان:' : 'Place:'}</span>
+                <span className="text-[var(--text-secondary)]">{t('billOcrPlaceLabel')}</span>
                 <strong dir="auto" className="text-[var(--text-primary)]">
                   {title}
                 </strong>

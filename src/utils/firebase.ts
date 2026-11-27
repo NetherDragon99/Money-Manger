@@ -155,6 +155,11 @@ export function setGoogleDriveAccessToken(token: string | null): void {
  * This allows public share links to read real-time RTDB data without requiring Google sign-in.
  */
 export async function ensureFirebaseAuth(): Promise<User | null> {
+  if (typeof auth.authStateReady === 'function') {
+    try {
+      await auth.authStateReady();
+    } catch {}
+  }
   if (auth.currentUser) return auth.currentUser;
   try {
     const cred = await signInAnonymously(auth);

@@ -19,6 +19,29 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.2.5',
+    isBeta: true,
+    releaseDate: 'November 28, 2026',
+    title: {
+      en: 'Beta v2.2.5: Reliable Receipt Scan, Unified Public Link & Smart Join Requests',
+      ar: 'بيتا v2.2.5: إصلاح مسح الفواتير، رابط عام موحّد وطلبات انضمام ذكية',
+    },
+    highlights: {
+      en: [
+        'Fixed Camera Receipt Reading: Scanning receipt photos now extracts items, quantities, prices, and grand total reliably, with higher clarity for long receipts and one-tap retry on the same photo.',
+        'All Sharing & Permissions Inside Add Person: Open Add Person to turn on the single Public Link switch, copy or share the link for anyone even without an account, and set guest permissions in one place.',
+        'Mandatory Guest Name & Smart Join Linking: Visitors opening your link enter their name first, view the bill read-only until you accept, and you can either add them as new or link them to someone you already added (with easy renaming anytime).',
+        'Delete Bill & Automatic Read-Only After Settle: Delete any bill from its header (staying viewable for 24 hours if members joined, or deleting its linked transaction together), and settled bills switch to read-only automatically until reopened.',
+      ],
+      ar: [
+        'إصلاح قراءة الفواتير بالصورة: مسح صور الفواتير يستخرج الأصناف والكميات والأسعار والإجمالي بدقة وسرعة، مع وضوح أعلى للفواتير الطويلة وإعادة المحاولة على نفس الصورة بضغطة واحدة.',
+        'كل إعدادات الرابط والصلاحيات داخل إضافة شخص: افتح «إضافة شخص» لتفعيل زرار «رابط عام» الموحّد أو نسخ ومشاركة الرابط لأي شخص حتى من غير حساب وتحديد الصلاحيات في مكان واحد.',
+        'طلب الاسم تلقائياً وربط المنضمين بسهولة: أي ضيف يفتح الرابط يكتب اسمه أولاً ويشوف الفاتورة للقراءة فقط لحين موافقتك، وتقدر تضيفه كشخص جديد أو تربطه بشخص كنت ضايفه مع إمكانية تعديل اسمه في أي وقت.',
+        'مسح الفاتورة وقراءة فقط تلقائياً بعد التسوية: امسح الفاتورة مباشرة من الشريط العلوي (مع بقاء الرابط متاحاً للعرض 24 ساعة لو فيها أعضاء، أو مسح المعاملة المربوطة معها)، وعند تسوية الفاتورة تتحول للقراءة فقط تلقائياً لحين إعادة فتحها.',
+      ],
+    },
+  },
+  {
     version: '2.2.4',
     isBeta: true,
     releaseDate: 'November 27, 2026',

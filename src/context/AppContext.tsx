@@ -4475,6 +4475,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setViewingTx(null);
     }
 
+    // Two-way link: if the deleted transaction belongs to a Bill Split, remove that bill too
+    if (txToDelete?.billSplit?.id) {
+      const linkedBillId = txToDelete.billSplit.id;
+      import('../utils/billSplitStore')
+        .then(async ({ getBillSessionById, deleteBillSession }) => {
+          const found = getBillSessionById(linkedBillId);
+          if (found) {
+            const { disposeBillSession } = await import('../utils/billSplitCloud');
+            await disposeBillSession(found);
+          } else {
+            deleteBillSession(linkedBillId);
+          }
+        })
+        .catch(() => {});
+      if (activeBillSplitId === linkedBillId) {
+        setActiveBillSplitId(null);
+      }
+    }
+
     const txsForTombstone: Transaction[] = [];
     if (txToDelete) txsForTombstone.push(txToDelete);
     if (linkedFeeTx) txsForTombstone.push(linkedFeeTx);

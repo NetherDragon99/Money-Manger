@@ -28,6 +28,7 @@ html.light-mode {
   --status-success: #28CD41;
   --status-warning: #FF9F0A;
   --status-danger: #FF3B30;
+  --text-on-accent: #FFFFFF;
 }
 
 [data-theme="dark"],
@@ -48,6 +49,7 @@ html.dark {
   --status-success: #32D74B;
   --status-warning: #FFD60A;
   --status-danger: #FF453A;
+  --text-on-accent: #FFFFFF;
 }
 
 /* ==========================================================================

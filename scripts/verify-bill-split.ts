@@ -18,6 +18,8 @@ import {
   toMinor,
 } from '../src/utils/billSplitEngine';
 import { buildItemsFromParsed, parseBillText } from '../src/utils/billSplitParser';
+import { extractJsonFromModelText, normalizeParsedPayload, OcrScanError } from '../src/utils/billSplitOcr';
+import { LIVE_BILL_DELETE_GRACE_MS, reconstructSessionFromCloud } from '../src/utils/billSplitCloud';
 import { buildBillShareText, buildPerPersonShareMessages } from '../src/utils/billSplitShare';
 import { translations } from '../src/utils/translations';
 import { APP_RELEASE_NOTES } from '../src/utils/appFeatures';
@@ -448,7 +450,7 @@ test('9. translations.en & translations.ar have 100% key parity and all release 
     [/\b[\w-]+\/[\w-]+\//, 'path'],
   ];
 
-  for (const ver of ['2.2.4', '2.2.3', '2.2.2', '2.2.1', '2.2.0']) {
+  for (const ver of ['2.2.5', '2.2.4', '2.2.3', '2.2.2', '2.2.1', '2.2.0']) {
     const note = APP_RELEASE_NOTES.find((n) => n.version === ver);
     assert.ok(note, `Release note ${ver} exists`);
     const texts = [note.title.en, note.title.ar, ...note.highlights.en, ...note.highlights.ar];
@@ -588,6 +590,65 @@ test('11. exact item split mode blocks mismatches until exact sum matches, and g
   const mergedComp = computeBill(mergedSession);
   assert.equal(mergedComp.finalPersonTotalsMinor.p_ahmed, 10000);
   assert.equal(mergedComp.finalPersonTotalsMinor.p_mona, 10000);
+});
+
+// 12. AI OCR JSON extraction & payload normalization (Arabic numerals, fenced JSON, empty guard)
+test('12. extractJsonFromModelText & normalizeParsedPayload parse fenced JSON, Arabic numerals, extras, and reject empty receipts', () => {
+  const fenced = '```json\n{"title":"Koshary El Tahrir","items":[{"name":"كشري كبير","qty":"٢","unitPrice":"65","lineTotal":"130"},{"name":"Pepsi","qty":1,"unitPrice":0,"lineTotal":"25"}],"extras":[{"kind":"service","label":"Service 12%","valueType":"percent","value":"١٢","sign":1},{"kind":"discount","label":"Promo","valueType":"fixed","value":15,"sign":1}],"statedTotal":"١٥٨.٦"}\n```';
+  const raw = extractJsonFromModelText(fenced);
+  const res = normalizeParsedPayload(raw, 'gemini_api');
+  assert.equal(res.engineUsed, 'gemini_api');
+  assert.equal(res.title, 'Koshary El Tahrir');
+  assert.equal(res.items.length, 2);
+  assert.equal(res.items[0].qty, 2);
+  assert.equal(res.items[0].unitPrice, 65);
+  assert.equal(res.items[1].unitPrice, 25);
+  assert.equal(res.extras.length, 2);
+  assert.equal(res.extras[0].value, 12);
+  assert.equal(res.extras[1].sign, -1);
+  assert.equal(res.statedTotal, 158.6);
+
+  assert.throws(
+    () => normalizeParsedPayload({ title: null, items: [], extras: [] }, 'gemini_api'),
+    (err: unknown) => err instanceof OcrScanError && err.code === 'no_items'
+  );
+});
+
+// 13. Cloud session reconstruction (24h delete grace, pending guest linking & settled read-only)
+test('13. reconstructSessionFromCloud preserves deletedByOwner/cloudExpiresAt (24h grace) and guest claim merging', () => {
+  assert.equal(LIVE_BILL_DELETE_GRACE_MS, 24 * 60 * 60 * 1000);
+  const dueAt = Date.now() + LIVE_BILL_DELETE_GRACE_MS;
+  const rebuilt = reconstructSessionFromCloud('bill_live_01', {
+    meta: {
+      id: 'bill_live_01',
+      title: 'Coffee Duo',
+      icon: '☕',
+      currency: 'EGP',
+      status: 'locked',
+      ownerUid: 'uid_owner',
+      ownerName: 'Mario',
+      live: { enabled: true, defaultPermission: 'claim_own', autoAccept: false, linkActive: true },
+      expiresAt: dueAt,
+      deletedByOwner: true,
+    },
+    people: {
+      p_owner: { id: 'p_owner', name: 'Mario', kind: 'owner', role: 'participant', approval: 'approved', paidFlag: true },
+      p_guest: { id: 'p_guest', name: 'Youssef', kind: 'guest', boundUid: 'uid_g1', role: 'participant', approval: 'pending', paidFlag: false },
+    },
+    items: {
+      it_1: { id: 'it_1', name: 'Iced Latte', unitPriceMinor: 8000, qty: 2, mode: 'equal_among', equalAmong: [], order: 0 },
+    },
+    claims: {
+      it_1: { p_owner: 1 },
+    },
+  });
+  assert.ok(rebuilt);
+  assert.equal(rebuilt.deletedByOwner, true);
+  assert.equal(rebuilt.cloudExpiresAt, dueAt);
+  assert.equal(rebuilt.people.length, 2);
+  assert.equal(rebuilt.people[0].kind, 'owner');
+  assert.equal(rebuilt.people[1].approval, 'pending');
+  assert.deepEqual(rebuilt.items[0].equalAmong, ['p_owner']);
 });
 
 console.log(`\n[solv] ALL ${passed} BILL SPLIT VERIFICATION SUITES PASSED ✓\n`);
