@@ -2,6 +2,7 @@ export type BillStatus = 'draft' | 'open' | 'locked' | 'settled';
 export type ExtraKind = 'service' | 'tax' | 'delivery' | 'tip' | 'discount' | 'custom';
 export type ExtraDistribution = 'proportional' | 'equal';
 export type ReceiptImageTheme = 'dark' | 'light';
+export type BillGuestPermission = 'view_only' | 'claim_own' | 'helper';
 
 export interface BillPerson {
   id: string;
@@ -12,6 +13,7 @@ export interface BillPerson {
   numericId?: string;
   boundUid?: string;
   role: 'participant' | 'helper';
+  roleOverride?: BillGuestPermission;
   approval: 'approved' | 'pending';
   paidFlag: boolean;
   paidAmountMinor?: number;
@@ -22,9 +24,10 @@ export interface BillItem {
   name: string;
   unitPriceMinor: number;
   qty: number;
-  mode: 'units' | 'equal_among' | 'everyone';
+  mode: 'units' | 'equal_among' | 'everyone' | 'exact';
   claims: Record<string, number>;
   equalAmong?: string[];
+  exactAmountsMinor?: Record<string, number>;
   note?: string;
 }
 
@@ -88,6 +91,7 @@ export interface BillSession {
   paymentInfo?: BillPaymentInfo;
   live?: {
     enabled: boolean;
+    defaultPermission: BillGuestPermission;
     autoAccept: boolean;
     linkActive: boolean;
   };

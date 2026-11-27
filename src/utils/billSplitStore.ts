@@ -152,7 +152,7 @@ export function createNewBillSession(params: {
     payers: [],
     payerMode: 'owner_all',
     paymentInfo: params.defaultPaymentInfo ? { ...params.defaultPaymentInfo } : {},
-    live: { enabled: false, autoAccept: false, linkActive: true },
+    live: { enabled: false, defaultPermission: 'view_only', autoAccept: false, linkActive: true },
   };
 }
 
@@ -226,7 +226,7 @@ export function duplicateBillSession(id: string): BillSession | null {
     cloudCleanedAt: undefined,
     linkedTransactionId: undefined,
     status: 'draft',
-    live: { enabled: false, autoAccept: false, linkActive: true },
+    live: { enabled: false, defaultPermission: 'view_only', autoAccept: false, linkActive: true },
   };
   copy.people = copy.people.map((p) => ({
     ...p,

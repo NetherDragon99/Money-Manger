@@ -24,7 +24,6 @@ import {
   fromMinor,
   toMinor,
 } from '../../utils/billSplitEngine';
-import { computePersonTransferFee } from '../../utils/billSplitShare';
 import { TransferFeeSettings } from '../../types';
 import { translations } from '../../utils/translations';
 
@@ -376,39 +375,6 @@ export const BillSettleAndDoneSheet: React.FC<BillSettleAndDoneSheetProps> = ({
                 placeholder={t('billWalletPlaceholder')}
                 className="w-full min-h-[42px] px-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[16px] sm:text-xs font-mono text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
               />
-              {/* Custom styled toggle for InstaPay fee */}
-              <button
-                type="button"
-                onClick={() =>
-                  onUpdateSession((prev) => ({
-                    ...prev,
-                    paymentInfo: {
-                      ...(prev.paymentInfo || {}),
-                      includeInstaPayFee: !prev.paymentInfo?.includeInstaPayFee,
-                    },
-                  }))
-                }
-                className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-primary)] cursor-pointer"
-              >
-                <span>{t('billIncludeInstaPayFee')}</span>
-                <div
-                  className={`w-10 h-6 rounded-full p-0.5 transition-colors shrink-0 ${
-                    session.paymentInfo?.includeInstaPayFee
-                      ? 'bg-[var(--accent-primary)]'
-                      : 'bg-[var(--border-strong)]'
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full bg-white shadow transition-transform duration-150 ${
-                      session.paymentInfo?.includeInstaPayFee
-                        ? isAr
-                          ? '-translate-x-4'
-                          : 'translate-x-4'
-                        : 'translate-x-0'
-                    }`}
-                  />
-                </div>
-              </button>
             </div>
           )}
         </div>
@@ -431,7 +397,6 @@ export const BillSettleAndDoneSheet: React.FC<BillSettleAndDoneSheetProps> = ({
             const totalMinor = computation.finalPersonTotalsMinor[person.id] || 0;
             const itemsMinor = computation.allocation.perPersonItemsMinor[person.id] || 0;
             const extrasMinor = computation.extras.perPersonExtrasMinor[person.id] || 0;
-            const feeInfo = computePersonTransferFee(totalMinor, session.paymentInfo, feeSettings);
             const isOwner = person.kind === 'owner';
 
             return (
@@ -465,9 +430,6 @@ export const BillSettleAndDoneSheet: React.FC<BillSettleAndDoneSheetProps> = ({
                       {t('billItemsSubtotalLabel')}: {formatMinorMoney(itemsMinor, currency, language)}
                       {extrasMinor !== 0
                         ? ` · ${t('billExtrasSubtotalLabel')}: ${extrasMinor > 0 ? '+' : ''}${formatMinorMoney(extrasMinor, currency, language)}`
-                        : ''}
-                      {feeInfo.feeMinor > 0
-                        ? ` · InstaPay +${formatMinorMoney(feeInfo.feeMinor, currency, language)}`
                         : ''}
                     </div>
                   </div>

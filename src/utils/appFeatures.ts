@@ -19,6 +19,29 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.2.4',
+    isBeta: true,
+    releaseDate: 'November 27, 2026',
+    title: {
+      en: 'Beta v2.2.4: Compact Reorderable Items, Live Links & Smart Camera Scan',
+      ar: 'بيتا v2.2.4: أصناف مضغوطة قابلة للترتيب، روابط حية، ومسح الفواتير بالكاميرا',
+    },
+    highlights: {
+      en: [
+        'Compact Item Rows & Smooth Drag Reordering: Each item now fits on a clean compact line; tap any row to open its full split settings, or long-press and drag to reorder dishes effortlessly.',
+        'Exact Split Mode & Direct Quantity Typing: Enter the exact amount each person pays with a live remaining tracker and one-tap Fill Rest, or type exact unit counts directly.',
+        'Smart Camera Receipt Scanning: Snap a receipt photo or pick an image to extract dishes, prices, taxes, and grand total automatically, then review before adding.',
+        'Live Collaborative Bill Links & Permissions: Share a live link where friends browse view-only by default, pick their own items, or help add dishes—plus safe confirmation before starting a new bill and one-tap Copy Image to clipboard.',
+      ],
+      ar: [
+        'أصناف مضغوطة وترتيب بالسحب السلس: كل صنف يظهر الآن في سطر أنيق مضغوط، وعند الضغط عليه تفتح إعداداته بالكامل، ومع الضغطة الطويلة يمكنك سحبه وإعادة ترتيبه بسلاسة.',
+        'وضع المبلغ المحدد وإدخال الكمية مباشرة: اكتب المبلغ الذي يدفعه كل شخص يدوياً مع متابعة المتبقي وزر ملء الباقي بضغطة، أو اكتب عدد الوحدات مباشرة.',
+        'مسح الفاتورة بالكاميرا: صوّر الفاتورة أو اخترها من الاستوديو لاستخراج الأصناف والأسعار والضرائب والإجمالي تلقائياً مع مراجعتها قبل الإضافة.',
+        'روابط مشاركة حية مع تحكم بالصلاحيات: شارك رابطاً حياً بالوضع الافتراضي للعرض فقط أو السماح باختيار الطلبات أو المساعدة في الإضافة، مع حماية المسودة عند بدء فاتورة جديدة ونسخ صورة الفاتورة مباشرة.',
+      ],
+    },
+  },
+  {
     version: '2.2.3',
     isBeta: true,
     releaseDate: 'November 27, 2026',

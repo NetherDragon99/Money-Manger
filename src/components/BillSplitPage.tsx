@@ -4,16 +4,20 @@ import {
   Check,
   History,
   PlusCircle,
+  Radio,
   Share2,
+  Trash2,
   WifiOff,
+  X,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { navigateBack } from '../context/NavigationContext';
 import { BillExtra, BillItem, BillPerson, BillSession, ExpenseBudgetPool } from '../types';
-import { computeBill, formatMinorMoney } from '../utils/billSplitEngine';
+import { computeBill, formatMinorMoney, generateBillId } from '../utils/billSplitEngine';
 import {
   cleanupExpiredCloudBillsClientSide,
   createNewBillSession,
+  deleteBillSession,
   flushBillSplitPersist,
   getActiveBillDraft,
   getBillSessionById,
@@ -22,6 +26,12 @@ import {
   saveBillSession,
   saveDefaultPaymentInfo,
 } from '../utils/billSplitStore';
+import {
+  getLiveBillShareUrl,
+  publishOrSyncBillToCloud,
+  revokeOrDeleteLiveBill,
+  subscribeToLiveBillAsOwner,
+} from '../utils/billSplitCloud';
 import { BillPeopleBar } from './billSplit/BillPeopleBar';
 import { BillReconcileBar } from './billSplit/BillReconcileBar';
 import { BillItemsEditor } from './billSplit/BillItemsEditor';
@@ -29,6 +39,8 @@ import { BillExtrasSheet } from './billSplit/BillExtrasSheet';
 import { BillSettleAndDoneSheet } from './billSplit/BillSettleAndDoneSheet';
 import { BillShareSheet } from './billSplit/BillShareSheet';
 import { BillHistorySheet } from './billSplit/BillHistorySheet';
+import { BillScanOcrModal } from './billSplit/BillScanOcrModal';
+import { BillLiveSheet } from './billSplit/BillLiveSheet';
 
 export const BillSplitPage: React.FC = () => {
   const {
@@ -86,10 +98,15 @@ export const BillSplitPage: React.FC = () => {
   const [shareFocusPersonId, setShareFocusPersonId] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSaveSheetOpen, setIsSaveSheetOpen] = useState(false);
+  const [isOcrOpen, setIsOcrOpen] = useState(false);
+  const [isLiveSheetOpen, setIsLiveSheetOpen] = useState(false);
+  const [isNewBillConfirmOpen, setIsNewBillConfirmOpen] = useState(false);
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [isOffline, setIsOffline] = useState(
     typeof navigator !== 'undefined' ? !navigator.onLine : false
   );
   const hasInteractedRef = useRef(false);
+  const isApplyingRemoteRef = useRef(false);
 
   // Sync if activeBillSplitId changes while mounted
   useEffect(() => {
@@ -113,7 +130,7 @@ export const BillSplitPage: React.FC = () => {
       })
       .catch(() => {});
 
-    cleanupExpiredCloudBillsClientSide().catch(() => {});
+    cleanupExpiredCloudBillsClientSide(revokeOrDeleteLiveBill).catch(() => {});
 
     const onOnline = () => setIsOffline(false);
     const onOffline = () => setIsOffline(true);
@@ -137,7 +154,8 @@ export const BillSplitPage: React.FC = () => {
       session.title.trim() !== '' ||
       session.extras.length > 0 ||
       session.statedTotalMinor !== undefined ||
-      session.status === 'settled';
+      session.status === 'settled' ||
+      Boolean(session.live?.enabled);
     if (shouldPersist) {
       saveBillSession(session, {
         asActiveDraft: session.status !== 'settled',
@@ -148,6 +166,70 @@ export const BillSplitPage: React.FC = () => {
       saveDefaultPaymentInfo(session.paymentInfo);
     }
   }, [session]);
+
+  // Owner Live RTDB Sync: publish edits (debounced 500ms) + listen to remote guest updates
+  useEffect(() => {
+    if (!session.live?.enabled || isOffline) return;
+
+    if (isApplyingRemoteRef.current) {
+      isApplyingRemoteRef.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setIsCloudSyncing(true);
+      publishOrSyncBillToCloud(session)
+        .catch(() => {})
+        .finally(() => setIsCloudSyncing(false));
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [session, isOffline]);
+
+  useEffect(() => {
+    if (!session.live?.enabled || isOffline) return;
+    const billId = session.id;
+    const unsub = subscribeToLiveBillAsOwner(billId, (patch) => {
+      isApplyingRemoteRef.current = true;
+      setSession((prev) => {
+        if (prev.id !== billId) return prev;
+        let nextPeople = prev.people;
+        if (patch.people) {
+          nextPeople = patch.people;
+        }
+        let nextItems = prev.items;
+        if (patch.items) {
+          const prevClaimsById = new Map(prev.items.map((it) => [it.id, it.claims || {}]));
+          nextItems = patch.items.map((it) => ({
+            ...it,
+            claims: prevClaimsById.get(it.id) || it.claims || {},
+          }));
+        }
+        if (patch.claims) {
+          nextItems = nextItems.map((it) => ({
+            ...it,
+            claims: patch.claims![it.id] ? { ...patch.claims![it.id] } : {},
+          }));
+        }
+        return {
+          ...prev,
+          people: nextPeople,
+          items: nextItems,
+        };
+      });
+    });
+    return () => unsub();
+  }, [session.id, session.live?.enabled, isOffline]);
+
+  // ESC closes New Bill Confirm Modal
+  useEffect(() => {
+    if (!isNewBillConfirmOpen) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsNewBillConfirmOpen(false);
+    };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [isNewBillConfirmOpen]);
 
   const updateSession = useCallback((updater: (prev: BillSession) => BillSession) => {
     hasInteractedRef.current = true;
@@ -164,10 +246,44 @@ export const BillSplitPage: React.FC = () => {
     return transactions.find((tx) => tx.id === session.linkedTransactionId) || null;
   }, [session.linkedTransactionId, transactions]);
 
-  const handleStartNewSession = () => {
+  const hasActiveUnsavedWork =
+    session.status !== 'settled' &&
+    (session.items.length > 0 ||
+      session.people.length > 1 ||
+      session.title.trim() !== '' ||
+      session.extras.length > 0 ||
+      session.statedTotalMinor !== undefined);
+
+  const resetToBrandNewSession = () => {
     flushBillSplitPersist();
     hasInteractedRef.current = false;
     setSession(makeFreshSession());
+  };
+
+  const handleNewBillButtonClick = () => {
+    if (hasActiveUnsavedWork) {
+      setIsNewBillConfirmOpen(true);
+      return;
+    }
+    resetToBrandNewSession();
+  };
+
+  const handleSaveDraftAndStartNew = () => {
+    saveBillSession(session, { asActiveDraft: false, immediate: true });
+    setIsNewBillConfirmOpen(false);
+    resetToBrandNewSession();
+    showToast(isAr ? 'تم حفظ المسودة في السجل' : 'Draft saved to history', 'success');
+  };
+
+  const handleDiscardAndStartNew = () => {
+    const oldId = session.id;
+    const wasLive = Boolean(session.live?.enabled);
+    deleteBillSession(oldId);
+    if (wasLive && !isOffline) {
+      revokeOrDeleteLiveBill(oldId).catch(() => {});
+    }
+    setIsNewBillConfirmOpen(false);
+    resetToBrandNewSession();
   };
 
   const handleAddPerson = (person: BillPerson) => {
@@ -198,10 +314,13 @@ export const BillSplitPage: React.FC = () => {
       items: prev.items.map((it) => {
         const nextClaims = { ...(it.claims || {}) };
         delete nextClaims[personId];
+        const nextExact = { ...(it.exactAmountsMinor || {}) };
+        delete nextExact[personId];
         return {
           ...it,
           claims: nextClaims,
           equalAmong: (it.equalAmong || []).filter((id) => id !== personId),
+          exactAmountsMinor: nextExact,
         };
       }),
       extras: prev.extras.map((ex) => {
@@ -238,13 +357,29 @@ export const BillSplitPage: React.FC = () => {
     }));
   };
 
+  const handleReorderItems = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+      updateSession((prev) => {
+        if (fromIndex >= prev.items.length || toIndex >= prev.items.length) return prev;
+        const copy = [...prev.items];
+        const [moved] = copy.splice(fromIndex, 1);
+        copy.splice(toIndex, 0, moved);
+        return { ...prev, items: copy };
+      });
+    },
+    [updateSession]
+  );
+
   const handleApplyParsedReceipt = (data: {
     items: BillItem[];
     extras: BillExtra[];
     statedTotalMinor?: number;
+    title?: string;
   }) => {
     updateSession((prev) => ({
       ...prev,
+      title: prev.title.trim() ? prev.title : data.title || prev.title,
       items: [...prev.items, ...data.items],
       extras: [...prev.extras, ...data.extras],
       statedTotalMinor: data.statedTotalMinor ?? prev.statedTotalMinor,
@@ -283,13 +418,14 @@ export const BillSplitPage: React.FC = () => {
         showToast(t('billBlockedNoItems'), 'error');
       } else if (reasons.includes('unassigned_items')) {
         showToast(t('billBlockedUnassigned'), 'error');
+      } else if (reasons.includes('exact_mismatch')) {
+        showToast(t('billBlockedExactMismatch'), 'error');
       } else if (reasons.includes('total_mismatch')) {
         showToast(t('billBlockedMismatch'), 'error');
       }
       return;
     }
 
-    // If already linked to an existing transaction, check if paid amount changed and prompt cleanly
     if (existingLinkedTx) {
       const oldMinor = Math.round(existingLinkedTx.amount * 100);
       const newMinor = computation.settlement.recommendedExpenseMinor;
@@ -388,6 +524,43 @@ export const BillSplitPage: React.FC = () => {
     }
   };
 
+  const handleToggleLive = async (enabled: boolean) => {
+    updateSession((prev) => ({
+      ...prev,
+      live: {
+        enabled,
+        defaultPermission: prev.live?.defaultPermission || 'view_only',
+        autoAccept: Boolean(prev.live?.autoAccept),
+        linkActive: enabled ? true : Boolean(prev.live?.linkActive ?? true),
+      },
+    }));
+  };
+
+  const handleRegenerateLiveLink = async () => {
+    const oldId = session.id;
+    const nextId = `bill_${generateBillId()}`;
+    await revokeOrDeleteLiveBill(oldId);
+    deleteBillSession(oldId);
+    const regenerated: BillSession = {
+      ...session,
+      id: nextId,
+      updatedAt: Date.now(),
+      live: {
+        enabled: true,
+        defaultPermission: session.live?.defaultPermission || 'view_only',
+        autoAccept: Boolean(session.live?.autoAccept),
+        linkActive: true,
+      },
+    };
+    hasInteractedRef.current = true;
+    setSession(regenerated);
+    saveBillSession(regenerated, { asActiveDraft: regenerated.status !== 'settled', immediate: true });
+  };
+
+  const pendingCount = session.people.filter((p) => p.approval === 'pending').length;
+  const liveActive = Boolean(session.live?.enabled && session.live?.linkActive);
+  const liveShareUrl = liveActive ? getLiveBillShareUrl(session.id) : undefined;
+
   return (
     <div
       dir={isAr ? 'rtl' : 'ltr'}
@@ -444,9 +617,23 @@ export const BillSplitPage: React.FC = () => {
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-secondary)]">
                 <span>{session.status === 'settled' ? t('billPaidBadge') : t('billDraftBadge')}</span>
                 <span>•</span>
-                <span className="text-[var(--accent-primary)] font-semibold">
-                  {t('billLivePhase2Badge')}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsLiveSheetOpen(true)}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold cursor-pointer transition ${
+                    liveActive
+                      ? 'bg-[var(--status-success)]/15 text-[var(--status-success)]'
+                      : 'bg-[var(--accent-soft)] text-[var(--accent-primary)]'
+                  }`}
+                >
+                  <Radio className={`w-2.5 h-2.5 ${liveActive ? 'animate-pulse' : ''}`} />
+                  <span>{liveActive ? t('billLiveActiveBadge') : t('billLiveHeaderPill')}</span>
+                  {pendingCount > 0 && (
+                    <span className="px-1 rounded-full bg-[var(--status-warning)] text-white text-[9px]">
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
               </div>
             </div>
           </div>
@@ -463,7 +650,7 @@ export const BillSplitPage: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={handleStartNewSession}
+              onClick={handleNewBillButtonClick}
               aria-label={t('billNewSession')}
               title={t('billNewSession')}
               className="min-w-[44px] min-h-[44px] w-10 h-10 rounded-xl flex items-center justify-center hover:bg-[var(--bg-tertiary)] text-[var(--accent-primary)] cursor-pointer"
@@ -477,7 +664,6 @@ export const BillSplitPage: React.FC = () => {
       {/* Main Scrollable Content */}
       <main className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-4 py-4">
         <div className="max-w-3xl mx-auto space-y-4 pb-8">
-          {/* People & Groups Bar */}
           <BillPeopleBar
             people={session.people}
             perPersonTotalsMinor={computation.finalPersonTotalsMinor}
@@ -493,7 +679,6 @@ export const BillSplitPage: React.FC = () => {
             t={t}
           />
 
-          {/* Permanent Bill Total Reconciliation Strip */}
           <BillReconcileBar
             session={session}
             reconcile={computation.reconcile}
@@ -501,27 +686,28 @@ export const BillSplitPage: React.FC = () => {
             language={language}
             unassignedCount={computation.allocation.unassignedItemIds.length}
             unitMismatchCount={computation.allocation.unitMismatchItems.length}
+            exactMismatchCount={computation.allocation.exactMismatchItems.length}
             onUpdateSession={updateSession}
             t={t}
           />
 
-          {/* Fast Items Editor + Paste Receipt */}
           <BillItemsEditor
             items={session.items}
             people={session.people}
             itemAllocations={computation.allocation.itemAllocations}
             unassignedItemIds={computation.allocation.unassignedItemIds}
+            exactMismatchItems={computation.allocation.exactMismatchItems}
             currency={session.currency}
             language={language}
             onAddItem={handleAddItem}
             onUpdateItem={handleUpdateItem}
             onRemoveItem={handleRemoveItem}
+            onReorderItems={handleReorderItems}
             onApplyParsedReceipt={handleApplyParsedReceipt}
-            showToast={showToast}
+            onOpenOcrModal={() => setIsOcrOpen(true)}
             t={t}
           />
 
-          {/* Taxes, Service, Delivery, Discounts & Exemptions */}
           <BillExtrasSheet
             extras={session.extras}
             breakdown={computation.extras.perExtraBreakdown}
@@ -534,7 +720,6 @@ export const BillSplitPage: React.FC = () => {
             t={t}
           />
 
-          {/* Rounding, Who Paid, Individual Breakdown & Settlement */}
           <BillSettleAndDoneSheet
             session={session}
             computation={computation}
@@ -596,13 +781,70 @@ export const BillSplitPage: React.FC = () => {
         </div>
       </footer>
 
-      {/* Share Sheet (Whole / Selected / Separate / Reminders + Dark/Light Image) */}
+      {/* New Bill Safe Confirmation Modal */}
+      {isNewBillConfirmOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setIsNewBillConfirmOpen(false)}
+          className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[12px] p-0 sm:p-4 overscroll-contain"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-sm rounded-t-[22px] sm:rounded-[22px] bg-[var(--bg-secondary)] border border-[var(--border-subtle)] p-5 space-y-4 shadow-2xl modal-container-anim"
+            style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+          >
+            <div className="w-10 h-1 rounded-full bg-[var(--border-strong)] mx-auto sm:hidden" />
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-lg font-bold text-[var(--text-primary)]">{t('billNewModalTitle')}</h3>
+              <button
+                type="button"
+                onClick={() => setIsNewBillConfirmOpen(false)}
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] cursor-pointer"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              {t('billNewModalDesc')}
+            </p>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={handleSaveDraftAndStartNew}
+                className="w-full min-h-[46px] px-4 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white text-sm font-bold cursor-pointer"
+              >
+                {t('billNewSaveDraftBtn')}
+              </button>
+              <button
+                type="button"
+                onClick={handleDiscardAndStartNew}
+                className="w-full min-h-[46px] px-4 rounded-xl bg-[var(--status-danger)]/15 text-[var(--status-danger)] border border-[var(--status-danger)]/35 text-sm font-bold flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{t('billNewDiscardBtn')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsNewBillConfirmOpen(false)}
+                className="w-full min-h-[44px] px-4 rounded-xl bg-[var(--bg-tertiary)] text-[var(--text-secondary)] text-xs font-bold cursor-pointer"
+              >
+                {t('billNewCancelBtn')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share Sheet (Whole / Selected / Separate / Reminders + Copy/Download/Share Image) */}
       <BillShareSheet
         isOpen={isShareOpen}
         initialFocusPersonId={shareFocusPersonId}
         session={session}
         computation={computation}
         feeSettings={settings.transferFeeSettings}
+        liveUrl={liveShareUrl}
         language={language}
         appTheme={appTheme}
         onClose={() => setIsShareOpen(false)}
@@ -621,6 +863,44 @@ export const BillSplitPage: React.FC = () => {
           setSession(selected);
         }}
         showConfirm={showConfirm}
+        t={t}
+      />
+
+      {/* Camera Receipt AI Scanner */}
+      <BillScanOcrModal
+        isOpen={isOcrOpen}
+        currency={session.currency}
+        language={language}
+        onClose={() => setIsOcrOpen(false)}
+        onApply={handleApplyParsedReceipt}
+        t={t}
+      />
+
+      {/* Live Collaboration & Permissions Sheet */}
+      <BillLiveSheet
+        isOpen={isLiveSheetOpen}
+        session={session}
+        language={language}
+        isSyncing={isCloudSyncing}
+        onClose={() => setIsLiveSheetOpen(false)}
+        onToggleLive={handleToggleLive}
+        onUpdateLiveConfig={(patch) =>
+          updateSession((prev) => ({
+            ...prev,
+            live: {
+              enabled: Boolean(prev.live?.enabled),
+              defaultPermission: prev.live?.defaultPermission || 'view_only',
+              autoAccept: Boolean(prev.live?.autoAccept),
+              linkActive: prev.live?.linkActive ?? true,
+              ...patch,
+            },
+          }))
+        }
+        onApprovePerson={(pid) => handleUpdatePerson(pid, { approval: 'approved' })}
+        onRejectPerson={(pid) => handleRemovePerson(pid)}
+        onRegenerateLink={handleRegenerateLiveLink}
+        showConfirm={showConfirm}
+        showToast={showToast}
         t={t}
       />
     </div>

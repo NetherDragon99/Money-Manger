@@ -101,6 +101,9 @@ function verifyTarget(dirPath, isBeta) {
   if (!urlsList.some((u) => /^assets\/BillSplitPage.*\.js$/i.test(u))) {
     fail(label, 'BillSplitPage lazy chunk is missing from precacheAndRoute — offline Bill Split would fail on first open!');
   }
+  if (!urlsList.some((u) => /^assets\/BillSplitGuestView.*\.js$/i.test(u))) {
+    fail(label, 'BillSplitGuestView lazy chunk is missing from precacheAndRoute — offline Guest View would fail on first open!');
+  }
 
   // 4. Verify NavigationRoute fallback points to precached index.html
   const navMatch = swContent.match(/createHandlerBoundToURL\(\s*"([^"]+)"\s*\)/);

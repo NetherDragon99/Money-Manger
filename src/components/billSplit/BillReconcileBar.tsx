@@ -19,6 +19,7 @@ interface BillReconcileBarProps {
   language: 'ar' | 'en';
   unassignedCount: number;
   unitMismatchCount: number;
+  exactMismatchCount?: number;
   onUpdateSession: (updater: (prev: BillSession) => BillSession) => void;
   t: (key: keyof typeof translations.en) => string;
 }
@@ -30,6 +31,7 @@ export const BillReconcileBar: React.FC<BillReconcileBarProps> = ({
   language,
   unassignedCount,
   unitMismatchCount,
+  exactMismatchCount = 0,
   onUpdateSession,
   t,
 }) => {
@@ -395,12 +397,17 @@ export const BillReconcileBar: React.FC<BillReconcileBarProps> = ({
         </div>
       )}
 
-      {/* Unassigned / Unit mismatch notices */}
-      {(unassignedCount > 0 || unitMismatchCount > 0) && (
+      {/* Unassigned / Exact / Unit mismatch notices */}
+      {(unassignedCount > 0 || unitMismatchCount > 0 || exactMismatchCount > 0) && (
         <div className="flex flex-wrap gap-2 text-[11px] font-semibold text-[var(--status-warning)]">
           {unassignedCount > 0 && (
             <span>
               • {unassignedCount} {t('billUnassignedWarning')}
+            </span>
+          )}
+          {exactMismatchCount > 0 && (
+            <span>
+              • {exactMismatchCount} {t('billExactMismatchWarning')}
             </span>
           )}
           {unitMismatchCount > 0 && <span>• {t('billUnitMismatchWarning')}</span>}

@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import {
   Check,
+  Eye,
   Plus,
   Search,
   Shield,
   Trash2,
+  UserCheck,
   UserPlus,
   Users,
   X,
 } from 'lucide-react';
-import { BillPerson, SavedBillFriend, SavedBillGroup } from '../../types';
+import { BillGuestPermission, BillPerson, SavedBillFriend, SavedBillGroup } from '../../types';
 import { formatMinorMoney, generateBillId } from '../../utils/billSplitEngine';
 import {
   deleteSavedFriend,
@@ -270,8 +272,19 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
                       {t('billYouLabel')}
                     </span>
                   )}
-                  {person.role === 'helper' && !isOwner && (
+                  {person.role === 'helper' && !isOwner && person.roleOverride !== 'view_only' && (
                     <Shield className="w-3 h-3 text-[var(--accent-primary)] shrink-0" />
+                  )}
+                  {!isOwner && person.roleOverride === 'view_only' && (
+                    <Eye className="w-3 h-3 text-[var(--text-tertiary)] shrink-0" />
+                  )}
+                  {!isOwner && person.roleOverride === 'claim_own' && (
+                    <UserCheck className="w-3 h-3 text-[var(--accent-primary)] shrink-0" />
+                  )}
+                  {person.approval === 'pending' && (
+                    <span className="text-[9px] font-bold px-1 rounded bg-[var(--status-warning)]/20 text-[var(--status-warning)]">
+                      !
+                    </span>
                   )}
                   {person.paidFlag && !isOwner && (
                     <Check className="w-3.5 h-3.5 text-[var(--status-success)] shrink-0 stroke-[2.5]" />
@@ -322,26 +335,47 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
               </button>
             </div>
 
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => {
-                  onUpdatePerson(activeMenuPerson.id, {
-                    role: activeMenuPerson.role === 'helper' ? 'participant' : 'helper',
-                  });
-                  setActivePersonMenuId(null);
-                }}
-                className="w-full flex items-center justify-between p-3.5 min-h-[44px] rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-sm font-semibold text-[var(--text-primary)] cursor-pointer"
-              >
-                <span>
-                  {activeMenuPerson.role === 'helper'
-                    ? t('billPersonRoleHelper')
-                    : t('billPersonRoleParticipant')}
+            <div className="space-y-3">
+              {/* Role Override Selector */}
+              <div className="space-y-1.5">
+                <span className="text-xs font-bold text-[var(--text-secondary)] block">
+                  {t('billPersonPermLabel')}
                 </span>
-                <span className="text-xs font-bold text-[var(--accent-primary)]">
-                  {activeMenuPerson.role === 'helper' ? '✓' : '+'}
-                </span>
-              </button>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(
+                    [
+                      { id: undefined, label: t('billPermInheritDefault') },
+                      { id: 'view_only' as BillGuestPermission, label: t('billPermViewOnlyTitle') },
+                      { id: 'claim_own' as BillGuestPermission, label: t('billPermClaimOwnTitle') },
+                      { id: 'helper' as BillGuestPermission, label: t('billPermHelperTitle') },
+                    ] as const
+                  ).map((opt) => {
+                    const currentOverride =
+                      activeMenuPerson.roleOverride ??
+                      (activeMenuPerson.role === 'helper' ? 'helper' : undefined);
+                    const selected = currentOverride === opt.id;
+                    return (
+                      <button
+                        key={opt.id || 'default'}
+                        type="button"
+                        onClick={() => {
+                          onUpdatePerson(activeMenuPerson.id, {
+                            roleOverride: opt.id,
+                            role: opt.id === 'helper' ? 'helper' : 'participant',
+                          });
+                        }}
+                        className={`min-h-[38px] px-2.5 py-2 rounded-xl border text-xs font-bold cursor-pointer transition ${
+                          selected
+                            ? 'bg-[var(--accent-soft)] border-[var(--accent-primary)] text-[var(--accent-primary)]'
+                            : 'bg-[var(--bg-tertiary)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               <button
                 type="button"

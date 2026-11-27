@@ -4,8 +4,7 @@ import {
   ReceiptImageTheme,
   TransferFeeSettings,
 } from '../types';
-import { BillComputation, formatMinorMoney, fromMinor, toMinor } from './billSplitEngine';
-import { calculateInstaPayFee, resolveTransferFeeSettings } from './transferFee';
+import { BillComputation, formatMinorMoney } from './billSplitEngine';
 
 export type ShareScope = 'whole_bill' | 'selected_people';
 
@@ -25,20 +24,14 @@ function lri(text: string): string {
 
 export function computePersonTransferFee(
   amountMinor: number,
-  paymentInfo?: BillSession['paymentInfo'],
-  feeSettings?: Partial<TransferFeeSettings> | null
+  _paymentInfo?: BillSession['paymentInfo'],
+  _feeSettings?: Partial<TransferFeeSettings> | null
 ): { baseMinor: number; feeMinor: number; totalWithFeeMinor: number } {
   const baseMinor = Math.max(0, Math.round(amountMinor));
-  if (!paymentInfo?.includeInstaPayFee || baseMinor <= 0) {
-    return { baseMinor, feeMinor: 0, totalWithFeeMinor: baseMinor };
-  }
-  const resolved = resolveTransferFeeSettings(feeSettings);
-  const feeMajor = calculateInstaPayFee(fromMinor(baseMinor), resolved.instaPayPreset);
-  const feeMinor = toMinor(feeMajor);
   return {
     baseMinor,
-    feeMinor,
-    totalWithFeeMinor: baseMinor + feeMinor,
+    feeMinor: 0,
+    totalWithFeeMinor: baseMinor,
   };
 }
 
@@ -54,15 +47,15 @@ function formatDateShort(ts: number, lang: 'ar' | 'en'): string {
 }
 
 export function buildPaymentFooterLines(
-  amountMinor: number,
-  currency: string,
+  _amountMinor: number,
+  _currency: string,
   paymentInfo: BillSession['paymentInfo'],
   lang: 'ar' | 'en',
-  feeSettings?: Partial<TransferFeeSettings> | null
+  _feeSettings?: Partial<TransferFeeSettings> | null
 ): string[] {
   if (!paymentInfo) return [];
   const hasAny = Boolean(paymentInfo.instaPay?.trim() || paymentInfo.wallet?.trim() || paymentInfo.note?.trim());
-  if (!hasAny && !paymentInfo.includeInstaPayFee) return [];
+  if (!hasAny) return [];
 
   const isAr = lang === 'ar';
   const lines: string[] = [];
@@ -72,16 +65,6 @@ export function buildPaymentFooterLines(
   }
   if (paymentInfo.wallet?.trim()) {
     lines.push(`${isAr ? '• محفظة إلكترونية:' : '• Wallet:'} ${paymentInfo.wallet.trim()}`);
-  }
-  if (paymentInfo.includeInstaPayFee && amountMinor > 0) {
-    const feeInfo = computePersonTransferFee(amountMinor, paymentInfo, feeSettings);
-    const feeFmt = lri(formatMinorMoney(feeInfo.feeMinor, currency, lang));
-    const totalFmt = lri(formatMinorMoney(feeInfo.totalWithFeeMinor, currency, lang));
-    lines.push(
-      isAr
-        ? `• مع رسوم إنستاباي (${feeFmt}): الإجمالي للتحويل ${totalFmt}`
-        : `• With InstaPay fee (${feeFmt}): Send ${totalFmt}`
-    );
   }
   if (paymentInfo.note?.trim()) {
     lines.push(`• ${paymentInfo.note.trim()}`);
@@ -812,4 +795,21 @@ export async function shareTextExternal(text: string, title: string): Promise<bo
     }
   }
   return false;
+}
+
+export async function copyReceiptImageToClipboard(blob: Blob): Promise<boolean> {
+  if (
+    typeof navigator === 'undefined' ||
+    !navigator.clipboard ||
+    typeof navigator.clipboard.write !== 'function' ||
+    typeof ClipboardItem === 'undefined'
+  ) {
+    return false;
+  }
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    return true;
+  } catch {
+    return false;
+  }
 }

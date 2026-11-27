@@ -450,6 +450,8 @@ interface AppContextType {
   activeBillSplitId: string | null;
   openBillSplit: (sessionId?: string) => void;
   closeBillSplit: () => void;
+  activeLiveBillId: string | null;
+  closeLiveBillView: () => void;
 
   // Derived Lookups & Memoized Evaluations
   accountsById: Map<string, Account>;
@@ -700,6 +702,7 @@ export type AppUIContextType = Pick<
   | 'activeSharedSnapshot'
   | 'isBillSplitOpen'
   | 'activeBillSplitId'
+  | 'activeLiveBillId'
 >;
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -5595,6 +5598,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Collaborative Bill Split Full-Page Subview
   const [isBillSplitOpen, setIsBillSplitOpen] = useState<boolean>(false);
   const [activeBillSplitId, setActiveBillSplitId] = useState<string | null>(null);
+  const [activeLiveBillId, setActiveLiveBillId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const b = new URLSearchParams(window.location.search).get('bill');
+      return b && b.trim() ? b.trim() : null;
+    }
+    return null;
+  });
 
   const openBillSplit = (sessionId?: string) => {
     setActiveBillSplitId(sessionId || null);
@@ -5604,6 +5614,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const closeBillSplit = () => {
     setIsBillSplitOpen(false);
     setActiveBillSplitId(null);
+  };
+
+  const closeLiveBillView = () => {
+    setActiveLiveBillId(null);
+    if (typeof window !== 'undefined') {
+      const u = new URL(window.location.href);
+      u.searchParams.delete('bill');
+      window.history.replaceState({}, '', u.pathname + (u.search ? u.search : ''));
+    }
   };
 
   // When an invitation link is opened (?share=...), automatically register it into "Shared with Me"
@@ -5735,6 +5754,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     closeSharedLiveView,
     openBillSplit,
     closeBillSplit,
+    closeLiveBillView,
     resolveSyncConflict,
   });
 
@@ -5885,6 +5905,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       activeSharedSnapshot,
       isBillSplitOpen,
       activeBillSplitId,
+      activeLiveBillId,
     }),
     [
       stable,
@@ -5944,6 +5965,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       activeSharedSnapshot,
       isBillSplitOpen,
       activeBillSplitId,
+      activeLiveBillId,
     ]
   );
 

@@ -62,6 +62,9 @@ let AppFeaturesModal = React.lazy(loadAppFeaturesModal);
 const loadBillSplitPage = () =>
   import('./components/BillSplitPage').then((m) => ({ default: m.BillSplitPage }));
 let BillSplitPage = React.lazy(loadBillSplitPage);
+const BillSplitGuestView = React.lazy(() =>
+  import('./components/BillSplitGuestView').then((m) => ({ default: m.BillSplitGuestView }))
+);
 
 interface LazyChunkErrorBoundaryProps {
   isOpen: boolean;
@@ -231,6 +234,8 @@ const MainAppContent: React.FC = () => {
     activeSharedId,
     activeSharedSnapshot,
     closeSharedLiveView,
+    activeLiveBillId,
+    closeLiveBillView,
     isBillSplitOpen,
     closeBillSplit,
     customDialogState,
@@ -807,6 +812,14 @@ const MainAppContent: React.FC = () => {
       setBarsHidden(false);
     }
   }, [isAnyModalOpen]);
+
+  if (activeLiveBillId) {
+    return (
+      <React.Suspense fallback={null}>
+        <BillSplitGuestView billId={activeLiveBillId} onExit={closeLiveBillView} />
+      </React.Suspense>
+    );
+  }
 
   if (activeSharedId || activeSharedSnapshot) {
     return (

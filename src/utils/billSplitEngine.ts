@@ -1,6 +1,7 @@
 import {
   BillDiffResolution,
   BillExtra,
+  BillGuestPermission,
   BillItem,
   BillPayerEntry,
   BillPerson,
@@ -106,6 +107,14 @@ export interface UnitMismatchItem {
   expectedQty: number;
 }
 
+export interface ExactMismatchItem {
+  itemId: string;
+  name: string;
+  assignedMinor: number;
+  expectedMinor: number;
+  diffMinor: number; // expectedMinor - assignedMinor
+}
+
 export interface ItemAllocationResult {
   approvedIds: string[];
   perPersonItemsMinor: Record<string, number>;
@@ -114,9 +123,20 @@ export interface ItemAllocationResult {
   itemTotalsMinor: Record<string, number>;
   unassignedItemIds: string[];
   unitMismatchItems: UnitMismatchItem[];
+  exactMismatchItems: ExactMismatchItem[];
   itemsSubtotalMinor: number;
   assignedSubtotalMinor: number;
   unassignedSubtotalMinor: number;
+}
+
+export function getEffectivePersonPermission(
+  session: Pick<BillSession, 'live'>,
+  person: Pick<BillPerson, 'kind' | 'role' | 'roleOverride'>
+): BillGuestPermission {
+  if (person.kind === 'owner') return 'helper';
+  if (person.roleOverride) return person.roleOverride;
+  if (person.role === 'helper') return 'helper';
+  return session.live?.defaultPermission ?? 'view_only';
 }
 
 export function getApprovedPeople(session: BillSession): BillPerson[] {
@@ -150,6 +170,7 @@ export function allocateItems(session: BillSession): ItemAllocationResult {
   const itemTotalsMinor: Record<string, number> = {};
   const unassignedItemIds: string[] = [];
   const unitMismatchItems: UnitMismatchItem[] = [];
+  const exactMismatchItems: ExactMismatchItem[] = [];
 
   let itemsSubtotalMinor = 0;
   let assignedSubtotalMinor = 0;
@@ -158,6 +179,54 @@ export function allocateItems(session: BillSession): ItemAllocationResult {
     const lineTotalMinor = getItemLineTotalMinor(item);
     itemTotalsMinor[item.id] = lineTotalMinor;
     itemsSubtotalMinor += lineTotalMinor;
+
+    if (item.mode === 'exact') {
+      const exactEntries: Array<{ pid: string; amountMinor: number }> = [];
+      let assignedSum = 0;
+      for (const pid of approvedIds) {
+        const amt = Math.round(Number(item.exactAmountsMinor?.[pid]) || 0);
+        if (amt > 0) {
+          exactEntries.push({ pid, amountMinor: amt });
+          assignedSum += amt;
+        }
+      }
+
+      if (exactEntries.length === 0) {
+        unassignedItemIds.push(item.id);
+        itemAllocations[item.id] = {};
+        continue;
+      }
+
+      assignedSubtotalMinor += assignedSum;
+      const exactSplit: Record<string, number> = {};
+      for (const entry of exactEntries) {
+        exactSplit[entry.pid] = entry.amountMinor;
+        perPersonItemsMinor[entry.pid] = (perPersonItemsMinor[entry.pid] || 0) + entry.amountMinor;
+        const qtyShare =
+          lineTotalMinor > 0
+            ? Math.round(((item.qty * entry.amountMinor) / lineTotalMinor) * 100) / 100
+            : 0;
+        perPersonBreakdown[entry.pid].push({
+          itemId: item.id,
+          name: item.name,
+          qtyShare,
+          lineTotalMinor,
+          shareMinor: entry.amountMinor,
+        });
+      }
+      itemAllocations[item.id] = exactSplit;
+
+      if (assignedSum !== lineTotalMinor) {
+        exactMismatchItems.push({
+          itemId: item.id,
+          name: item.name,
+          assignedMinor: assignedSum,
+          expectedMinor: lineTotalMinor,
+          diffMinor: lineTotalMinor - assignedSum,
+        });
+      }
+      continue;
+    }
 
     const weights: Record<string, number> = {};
     const participantIds: string[] = [];
@@ -228,6 +297,7 @@ export function allocateItems(session: BillSession): ItemAllocationResult {
     itemTotalsMinor,
     unassignedItemIds,
     unitMismatchItems,
+    exactMismatchItems,
     itemsSubtotalMinor,
     assignedSubtotalMinor,
     unassignedSubtotalMinor: itemsSubtotalMinor - assignedSubtotalMinor,
@@ -507,7 +577,7 @@ export interface ReconcileResult {
   matchedItemName?: string;
   suggestions: ReconcileSuggestionAction[];
   canFinalize: boolean;
-  blockingReasons: Array<'no_items' | 'unassigned_items' | 'total_mismatch'>;
+  blockingReasons: Array<'no_items' | 'unassigned_items' | 'exact_mismatch' | 'total_mismatch'>;
 }
 
 export function reconcile(
@@ -517,9 +587,11 @@ export function reconcile(
 ): ReconcileResult {
   const hasItems = session.items.length > 0;
   const hasUnassigned = allocation.unassignedItemIds.length > 0;
+  const hasExactMismatch = (allocation.exactMismatchItems?.length || 0) > 0;
   const blockingReasons: ReconcileResult['blockingReasons'] = [];
   if (!hasItems) blockingReasons.push('no_items');
   if (hasUnassigned) blockingReasons.push('unassigned_items');
+  if (hasExactMismatch) blockingReasons.push('exact_mismatch');
 
   if (session.statedTotalMinor === undefined || session.statedTotalMinor === null || Number.isNaN(session.statedTotalMinor)) {
     return {

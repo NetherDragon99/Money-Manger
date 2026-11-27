@@ -11,6 +11,7 @@ import {
   computeBill,
   computeExtras,
   distributeLargestRemainder,
+  getEffectivePersonPermission,
   reconcile,
   settle,
   toMinor,
@@ -82,9 +83,17 @@ test('1. Sum of person totals equals computedTotalMinor across 500 randomized se
     const numItems = 1 + Math.floor(rand() * 6);
     const items: BillItem[] = Array.from({ length: numItems }, (_, idx) => {
       const modeRoll = rand();
-      const mode: BillItem['mode'] = modeRoll < 0.33 ? 'everyone' : modeRoll < 0.66 ? 'equal_among' : 'units';
+      const mode: BillItem['mode'] =
+        modeRoll < 0.25
+          ? 'everyone'
+          : modeRoll < 0.5
+          ? 'equal_among'
+          : modeRoll < 0.75
+          ? 'units'
+          : 'exact';
       const unitPriceMinor = 550 + Math.floor(rand() * 19500);
       const qty = 1 + Math.floor(rand() * 3);
+      const lineTotalMinor = unitPriceMinor * qty;
       const claims: Record<string, number> = {};
       const equalAmong: string[] = [];
       for (const p of people) {
@@ -97,7 +106,10 @@ test('1. Sum of person totals equals computedTotalMinor across 500 randomized se
         equalAmong.push(people[0].id);
         claims[people[0].id] = 1;
       }
-      return { id: `it_${idx}`, name: `Dish ${idx}`, unitPriceMinor, qty, mode, claims, equalAmong };
+      const exactWeights: Record<string, number> = {};
+      for (const pid of equalAmong) exactWeights[pid] = 1 + Math.floor(rand() * 5);
+      const exactAmountsMinor = distributeLargestRemainder(lineTotalMinor, exactWeights, equalAmong);
+      return { id: `it_${idx}`, name: `Dish ${idx}`, unitPriceMinor, qty, mode, claims, equalAmong, exactAmountsMinor };
     });
 
     const extras: BillExtra[] = [
@@ -435,7 +447,7 @@ test('9. translations.en & translations.ar have 100% key parity and all release 
     [/\b[\w-]+\/[\w-]+\//, 'path'],
   ];
 
-  for (const ver of ['2.2.2', '2.2.1', '2.2.0']) {
+  for (const ver of ['2.2.4', '2.2.3', '2.2.2', '2.2.1', '2.2.0']) {
     const note = APP_RELEASE_NOTES.find((n) => n.version === ver);
     assert.ok(note, `Release note ${ver} exists`);
     const texts = [note.title.en, note.title.ar, ...note.highlights.en, ...note.highlights.ar];
@@ -452,8 +464,8 @@ test('9. translations.en & translations.ar have 100% key parity and all release 
   }
 });
 
-// 10. Share text output & per-person InstaPay fee & unpaid reminders
-test('10. buildBillShareText & buildPerPersonShareMessages render accurate shares, InstaPay fee & clean solv branding', () => {
+// 10. Share text output (no sender transfer fees added) & clean solv branding
+test('10. buildBillShareText & buildPerPersonShareMessages render accurate shares without adding transfer fees & clean solv branding', () => {
   const session = makeBaseSession({
     items: [
       { id: 'it1', name: 'Pizza', unitPriceMinor: 30000, qty: 1, mode: 'everyone', claims: {} }, // 100 each
@@ -478,10 +490,11 @@ test('10. buildBillShareText & buildPerPersonShareMessages render accurate share
   });
   assert.equal(perPersonAr.length, 2); // Ahmed & Mona (owner already paid)
   assert.equal(perPersonAr[0].amountMinor, 10000);
-  // Default InstaPay preset on 100 EGP: 0.1% = 0.10 -> clamped to minFee 0.50 -> 50 minor
-  assert.equal(perPersonAr[0].feeMinor, 50);
-  assert.equal(perPersonAr[0].totalWithFeeMinor, 10050);
-  assert.ok(perPersonAr[0].text.includes('100.50'));
+  // Sender pays transfer fees — share calculation never adds InstaPay fee onto recipient
+  assert.equal(perPersonAr[0].feeMinor, 0);
+  assert.equal(perPersonAr[0].totalWithFeeMinor, 10000);
+  assert.equal(perPersonAr[0].text.includes('100.50'), false);
+  assert.ok(perPersonAr[0].text.includes('100.00'));
   assert.ok(perPersonAr[0].text.includes('تذكير'));
 
   // Optional post-build check if dist/beta/sw.js already exists
@@ -489,7 +502,74 @@ test('10. buildBillShareText & buildPerPersonShareMessages render accurate share
   if (fs.existsSync(betaSwPath)) {
     const sw = fs.readFileSync(betaSwPath, 'utf8');
     assert.ok(/assets\/BillSplitPage.*\.js/i.test(sw), 'BillSplitPage chunk must be precached in dist/beta/sw.js');
+    assert.ok(/assets\/BillSplitGuestView.*\.js/i.test(sw), 'BillSplitGuestView chunk must be precached in dist/beta/sw.js');
   }
+});
+
+// 11. Exact amount split mode + mismatch blocking + 3-level guest permissions
+test('11. exact item split mode blocks mismatches until exact sum matches, and getEffectivePersonPermission defaults to view_only', () => {
+  const mismatchedSession = makeBaseSession({
+    items: [
+      {
+        id: 'it_exact',
+        name: 'Mixed Grill',
+        unitPriceMinor: 30000,
+        qty: 1,
+        mode: 'exact',
+        claims: {},
+        exactAmountsMinor: { p_owner: 12000, p_ahmed: 10000 }, // sum = 22000 vs 30000
+      },
+    ],
+  });
+  const mComp = computeBill(mismatchedSession);
+  assert.equal(mComp.allocation.exactMismatchItems.length, 1);
+  assert.equal(mComp.allocation.exactMismatchItems[0].diffMinor, 8000);
+  assert.equal(mComp.reconcile.canFinalize, false);
+  assert.ok(mComp.reconcile.blockingReasons.includes('exact_mismatch'));
+
+  const balancedSession = makeBaseSession({
+    items: [
+      {
+        id: 'it_exact',
+        name: 'Mixed Grill',
+        unitPriceMinor: 30000,
+        qty: 1,
+        mode: 'exact',
+        claims: {},
+        exactAmountsMinor: { p_owner: 12000, p_ahmed: 10000, p_mona: 8000 },
+      },
+    ],
+  });
+  const bComp = computeBill(balancedSession);
+  assert.equal(bComp.allocation.exactMismatchItems.length, 0);
+  assert.equal(bComp.reconcile.canFinalize, true);
+  assert.equal(bComp.finalPersonTotalsMinor.p_owner, 12000);
+  assert.equal(bComp.finalPersonTotalsMinor.p_ahmed, 10000);
+  assert.equal(bComp.finalPersonTotalsMinor.p_mona, 8000);
+
+  // Permissions: view_only default + per-person overrides
+  const permSession = makeBaseSession({
+    live: { enabled: true, defaultPermission: 'view_only', autoAccept: false, linkActive: true },
+  });
+  assert.equal(
+    getEffectivePersonPermission(permSession, { kind: 'owner', role: 'participant' }),
+    'helper'
+  );
+  assert.equal(
+    getEffectivePersonPermission(permSession, { kind: 'guest', role: 'participant' }),
+    'view_only'
+  );
+  assert.equal(
+    getEffectivePersonPermission(permSession, { kind: 'guest', role: 'participant', roleOverride: 'claim_own' }),
+    'claim_own'
+  );
+  assert.equal(
+    getEffectivePersonPermission(
+      { live: { enabled: true, defaultPermission: 'claim_own', autoAccept: true, linkActive: true } },
+      { kind: 'guest', role: 'participant', roleOverride: 'view_only' }
+    ),
+    'view_only'
+  );
 });
 
 console.log(`\n[solv] ALL ${passed} BILL SPLIT VERIFICATION SUITES PASSED ✓\n`);

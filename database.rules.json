@@ -32,6 +32,33 @@
     "inboxByNumericId": {
       ".read": "auth != null",
       ".write": "auth != null"
+    },
+    "bill_splits": {
+      ".read": false,
+      "$billId": {
+        ".read": "auth != null && (data.child('meta/ownerUid').val() === auth.uid || data.child('meta/live/linkActive').val() === true)",
+        "meta": {
+          ".write": "auth != null && (!data.exists() ? newData.child('ownerUid').val() === auth.uid : data.child('ownerUid').val() === auth.uid)"
+        },
+        "helpers": {
+          ".write": "auth != null && root.child('bill_splits/'+$billId+'/meta/ownerUid').val() === auth.uid"
+        },
+        "items": {
+          ".write": "auth != null && (root.child('bill_splits/'+$billId+'/meta/ownerUid').val() === auth.uid || (root.child('bill_splits/'+$billId+'/meta/live/linkActive').val() === true && root.child('bill_splits/'+$billId+'/meta/status').val() === 'open' && root.child('bill_splits/'+$billId+'/helpers').child(auth.uid).val() === true))"
+        },
+        "people": {
+          "$personId": {
+            ".write": "auth != null && (root.child('bill_splits/'+$billId+'/meta/ownerUid').val() === auth.uid || (root.child('bill_splits/'+$billId+'/meta/live/linkActive').val() === true && newData.child('boundUid').val() === auth.uid && ((!data.exists() && !newData.child('roleOverride').exists() && newData.child('role').val() === 'participant' && newData.child('kind').val() === 'guest' && (newData.child('approval').val() === 'pending' || (root.child('bill_splits/'+$billId+'/meta/live/autoAccept').val() === true && newData.child('approval').val() === 'approved'))) || (data.exists() && !data.child('boundUid').exists() && data.child('kind').val() === 'guest' && newData.child('name').val() === data.child('name').val() && newData.child('role').val() === data.child('role').val() && (!data.child('roleOverride').exists() ? !newData.child('roleOverride').exists() : newData.child('roleOverride').val() === data.child('roleOverride').val()) && newData.child('paidFlag').val() === data.child('paidFlag').val() && (newData.child('approval').val() === data.child('approval').val() || (root.child('bill_splits/'+$billId+'/meta/live/autoAccept').val() === true && newData.child('approval').val() === 'approved'))))))"
+          }
+        },
+        "claims": {
+          "$itemId": {
+            "$personId": {
+              ".write": "auth != null && root.child('bill_splits/'+$billId+'/meta/status').val() === 'open' && (root.child('bill_splits/'+$billId+'/meta/ownerUid').val() === auth.uid || (root.child('bill_splits/'+$billId+'/meta/live/linkActive').val() === true && root.child('bill_splits/'+$billId+'/people/'+$personId+'/boundUid').val() === auth.uid && root.child('bill_splits/'+$billId+'/people/'+$personId+'/approval').val() === 'approved' && (root.child('bill_splits/'+$billId+'/people/'+$personId+'/roleOverride').val() === 'claim_own' || root.child('bill_splits/'+$billId+'/people/'+$personId+'/roleOverride').val() === 'helper' || (!root.child('bill_splits/'+$billId+'/people/'+$personId+'/roleOverride').exists() && (root.child('bill_splits/'+$billId+'/people/'+$personId+'/role').val() === 'helper' || root.child('bill_splits/'+$billId+'/meta/live/defaultPermission').val() === 'claim_own' || root.child('bill_splits/'+$billId+'/meta/live/defaultPermission').val() === 'helper')))))"
+            }
+          }
+        }
+      }
     }
   }
 }

@@ -15,6 +15,7 @@ import { BillComputation, formatMinorMoney } from '../../utils/billSplitEngine';
 import {
   buildBillShareText,
   buildPerPersonShareMessages,
+  copyReceiptImageToClipboard,
   exportBillReceiptPngBlob,
   renderBillReceiptCanvas,
   shareOrDownloadReceiptImage,
@@ -28,6 +29,7 @@ interface BillShareSheetProps {
   session: BillSession;
   computation: BillComputation;
   feeSettings?: Partial<TransferFeeSettings> | null;
+  liveUrl?: string;
   language: 'ar' | 'en';
   appTheme: 'dark' | 'light';
   onClose: () => void;
@@ -43,6 +45,7 @@ export const BillShareSheet: React.FC<BillShareSheetProps> = ({
   session,
   computation,
   feeSettings,
+  liveUrl,
   language,
   appTheme,
   onClose,
@@ -85,6 +88,7 @@ export const BillShareSheet: React.FC<BillShareSheetProps> = ({
         scope: 'whole_bill',
         lang: language,
         feeSettings,
+        liveUrl,
       });
     }
     if (tab === 'selected') {
@@ -93,10 +97,11 @@ export const BillShareSheet: React.FC<BillShareSheetProps> = ({
         selectedPersonIds,
         lang: language,
         feeSettings,
+        liveUrl,
       });
     }
     return '';
-  }, [tab, session, computation, selectedPersonIds, language, feeSettings]);
+  }, [tab, session, computation, selectedPersonIds, language, feeSettings, liveUrl]);
 
   const separatePayloads = useMemo(() => {
     return buildPerPersonShareMessages(session, computation, {
@@ -104,8 +109,9 @@ export const BillShareSheet: React.FC<BillShareSheetProps> = ({
       unpaidOnly: tab === 'reminders',
       isReminder: tab === 'reminders',
       feeSettings,
+      liveUrl,
     });
-  }, [tab, session, computation, language, feeSettings]);
+  }, [tab, session, computation, language, feeSettings, liveUrl]);
 
   // Live Canvas preview for Whole / Selected tabs
   useEffect(() => {
@@ -140,9 +146,10 @@ export const BillShareSheet: React.FC<BillShareSheetProps> = ({
   };
 
   const handleImageAction = async (
-    mode: 'share' | 'download',
+    mode: 'share' | 'download' | 'copy',
     customScope?: 'whole_bill' | 'selected_people',
-    customPersonIds?: string[]
+    customPersonIds?: string[],
+    feedbackId?: string
   ) => {
     setBusyImage(true);
     try {
@@ -157,7 +164,17 @@ export const BillShareSheet: React.FC<BillShareSheetProps> = ({
       });
       const safeTitle = (session.title || 'bill').replace(/[^a-z0-9\u0600-\u06FF]+/gi, '_');
       const fileName = `solv_${safeTitle}.png`;
-      if (mode === 'download') {
+      if (mode === 'copy') {
+        const ok = await copyReceiptImageToClipboard(blob);
+        if (ok) {
+          const cid = feedbackId || 'img_main';
+          setCopiedId(cid);
+          setTimeout(() => setCopiedId((prev) => (prev === cid ? null : prev)), 1500);
+          showToast(t('billImageCopiedToast'), 'success');
+        } else {
+          showToast(t('billImageCopyUnsupportedToast'), 'info');
+        }
+      } else if (mode === 'download') {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -318,7 +335,7 @@ export const BillShareSheet: React.FC<BillShareSheetProps> = ({
               {activeText}
             </pre>
 
-            {/* Share / Download / Copy Actions */}
+            {/* Share / Copy Image / Download / Copy Text Actions */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -333,8 +350,27 @@ export const BillShareSheet: React.FC<BillShareSheetProps> = ({
               <button
                 type="button"
                 disabled={busyImage || (tab === 'selected' && selectedPersonIds.length === 0)}
-                onClick={() => handleImageAction('download')}
+                onClick={() => handleImageAction('copy', undefined, undefined, 'img_main')}
                 className="min-h-[44px] px-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-strong)] text-[var(--text-primary)] text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-45 cursor-pointer"
+              >
+                {copiedId === 'img_main' ? (
+                  <>
+                    <Check className="w-4 h-4 text-[var(--status-success)]" />
+                    <span className="text-[var(--status-success)]">{t('billCopiedBtn')}</span>
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="w-4 h-4 text-[var(--accent-primary)]" />
+                    <span>{t('billCopyImageBtn')}</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                disabled={busyImage || (tab === 'selected' && selectedPersonIds.length === 0)}
+                onClick={() => handleImageAction('download')}
+                className="min-h-[44px] px-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-45 cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 <span>{t('billDownloadImageBtn')}</span>
@@ -364,7 +400,7 @@ export const BillShareSheet: React.FC<BillShareSheetProps> = ({
                   const ok = await shareTextExternal(activeText, session.title || t('billSplitTitle'));
                   if (!ok) await copyWithFeedback(activeText, 'main');
                 }}
-                className="min-h-[44px] px-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                className="col-span-2 min-h-[42px] px-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <MessageSquare className="w-4 h-4" />
                 <span>{t('billShareTextBtn')}</span>
@@ -409,6 +445,22 @@ export const BillShareSheet: React.FC<BillShareSheetProps> = ({
                           <Copy className="w-3.5 h-3.5" />
                           <span>{t('billCopyTextBtn')}</span>
                         </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyImage}
+                      onClick={() =>
+                        handleImageAction('copy', 'selected_people', [item.personId], `img_${item.personId}`)
+                      }
+                      className="min-h-[38px] px-2.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)] text-xs font-bold text-[var(--text-primary)] flex items-center justify-center gap-1 cursor-pointer shrink-0"
+                      title={t('billCopyImageBtn')}
+                      aria-label={t('billCopyImageBtn')}
+                    >
+                      {copiedId === `img_${item.personId}` ? (
+                        <Check className="w-3.5 h-3.5 text-[var(--status-success)]" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
                       )}
                     </button>
                     <button
