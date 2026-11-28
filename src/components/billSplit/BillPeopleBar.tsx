@@ -86,7 +86,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
 
   const pendingPeople = people.filter((p) => p.approval === 'pending');
   const linkCandidates = people.filter(
-    (p) => p.kind !== 'owner' && !p.boundUid && p.approval === 'approved'
+    (p) => p.kind !== 'owner' && p.approval === 'approved' && (!p.boundUid || p.kind === 'solv_user')
   );
 
   const [guestName, setGuestName] = useState('');
@@ -171,6 +171,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
         name: resolvedName,
         avatar: resolvedAvatar,
         numericId: clean,
+        uid: card?.uid,
         bumpUsage: true,
       });
       onAddPerson({
@@ -179,6 +180,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
         avatar: resolvedAvatar,
         kind: 'solv_user',
         numericId: clean,
+        boundUid: card?.uid,
         role: 'participant',
         approval: 'approved',
         paidFlag: false,
@@ -201,22 +203,35 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
     );
     if (already) return;
     upsertSavedFriend({ ...friend, bumpUsage: true });
+    const personId = `p_${generateBillId().slice(0, 8)}`;
     onAddPerson({
-      id: `p_${generateBillId().slice(0, 8)}`,
+      id: personId,
       name: friend.name,
       avatar: friend.avatar || '👤',
       kind: friend.numericId ? 'solv_user' : 'guest',
       numericId: friend.numericId,
+      boundUid: friend.uid,
       role: 'participant',
       approval: 'approved',
       paidFlag: false,
     });
+    if (friend.numericId && !friend.uid) {
+      lookupUserByNumericId(friend.numericId)
+        .then((card) => {
+          if (card?.uid) {
+            upsertSavedFriend({ ...friend, uid: card.uid });
+            onUpdatePerson(personId, { boundUid: card.uid });
+          }
+        })
+        .catch(() => {});
+    }
     refreshSaved();
   };
 
   const handleApplyGroup = (group: SavedBillGroup) => {
     const friendMap = new Map(savedFriends.map((f) => [f.id, f]));
     const toAdd: BillPerson[] = [];
+    const lookupQueue: Array<{ personId: string; friend: SavedBillFriend }> = [];
     for (const fid of group.memberIds) {
       const f = friendMap.get(fid);
       if (!f) continue;
@@ -226,20 +241,35 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
           p.name.trim().toLowerCase() === f.name.trim().toLowerCase()
       );
       if (!already) {
+        const pid = `p_${generateBillId().slice(0, 8)}`;
         toAdd.push({
-          id: `p_${generateBillId().slice(0, 8)}`,
+          id: pid,
           name: f.name,
           avatar: f.avatar || '👤',
           kind: f.numericId ? 'solv_user' : 'guest',
           numericId: f.numericId,
+          boundUid: f.uid,
           role: 'participant',
           approval: 'approved',
           paidFlag: false,
         });
+        if (f.numericId && !f.uid) {
+          lookupQueue.push({ personId: pid, friend: f });
+        }
       }
     }
     if (toAdd.length > 0) {
       onAddMultiplePeople(toAdd);
+      for (const item of lookupQueue) {
+        lookupUserByNumericId(item.friend.numericId!)
+          .then((card) => {
+            if (card?.uid) {
+              upsertSavedFriend({ ...item.friend, uid: card.uid });
+              onUpdatePerson(item.personId, { boundUid: card.uid });
+            }
+          })
+          .catch(() => {});
+      }
       showToast(
         isAr ? `تمت إضافة ${toAdd.length} من ${group.name}` : `Added ${toAdd.length} from ${group.name}`,
         'success'

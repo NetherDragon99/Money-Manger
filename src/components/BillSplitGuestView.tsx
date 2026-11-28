@@ -30,6 +30,7 @@ import {
   guestToggleItemClaim,
   helperDeleteItem,
   helperUpsertItem,
+  solvUserBindSelf,
   subscribeToLiveBillAsGuest,
 } from '../utils/billSplitCloud';
 import { auth, ensureFirebaseAuth } from '../utils/firebase';
@@ -87,15 +88,28 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
 
   const computation = useMemo(() => (session ? computeBill(session) : null), [session]);
 
+  const myNumericId = settings.userProfile?.numericId;
+
   const boundPerson: BillPerson | null = useMemo(() => {
     if (!session || !myUid) return null;
     return (
       session.people.find((p) => p.boundUid === myUid) ||
+      (myNumericId
+        ? session.people.find((p) => p.kind === 'solv_user' && p.numericId === myNumericId) || null
+        : null) ||
       (session.ownerUid && session.ownerUid === myUid
         ? session.people.find((p) => p.kind === 'owner') || null
         : null)
     );
-  }, [session, myUid]);
+  }, [session, myUid, myNumericId]);
+
+  // If a pre-added 16-digit solv user opens the link before their UID was bound on the row, bind it cleanly
+  useEffect(() => {
+    if (!session || !myUid || !boundPerson) return;
+    if (boundPerson.kind === 'solv_user' && !boundPerson.boundUid && myNumericId === boundPerson.numericId) {
+      solvUserBindSelf(billId, boundPerson, myUid).catch(() => {});
+    }
+  }, [billId, session, myUid, myNumericId, boundPerson]);
 
   useEffect(() => {
     if (boundPerson?.approval === 'pending') {

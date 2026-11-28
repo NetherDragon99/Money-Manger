@@ -418,6 +418,19 @@ export function subscribeToLiveBillAsGuest(
   };
 }
 
+/** Binds a pre-added 16-digit `solv_user` entry to the authenticated user's UID if not yet bound. */
+export async function solvUserBindSelf(
+  billId: string,
+  person: BillPerson,
+  uid: string
+): Promise<void> {
+  const payload = stripUndefined({
+    ...person,
+    boundUid: uid,
+  });
+  await set(ref(rtdb, `bill_splits/${billId}/people/${person.id}`), payload);
+}
+
 /** A guest who is still waiting for approval may correct the name they typed. */
 export async function guestRenameSelf(
   billId: string,

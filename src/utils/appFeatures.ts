@@ -19,6 +19,25 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.2.6',
+    isBeta: true,
+    releaseDate: 'November 28, 2026',
+    title: {
+      en: 'Beta v2.2.6: Auto-Public Link When Adding Friends by 16-Digit Number',
+      ar: 'بيتا v2.2.6: فتح الرابط العام تلقائياً عند إضافة صديق برقم الـ 16 خانة',
+    },
+    highlights: {
+      en: [
+        'Automatic Public Link on 16-Digit Add: Adding someone by their 16-digit solv number (or choosing a saved friend with one) automatically turns on the public link and syncs the bill right away.',
+        'Unified Public Permissions for Everyone: Friends added by 16-digit number follow the exact same public link rules, default guest permissions, read-only settlement lock, and link closure as everyone else.',
+      ],
+      ar: [
+        'تفعيل الرابط العام تلقائياً عند الإضافة برقم الـ 16 خانة: بمجرد إضافة شخص برقمه المكون من 16 خانة (أو اختياره من الأصدقاء المحفوظين)، يتحول شير الفاتورة إلى «رابط عام» ويتزامن فوراً.',
+        'نفس قوانين وصلاحيات الرابط العام للجميع: الأشخاص المضافون برقم الـ 16 خانة يخضعون لنفس صلاحيات الضيوف الافتراضية، ووضع القراءة فقط بعد التسوية، وإغلاق الرابط مثل باقي المشاركين.',
+      ],
+    },
+  },
+  {
     version: '2.2.5',
     isBeta: true,
     releaseDate: 'November 28, 2026',

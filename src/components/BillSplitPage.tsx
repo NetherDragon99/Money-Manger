@@ -332,16 +332,34 @@ export const BillSplitPage: React.FC = () => {
   };
 
   const handleAddPerson = (person: BillPerson) => {
+    const autoActivatePublic = Boolean(person.numericId || person.kind === 'solv_user');
     updateSession((prev) => ({
       ...prev,
       people: [...prev.people, person],
+      live: autoActivatePublic
+        ? {
+            enabled: true,
+            defaultPermission: prev.live?.defaultPermission || 'view_only',
+            autoAccept: Boolean(prev.live?.autoAccept),
+            linkActive: true,
+          }
+        : prev.live,
     }));
   };
 
   const handleAddMultiplePeople = (persons: BillPerson[]) => {
+    const autoActivatePublic = persons.some((p) => Boolean(p.numericId || p.kind === 'solv_user'));
     updateSession((prev) => ({
       ...prev,
       people: [...prev.people, ...persons],
+      live: autoActivatePublic
+        ? {
+            enabled: true,
+            defaultPermission: prev.live?.defaultPermission || 'view_only',
+            autoAccept: Boolean(prev.live?.autoAccept),
+            linkActive: true,
+          }
+        : prev.live,
     }));
   };
 

@@ -107,6 +107,7 @@ export interface SavedBillFriend {
   name: string;
   avatar: string;
   numericId?: string;
+  uid?: string;
   instaPay?: string;
   wallet?: string;
   usageCount: number;

@@ -450,7 +450,7 @@ test('9. translations.en & translations.ar have 100% key parity and all release 
     [/\b[\w-]+\/[\w-]+\//, 'path'],
   ];
 
-  for (const ver of ['2.2.5', '2.2.4', '2.2.3', '2.2.2', '2.2.1', '2.2.0']) {
+  for (const ver of ['2.2.6', '2.2.5', '2.2.4', '2.2.3', '2.2.2', '2.2.1', '2.2.0']) {
     const note = APP_RELEASE_NOTES.find((n) => n.version === ver);
     assert.ok(note, `Release note ${ver} exists`);
     const texts = [note.title.en, note.title.ar, ...note.highlights.en, ...note.highlights.ar];
@@ -561,6 +561,18 @@ test('11. exact item split mode blocks mismatches until exact sum matches, and g
   assert.equal(
     getEffectivePersonPermission(permSession, { kind: 'guest', role: 'participant' }),
     'view_only'
+  );
+  // 16-digit solv_user follows the exact same public permission rules as any guest
+  assert.equal(
+    getEffectivePersonPermission(permSession, { kind: 'solv_user', role: 'participant' }),
+    'view_only'
+  );
+  assert.equal(
+    getEffectivePersonPermission(
+      { live: { enabled: true, defaultPermission: 'claim_own', autoAccept: false, linkActive: true } },
+      { kind: 'solv_user', role: 'participant' }
+    ),
+    'claim_own'
   );
   assert.equal(
     getEffectivePersonPermission(permSession, { kind: 'guest', role: 'participant', roleOverride: 'claim_own' }),
