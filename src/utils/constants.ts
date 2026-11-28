@@ -120,6 +120,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     name: 'My Profile',
     avatarEmoji: '👤',
   },
+  smartBudget: {
+    baseline: {
+      isPaused: true,
+    },
+    updatedAt: 0,
+  },
   transferFeeSettings: DEFAULT_TRANSFER_FEE_SETTINGS,
 };
 

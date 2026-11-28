@@ -65,6 +65,19 @@ export interface CachedAuthUser {
 export type AuthSessionUser = CachedAuthUser;
 
 /**
+ * True only for real user sign-ins (Google / email / phone), NEVER for technical
+ * anonymous Firebase sessions created behind the scenes for public links or OCR.
+ */
+export function isRealAuthenticatedUser(u: any): boolean {
+  if (!u || !u.uid || u.isAnonymous === true) return false;
+  return Boolean(u.email || u.phoneNumber || u.displayName);
+}
+
+export function getRealCurrentUser(): User | null {
+  return auth.currentUser && isRealAuthenticatedUser(auth.currentUser) ? auth.currentUser : null;
+}
+
+/**
  * Retrieves the cached authenticated user session synchronously from localStorage
  * Used to keep the app working 100% offline without signing the user out or showing Guest state.
  */
@@ -73,7 +86,10 @@ export function getCachedAuthUser(): CachedAuthUser | null {
     const raw = localStorage.getItem(CACHED_AUTH_USER_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.uid) return parsed;
+      if (isRealAuthenticatedUser(parsed)) return parsed;
+      // Purge polluted anonymous cache entry automatically
+      localStorage.removeItem(CACHED_AUTH_USER_KEY);
+      localStorage.removeItem('mm_bound_account_uid');
     }
   } catch {}
   return null;
@@ -88,11 +104,13 @@ export async function restoreCachedAuthUserFromIndexedDB(): Promise<CachedAuthUs
     const existing = getCachedAuthUser();
     if (existing) return existing;
     const idbUser = await getItemFromIndexedDB<CachedAuthUser>(CACHED_AUTH_USER_KEY);
-    if (idbUser && idbUser.uid) {
+    if (idbUser && isRealAuthenticatedUser(idbUser)) {
       try {
         localStorage.setItem(CACHED_AUTH_USER_KEY, JSON.stringify(idbUser));
       } catch {}
       return idbUser;
+    } else if (idbUser) {
+      saveItemToIndexedDB(CACHED_AUTH_USER_KEY, null).catch(() => {});
     }
   } catch {}
   return null;
@@ -103,7 +121,7 @@ export async function restoreCachedAuthUserFromIndexedDB(): Promise<CachedAuthUs
  */
 export function setCachedAuthUser(user: CachedAuthUser | null): void {
   try {
-    if (user) {
+    if (user && isRealAuthenticatedUser(user)) {
       const payload: CachedAuthUser = {
         ...user,
         cachedAt: Date.now(),

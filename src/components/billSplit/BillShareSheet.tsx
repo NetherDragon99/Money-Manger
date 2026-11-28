@@ -26,6 +26,7 @@ import { translations } from '../../utils/translations';
 interface BillShareSheetProps {
   isOpen: boolean;
   initialFocusPersonId?: string | null;
+  initialSelectedPersonIds?: string[] | null;
   session: BillSession;
   computation: BillComputation;
   feeSettings?: Partial<TransferFeeSettings> | null;
@@ -42,6 +43,7 @@ type ShareTab = 'whole' | 'selected' | 'separate' | 'reminders';
 export const BillShareSheet: React.FC<BillShareSheetProps> = ({
   isOpen,
   initialFocusPersonId,
+  initialSelectedPersonIds,
   session,
   computation,
   feeSettings,
@@ -64,14 +66,17 @@ export const BillShareSheet: React.FC<BillShareSheetProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setImageTheme(appTheme);
-    if (initialFocusPersonId) {
+    if (initialSelectedPersonIds && initialSelectedPersonIds.length > 0) {
+      setTab('selected');
+      setSelectedPersonIds(initialSelectedPersonIds);
+    } else if (initialFocusPersonId) {
       setTab('selected');
       setSelectedPersonIds([initialFocusPersonId]);
     } else {
       setTab('whole');
       setSelectedPersonIds(approvedPeople.filter((p) => p.kind !== 'owner').map((p) => p.id));
     }
-  }, [isOpen, initialFocusPersonId]);
+  }, [isOpen, initialFocusPersonId, initialSelectedPersonIds]);
 
   useEffect(() => {
     if (!isOpen) return;

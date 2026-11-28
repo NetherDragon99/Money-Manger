@@ -397,7 +397,8 @@ const MainAppContent: React.FC = () => {
   useEffect(() => {
     const syncProfileToCloud = () => {
       if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-      const user = auth.currentUser || getCachedAuthUser();
+      const realFb = auth.currentUser && !auth.currentUser.isAnonymous ? auth.currentUser : null;
+      const user = realFb || getCachedAuthUser();
       if (!user) return;
       const clean16 = cleanNumericId(settings.userProfile?.numericId) || getOrCreateNumericId();
       if (clean16.length === 16) {

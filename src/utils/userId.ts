@@ -1,5 +1,5 @@
-import { auth, rtdb, getCachedAuthUser } from './firebase';
-import { ref, set, get } from 'firebase/database';
+import { auth, rtdb, getCachedAuthUser, getRealCurrentUser, ensureFirebaseAuth } from './firebase';
+import { ref, set, get, query, orderByKey, startAt, endAt, limitToFirst } from 'firebase/database';
 
 /** Permanent guest-mode storage key for the 16-digit numeric ID */
 export const PERMANENT_ID_STORAGE_KEY = 'app_permanent_16digit_id';
@@ -150,7 +150,7 @@ export function derive16DigitIdFromUid(uid: string): string {
  * Guest users (not signed in to Firebase Auth) DO NOT generate or receive a 16-digit ID.
  */
 export function getOrCreateNumericId(existing?: string): string {
-  const user = auth?.currentUser || getCachedAuthUser();
+  const user = getRealCurrentUser() || getCachedAuthUser();
   if (!user || !user.uid) {
     // Guest user: strictly do not generate, return, or persist a 16-digit ID
     try {
@@ -312,4 +312,62 @@ export async function lookupUserByNumericId(
   }
 
   return null;
+}
+
+export interface SuggestedSolvUser {
+  numericId: string;
+  uid?: string;
+  name: string;
+  photoURL?: string;
+  avatar?: string;
+}
+
+/**
+ * Prefix-searches Firebase `/numericIds` (for 3+ typed digits) and enriches results with
+ * profile photos/avatars from `/shared_accounts/profile_{id}`.
+ */
+export async function searchUsersByNumericIdPrefix(
+  rawPrefix: string,
+  excludeNumericId?: string,
+  maxResults = 6
+): Promise<SuggestedSolvUser[]> {
+  const cleanPrefix = cleanNumericId(rawPrefix);
+  if (cleanPrefix.length < 3) return [];
+  const cleanExclude = cleanNumericId(excludeNumericId);
+
+  try {
+    await ensureFirebaseAuth();
+    const q = query(
+      ref(rtdb, 'numericIds'),
+      orderByKey(),
+      startAt(cleanPrefix),
+      endAt(cleanPrefix + '\uf8ff'),
+      limitToFirst(maxResults + 2)
+    );
+    const snap = await get(q);
+    if (!snap.exists()) return [];
+    const entries = Object.entries(snap.val() || {}).filter(
+      ([key]) => key.length === 16 && key !== cleanExclude
+    );
+    const enriched = await Promise.all(
+      entries.slice(0, maxResults).map(async ([numId, rawVal]: [string, any]) => {
+        const card = await lookupUserByNumericId(numId).catch(() => null);
+        return {
+          numericId: numId,
+          uid: card?.uid || rawVal?.uid,
+          name:
+            card?.name ||
+            rawVal?.displayName ||
+            rawVal?.name ||
+            rawVal?.email?.split('@')[0] ||
+            `solv ${numId.slice(-4)}`,
+          photoURL: card?.photoURL || rawVal?.photoURL || '',
+          avatar: card?.avatar || rawVal?.avatar || '👤',
+        } satisfies SuggestedSolvUser;
+      })
+    );
+    return enriched;
+  } catch {
+    return [];
+  }
 }

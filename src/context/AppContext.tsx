@@ -451,6 +451,7 @@ interface AppContextType {
   openBillSplit: (sessionId?: string) => void;
   closeBillSplit: () => void;
   activeLiveBillId: string | null;
+  openLiveBillView: (billId: string) => void;
   closeLiveBillView: () => void;
 
   // Derived Lookups & Memoized Evaluations
@@ -882,9 +883,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch {}
   }, []);
 
-  // Instant Persistent Auth State (never shows Guest while offline)
+  // Instant Persistent Auth State (never shows Guest while offline, and ignores technical anonymous sessions)
   const [authUser, setAuthUser] = useState<AuthSessionUser | null>(() => {
-    if (auth.currentUser) {
+    if (auth.currentUser && !auth.currentUser.isAnonymous && (auth.currentUser.email || auth.currentUser.phoneNumber || auth.currentUser.displayName)) {
       return {
         uid: auth.currentUser.uid,
         email: auth.currentUser.email,
@@ -908,7 +909,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Single derived source of truth for cloud synchronization status
   const syncStatus: SyncStatus = useMemo(() => {
-    if (!authUser && !auth.currentUser && !getCachedAuthUser()) {
+    const realFb = auth.currentUser && !auth.currentUser.isAnonymous ? auth.currentUser : null;
+    if (!authUser && !realFb && !getCachedAuthUser()) {
       return 'local_only';
     }
     if (pendingSyncConflict) {
@@ -1688,7 +1690,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // Listen to Firebase Auth state directly so listener attaches immediately on sign-in
     const unsubAuth = auth.onAuthStateChanged((user) => {
       if (isDisposed) return;
-      if (user?.uid) {
+      if (user?.uid && !user.isAnonymous) {
         setupListenerForUser(user.uid);
       } else {
         const cached = getCachedAuthUser();
@@ -2660,8 +2662,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       );
     }
 
+    // Smart Budget is OFF (isPaused: true) by default for first-time / unconfigured users until explicitly enabled
+    const hasConfiguredSmartBudget = Boolean(
+      sb &&
+        (baseline.isPaused !== undefined ||
+          baseline.plannedIncome !== undefined ||
+          baseline.savings ||
+          baseline.plannedFixedObligations !== undefined ||
+          baseline.outingsBudget !== undefined ||
+          baseline.oneOffBudget !== undefined ||
+          baseline.poolsConfig ||
+          baseline.fromTodayConfig ||
+          hasExplicitIncluded ||
+          (sb.overrides && Object.keys(sb.overrides).length > 0) ||
+          (sb.adjustments && Object.keys(sb.adjustments).length > 0))
+    );
+
     const cfg: SmartBudgetConfig = {
       ...baseline,
+      isPaused: baseline.isPaused ?? !hasConfiguredSmartBudget,
       startDay: settings.defaultMonthStartDay || baseline.startDay || 1,
       baseCurrency: baseCurr,
       includedAccountIds: defaultIncludedIds,
@@ -3574,7 +3593,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     let isMounted = true;
 
-    const syncIdentity = async (user: any) => {
+    const syncIdentity = async (rawUser: any) => {
+      const isAnonOrFake =
+        rawUser &&
+        (rawUser.isAnonymous === true ||
+          (!rawUser.email && !rawUser.phoneNumber && !rawUser.displayName));
+      const user = isAnonOrFake ? null : rawUser;
+      if (isAnonOrFake) {
+        // Force-clean any polluted anonymous cache/binding immediately
+        localStorage.removeItem('mm_bound_account_uid');
+        localStorage.removeItem('mm_cached_authenticated_user');
+      }
       if (!user) {
         if (!isExplicitSignOutRef.current) {
           const cached = getCachedAuthUser() || authUserRef.current || (await restoreCachedAuthUserFromIndexedDB());
@@ -3808,8 +3837,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     const unsubAuth = auth.onAuthStateChanged(async (user) => {
-      if (user) {
+      if (user && !user.isAnonymous) {
         isExplicitSignOutRef.current = false;
+        syncIdentity(user);
+      } else if (user && user.isAnonymous) {
         syncIdentity(user);
       } else {
         if (isExplicitSignOutRef.current) {
@@ -3827,7 +3858,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     });
 
-    if (auth.currentUser) {
+    if (auth.currentUser && !auth.currentUser.isAnonymous) {
+      syncIdentity(auth.currentUser);
+    } else if (auth.currentUser?.isAnonymous) {
       syncIdentity(auth.currentUser);
     } else {
       const cached = getCachedAuthUser() || authUserRef.current;
@@ -3845,7 +3878,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     const handleOnlineIdentity = () => {
-      const activeUser = auth.currentUser || getCachedAuthUser() || authUserRef.current;
+      const realCurrent = auth.currentUser && !auth.currentUser.isAnonymous ? auth.currentUser : null;
+      const activeUser = realCurrent || getCachedAuthUser() || authUserRef.current;
       if (activeUser) {
         syncIdentity(activeUser);
       }
@@ -5635,6 +5669,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setActiveBillSplitId(null);
   };
 
+  const openLiveBillView = (billId: string) => {
+    const clean = billId.trim();
+    if (!clean) return;
+    setActiveLiveBillId(clean);
+    if (typeof window !== 'undefined') {
+      const u = new URL(window.location.href);
+      u.searchParams.set('bill', clean);
+      window.history.pushState({}, '', u.toString());
+    }
+  };
+
   const closeLiveBillView = () => {
     setActiveLiveBillId(null);
     if (typeof window !== 'undefined') {
@@ -5773,6 +5818,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     closeSharedLiveView,
     openBillSplit,
     closeBillSplit,
+    openLiveBillView,
     closeLiveBillView,
     resolveSyncConflict,
   });

@@ -547,7 +547,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
 
   const currentCycleKey = evaluation.cycle.startDate; // YYYY-MM-DD
   const currentOverride = resolveCycleOverride(settings.smartBudget?.overrides, currentCycleKey);
-  const isCyclePaused = Boolean(currentOverride?.isPaused);
+  const isCyclePaused = currentOverride?.isPaused ?? Boolean(evaluation.isPaused);
 
   if (!isOpen) return null;
 
@@ -1006,9 +1006,13 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       ...(settings.smartBudget?.overrides || {}),
       [currentCycleKey]: newOverride,
     };
+    const nextBaseline: SmartBudgetBaselineConfig = {
+      ...(settings.smartBudget?.baseline || {}),
+      ...(nextPaused ? {} : { isPaused: false }),
+    };
     updateSettings({
       smartBudget: {
-        baseline: settings.smartBudget?.baseline || {},
+        baseline: nextBaseline,
         overrides: newOverrides,
         adjustments: settings.smartBudget?.adjustments,
         updatedAt: Date.now(),
@@ -1186,6 +1190,7 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
         : 0;
 
     const newBaseline: SmartBudgetBaselineConfig = {
+      isPaused: false,
       startDay: globalMonthStartDay,
       cycleStartMode,
       customStartDay: cycleStartMode === 'custom' ? customStartDay : undefined,
@@ -1221,10 +1226,18 @@ export const SmartBudgetModal: React.FC<SmartBudgetModalProps> = ({ isOpen, onCl
       },
     };
 
+    const nextOverrides = { ...(settings.smartBudget?.overrides || {}) };
+    if (nextOverrides[currentCycleKey]?.isPaused) {
+      nextOverrides[currentCycleKey] = {
+        ...nextOverrides[currentCycleKey],
+        isPaused: false,
+      };
+    }
+
     updateSettings({
       smartBudget: {
         baseline: newBaseline,
-        overrides: settings.smartBudget?.overrides || {},
+        overrides: nextOverrides,
         adjustments: settings.smartBudget?.adjustments,
         updatedAt: Date.now(),
       },

@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Check,
+  ExternalLink,
   History,
+  Lock,
   PlusCircle,
   Radio,
   Share2,
@@ -39,7 +41,7 @@ import {
   revokeOrDeleteLiveBill,
   subscribeToLiveBillAsOwner,
 } from '../utils/billSplitCloud';
-import { auth } from '../utils/firebase';
+import { auth, getRealCurrentUser } from '../utils/firebase';
 import { BillPeopleBar } from './billSplit/BillPeopleBar';
 import { BillReconcileBar } from './billSplit/BillReconcileBar';
 import { BillItemsEditor } from './billSplit/BillItemsEditor';
@@ -48,11 +50,15 @@ import { BillSettleAndDoneSheet } from './billSplit/BillSettleAndDoneSheet';
 import { BillShareSheet } from './billSplit/BillShareSheet';
 import { BillHistorySheet } from './billSplit/BillHistorySheet';
 import { BillScanOcrModal } from './billSplit/BillScanOcrModal';
+import { BillPersonBreakdownModal } from './billSplit/BillPersonBreakdownModal';
+import { BillReadOnlyItemsAndExtras } from './billSplit/BillReadOnlyItemsAndExtras';
+import { BillPersonAvatar } from './billSplit/BillPersonAvatar';
 
 export const BillSplitPage: React.FC = () => {
   const {
     activeBillSplitId,
     closeBillSplit,
+    openLiveBillView,
     settings,
     accounts,
     categories,
@@ -75,10 +81,12 @@ export const BillSplitPage: React.FC = () => {
 
   const makeFreshSession = useCallback((): BillSession => {
     const bundle = loadBillSplitBundle();
+    const realFb = getRealCurrentUser();
     return createNewBillSession({
       ownerName: settings.userProfile?.name || (isAr ? 'أنا' : 'Me'),
       ownerAvatar: settings.userProfile?.avatarEmoji || '👤',
-      ownerUid: auth.currentUser?.uid || settings.userProfile?.uid,
+      ownerPhotoURL: settings.userProfile?.customAvatarUrl || realFb?.photoURL || undefined,
+      ownerUid: realFb?.uid || settings.userProfile?.uid,
       ownerNumericId: settings.userProfile?.numericId,
       currency: settings.currencySymbol || '£',
       defaultPaymentInfo: bundle.defaultPaymentInfo,
@@ -86,6 +94,7 @@ export const BillSplitPage: React.FC = () => {
   }, [
     settings.userProfile?.name,
     settings.userProfile?.avatarEmoji,
+    settings.userProfile?.customAvatarUrl,
     settings.userProfile?.uid,
     settings.userProfile?.numericId,
     settings.currencySymbol,
@@ -103,8 +112,10 @@ export const BillSplitPage: React.FC = () => {
   });
 
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
+  const [inspectingPersonId, setInspectingPersonId] = useState<string | null>(null);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [shareFocusPersonId, setShareFocusPersonId] = useState<string | null>(null);
+  const [shareSelectedPersonIds, setShareSelectedPersonIds] = useState<string[] | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSaveSheetOpen, setIsSaveSheetOpen] = useState(false);
   const [isOcrOpen, setIsOcrOpen] = useState(false);
@@ -117,6 +128,8 @@ export const BillSplitPage: React.FC = () => {
   const isApplyingRemoteRef = useRef(false);
   const sessionRef = useRef(session);
   sessionRef.current = session;
+
+  const isFrozenSnapshot = Boolean(session.isFrozenSnapshot);
 
   // Sync if activeBillSplitId changes while mounted
   useEffect(() => {
@@ -159,9 +172,9 @@ export const BillSplitPage: React.FC = () => {
     };
   }, []);
 
-  // Debounced auto-save draft whenever session changes
+  // Debounced auto-save draft whenever session changes (never mutate frozen snapshots)
   useEffect(() => {
-    if (!hasInteractedRef.current) return;
+    if (!hasInteractedRef.current || session.isFrozenSnapshot) return;
     const shouldPersist =
       session.items.length > 0 ||
       session.people.length > 1 ||
@@ -183,7 +196,7 @@ export const BillSplitPage: React.FC = () => {
 
   // Owner Live RTDB Sync: publish edits (debounced 450ms) + listen to remote guest updates
   useEffect(() => {
-    if (!session.live?.enabled || isOffline) return;
+    if (!session.live?.enabled || session.isFrozenSnapshot || isOffline) return;
 
     if (isApplyingRemoteRef.current) {
       isApplyingRemoteRef.current = false;
@@ -209,7 +222,7 @@ export const BillSplitPage: React.FC = () => {
   }, [session, isOffline]);
 
   useEffect(() => {
-    if (!session.live?.enabled || isOffline) return;
+    if (!session.live?.enabled || session.isFrozenSnapshot || isOffline) return;
     const billId = session.id;
     const unsub = subscribeToLiveBillAsOwner(billId, (patch) => {
       isApplyingRemoteRef.current = true;
@@ -240,7 +253,7 @@ export const BillSplitPage: React.FC = () => {
       });
     });
     return () => unsub();
-  }, [session.id, session.live?.enabled, isOffline]);
+  }, [session.id, session.live?.enabled, session.isFrozenSnapshot, isOffline]);
 
   // ESC closes New Bill Confirm Modal
   useEffect(() => {
@@ -253,8 +266,9 @@ export const BillSplitPage: React.FC = () => {
   }, [isNewBillConfirmOpen]);
 
   const updateSession = useCallback((updater: (prev: BillSession) => BillSession) => {
-    hasInteractedRef.current = true;
     setSession((prev) => {
+      if (prev.isFrozenSnapshot) return prev;
+      hasInteractedRef.current = true;
       const next = updater(prev);
       return { ...next, updatedAt: Date.now() };
     });
@@ -262,12 +276,18 @@ export const BillSplitPage: React.FC = () => {
 
   const computation = useMemo(() => computeBill(session), [session]);
 
+  const inspectingPerson = useMemo(
+    () => (inspectingPersonId ? session.people.find((p) => p.id === inspectingPersonId) || null : null),
+    [session.people, inspectingPersonId]
+  );
+
   const existingLinkedTx = useMemo(() => {
     if (!session.linkedTransactionId) return null;
     return transactions.find((tx) => tx.id === session.linkedTransactionId) || null;
   }, [session.linkedTransactionId, transactions]);
 
   const hasActiveUnsavedWork =
+    !session.isFrozenSnapshot &&
     session.status !== 'settled' &&
     (session.items.length > 0 ||
       session.people.length > 1 ||
@@ -370,12 +390,6 @@ export const BillSplitPage: React.FC = () => {
     }));
   };
 
-  /**
-   * Links a pending guest join request onto an existing unlinked person added by the owner:
-   * - Existing person's name becomes the name the guest entered (owner can rename later in person menu)
-   * - `boundUid` transfers to the existing person and `approval` becomes `'approved'`
-   * - Temporary pending entry is removed cleanly
-   */
   const handleLinkPendingToExisting = (pendingId: string, existingId: string) => {
     updateSession((prev) => {
       const pending = prev.people.find((p) => p.id === pendingId);
@@ -634,14 +648,9 @@ export const BillSplitPage: React.FC = () => {
     }
   };
 
-  /**
-   * Single "Public link" toggle:
-   * - ON  -> publishes the bill to Firebase immediately (verifying write succeeded) and marks `linkActive: true`
-   * - OFF -> marks `linkActive: false` in cloud so visitors see "Link closed"
-   */
   const handleSetPublic = useCallback(
     async (makePublic: boolean): Promise<boolean> => {
-      if (makePublic && (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      if (makePublic && typeof navigator !== 'undefined' && !navigator.onLine) {
         showToast(t('billLiveNeedInternetToast'), 'error');
         return false;
       }
@@ -673,7 +682,10 @@ export const BillSplitPage: React.FC = () => {
           hasInteractedRef.current = true;
           isApplyingRemoteRef.current = true;
           setSession(resolved);
-          saveBillSession(resolved, { asActiveDraft: resolved.status !== 'settled', immediate: true });
+          saveBillSession(resolved, {
+            asActiveDraft: resolved.status !== 'settled',
+            immediate: true,
+          });
           return true;
         } catch {
           showToast(t('billLivePublishFailedToast'), 'error');
@@ -684,7 +696,10 @@ export const BillSplitPage: React.FC = () => {
       } else {
         hasInteractedRef.current = true;
         setSession(nextSession);
-        saveBillSession(nextSession, { asActiveDraft: nextSession.status !== 'settled', immediate: true });
+        saveBillSession(nextSession, {
+          asActiveDraft: nextSession.status !== 'settled',
+          immediate: true,
+        });
         if (nextSession.live?.enabled && !isOffline) {
           setIsCloudSyncing(true);
           publishOrSyncBillToCloud(nextSession)
@@ -708,8 +723,6 @@ export const BillSplitPage: React.FC = () => {
   const handleUpdateLiveConfig = useCallback(
     (patch: Partial<NonNullable<BillSession['live']>>) => {
       updateSession((prev) => {
-        // If the bill was settled (read-only) and the owner explicitly chooses an interactive guest permission,
-        // reopen the bill automatically so guests can pick/add items right away.
         const reopenForEditing =
           prev.status === 'settled' &&
           patch.defaultPermission &&
@@ -738,7 +751,9 @@ export const BillSplitPage: React.FC = () => {
         ? {
             ...prev.live,
             defaultPermission:
-              prev.live.defaultPermission === 'view_only' ? 'claim_own' : prev.live.defaultPermission,
+              prev.live.defaultPermission === 'view_only'
+                ? 'claim_own'
+                : prev.live.defaultPermission,
           }
         : undefined,
     }));
@@ -769,13 +784,17 @@ export const BillSplitPage: React.FC = () => {
     }
     hasInteractedRef.current = true;
     setSession(regenerated);
-    saveBillSession(regenerated, { asActiveDraft: regenerated.status !== 'settled', immediate: true });
+    saveBillSession(regenerated, {
+      asActiveDraft: regenerated.status !== 'settled',
+      immediate: true,
+    });
   };
 
   const pendingCount = session.people.filter((p) => p.approval === 'pending').length;
   const liveActive = Boolean(session.live?.enabled && session.live?.linkActive);
   const liveShareUrl = liveActive ? getLiveBillShareUrl(session.id) : undefined;
   const canDeleteCurrentBill =
+    isFrozenSnapshot ||
     hasActiveUnsavedWork ||
     session.status === 'settled' ||
     Boolean(session.live?.enabled) ||
@@ -814,46 +833,63 @@ export const BillSplitPage: React.FC = () => {
 
             <button
               type="button"
-              onClick={() =>
+              disabled={isFrozenSnapshot}
+              onClick={() => {
+                if (isFrozenSnapshot) return;
                 openEmojiPicker((emoji: string) =>
                   updateSession((prev) => ({ ...prev, icon: emoji }))
-                )
-              }
+                );
+              }}
               aria-label="Change bill icon"
-              className="w-10 h-10 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] flex items-center justify-center text-xl shrink-0 cursor-pointer active:scale-[0.97] transition"
+              className="w-10 h-10 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] flex items-center justify-center text-xl shrink-0 cursor-pointer disabled:cursor-default active:scale-[0.97] transition"
             >
               {session.icon || '🧾'}
             </button>
 
             <div className="min-w-0 flex-1">
-              <input
-                type="text"
-                dir="auto"
-                value={session.title}
-                onChange={(e) => updateSession((prev) => ({ ...prev, title: e.target.value }))}
-                placeholder={t('billTitlePlaceholder')}
-                className="w-full min-w-0 bg-transparent text-[16px] sm:text-base font-extrabold text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none truncate"
-              />
+              {isFrozenSnapshot ? (
+                <h1 dir="auto" className="text-[16px] sm:text-base font-extrabold text-[var(--text-primary)] truncate">
+                  {session.title || t('billDefaultTitle')}
+                </h1>
+              ) : (
+                <input
+                  type="text"
+                  dir="auto"
+                  value={session.title}
+                  onChange={(e) => updateSession((prev) => ({ ...prev, title: e.target.value }))}
+                  placeholder={t('billTitlePlaceholder')}
+                  className="w-full min-w-0 bg-transparent text-[16px] sm:text-base font-extrabold text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none truncate"
+                />
+              )}
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-secondary)]">
-                <span>{session.status === 'settled' ? t('billPaidBadge') : t('billDraftBadge')}</span>
-                <span>•</span>
-                <button
-                  type="button"
-                  onClick={() => setIsAddPersonOpen(true)}
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold cursor-pointer transition ${
-                    liveActive
-                      ? 'bg-[var(--status-success)]/15 text-[var(--status-success)]'
-                      : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
-                  }`}
-                >
-                  <Radio className={`w-2.5 h-2.5 ${liveActive ? 'animate-pulse' : ''}`} />
-                  <span>{liveActive ? t('billLiveActiveBadge') : t('billLiveOffBadge')}</span>
-                  {pendingCount > 0 && (
-                    <span className="px-1 rounded-full bg-[var(--status-danger)] text-[var(--text-on-accent)] text-[9px] tabular-nums">
-                      {pendingCount}
-                    </span>
-                  )}
-                </button>
+                {isFrozenSnapshot ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--accent-soft)] text-[var(--accent-primary)] font-bold">
+                    <Lock className="w-2.5 h-2.5" />
+                    <span>{t('billFrozenSnapshotBadge')}</span>
+                  </span>
+                ) : (
+                  <>
+                    <span>{session.status === 'settled' ? t('billPaidBadge') : t('billDraftBadge')}</span>
+                    <span>•</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddPersonOpen(true)}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold cursor-pointer transition ${
+                        liveActive
+                          ? 'bg-[var(--status-success)]/15 text-[var(--status-success)]'
+                          : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
+                      }`}
+                    >
+                      <Radio className={`w-2.5 h-2.5 ${liveActive ? 'animate-pulse' : ''}`} />
+                      <span>{liveActive ? t('billLiveActiveBadge') : t('billLiveOffBadge')}</span>
+                      {pendingCount > 0 && (
+                        <span className="px-1 rounded-full bg-[var(--status-danger)] text-[var(--text-on-accent)] text-[9px] tabular-nums">
+                          {pendingCount}
+                        </span>
+                      )}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -895,93 +931,169 @@ export const BillSplitPage: React.FC = () => {
       {/* Main Scrollable Content */}
       <main className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-4 py-4">
         <div className="max-w-3xl mx-auto space-y-4 pb-8">
-          <BillPeopleBar
-            people={session.people}
-            perPersonTotalsMinor={computation.finalPersonTotalsMinor}
-            currency={session.currency}
-            language={language}
-            myNumericId={settings.userProfile?.numericId}
-            isAddSheetOpen={isAddPersonOpen}
-            onAddSheetOpenChange={setIsAddPersonOpen}
-            liveSession={session}
-            isCloudSyncing={isCloudSyncing}
-            onSetPublic={handleSetPublic}
-            onEnsurePublished={handleEnsurePublished}
-            onUpdateLiveConfig={handleUpdateLiveConfig}
-            onRegenerateLink={handleRegenerateLiveLink}
-            onReopenBill={handleReopenSettledBill}
-            onApprovePerson={(pid) => handleUpdatePerson(pid, { approval: 'approved' })}
-            onLinkPendingToExisting={handleLinkPendingToExisting}
-            onRejectPerson={(pid) => handleRemovePerson(pid)}
-            onAddPerson={handleAddPerson}
-            onAddMultiplePeople={handleAddMultiplePeople}
-            onUpdatePerson={handleUpdatePerson}
-            onRemovePerson={handleRemovePerson}
-            showConfirm={showConfirm}
-            showToast={showToast}
-            t={t}
-          />
+          {isFrozenSnapshot ? (
+            /* FROZEN READ-ONLY OFFLINE SNAPSHOT VIEW */
+            <>
+              <div className="rounded-2xl bg-[var(--accent-soft)] border border-[var(--accent-primary)]/35 p-3.5 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                  <Lock className="w-4 h-4 text-[var(--accent-primary)] shrink-0 mt-0.5" />
+                  <p className="text-xs font-semibold text-[var(--text-primary)] leading-relaxed">
+                    {t('billFrozenSnapshotBanner')}
+                  </p>
+                </div>
+                {session.sourceLiveBillId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const liveId = session.sourceLiveBillId!;
+                      closeBillSplit();
+                      openLiveBillView(liveId);
+                    }}
+                    className="inline-flex items-center gap-1.5 min-h-[38px] px-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-strong)] text-xs font-bold text-[var(--accent-primary)] cursor-pointer active:scale-[0.97] transition shrink-0"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>{t('billOpenLiveOriginalBtn')}</span>
+                  </button>
+                )}
+              </div>
 
-          <BillReconcileBar
-            session={session}
-            reconcile={computation.reconcile}
-            currency={session.currency}
-            language={language}
-            unassignedCount={computation.allocation.unassignedItemIds.length}
-            unitMismatchCount={computation.allocation.unitMismatchItems.length}
-            exactMismatchCount={computation.allocation.exactMismatchItems.length}
-            onUpdateSession={updateSession}
-            t={t}
-          />
+              {/* Clickable People Cards (tap any person for breakdown + multi-person combine total) */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                {session.people
+                  .filter((p) => p.approval === 'approved')
+                  .map((person) => (
+                    <button
+                      key={person.id}
+                      type="button"
+                      onClick={() => setInspectingPersonId(person.id)}
+                      className="shrink-0 flex items-center gap-2.5 ps-2.5 pe-3 py-2 min-h-[48px] rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-start cursor-pointer active:scale-[0.97] transition"
+                    >
+                      <BillPersonAvatar
+                        name={person.name}
+                        avatar={person.avatar}
+                        photoURL={person.photoURL}
+                        size="sm"
+                      />
+                      <div className="min-w-0">
+                        <div dir="auto" className="text-xs font-bold text-[var(--text-primary)] truncate max-w-[110px]">
+                          {person.name}
+                        </div>
+                        <div className="text-[11px] font-mono tabular-nums font-bold text-[var(--text-secondary)]">
+                          {formatMinorMoney(
+                            computation.finalPersonTotalsMinor[person.id] || 0,
+                            session.currency,
+                            language
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+              </div>
 
-          <BillItemsEditor
-            items={session.items}
-            people={session.people}
-            itemAllocations={computation.allocation.itemAllocations}
-            unassignedItemIds={computation.allocation.unassignedItemIds}
-            exactMismatchItems={computation.allocation.exactMismatchItems}
-            currency={session.currency}
-            language={language}
-            onAddItem={handleAddItem}
-            onUpdateItem={handleUpdateItem}
-            onRemoveItem={handleRemoveItem}
-            onReorderItems={handleReorderItems}
-            onApplyParsedReceipt={handleApplyParsedReceipt}
-            onOpenOcrModal={() => setIsOcrOpen(true)}
-            t={t}
-          />
+              <BillReadOnlyItemsAndExtras
+                session={session}
+                computation={computation}
+                currency={session.currency}
+                language={language}
+                canClaimOwn={false}
+                canEditItems={false}
+                onOpenPerson={(p) => setInspectingPersonId(p.id)}
+                t={t}
+              />
+            </>
+          ) : (
+            /* EDITABLE ADMIN / OWNER VIEW */
+            <>
+              <BillPeopleBar
+                people={session.people}
+                perPersonTotalsMinor={computation.finalPersonTotalsMinor}
+                currency={session.currency}
+                language={language}
+                myNumericId={settings.userProfile?.numericId}
+                isAddSheetOpen={isAddPersonOpen}
+                onAddSheetOpenChange={setIsAddPersonOpen}
+                liveSession={session}
+                isCloudSyncing={isCloudSyncing}
+                onSetPublic={handleSetPublic}
+                onEnsurePublished={handleEnsurePublished}
+                onUpdateLiveConfig={handleUpdateLiveConfig}
+                onRegenerateLink={handleRegenerateLiveLink}
+                onReopenBill={handleReopenSettledBill}
+                onApprovePerson={(pid) => handleUpdatePerson(pid, { approval: 'approved' })}
+                onLinkPendingToExisting={handleLinkPendingToExisting}
+                onRejectPerson={(pid) => handleRemovePerson(pid)}
+                onAddPerson={handleAddPerson}
+                onAddMultiplePeople={handleAddMultiplePeople}
+                onUpdatePerson={handleUpdatePerson}
+                onOpenPersonBreakdown={(p) => setInspectingPersonId(p.id)}
+                showConfirm={showConfirm}
+                showToast={showToast}
+                t={t}
+              />
 
-          <BillExtrasSheet
-            extras={session.extras}
-            breakdown={computation.extras.perExtraBreakdown}
-            people={session.people}
-            currency={session.currency}
-            language={language}
-            onAddExtra={handleAddExtra}
-            onUpdateExtra={handleUpdateExtra}
-            onRemoveExtra={handleRemoveExtra}
-            t={t}
-          />
+              <BillReconcileBar
+                session={session}
+                reconcile={computation.reconcile}
+                currency={session.currency}
+                language={language}
+                unassignedCount={computation.allocation.unassignedItemIds.length}
+                unitMismatchCount={computation.allocation.unitMismatchItems.length}
+                exactMismatchCount={computation.allocation.exactMismatchItems.length}
+                onUpdateSession={updateSession}
+                t={t}
+              />
 
-          <BillSettleAndDoneSheet
-            session={session}
-            computation={computation}
-            accounts={accounts}
-            categories={categories}
-            feeSettings={settings.transferFeeSettings}
-            currency={session.currency}
-            language={language}
-            existingLinkedTx={existingLinkedTx}
-            onUpdateSession={updateSession}
-            onOpenPersonShare={(pid) => {
-              setShareFocusPersonId(pid);
-              setIsShareOpen(true);
-            }}
-            onConfirmSaveExpense={handleConfirmSaveExpense}
-            isSaveSheetOpen={isSaveSheetOpen}
-            onCloseSaveSheet={() => setIsSaveSheetOpen(false)}
-            t={t}
-          />
+              <BillItemsEditor
+                items={session.items}
+                people={session.people}
+                itemAllocations={computation.allocation.itemAllocations}
+                unassignedItemIds={computation.allocation.unassignedItemIds}
+                exactMismatchItems={computation.allocation.exactMismatchItems}
+                currency={session.currency}
+                language={language}
+                onAddItem={handleAddItem}
+                onUpdateItem={handleUpdateItem}
+                onRemoveItem={handleRemoveItem}
+                onReorderItems={handleReorderItems}
+                onApplyParsedReceipt={handleApplyParsedReceipt}
+                onOpenOcrModal={() => setIsOcrOpen(true)}
+                t={t}
+              />
+
+              <BillExtrasSheet
+                extras={session.extras}
+                breakdown={computation.extras.perExtraBreakdown}
+                people={session.people}
+                currency={session.currency}
+                language={language}
+                onAddExtra={handleAddExtra}
+                onUpdateExtra={handleUpdateExtra}
+                onRemoveExtra={handleRemoveExtra}
+                t={t}
+              />
+
+              <BillSettleAndDoneSheet
+                session={session}
+                computation={computation}
+                accounts={accounts}
+                categories={categories}
+                feeSettings={settings.transferFeeSettings}
+                currency={session.currency}
+                language={language}
+                existingLinkedTx={existingLinkedTx}
+                onUpdateSession={updateSession}
+                onOpenPersonShare={(pid) => {
+                  setShareSelectedPersonIds(null);
+                  setShareFocusPersonId(pid);
+                  setIsShareOpen(true);
+                }}
+                onConfirmSaveExpense={handleConfirmSaveExpense}
+                isSaveSheetOpen={isSaveSheetOpen}
+                onCloseSaveSheet={() => setIsSaveSheetOpen(false)}
+                t={t}
+              />
+            </>
+          )}
         </div>
       </main>
 
@@ -996,33 +1108,58 @@ export const BillSplitPage: React.FC = () => {
             disabled={session.items.length === 0}
             onClick={() => {
               setShareFocusPersonId(null);
+              setShareSelectedPersonIds(null);
               setIsShareOpen(true);
             }}
-            className="min-h-[48px] px-4 rounded-2xl bg-[var(--bg-tertiary)] border border-[var(--border-strong)] text-sm font-bold text-[var(--text-primary)] flex items-center justify-center gap-2 disabled:opacity-45 cursor-pointer shrink-0 active:scale-[0.97] transition"
+            className={`${
+              isFrozenSnapshot ? 'flex-1' : 'shrink-0'
+            } min-h-[48px] px-4 rounded-2xl bg-[var(--bg-tertiary)] border border-[var(--border-strong)] text-sm font-bold text-[var(--text-primary)] flex items-center justify-center gap-2 disabled:opacity-45 cursor-pointer active:scale-[0.97] transition`}
           >
             <Share2 className="w-4 h-4 text-[var(--accent-primary)]" />
             <span>{t('billShareBtn')}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={handleDoneButtonClick}
-            className={`flex-1 min-h-[48px] px-5 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg transition cursor-pointer active:scale-[0.97] ${
-              computation.reconcile.canFinalize
-                ? 'bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--text-on-accent)]'
-                : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-subtle)] shadow-none'
-            }`}
-          >
-            <Check className="w-4 h-4 stroke-[2.5]" />
-            <span>
-              {existingLinkedTx ? t('billUpdateHeroBtn') : t('billDoneHeroBtn')}
-            </span>
-            <span className="font-mono tabular-nums opacity-90">
-              ({formatMinorMoney(computation.settlement.recommendedExpenseMinor, session.currency, language)})
-            </span>
-          </button>
+          {!isFrozenSnapshot && (
+            <button
+              type="button"
+              onClick={handleDoneButtonClick}
+              className={`flex-1 min-h-[48px] px-5 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg transition cursor-pointer active:scale-[0.97] ${
+                computation.reconcile.canFinalize
+                  ? 'bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--text-on-accent)]'
+                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-subtle)] shadow-none'
+              }`}
+            >
+              <Check className="w-4 h-4 stroke-[2.5]" />
+              <span>
+                {existingLinkedTx ? t('billUpdateHeroBtn') : t('billDoneHeroBtn')}
+              </span>
+              <span className="font-mono tabular-nums opacity-90">
+                ({formatMinorMoney(computation.settlement.recommendedExpenseMinor, session.currency, language)})
+              </span>
+            </button>
+          )}
         </div>
       </footer>
+
+      {/* Person Breakdown + Multi-Person Combine Total + Admin Role/Rename/Delete */}
+      <BillPersonBreakdownModal
+        person={inspectingPerson}
+        session={session}
+        computation={computation}
+        currency={session.currency}
+        language={language}
+        canManagePerson={!isFrozenSnapshot}
+        onClose={() => setInspectingPersonId(null)}
+        onSharePeople={(ids) => {
+          setShareFocusPersonId(null);
+          setShareSelectedPersonIds(ids);
+          setIsShareOpen(true);
+        }}
+        onUpdatePerson={handleUpdatePerson}
+        onRemovePerson={handleRemovePerson}
+        showConfirm={showConfirm}
+        t={t}
+      />
 
       {/* Safe New-Bill Confirmation Modal */}
       {isNewBillConfirmOpen && (
@@ -1080,10 +1217,11 @@ export const BillSplitPage: React.FC = () => {
         </div>
       )}
 
-      {/* Share Sheet (Whole / Selected / Separate / Reminders + Copy/Download/Share Image) */}
+      {/* Share Sheet */}
       <BillShareSheet
         isOpen={isShareOpen}
         initialFocusPersonId={shareFocusPersonId}
+        initialSelectedPersonIds={shareSelectedPersonIds}
         session={session}
         computation={computation}
         feeSettings={settings.transferFeeSettings}

@@ -115,6 +115,7 @@ export async function hydrateBillSplitFromIndexedDB(): Promise<BillSplitStorageB
 export function createNewBillSession(params: {
   ownerName: string;
   ownerAvatar?: string;
+  ownerPhotoURL?: string;
   ownerUid?: string;
   ownerNumericId?: string;
   currency: string;
@@ -127,6 +128,7 @@ export function createNewBillSession(params: {
     id: 'person_owner',
     name: params.ownerName?.trim() || 'Me',
     avatar: params.ownerAvatar || '👤',
+    photoURL: params.ownerPhotoURL,
     kind: 'owner',
     numericId: params.ownerNumericId,
     boundUid: params.ownerUid,
@@ -314,6 +316,7 @@ export function upsertSavedFriend(
       ...prev,
       name: cleanName || prev.name,
       avatar: friend.avatar || prev.avatar,
+      photoURL: friend.photoURL || prev.photoURL,
       numericId: friend.numericId || prev.numericId,
       uid: friend.uid || prev.uid,
       instaPay: friend.instaPay ?? prev.instaPay,
@@ -327,6 +330,7 @@ export function upsertSavedFriend(
       id: friend.id || `friend_${generateBillId().slice(0, 10)}`,
       name: cleanName,
       avatar: friend.avatar || '👤',
+      photoURL: friend.photoURL,
       numericId: friend.numericId,
       uid: friend.uid,
       instaPay: friend.instaPay,

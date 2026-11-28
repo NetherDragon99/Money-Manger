@@ -250,6 +250,7 @@ export interface PoolAllocationConfig {
 export type SmartBudgetCycleStartMode = 'app_default' | 'calendar_month' | 'from_today' | 'custom';
 
 export interface SmartBudgetBaselineConfig {
+  isPaused?: boolean;
   startDay?: number | 'auto';
   plannedIncome?: number;
   savings?: { type: 'percent'; value: number } | { type: 'fixed'; value: number };

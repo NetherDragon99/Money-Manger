@@ -19,6 +19,29 @@ export function getReleaseNotesForChannel(
 
 export const APP_RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.2.7',
+    isBeta: true,
+    releaseDate: 'November 28, 2026',
+    title: {
+      en: 'Beta v2.2.7: Clean First-Time Guest Mode, Live 16-Digit Cards & Interactive Bill Details',
+      ar: 'بيتا v2.2.7: وضع زائر نظيف، بحث حي بكروت الأعضاء، وتفاصيل تفاعلية كاملة للفاتورة',
+    },
+    highlights: {
+      en: [
+        'True Guest Sign-In & Smart Budget Off by Default: New visitors start cleanly as Guest with a real Sign-In button (never a fake account), and Smart Budget stays turned off until you choose to enable it.',
+        'Live 16-Digit Member Search & Photo Cards: Suggestions with member names and photos appear as you type a 16-digit number, and added friends show as rich cards with their photo and permission.',
+        'Expandable Items, Standalone Taxes & Multi-Person Calculator: Everyone (even in view-only mode) can open any dish or tax/discount to see who owes what, tap any person to combine multiple people together, and share with full dark/light options.',
+        'Guest Rename Anytime & Save Frozen Offline Copy: Visitors see their own name with a quick edit icon, and app users can record their share as a transaction with a permanent read-only offline copy of the bill.',
+      ],
+      ar: [
+        'وضع زائر حقيقي وإيقاف الميزانية الذكية افتراضياً: فتح التطبيق لأول مرة يعرض وضع الزائر وزر تسجيل الدخول الحقيقي فقط بدون أي حساب وهمي، وتظل الميزانية الذكية مغلقة لحين تفعيلها بنفسك.',
+        'بحث حي بالاقتراحات وكروت الأعضاء بالصورة والاسم: أثناء كتابة رقم الـ 16 خانة تظهر اقتراحات فورية بكروت تحمل اسم وصورة العضو، كما يظهر الأعضاء المضافون بكروت واضحة.',
+        'فتح تفاصيل الأصناف والضرائب وحاسبة تجميع الأشخاص: يقدر أي مشارك (حتى في وضع المشاهدة فقط) يفتح أي صنف أو ضريبة/خصم لمعرفة نصيب كل شخص، ويضغط على أي اسم لتجميع حساب أكتر من شخص مع بعض ومشاركته بالكامل.',
+        'تعديل اسم الضيف وحفظ نسخة أوفلاين ثابتة مع المعاملة: كل ضيف يشوف اسمه فوق حسابه مع أيقونة تعديل في أي وقت، ويقدر يسجل حسابه كمعاملة مع حفظ نسخة أوفلاين ثابتة للقراءة فقط لا تتأثر بأي تغيير لاحق.',
+      ],
+    },
+  },
+  {
     version: '2.2.6',
     isBeta: true,
     releaseDate: 'November 28, 2026',

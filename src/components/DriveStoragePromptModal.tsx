@@ -21,8 +21,9 @@ export const DriveStoragePromptModal: React.FC = () => {
     // If app is currently locked by PIN or biometrics, wait until unlocked
     if (isAppLocked) return;
 
-    const user = auth.currentUser || getCachedAuthUser();
-    const uid = user?.uid || settings.userProfile?.uid;
+    const realFb = auth.currentUser && !auth.currentUser.isAnonymous ? auth.currentUser : null;
+    const user = realFb || getCachedAuthUser();
+    const uid = user?.uid || (getCachedAuthUser() ? settings.userProfile?.uid : undefined);
 
     if (!uid) return;
 
@@ -71,8 +72,9 @@ export const DriveStoragePromptModal: React.FC = () => {
   }, [isOpen]);
 
   const markPromptedAndClose = () => {
-    const user = auth.currentUser || getCachedAuthUser();
-    const uid = user?.uid || settings.userProfile?.uid;
+    const realFb = auth.currentUser && !auth.currentUser.isAnonymous ? auth.currentUser : null;
+    const user = realFb || getCachedAuthUser();
+    const uid = user?.uid || (getCachedAuthUser() ? settings.userProfile?.uid : undefined);
     if (uid) {
       try {
         localStorage.setItem(`mm_drive_perm_prompted_${uid}`, 'true');
@@ -90,8 +92,9 @@ export const DriveStoragePromptModal: React.FC = () => {
   };
 
   const handleGrant = async () => {
-    const user = auth.currentUser || getCachedAuthUser();
-    const uid = user?.uid || settings.userProfile?.uid;
+    const realFb = auth.currentUser && !auth.currentUser.isAnonymous ? auth.currentUser : null;
+    const user = realFb || getCachedAuthUser();
+    const uid = user?.uid || (getCachedAuthUser() ? settings.userProfile?.uid : undefined);
     setIsRequesting(true);
     try {
       const res = await requestGoogleDriveStorageAccess(uid);

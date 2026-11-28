@@ -20,6 +20,8 @@ import {
 import { buildItemsFromParsed, parseBillText } from '../src/utils/billSplitParser';
 import { extractJsonFromModelText, normalizeParsedPayload, OcrScanError } from '../src/utils/billSplitOcr';
 import { LIVE_BILL_DELETE_GRACE_MS, reconstructSessionFromCloud } from '../src/utils/billSplitCloud';
+import { isRealAuthenticatedUser } from '../src/utils/firebase';
+import { DEFAULT_SETTINGS } from '../src/utils/constants';
 import { buildBillShareText, buildPerPersonShareMessages } from '../src/utils/billSplitShare';
 import { translations } from '../src/utils/translations';
 import { APP_RELEASE_NOTES } from '../src/utils/appFeatures';
@@ -450,7 +452,7 @@ test('9. translations.en & translations.ar have 100% key parity and all release 
     [/\b[\w-]+\/[\w-]+\//, 'path'],
   ];
 
-  for (const ver of ['2.2.6', '2.2.5', '2.2.4', '2.2.3', '2.2.2', '2.2.1', '2.2.0']) {
+  for (const ver of ['2.2.7', '2.2.6', '2.2.5', '2.2.4', '2.2.3', '2.2.2', '2.2.1', '2.2.0']) {
     const note = APP_RELEASE_NOTES.find((n) => n.version === ver);
     assert.ok(note, `Release note ${ver} exists`);
     const texts = [note.title.en, note.title.ar, ...note.highlights.en, ...note.highlights.ar];
@@ -661,6 +663,21 @@ test('13. reconstructSessionFromCloud preserves deletedByOwner/cloudExpiresAt (2
   assert.equal(rebuilt.people[0].kind, 'owner');
   assert.equal(rebuilt.people[1].approval, 'pending');
   assert.deepEqual(rebuilt.items[0].equalAmong, ['p_owner']);
+});
+
+// 14. Anonymous auth isolation & Smart Budget off-by-default for first-time users
+test('14. isRealAuthenticatedUser rejects anonymous/empty sessions and DEFAULT_SETTINGS starts with Smart Budget paused (off)', () => {
+  assert.equal(isRealAuthenticatedUser(null), false);
+  assert.equal(isRealAuthenticatedUser({ uid: 'anon_123', isAnonymous: true }), false);
+  assert.equal(
+    isRealAuthenticatedUser({ uid: 'anon_123', email: null, displayName: null, phoneNumber: null }),
+    false
+  );
+  assert.equal(
+    isRealAuthenticatedUser({ uid: 'google_123', email: 'user@example.com', isAnonymous: false }),
+    true
+  );
+  assert.equal(DEFAULT_SETTINGS.smartBudget?.baseline?.isPaused, true);
 });
 
 console.log(`\n[solv] ALL ${passed} BILL SPLIT VERIFICATION SUITES PASSED ✓\n`);

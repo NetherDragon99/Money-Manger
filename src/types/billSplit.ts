@@ -8,6 +8,7 @@ export interface BillPerson {
   id: string;
   name: string;
   avatar?: string;
+  photoURL?: string;
   color?: string;
   kind: 'owner' | 'solv_user' | 'guest';
   numericId?: string;
@@ -100,12 +101,17 @@ export interface BillSession {
   cloudExpiresAt?: number;
   /** Guest-side only: owner deleted this bill; link stays read-only until cloudExpiresAt. */
   deletedByOwner?: boolean;
+  /** True when saved by a guest/member as a permanent read-only offline snapshot attached to their own transaction. */
+  isFrozenSnapshot?: boolean;
+  /** Original live bill ID that a frozen snapshot came from (optional shortcut to view live bill if still active). */
+  sourceLiveBillId?: string;
 }
 
 export interface SavedBillFriend {
   id: string;
   name: string;
   avatar: string;
+  photoURL?: string;
   numericId?: string;
   uid?: string;
   instaPay?: string;

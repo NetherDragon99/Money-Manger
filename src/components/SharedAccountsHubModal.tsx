@@ -94,10 +94,10 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   const myName = settings.userProfile?.name || 'User';
 
   const resolveActiveUser = () => {
-    if (auth.currentUser) return auth.currentUser;
+    if (auth.currentUser && !auth.currentUser.isAnonymous) return auth.currentUser;
     const cached = getCachedAuthUser();
     if (cached?.uid) return cached;
-    if (settings.userProfile?.uid) {
+    if (settings.userProfile?.uid && cached) {
       return {
         uid: settings.userProfile.uid,
         displayName: settings.userProfile.name,
@@ -113,9 +113,10 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
   useEffect(() => {
     const active = resolveActiveUser();
     if (active) setCurrentUser(active);
+    else setCurrentUser(null);
 
     const unsub = auth.onAuthStateChanged((user) => {
-      if (user) {
+      if (user && !user.isAnonymous) {
         setCurrentUser(user);
       } else {
         const fallback = resolveActiveUser();
@@ -127,9 +128,8 @@ export const SharedAccountsHubModal: React.FC<SharedAccountsHubModalProps> = ({
 
   const isAuthenticated = Boolean(
     currentUser?.uid ||
-    auth.currentUser?.uid ||
-    getCachedAuthUser()?.uid ||
-    settings.userProfile?.uid
+    (auth.currentUser && !auth.currentUser.isAnonymous && auth.currentUser.uid) ||
+    getCachedAuthUser()?.uid
   );
 
   const myCleanNumericId =

@@ -225,6 +225,7 @@ export function reconstructSessionFromCloud(billId: string, val: any): BillSessi
     id: String(p.id),
     name: String(p.name || 'Guest'),
     avatar: p.avatar || '👤',
+    photoURL: p.photoURL || undefined,
     color: p.color,
     kind: p.kind || 'guest',
     numericId: p.numericId,
@@ -325,6 +326,7 @@ export function subscribeToLiveBillAsOwner(
       id: String(p.id),
       name: String(p.name || 'Guest'),
       avatar: p.avatar || '👤',
+      photoURL: p.photoURL || undefined,
       color: p.color,
       kind: p.kind || 'guest',
       numericId: p.numericId,
@@ -431,7 +433,7 @@ export async function solvUserBindSelf(
   await set(ref(rtdb, `bill_splits/${billId}/people/${person.id}`), payload);
 }
 
-/** A guest who is still waiting for approval may correct the name they typed. */
+/** Allows any bound guest (pending or approved) to update their own display name anytime. */
 export async function guestRenameSelf(
   billId: string,
   person: BillPerson,
@@ -442,7 +444,6 @@ export async function guestRenameSelf(
     ...person,
     name: name.trim().slice(0, 50),
     boundUid: uid,
-    approval: 'pending',
   });
   await set(ref(rtdb, `bill_splits/${billId}/people/${person.id}`), payload);
 }

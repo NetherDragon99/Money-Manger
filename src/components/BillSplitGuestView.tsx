@@ -8,11 +8,14 @@ import {
   CreditCard,
   Eye,
   Lock,
+  Pencil,
   Plus,
   Radio,
+  Share2,
   Shield,
-  Trash2,
   UserCheck,
+  Wallet,
+  X,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { BillItem, BillPerson, BillSession } from '../types';
@@ -21,10 +24,10 @@ import {
   formatMinorMoney,
   generateBillId,
   getEffectivePersonPermission,
-  getItemLineTotalMinor,
   toMinor,
 } from '../utils/billSplitEngine';
 import {
+  getLiveBillShareUrl,
   guestRenameSelf,
   guestRequestJoin,
   guestToggleItemClaim,
@@ -33,7 +36,12 @@ import {
   solvUserBindSelf,
   subscribeToLiveBillAsGuest,
 } from '../utils/billSplitCloud';
-import { auth, ensureFirebaseAuth } from '../utils/firebase';
+import { auth, ensureFirebaseAuth, getCachedAuthUser } from '../utils/firebase';
+import { BillPersonAvatar } from './billSplit/BillPersonAvatar';
+import { BillPersonBreakdownModal } from './billSplit/BillPersonBreakdownModal';
+import { BillReadOnlyItemsAndExtras } from './billSplit/BillReadOnlyItemsAndExtras';
+import { BillShareSheet } from './billSplit/BillShareSheet';
+import { BillGuestSaveExpenseSheet } from './billSplit/BillGuestSaveExpenseSheet';
 
 interface BillSplitGuestViewProps {
   billId: string;
@@ -41,19 +49,35 @@ interface BillSplitGuestViewProps {
 }
 
 export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, onExit }) => {
-  const { settings, showToast, t } = useApp();
+  const {
+    accounts,
+    categories,
+    transactions,
+    authUser,
+    settings,
+    addTransaction,
+    openBillSplit,
+    showToast,
+    t,
+  } = useApp();
+
   const language = settings.language === 'ar' ? 'ar' : 'en';
   const isAr = language === 'ar';
+  const appTheme: 'dark' | 'light' =
+    typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light'
+      ? 'light'
+      : 'dark';
 
   const [session, setSession] = useState<BillSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [myUid, setMyUid] = useState<string>(auth.currentUser?.uid || '');
 
-  // Mandatory join / pending rename states
+  // Join / Rename states
   const [joinName, setJoinName] = useState('');
   const [joining, setJoining] = useState(false);
-  const [pendingNameDraft, setPendingNameDraft] = useState('');
+  const [isEditingMyName, setIsEditingMyName] = useState(false);
+  const [myNameDraft, setMyNameDraft] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [copiedPayField, setCopiedPayField] = useState<string | null>(null);
 
@@ -62,6 +86,12 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemQty, setNewItemQty] = useState('1');
   const [addingItem, setAddingItem] = useState(false);
+
+  // Person Breakdown / Multi-Person Total / Share / Save Transaction sheets
+  const [inspectingPersonId, setInspectingPersonId] = useState<string | null>(null);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [shareSelectedPersonIds, setShareSelectedPersonIds] = useState<string[] | null>(null);
+  const [isSaveTxOpen, setIsSaveTxOpen] = useState(false);
 
   useEffect(() => {
     ensureFirebaseAuth()
@@ -90,38 +120,50 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
 
   const myNumericId = settings.userProfile?.numericId;
 
+  // Detect if the bill owner opened their own `?bill=` link: NEVER grant owner/helper bypass here!
+  const isOwnerPreviewing = Boolean(
+    session &&
+      myUid &&
+      (session.ownerUid === myUid ||
+        session.people.some((p) => p.kind === 'owner' && p.boundUid === myUid))
+  );
+
+  // Guest identity strictly matches NON-OWNER members only so `?bill=...` is 100% a guest view
   const boundPerson: BillPerson | null = useMemo(() => {
-    if (!session || !myUid) return null;
+    if (!session || !myUid || isOwnerPreviewing) return null;
     return (
-      session.people.find((p) => p.boundUid === myUid) ||
+      session.people.find((p) => p.kind !== 'owner' && p.boundUid === myUid) ||
       (myNumericId
         ? session.people.find((p) => p.kind === 'solv_user' && p.numericId === myNumericId) || null
-        : null) ||
-      (session.ownerUid && session.ownerUid === myUid
-        ? session.people.find((p) => p.kind === 'owner') || null
         : null)
     );
-  }, [session, myUid, myNumericId]);
+  }, [session, myUid, myNumericId, isOwnerPreviewing]);
+
+  useEffect(() => {
+    if (boundPerson) {
+      setMyNameDraft(boundPerson.name);
+    }
+  }, [boundPerson?.id, boundPerson?.name]);
 
   // If a pre-added 16-digit solv user opens the link before their UID was bound on the row, bind it cleanly
   useEffect(() => {
     if (!session || !myUid || !boundPerson) return;
-    if (boundPerson.kind === 'solv_user' && !boundPerson.boundUid && myNumericId === boundPerson.numericId) {
+    if (
+      boundPerson.kind === 'solv_user' &&
+      !boundPerson.boundUid &&
+      myNumericId === boundPerson.numericId
+    ) {
       solvUserBindSelf(billId, boundPerson, myUid).catch(() => {});
     }
   }, [billId, session, myUid, myNumericId, boundPerson]);
 
-  useEffect(() => {
-    if (boundPerson?.approval === 'pending') {
-      setPendingNameDraft(boundPerson.name);
-    }
-  }, [boundPerson?.id, boundPerson?.approval, boundPerson?.name]);
-
+  // Strict guest permission resolution (owner preview sees exact default guest permission!)
   const effectivePermission = useMemo(() => {
     if (!session) return 'view_only';
+    if (isOwnerPreviewing) return session.live?.defaultPermission || 'view_only';
     if (!boundPerson || boundPerson.approval !== 'approved') return 'view_only';
     return getEffectivePersonPermission(session, boundPerson);
-  }, [session, boundPerson]);
+  }, [session, boundPerson, isOwnerPreviewing]);
 
   const isLinkActive = Boolean(session?.live?.linkActive);
   const isDeletedGrace = Boolean(session?.deletedByOwner);
@@ -129,6 +171,7 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
   const isBillOpen =
     !isDeletedGrace && (session?.status === 'open' || session?.status === 'draft');
 
+  // Interactive claiming/adding ONLY for an approved non-owner guest whose effective permission allows it
   const canClaimOwn =
     Boolean(boundPerson) &&
     boundPerson?.approval === 'approved' &&
@@ -143,8 +186,31 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
     isBillOpen &&
     effectivePermission === 'helper';
 
-  // External visitors must enter their name before viewing the bill (unless the bill is in its 24h post-delete view window)
-  const mustEnterNameFirst = Boolean(session && isLinkActive && !boundPerson && !isDeletedGrace);
+  // External visitors (not owner preview) must enter their name first before viewing the bill
+  const mustEnterNameFirst = Boolean(
+    session && isLinkActive && !boundPerson && !isOwnerPreviewing && !isDeletedGrace
+  );
+
+  // Show "Save to My Transactions" when the visitor uses solv on this device (signed in, installed PWA, or existing local data)
+  const hasSolvAppOnDevice = useMemo(() => {
+    if (authUser || getCachedAuthUser() || transactions.length > 0) return true;
+    try {
+      if (
+        typeof window !== 'undefined' &&
+        (window.matchMedia?.('(display-mode: standalone)')?.matches ||
+          localStorage.getItem('pwa_finance_accounts') !== null ||
+          localStorage.getItem('pwa_finance_transactions') !== null)
+      ) {
+        return true;
+      }
+    } catch {}
+    return false;
+  }, [authUser, transactions.length]);
+
+  const inspectingPerson = useMemo(
+    () => (session && inspectingPersonId ? session.people.find((p) => p.id === inspectingPersonId) || null : null),
+    [session, inspectingPersonId]
+  );
 
   const handleRequestJoin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,16 +237,21 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
     }
   };
 
-  const handleSavePendingName = async (e: React.FormEvent) => {
+  const handleSaveMyName = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!boundPerson || boundPerson.approval !== 'pending') return;
-    const cleaned = pendingNameDraft.trim().slice(0, 50);
-    if (!cleaned || cleaned === boundPerson.name) return;
+    if (!boundPerson) return;
+    const cleaned = myNameDraft.trim().slice(0, 50);
+    if (!cleaned) return;
+    if (cleaned === boundPerson.name) {
+      setIsEditingMyName(false);
+      return;
+    }
     setSavingName(true);
     try {
       const user = await ensureFirebaseAuth();
       if (!user?.uid) throw new Error('Auth unavailable');
       await guestRenameSelf(billId, boundPerson, user.uid, cleaned);
+      setIsEditingMyName(false);
       showToast(t('updatedSuccess'), 'success');
     } catch {
       showToast(t('billLiveActionDenied'), 'error');
@@ -189,14 +260,8 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
     }
   };
 
-  const handleToggleClaim = async (item: BillItem) => {
-    if (!boundPerson || !canClaimOwn || item.mode === 'everyone') return;
-    const currentlyClaimed =
-      item.mode === 'equal_among'
-        ? (item.equalAmong || []).includes(boundPerson.id) ||
-          (Number(item.claims?.[boundPerson.id]) || 0) > 0
-        : (Number(item.claims?.[boundPerson.id]) || 0) > 0;
-    const nextUnits = currentlyClaimed ? 0 : 1;
+  const handleSetClaimUnits = async (item: BillItem, nextUnits: number) => {
+    if (!boundPerson || !canClaimOwn || item.mode === 'everyone' || item.mode === 'exact') return;
     try {
       await guestToggleItemClaim(billId, item.id, boundPerson.id, nextUnits);
     } catch {
@@ -241,6 +306,8 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
     } catch {}
   };
 
+  const liveShareUrl = session && isLinkActive ? getLiveBillShareUrl(session.id) : undefined;
+
   return (
     <div
       dir={isAr ? 'rtl' : 'ltr'}
@@ -283,15 +350,15 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
             </div>
           </div>
 
-          {/* Permission indicator pill */}
+          {/* Effective Guest Permission indicator pill */}
           {session && isLinkActive && !mustEnterNameFirst && (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[11px] font-bold text-[var(--text-secondary)] shrink-0">
-              {canEditItems ? (
+              {effectivePermission === 'helper' && isBillOpen ? (
                 <>
                   <Shield className="w-3 h-3 text-[var(--accent-primary)]" />
                   <span>{t('billPermHelperTitle')}</span>
                 </>
-              ) : canClaimOwn ? (
+              ) : effectivePermission === 'claim_own' && isBillOpen ? (
                 <>
                   <UserCheck className="w-3 h-3 text-[var(--accent-primary)]" />
                   <span>{t('billPermClaimOwnTitle')}</span>
@@ -371,6 +438,26 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
             </form>
           ) : (
             <>
+              {/* Owner Preview Banner (when the bill owner opened their own ?bill=... link) */}
+              {isOwnerPreviewing && (
+                <div className="rounded-2xl bg-[var(--accent-soft)] border border-[var(--accent-primary)]/40 p-3.5 flex items-center justify-between gap-2.5 flex-wrap">
+                  <span className="text-xs font-bold text-[var(--text-primary)]">
+                    {t('billOwnerPreviewBanner')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetId = session.id;
+                      onExit();
+                      openBillSplit(targetId);
+                    }}
+                    className="min-h-[36px] px-3 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--text-on-accent)] text-xs font-bold cursor-pointer active:scale-[0.97] transition shrink-0"
+                  >
+                    {t('billOwnerBackToEditBtn')}
+                  </button>
+                </div>
+              )}
+
               {/* Deleted by owner (24-hour grace view-only notice) */}
               {isDeletedGrace && (
                 <div className="rounded-2xl bg-[var(--status-danger)]/12 border border-[var(--status-danger)]/40 p-3.5 flex items-center gap-2.5 text-xs font-bold text-[var(--status-danger)]">
@@ -387,75 +474,113 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
                 </div>
               )}
 
-              {/* Pending Approval Banner + Editable Name */}
+              {/* Pending Approval Banner */}
               {boundPerson?.approval === 'pending' && !isDeletedGrace && (
-                <div className="rounded-2xl bg-[var(--status-warning)]/12 border border-[var(--status-warning)]/40 p-3.5 space-y-2.5">
-                  <div className="flex items-start gap-2.5 text-xs font-bold text-[var(--status-warning)]">
-                    <Clock className="w-4 h-4 shrink-0 mt-0.5" />
-                    <div className="space-y-0.5">
-                      <div>{t('billLivePendingToast')}</div>
-                      <div className="font-medium text-[var(--text-secondary)]">
-                        {t('billGuestPendingReadOnly')}
+                <div className="rounded-2xl bg-[var(--status-warning)]/12 border border-[var(--status-warning)]/40 p-3.5 flex items-start gap-2.5 text-xs font-bold text-[var(--status-warning)]">
+                  <Clock className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <div>{t('billLivePendingToast')}</div>
+                    <div className="font-medium text-[var(--text-secondary)]">
+                      {t('billGuestPendingReadOnly')}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Guest's Own Name + Personal Share KPI Card (with anytime pencil rename!) */}
+              {computation && (
+                <div className="rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)] p-4 space-y-2.5">
+                  {boundPerson && isEditingMyName && !isDeletedGrace ? (
+                    <form onSubmit={handleSaveMyName} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        dir="auto"
+                        autoFocus
+                        maxLength={50}
+                        value={myNameDraft}
+                        onChange={(e) => setMyNameDraft(e.target.value)}
+                        aria-label={t('billGuestNameLabel')}
+                        className="flex-1 min-w-0 min-h-[40px] px-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[16px] sm:text-xs font-bold text-[var(--text-primary)]"
+                      />
+                      <button
+                        type="submit"
+                        disabled={savingName || !myNameDraft.trim()}
+                        className="min-h-[40px] px-3 rounded-xl bg-[var(--accent-primary)] text-[var(--text-on-accent)] text-xs font-bold disabled:opacity-45 cursor-pointer shrink-0 active:scale-[0.97] transition"
+                      >
+                        {t('billGuestSaveNameBtn')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMyNameDraft(boundPerson.name);
+                          setIsEditingMyName(false);
+                        }}
+                        className="w-9 h-9 rounded-xl flex items-center justify-center bg-[var(--bg-tertiary)] text-[var(--text-secondary)] cursor-pointer shrink-0"
+                        aria-label="Cancel"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </form>
+                  ) : null}
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      {boundPerson ? (
+                        <div className="flex items-center gap-1.5">
+                          <BillPersonAvatar
+                            name={boundPerson.name}
+                            avatar={boundPerson.avatar}
+                            photoURL={boundPerson.photoURL}
+                            size="xs"
+                          />
+                          <span dir="auto" className="text-xs font-extrabold text-[var(--text-primary)] truncate">
+                            {boundPerson.name}
+                          </span>
+                          {!isDeletedGrace && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMyNameDraft(boundPerson.name);
+                                setIsEditingMyName(true);
+                              }}
+                              aria-label={t('billGuestEditMyNameAria')}
+                              title={t('billGuestEditMyNameAria')}
+                              className="p-1 rounded-lg text-[var(--text-secondary)] hover:text-[var(--accent-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer transition"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs font-bold text-[var(--text-secondary)] block">
+                          {t('billTotalLabel')}
+                        </span>
+                      )}
+
+                      <div className="text-2xl font-mono tabular-nums font-black text-[var(--accent-primary)] mt-0.5">
+                        {formatMinorMoney(
+                          boundPerson && boundPerson.approval === 'approved'
+                            ? computation.finalPersonTotalsMinor[boundPerson.id] || 0
+                            : computation.computedTotalMinor,
+                          session.currency,
+                          language
+                        )}
                       </div>
                     </div>
-                  </div>
-                  <form onSubmit={handleSavePendingName} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      dir="auto"
-                      maxLength={50}
-                      value={pendingNameDraft}
-                      onChange={(e) => setPendingNameDraft(e.target.value)}
-                      aria-label={t('billGuestNameLabel')}
-                      className="flex-1 min-w-0 min-h-[40px] px-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)] text-[16px] sm:text-xs font-bold text-[var(--text-primary)]"
-                    />
-                    <button
-                      type="submit"
-                      disabled={
-                        savingName ||
-                        !pendingNameDraft.trim() ||
-                        pendingNameDraft.trim() === boundPerson.name
-                      }
-                      className="min-h-[40px] px-3 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--text-on-accent)] text-xs font-bold disabled:opacity-45 cursor-pointer shrink-0 active:scale-[0.97] transition"
-                    >
-                      {t('billGuestSaveNameBtn')}
-                    </button>
-                  </form>
-                  <p className="text-[11px] text-[var(--text-secondary)]">{t('billGuestRenameHint')}</p>
-                </div>
-              )}
 
-              {/* My Personal Share KPI Card */}
-              {computation && (
-                <div className="rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)] p-4 flex items-center justify-between gap-3">
-                  <div>
-                    <span className="text-xs font-bold text-[var(--text-secondary)] block">
-                      {boundPerson && boundPerson.approval === 'approved'
-                        ? `${boundPerson.avatar || '👤'} ${boundPerson.name}`
-                        : t('billTotalLabel')}
-                    </span>
-                    <div className="text-2xl font-mono tabular-nums font-black text-[var(--accent-primary)] mt-0.5">
-                      {formatMinorMoney(
-                        boundPerson && boundPerson.approval === 'approved'
-                          ? computation.finalPersonTotalsMinor[boundPerson.id] || 0
-                          : computation.computedTotalMinor,
-                        session.currency,
-                        language
-                      )}
+                    <div className="text-end shrink-0">
+                      <span className="text-[11px] text-[var(--text-secondary)] block">
+                        {t('billTotalLabel')}
+                      </span>
+                      <span className="text-sm font-mono tabular-nums font-bold text-[var(--text-primary)]">
+                        {formatMinorMoney(computation.computedTotalMinor, session.currency, language)}
+                      </span>
                     </div>
                   </div>
-                  <div className="text-end">
-                    <span className="text-[11px] text-[var(--text-secondary)] block">
-                      {t('billTotalLabel')}
-                    </span>
-                    <span className="text-sm font-mono tabular-nums font-bold text-[var(--text-primary)]">
-                      {formatMinorMoney(computation.computedTotalMinor, session.currency, language)}
-                    </span>
-                  </div>
                 </div>
               )}
 
-              {/* Helper Add Item Form */}
+              {/* Helper Add Item Form (STRICTLY hidden unless effectivePermission === 'helper' and bill is open!) */}
               {canEditItems && (
                 <form
                   onSubmit={handleHelperAddItem}
@@ -498,77 +623,24 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
                 </form>
               )}
 
-              {/* Live Items List */}
+              {/* Expandable Items + Independent Expandable Taxes/Fees/Discounts + Summary */}
               {computation && (
-                <div className="space-y-2">
-                  {session.items.map((item) => {
-                    const lineTotal = getItemLineTotalMinor(item);
-                    const isApproved = boundPerson?.approval === 'approved';
-                    const myUnits =
-                      boundPerson && isApproved ? Number(item.claims?.[boundPerson.id]) || 0 : 0;
-                    const myShare =
-                      boundPerson && isApproved
-                        ? computation.allocation.itemAllocations[item.id]?.[boundPerson.id] || 0
-                        : 0;
-                    const claimed = myUnits > 0 || myShare > 0;
-
-                    return (
-                      <div
-                        key={item.id}
-                        className="rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)] px-3.5 py-2.5 flex items-center justify-between gap-2"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div dir="auto" className="text-sm font-bold truncate">
-                            {item.name} {item.qty !== 1 ? `×${item.qty}` : ''}
-                          </div>
-                          <div className="text-[11px] font-mono tabular-nums text-[var(--text-secondary)]">
-                            {formatMinorMoney(lineTotal, session.currency, language)}
-                            {myShare > 0 && (
-                              <span className="text-[var(--accent-primary)] ms-2 font-bold">
-                                ({t('billYouLabel')}: {formatMinorMoney(myShare, session.currency, language)})
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {item.mode === 'everyone' ? (
-                            <span className="px-2.5 py-1 rounded-full bg-[var(--accent-soft)] text-[var(--accent-primary)] text-[11px] font-bold">
-                              {t('billModeEveryone')}
-                            </span>
-                          ) : (
-                            canClaimOwn && (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleClaim(item)}
-                                className={`min-h-[36px] px-3 rounded-xl border text-xs font-bold cursor-pointer active:scale-[0.97] transition ${
-                                  claimed
-                                    ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)] text-[var(--text-on-accent)]'
-                                    : 'bg-[var(--bg-tertiary)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
-                                }`}
-                              >
-                                {claimed ? t('billGuestMineDoneBtn') : t('billGuestMineBtn')}
-                              </button>
-                            )
-                          )}
-                          {canEditItems && (
-                            <button
-                              type="button"
-                              onClick={() => helperDeleteItem(billId, item.id).catch(() => {})}
-                              className="w-9 h-9 rounded-xl flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--status-danger)] cursor-pointer"
-                              aria-label={t('billDeleteBtn')}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <BillReadOnlyItemsAndExtras
+                  session={session}
+                  computation={computation}
+                  currency={session.currency}
+                  language={language}
+                  boundPerson={boundPerson}
+                  canClaimOwn={canClaimOwn}
+                  canEditItems={canEditItems}
+                  onSetClaimUnits={handleSetClaimUnits}
+                  onDeleteItem={(itemId) => helperDeleteItem(billId, itemId).catch(() => {})}
+                  onOpenPerson={(p) => setInspectingPersonId(p.id)}
+                  t={t}
+                />
               )}
 
-              {/* People Shares Summary */}
+              {/* Interactive People Shares Cards (tap any person to open breakdown + multi-person combine total!) */}
               {computation && (
                 <div className="rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)] p-4 space-y-2">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)]">
@@ -576,24 +648,52 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
                   </h3>
                   {session.people
                     .filter((p) => p.approval === 'approved')
-                    .map((p) => (
-                      <div
-                        key={p.id}
-                        className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-[var(--bg-tertiary)]/75 text-xs"
-                      >
-                        <span dir="auto" className="font-bold truncate">
-                          {p.avatar || '👤'} {p.name}
-                          {p.paidFlag ? ' ✅' : ''}
-                        </span>
-                        <span className="font-mono tabular-nums font-extrabold">
-                          {formatMinorMoney(
-                            computation.finalPersonTotalsMinor[p.id] || 0,
-                            session.currency,
-                            language
-                          )}
-                        </span>
-                      </div>
-                    ))}
+                    .map((p) => {
+                      const eff = getEffectivePersonPermission(session, p);
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setInspectingPersonId(p.id)}
+                          className="w-full flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-2xl bg-[var(--bg-tertiary)]/75 hover:bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-xs cursor-pointer active:scale-[0.98] transition"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <BillPersonAvatar
+                              name={p.name}
+                              avatar={p.avatar}
+                              photoURL={p.photoURL}
+                              size="sm"
+                            />
+                            <div className="min-w-0 text-start">
+                              <div className="flex items-center gap-1.5">
+                                <span dir="auto" className="font-bold text-[var(--text-primary)] truncate">
+                                  {p.name}
+                                </span>
+                                {p.kind !== 'owner' && eff === 'helper' && (
+                                  <Shield className="w-3 h-3 text-[var(--accent-primary)] shrink-0" />
+                                )}
+                                {p.kind !== 'owner' && eff === 'claim_own' && (
+                                  <UserCheck className="w-3 h-3 text-[var(--accent-primary)] shrink-0" />
+                                )}
+                                {p.kind !== 'owner' && eff === 'view_only' && (
+                                  <Eye className="w-3 h-3 text-[var(--text-tertiary)] shrink-0" />
+                                )}
+                                {p.paidFlag && (
+                                  <Check className="w-3.5 h-3.5 text-[var(--status-success)] shrink-0 stroke-[2.5]" />
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <span className="font-mono tabular-nums font-extrabold text-[var(--text-primary)] shrink-0">
+                            {formatMinorMoney(
+                              computation.finalPersonTotalsMinor[p.id] || 0,
+                              session.currency,
+                              language
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
                 </div>
               )}
 
@@ -638,6 +738,139 @@ export const BillSplitGuestView: React.FC<BillSplitGuestViewProps> = ({ billId, 
           )}
         </div>
       </main>
+
+      {/* Bottom Sticky Dock: Full Share Options + Save to My Transactions (with Frozen Offline Copy) */}
+      {session && computation && isLinkActive && !mustEnterNameFirst && session.items.length > 0 && (
+        <footer
+          className="shrink-0 z-[100] bg-[var(--bg-elevated)] backdrop-blur-[12px] border-t border-[var(--border-subtle)] px-4 pt-3"
+          style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
+        >
+          <div className="max-w-2xl mx-auto flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                setShareSelectedPersonIds(null);
+                setIsShareOpen(true);
+              }}
+              className={`${
+                hasSolvAppOnDevice && !isOwnerPreviewing ? 'shrink-0 px-4' : 'flex-1 px-5'
+              } min-h-[48px] rounded-2xl bg-[var(--bg-tertiary)] border border-[var(--border-strong)] text-sm font-bold text-[var(--text-primary)] flex items-center justify-center gap-2 cursor-pointer active:scale-[0.97] transition`}
+            >
+              <Share2 className="w-4 h-4 text-[var(--accent-primary)]" />
+              <span>{t('billShareBtn')}</span>
+            </button>
+
+            {hasSolvAppOnDevice && !isOwnerPreviewing && (
+              <button
+                type="button"
+                onClick={() => setIsSaveTxOpen(true)}
+                className="flex-1 min-h-[48px] px-4 rounded-2xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--text-on-accent)] text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg cursor-pointer active:scale-[0.97] transition"
+              >
+                <Wallet className="w-4 h-4" />
+                <span>{t('billGuestSaveTxBtn')}</span>
+              </button>
+            )}
+          </div>
+        </footer>
+      )}
+
+      {/* Person Breakdown + Multi-Person Total Calculator Sheet */}
+      {session && computation && (
+        <BillPersonBreakdownModal
+          person={inspectingPerson}
+          session={session}
+          computation={computation}
+          currency={session.currency}
+          language={language}
+          canManagePerson={false}
+          onClose={() => setInspectingPersonId(null)}
+          onSharePeople={(ids) => {
+            setShareSelectedPersonIds(ids);
+            setIsShareOpen(true);
+          }}
+          t={t}
+        />
+      )}
+
+      {/* Full Share Sheet (same options as Admin: Whole / Selected / Separate / Reminders + Dark/Light Image) */}
+      {session && computation && (
+        <BillShareSheet
+          isOpen={isShareOpen}
+          initialSelectedPersonIds={shareSelectedPersonIds}
+          session={session}
+          computation={computation}
+          feeSettings={settings.transferFeeSettings}
+          liveUrl={liveShareUrl}
+          language={language}
+          appTheme={appTheme}
+          onClose={() => setIsShareOpen(false)}
+          showToast={showToast}
+          t={t}
+        />
+      )}
+
+      {/* Save to My Transactions + Permanent Frozen Offline Copy */}
+      {session && computation && (
+        <BillGuestSaveExpenseSheet
+          isOpen={isSaveTxOpen}
+          session={session}
+          computation={computation}
+          boundPerson={boundPerson}
+          accounts={accounts}
+          categories={categories}
+          currency={session.currency}
+          language={language}
+          onClose={() => setIsSaveTxOpen(false)}
+          onSaveTransaction={({
+            accountId,
+            categoryId,
+            categoryName,
+            categoryIcon,
+            budgetPool,
+            amountMajor,
+            myShareMinor,
+            snapshotSession,
+          }) => {
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+              now.getDate()
+            ).padStart(2, '0')}`;
+            const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(
+              now.getMinutes()
+            ).padStart(2, '0')}`;
+            const cleanTitle = snapshotSession.title.trim() || t('billDefaultTitle');
+            const txId = addTransaction({
+              type: 'expense',
+              amount: Math.max(0, amountMajor),
+              date: dateStr,
+              time: timeStr,
+              accountId,
+              categoryId,
+              categoryName,
+              categoryIcon,
+              budgetPool,
+              description: `${isAr ? 'تقسيم:' : 'Bill Split:'} ${cleanTitle}`,
+              billSplit: {
+                id: snapshotSession.id,
+                title: cleanTitle,
+                myShareMinor,
+                paidTotalMinor: Math.round(amountMajor * 100),
+              },
+            });
+            // Link the frozen snapshot back to the newly created transaction for two-way deletion
+            import('../utils/billSplitStore')
+              .then(({ saveBillSession }) => {
+                saveBillSession(
+                  { ...snapshotSession, linkedTransactionId: txId },
+                  { asActiveDraft: false, immediate: true }
+                );
+              })
+              .catch(() => {});
+            showToast(t('billGuestSavedSnapshotToast'), 'success');
+          }}
+          t={t}
+        />
+      )}
     </div>
   );
 };

@@ -138,7 +138,8 @@ export const UserProfileModal: React.FC = () => {
       setIsClosing(false);
 
       // Trigger profile cloud-registration immediately if signed in and online
-      const user = auth.currentUser || currentUser;
+      const realFb = auth.currentUser && !auth.currentUser.isAnonymous ? auth.currentUser : null;
+      const user = realFb || currentUser;
       if (user && (typeof navigator === 'undefined' || navigator.onLine)) {
         const clean16 = cleanNumericId(settings.userProfile?.numericId) || getOrCreateNumericId();
         if (clean16.length === 16) {

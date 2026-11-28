@@ -1,18 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
+  ClipboardPaste,
   Eye,
-  Plus,
-  Search,
+  Loader2,
   Shield,
-  Trash2,
   UserCheck,
   UserPlus,
   Users,
   X,
 } from 'lucide-react';
-import { BillGuestPermission, BillPerson, BillSession, SavedBillFriend, SavedBillGroup } from '../../types';
-import { formatMinorMoney, generateBillId } from '../../utils/billSplitEngine';
+import { BillPerson, BillSession, SavedBillFriend, SavedBillGroup } from '../../types';
+import {
+  formatMinorMoney,
+  generateBillId,
+  getEffectivePersonPermission,
+} from '../../utils/billSplitEngine';
 import {
   deleteSavedFriend,
   deleteSavedGroup,
@@ -21,9 +24,18 @@ import {
   upsertSavedFriend,
   upsertSavedGroup,
 } from '../../utils/billSplitStore';
-import { lookupUserByNumericId, cleanNumericId } from '../../utils/userId';
+import {
+  cleanNumericId,
+  format16DigitId,
+  format16DigitInput,
+  lookupUserByNumericId,
+  searchUsersByNumericIdPrefix,
+  SuggestedSolvUser,
+} from '../../utils/userId';
+import { loadDeduplicatedContacts } from '../../utils/shareFolders';
 import { translations } from '../../utils/translations';
 import { BillLivePanel } from './BillLivePanel';
+import { BillPersonAvatar } from './BillPersonAvatar';
 
 interface BillPeopleBarProps {
   people: BillPerson[];
@@ -46,8 +58,13 @@ interface BillPeopleBarProps {
   onAddPerson: (person: BillPerson) => void;
   onAddMultiplePeople: (persons: BillPerson[]) => void;
   onUpdatePerson: (personId: string, patch: Partial<BillPerson>) => void;
-  onRemovePerson: (personId: string) => void;
-  showConfirm: (opts: { title: string; message: string; confirmText?: string; isDanger?: boolean }) => Promise<boolean>;
+  onOpenPersonBreakdown: (person: BillPerson) => void;
+  showConfirm: (opts: {
+    title: string;
+    message: string;
+    confirmText?: string;
+    isDanger?: boolean;
+  }) => Promise<boolean>;
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
   t: (key: keyof typeof translations.en) => string;
 }
@@ -73,29 +90,37 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
   onAddPerson,
   onAddMultiplePeople,
   onUpdatePerson,
-  onRemovePerson,
+  onOpenPersonBreakdown,
   showConfirm,
   showToast,
   t,
 }) => {
   const isAr = language === 'ar';
   const setIsAddSheetOpen = onAddSheetOpenChange;
-  const [activePersonMenuId, setActivePersonMenuId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState('');
+  const cleanMyId = cleanNumericId(myNumericId || '');
+
   const [linkPickerFor, setLinkPickerFor] = useState<string | null>(null);
-
-  const pendingPeople = people.filter((p) => p.approval === 'pending');
-  const linkCandidates = people.filter(
-    (p) => p.kind !== 'owner' && p.approval === 'approved' && (!p.boundUid || p.kind === 'solv_user')
-  );
-
   const [guestName, setGuestName] = useState('');
-  const [idLookupInput, setIdLookupInput] = useState('');
-  const [lookingUpId, setLookingUpId] = useState(false);
   const [savedFriends, setSavedFriends] = useState<SavedBillFriend[]>([]);
   const [savedGroups, setSavedGroups] = useState<SavedBillGroup[]>([]);
   const [newGroupName, setNewGroupName] = useState('');
   const [showGroupInput, setShowGroupInput] = useState(false);
+
+  // Live 16-digit ID search states
+  const [typedId, setTypedId] = useState('');
+  const [cloudSuggestions, setCloudSuggestions] = useState<SuggestedSolvUser[]>([]);
+  const [searchingCloud, setSearchingCloud] = useState(false);
+  const [exactNotFound, setExactNotFound] = useState(false);
+  const idInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingCursorRef = useRef<number | null>(null);
+
+  const pendingPeople = people.filter((p) => p.approval === 'pending');
+  const linkCandidates = people.filter(
+    (p) =>
+      p.kind !== 'owner' &&
+      p.approval === 'approved' &&
+      (!p.boundUid || p.kind === 'solv_user')
+  );
 
   const refreshSaved = () => {
     setSavedFriends(getMergedSavedFriends(myNumericId));
@@ -103,32 +128,203 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
   };
 
   useEffect(() => {
-    if (isAddSheetOpen) refreshSaved();
+    if (isAddSheetOpen) {
+      refreshSaved();
+    } else {
+      setTypedId('');
+      setCloudSuggestions([]);
+      setExactNotFound(false);
+    }
   }, [isAddSheetOpen]);
 
   useEffect(() => {
-    const p = people.find((x) => x.id === activePersonMenuId);
-    setRenameDraft(p ? p.name : '');
-  }, [activePersonMenuId]);
-
-  const commitRename = () => {
-    const target = people.find((x) => x.id === activePersonMenuId);
-    const next = renameDraft.trim().slice(0, 50);
-    if (target && next && next !== target.name) {
-      onUpdatePerson(target.id, { name: next });
-    }
-  };
-
-  useEffect(() => {
+    if (!isAddSheetOpen) return;
     const onEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (activePersonMenuId) setActivePersonMenuId(null);
-        else if (isAddSheetOpen) setIsAddSheetOpen(false);
-      }
+      if (e.key === 'Escape') setIsAddSheetOpen(false);
     };
     window.addEventListener('keydown', onEsc);
     return () => window.removeEventListener('keydown', onEsc);
-  }, [activePersonMenuId, isAddSheetOpen]);
+  }, [isAddSheetOpen]);
+
+  // Restore formatted 4-digit cursor cleanly
+  useLayoutEffect(() => {
+    if (pendingCursorRef.current !== null && idInputRef.current) {
+      const pos = pendingCursorRef.current;
+      idInputRef.current.setSelectionRange(pos, pos);
+      pendingCursorRef.current = null;
+    }
+  }, [typedId]);
+
+  const cleanTyped = cleanNumericId(typedId);
+  const isSelfId = Boolean(cleanMyId && cleanTyped.length === 16 && cleanTyped === cleanMyId);
+
+  // Instant local suggestions from Saved Friends + Share Contacts matching typed digits
+  const localIdSuggestions = useMemo<SuggestedSolvUser[]>(() => {
+    if (cleanTyped.length === 0 || isSelfId) return [];
+    const map = new Map<string, SuggestedSolvUser>();
+
+    for (const f of savedFriends) {
+      const cid = cleanNumericId(f.numericId);
+      if (cid.length === 16 && cid !== cleanMyId && cid.includes(cleanTyped)) {
+        map.set(cid, {
+          numericId: cid,
+          uid: f.uid,
+          name: f.name,
+          photoURL: f.photoURL,
+          avatar: f.avatar || '👤',
+        });
+      }
+    }
+
+    try {
+      const contacts = loadDeduplicatedContacts(cleanMyId);
+      for (const c of contacts) {
+        const cid = cleanNumericId(c.numericId);
+        if (cid.length === 16 && cid !== cleanMyId && cid.includes(cleanTyped) && !map.has(cid)) {
+          map.set(cid, {
+            numericId: cid,
+            uid: c.uid,
+            name: c.name || `solv ${cid.slice(-4)}`,
+            photoURL: c.photoURL,
+            avatar: c.avatar || '👤',
+          });
+        }
+      }
+    } catch {}
+
+    return Array.from(map.values()).slice(0, 6);
+  }, [cleanTyped, savedFriends, cleanMyId, isSelfId]);
+
+  // Debounced live cloud search as user types 3+ digits (and exact lookup at 16 digits)
+  useEffect(() => {
+    if (cleanTyped.length < 3 || isSelfId) {
+      setCloudSuggestions([]);
+      setSearchingCloud(false);
+      setExactNotFound(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSearchingCloud(true);
+    setExactNotFound(false);
+
+    const timer = setTimeout(async () => {
+      try {
+        if (cleanTyped.length === 16) {
+          const card = await lookupUserByNumericId(cleanTyped);
+          if (cancelled) return;
+          if (card) {
+            setCloudSuggestions([
+              {
+                numericId: cleanTyped,
+                uid: card.uid,
+                name: card.name || card.displayName || `solv ${cleanTyped.slice(-4)}`,
+                photoURL: card.photoURL || '',
+                avatar: card.avatar || '👤',
+              },
+            ]);
+            setExactNotFound(false);
+          } else {
+            setCloudSuggestions([]);
+            setExactNotFound(true);
+          }
+        } else {
+          const matches = await searchUsersByNumericIdPrefix(cleanTyped, cleanMyId, 6);
+          if (cancelled) return;
+          setCloudSuggestions(matches);
+        }
+      } catch {
+        if (!cancelled) setCloudSuggestions([]);
+      } finally {
+        if (!cancelled) setSearchingCloud(false);
+      }
+    }, cleanTyped.length === 16 ? 60 : 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [cleanTyped, cleanMyId, isSelfId]);
+
+  const mergedIdSuggestions = useMemo<SuggestedSolvUser[]>(() => {
+    const map = new Map<string, SuggestedSolvUser>();
+    for (const c of cloudSuggestions) map.set(c.numericId, c);
+    for (const l of localIdSuggestions) {
+      if (!map.has(l.numericId)) {
+        map.set(l.numericId, l);
+      } else {
+        const existing = map.get(l.numericId)!;
+        map.set(l.numericId, {
+          ...existing,
+          photoURL: existing.photoURL || l.photoURL,
+          uid: existing.uid || l.uid,
+        });
+      }
+    }
+    return Array.from(map.values()).slice(0, 6);
+  }, [cloudSuggestions, localIdSuggestions]);
+
+  const handleIdInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawVal = e.target.value;
+    const selectionStart = e.target.selectionStart ?? rawVal.length;
+    const nativeEvent = e.nativeEvent as InputEvent | undefined;
+    const isBackspace =
+      nativeEvent?.inputType === 'deleteContentBackward' ||
+      rawVal.length < format16DigitId(typedId).length;
+    const isDeleteForward = nativeEvent?.inputType === 'deleteContentForward';
+
+    const { clean, newCursorPos } = format16DigitInput(
+      rawVal,
+      selectionStart,
+      isBackspace,
+      cleanTyped,
+      isDeleteForward
+    );
+    pendingCursorRef.current = newCursorPos;
+    setTypedId(clean);
+  };
+
+  const handlePasteId = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const clean = cleanNumericId(text).slice(0, 16);
+      if (clean) {
+        pendingCursorRef.current = format16DigitId(clean).length;
+        setTypedId(clean);
+      }
+    } catch {}
+  };
+
+  const handleSelectSuggestedUser = (u: SuggestedSolvUser) => {
+    if (people.some((p) => p.numericId === u.numericId)) {
+      showToast(isAr ? 'هذا الشخص مضاف بالفعل' : 'Already added', 'info');
+      return;
+    }
+    upsertSavedFriend({
+      name: u.name,
+      avatar: u.avatar || '👤',
+      photoURL: u.photoURL,
+      numericId: u.numericId,
+      uid: u.uid,
+      bumpUsage: true,
+    });
+    onAddPerson({
+      id: `p_${generateBillId().slice(0, 8)}`,
+      name: u.name,
+      avatar: u.avatar || '👤',
+      photoURL: u.photoURL,
+      kind: 'solv_user',
+      numericId: u.numericId,
+      boundUid: u.uid,
+      role: 'participant',
+      approval: 'approved',
+      paidFlag: false,
+    });
+    setTypedId('');
+    setCloudSuggestions([]);
+    refreshSaved();
+    showToast(isAr ? `تمت إضافة ${u.name}` : `Added ${u.name}`, 'success');
+  };
 
   const handleAddGuestSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,6 +339,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
       id: `p_${generateBillId().slice(0, 8)}`,
       name: trimmed,
       avatar: saved.avatar,
+      photoURL: saved.photoURL,
       kind: 'guest',
       role: 'participant',
       approval: 'approved',
@@ -150,49 +347,6 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
     });
     setGuestName('');
     refreshSaved();
-  };
-
-  const handleLookup16Id = async () => {
-    const clean = cleanNumericId(idLookupInput);
-    if (clean.length !== 16) {
-      showToast(isAr ? 'أدخل 16 رقماً صحيحاً' : 'Enter a valid 16-digit ID', 'error');
-      return;
-    }
-    if (people.some((p) => p.numericId === clean)) {
-      showToast(isAr ? 'هذا الشخص مضاف بالفعل' : 'Already added', 'info');
-      return;
-    }
-    setLookingUpId(true);
-    try {
-      const card = await lookupUserByNumericId(clean);
-      const resolvedName = card?.name || `solv ${clean.slice(-4)}`;
-      const resolvedAvatar = card?.avatar || '💚';
-      upsertSavedFriend({
-        name: resolvedName,
-        avatar: resolvedAvatar,
-        numericId: clean,
-        uid: card?.uid,
-        bumpUsage: true,
-      });
-      onAddPerson({
-        id: `p_${generateBillId().slice(0, 8)}`,
-        name: resolvedName,
-        avatar: resolvedAvatar,
-        kind: 'solv_user',
-        numericId: clean,
-        boundUid: card?.uid,
-        role: 'participant',
-        approval: 'approved',
-        paidFlag: false,
-      });
-      setIdLookupInput('');
-      refreshSaved();
-      showToast(isAr ? `تمت إضافة ${resolvedName}` : `Added ${resolvedName}`, 'success');
-    } catch {
-      showToast(isAr ? 'تعذر البحث الآن — أضفه بالاسم مؤقتاً' : 'Lookup unavailable offline — add by name', 'info');
-    } finally {
-      setLookingUpId(false);
-    }
   };
 
   const handlePickFriend = (friend: SavedBillFriend) => {
@@ -208,6 +362,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
       id: personId,
       name: friend.name,
       avatar: friend.avatar || '👤',
+      photoURL: friend.photoURL,
       kind: friend.numericId ? 'solv_user' : 'guest',
       numericId: friend.numericId,
       boundUid: friend.uid,
@@ -215,12 +370,19 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
       approval: 'approved',
       paidFlag: false,
     });
-    if (friend.numericId && !friend.uid) {
+    if (friend.numericId && (!friend.uid || !friend.photoURL)) {
       lookupUserByNumericId(friend.numericId)
         .then((card) => {
-          if (card?.uid) {
-            upsertSavedFriend({ ...friend, uid: card.uid });
-            onUpdatePerson(personId, { boundUid: card.uid });
+          if (card) {
+            upsertSavedFriend({
+              ...friend,
+              uid: card.uid || friend.uid,
+              photoURL: card.photoURL || friend.photoURL,
+            });
+            onUpdatePerson(personId, {
+              boundUid: card.uid || friend.uid,
+              photoURL: card.photoURL || friend.photoURL,
+            });
           }
         })
         .catch(() => {});
@@ -246,6 +408,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
           id: pid,
           name: f.name,
           avatar: f.avatar || '👤',
+          photoURL: f.photoURL,
           kind: f.numericId ? 'solv_user' : 'guest',
           numericId: f.numericId,
           boundUid: f.uid,
@@ -253,7 +416,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
           approval: 'approved',
           paidFlag: false,
         });
-        if (f.numericId && !f.uid) {
+        if (f.numericId && (!f.uid || !f.photoURL)) {
           lookupQueue.push({ personId: pid, friend: f });
         }
       }
@@ -263,9 +426,16 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
       for (const item of lookupQueue) {
         lookupUserByNumericId(item.friend.numericId!)
           .then((card) => {
-            if (card?.uid) {
-              upsertSavedFriend({ ...item.friend, uid: card.uid });
-              onUpdatePerson(item.personId, { boundUid: card.uid });
+            if (card) {
+              upsertSavedFriend({
+                ...item.friend,
+                uid: card.uid || item.friend.uid,
+                photoURL: card.photoURL || item.friend.photoURL,
+              });
+              onUpdatePerson(item.personId, {
+                boundUid: card.uid || item.friend.uid,
+                photoURL: card.photoURL || item.friend.photoURL,
+              });
             }
           })
           .catch(() => {});
@@ -288,7 +458,9 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
       const f = upsertSavedFriend({
         name: p.name,
         avatar: p.avatar || '👤',
+        photoURL: p.photoURL,
         numericId: p.numericId,
+        uid: p.boundUid,
       });
       ids.push(f.id);
     }
@@ -298,8 +470,6 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
     refreshSaved();
     showToast(isAr ? 'تم حفظ المجموعة!' : 'Group saved!', 'success');
   };
-
-  const activeMenuPerson = people.find((p) => p.id === activePersonMenuId) || null;
 
   return (
     <div className="space-y-2">
@@ -322,44 +492,45 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
         </button>
       </div>
 
-      {/* Horizontal People Chips */}
+      {/* Horizontal People Cards (Name + Photo + Effective Permission + Share — ALL clickable, including Owner!) */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
         {people.map((person) => {
           const shareMinor = perPersonTotalsMinor[person.id] || 0;
           const isOwner = person.kind === 'owner';
+          const effectivePerm = getEffectivePersonPermission(liveSession, person);
           return (
             <button
               key={person.id}
               type="button"
-              onClick={() => {
-                if (!isOwner) setActivePersonMenuId(person.id);
-              }}
-              className={`shrink-0 flex items-center gap-2 px-3 py-2 min-h-[44px] rounded-2xl border text-start transition cursor-pointer select-none ${
+              onClick={() => onOpenPersonBreakdown(person)}
+              className={`shrink-0 flex items-center gap-2.5 ps-2.5 pe-3 py-2 min-h-[48px] rounded-2xl border text-start transition cursor-pointer select-none active:scale-[0.97] ${
                 person.paidFlag
                   ? 'bg-[var(--bg-secondary)] border-[var(--status-success)]/45'
                   : 'bg-[var(--bg-secondary)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]'
               }`}
               style={{ contain: 'layout style' }}
             >
-              <span className="text-base leading-none shrink-0">{person.avatar || '👤'}</span>
+              <BillPersonAvatar
+                name={person.name}
+                avatar={person.avatar}
+                photoURL={person.photoURL}
+                size="sm"
+              />
               <div className="min-w-0">
                 <div className="flex items-center gap-1">
-                  <span dir="auto" className="text-xs font-bold text-[var(--text-primary)] truncate max-w-[96px]">
+                  <span dir="auto" className="text-xs font-bold text-[var(--text-primary)] truncate max-w-[104px]">
                     {person.name}
                   </span>
-                  {isOwner && (
+                  {isOwner ? (
                     <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-[var(--accent-soft)] text-[var(--accent-primary)]">
                       {t('billYouLabel')}
                     </span>
-                  )}
-                  {person.role === 'helper' && !isOwner && person.roleOverride !== 'view_only' && (
+                  ) : effectivePerm === 'helper' ? (
                     <Shield className="w-3 h-3 text-[var(--accent-primary)] shrink-0" />
-                  )}
-                  {!isOwner && person.roleOverride === 'view_only' && (
-                    <Eye className="w-3 h-3 text-[var(--text-tertiary)] shrink-0" />
-                  )}
-                  {!isOwner && person.roleOverride === 'claim_own' && (
+                  ) : effectivePerm === 'claim_own' ? (
                     <UserCheck className="w-3 h-3 text-[var(--accent-primary)] shrink-0" />
+                  ) : (
+                    <Eye className="w-3 h-3 text-[var(--text-tertiary)] shrink-0" />
                   )}
                   {person.approval === 'pending' && (
                     <span className="text-[9px] font-bold px-1 rounded bg-[var(--status-warning)]/20 text-[var(--status-warning)]">
@@ -379,147 +550,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
         })}
       </div>
 
-      {/* Person Quick Role/Remove Sheet */}
-      {activeMenuPerson && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setActivePersonMenuId(null)}
-          className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[12px] p-0 sm:p-4 overscroll-contain"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full sm:max-w-sm rounded-t-[22px] sm:rounded-[22px] bg-[var(--bg-secondary)] border border-[var(--border-subtle)] p-5 space-y-4 shadow-2xl modal-container-anim"
-            style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
-          >
-            <div className="w-10 h-1 rounded-full bg-[var(--border-strong)] mx-auto sm:hidden" />
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <span className="text-2xl">{activeMenuPerson.avatar || '👤'}</span>
-                <div>
-                  <h4 dir="auto" className="text-base font-bold text-[var(--text-primary)]">
-                    {activeMenuPerson.name}
-                  </h4>
-                  <span className="text-xs text-[var(--text-secondary)]">
-                    {activeMenuPerson.kind === 'solv_user' ? t('billSolvBadge') : t('billGuestBadge')}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActivePersonMenuId(null)}
-                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] cursor-pointer"
-                aria-label="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {/* Rename */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-[var(--text-secondary)] block">
-                  {t('billPersonRenameLabel')}
-                </label>
-                <input
-                  type="text"
-                  dir="auto"
-                  value={renameDraft}
-                  maxLength={50}
-                  onChange={(e) => setRenameDraft(e.target.value)}
-                  onBlur={commitRename}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      commitRename();
-                      (e.target as HTMLInputElement).blur();
-                    }
-                  }}
-                  className="w-full min-h-[44px] px-3.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[16px] sm:text-sm text-[var(--text-primary)]"
-                />
-              </div>
-
-              {/* Role Override Selector */}
-              <div className="space-y-1.5">
-                <span className="text-xs font-bold text-[var(--text-secondary)] block">
-                  {t('billPersonPermLabel')}
-                </span>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(
-                    [
-                      { id: undefined, label: t('billPermInheritDefault') },
-                      { id: 'view_only' as BillGuestPermission, label: t('billPermViewOnlyTitle') },
-                      { id: 'claim_own' as BillGuestPermission, label: t('billPermClaimOwnTitle') },
-                      { id: 'helper' as BillGuestPermission, label: t('billPermHelperTitle') },
-                    ] as const
-                  ).map((opt) => {
-                    const currentOverride =
-                      activeMenuPerson.roleOverride ??
-                      (activeMenuPerson.role === 'helper' ? 'helper' : undefined);
-                    const selected = currentOverride === opt.id;
-                    return (
-                      <button
-                        key={opt.id || 'default'}
-                        type="button"
-                        onClick={() => {
-                          onUpdatePerson(activeMenuPerson.id, {
-                            roleOverride: opt.id,
-                            role: opt.id === 'helper' ? 'helper' : 'participant',
-                          });
-                        }}
-                        className={`min-h-[38px] px-2.5 py-2 rounded-xl border text-xs font-bold cursor-pointer transition ${
-                          selected
-                            ? 'bg-[var(--accent-soft)] border-[var(--accent-primary)] text-[var(--accent-primary)]'
-                            : 'bg-[var(--bg-tertiary)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onUpdatePerson(activeMenuPerson.id, { paidFlag: !activeMenuPerson.paidFlag });
-                  setActivePersonMenuId(null);
-                }}
-                className="w-full flex items-center justify-between p-3.5 min-h-[44px] rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-sm font-semibold text-[var(--text-primary)] cursor-pointer"
-              >
-                <span>{activeMenuPerson.paidFlag ? t('billPaidBadge') : t('billUnpaidBadge')}</span>
-                <Check
-                  className={`w-4 h-4 ${
-                    activeMenuPerson.paidFlag ? 'text-[var(--status-success)]' : 'text-[var(--text-tertiary)]'
-                  }`}
-                />
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  const ok = await showConfirm({
-                    title: activeMenuPerson.name,
-                    message: t('billRemovePersonConfirm'),
-                    isDanger: true,
-                  });
-                  if (ok) {
-                    onRemovePerson(activeMenuPerson.id);
-                    setActivePersonMenuId(null);
-                  }
-                }}
-                className="w-full flex items-center justify-center gap-2 p-3.5 min-h-[44px] rounded-xl bg-[var(--status-danger)]/15 text-[var(--status-danger)] text-sm font-bold cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>{t('billDeleteBtn')}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Person / Friends / Groups Sheet */}
+      {/* Add Person / Live 16-Digit Search / Link & Permissions / Groups Sheet */}
       {isAddSheetOpen && (
         <div
           role="dialog"
@@ -545,7 +576,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
               </button>
             </div>
 
-            {/* Join requests from the public link (always shown first) */}
+            {/* Join requests from the public link (shown first) */}
             {pendingPeople.length > 0 && (
               <div className="space-y-2 rounded-2xl bg-[var(--status-warning)]/10 border border-[var(--status-warning)]/35 p-3">
                 <span className="text-xs font-bold text-[var(--status-warning)] block">
@@ -557,9 +588,17 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
                     className="space-y-2 p-2.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)]"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span dir="auto" className="text-sm font-bold text-[var(--text-primary)] truncate">
-                        {p.avatar || '🙋'} {p.name}
-                      </span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <BillPersonAvatar
+                          name={p.name}
+                          avatar={p.avatar}
+                          photoURL={p.photoURL}
+                          size="sm"
+                        />
+                        <span dir="auto" className="text-sm font-bold text-[var(--text-primary)] truncate">
+                          {p.name}
+                        </span>
+                      </div>
                       <button
                         type="button"
                         onClick={() => onRejectPerson(p.id)}
@@ -603,11 +642,15 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
                                   onLinkPendingToExisting(p.id, c.id);
                                   setLinkPickerFor(null);
                                 }}
-                                className="px-3 py-2 min-h-[40px] rounded-xl bg-[var(--accent-soft)] border border-[var(--accent-primary)]/40 text-xs font-bold text-[var(--text-primary)] cursor-pointer active:scale-[0.97] transition"
+                                className="inline-flex items-center gap-1.5 ps-2 pe-3 py-1.5 min-h-[38px] rounded-xl bg-[var(--accent-soft)] border border-[var(--accent-primary)]/40 text-xs font-bold text-[var(--text-primary)] cursor-pointer active:scale-[0.97] transition"
                               >
-                                <span dir="auto">
-                                  {c.avatar || '👤'} {c.name}
-                                </span>
+                                <BillPersonAvatar
+                                  name={c.name}
+                                  avatar={c.avatar}
+                                  photoURL={c.photoURL}
+                                  size="xs"
+                                />
+                                <span dir="auto">{c.name}</span>
                               </button>
                             ))}
                           </div>
@@ -619,7 +662,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
               </div>
             )}
 
-            {/* Quick Guest Form */}
+            {/* Quick Guest Name Form */}
             <form onSubmit={handleAddGuestSubmit} className="flex items-center gap-2">
               <input
                 type="text"
@@ -632,32 +675,141 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
               <button
                 type="submit"
                 disabled={!guestName.trim()}
-                className="min-h-[44px] px-4 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white text-sm font-bold disabled:opacity-45 cursor-pointer shrink-0"
+                className="min-h-[44px] px-4 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--text-on-accent)] text-sm font-bold disabled:opacity-45 cursor-pointer shrink-0 active:scale-[0.97] transition"
               >
                 {t('billAddGuestBtn')}
               </button>
             </form>
 
-            {/* 16-digit solv ID Lookup */}
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                inputMode="numeric"
-                dir="ltr"
-                value={idLookupInput}
-                onChange={(e) => setIdLookupInput(e.target.value)}
-                placeholder={t('bill16DigitPlaceholder')}
-                className="flex-1 min-w-0 min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[16px] sm:text-sm font-mono tabular-nums text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
-              />
-              <button
-                type="button"
-                disabled={lookingUpId || cleanNumericId(idLookupInput).length !== 16}
-                onClick={handleLookup16Id}
-                className="min-h-[44px] px-3.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-strong)] text-xs font-bold text-[var(--text-primary)] disabled:opacity-45 cursor-pointer shrink-0 flex items-center gap-1.5"
-              >
-                <Search className="w-3.5 h-3.5" />
-                <span>{t('billAddBy16IdBtn')}</span>
-              </button>
+            {/* Live 16-Digit ID Search with Rich Suggestion Cards (Name + Photo) */}
+            <div className="space-y-2 rounded-2xl bg-[var(--bg-tertiary)]/60 border border-[var(--border-subtle)] p-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[var(--text-secondary)]">
+                  {t('billIdLiveSearchLabel')}
+                </label>
+                <span
+                  className={`text-[11px] font-mono tabular-nums font-bold ${
+                    cleanTyped.length === 16
+                      ? 'text-[var(--accent-primary)]'
+                      : 'text-[var(--text-tertiary)]'
+                  }`}
+                >
+                  {cleanTyped.length}/16
+                </span>
+              </div>
+
+              <div className="relative flex items-center">
+                <input
+                  ref={idInputRef}
+                  type="text"
+                  inputMode="numeric"
+                  dir="ltr"
+                  maxLength={19}
+                  value={format16DigitId(typedId)}
+                  onChange={handleIdInputChange}
+                  placeholder="4829 1038 4756 1928"
+                  className="w-full min-h-[44px] ps-3.5 pe-16 py-2 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-subtle)] text-[16px] sm:text-sm font-mono tabular-nums tracking-wider text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
+                />
+                <div className="absolute inset-inline-end-2 flex items-center">
+                  {cleanTyped.length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={handlePasteId}
+                      className="px-2 py-1 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <ClipboardPaste className="w-3 h-3" />
+                      <span>{isAr ? 'لصق' : 'Paste'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTypedId('');
+                        setCloudSuggestions([]);
+                        setExactNotFound(false);
+                      }}
+                      className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer"
+                      aria-label="Clear"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {isSelfId && (
+                <p className="text-xs font-bold text-[var(--status-warning)] px-1">
+                  {t('billIdSelfHint')}
+                </p>
+              )}
+
+              {searchingCloud && mergedIdSuggestions.length === 0 && (
+                <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] px-1 py-1">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--accent-primary)]" />
+                  <span>{t('billIdSearchingHint')}</span>
+                </div>
+              )}
+
+              {!searchingCloud && exactNotFound && mergedIdSuggestions.length === 0 && (
+                <p className="text-xs font-semibold text-[var(--status-danger)] px-1">
+                  {t('billIdNoMatchHint')}
+                </p>
+              )}
+
+              {/* Live Suggestion Profile Cards (Name + Real Photo / Avatar + Formatted ID) */}
+              {mergedIdSuggestions.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)] block px-0.5">
+                    {t('billIdSuggestionsLabel')}
+                  </span>
+                  <div className="space-y-1.5 max-h-52 overflow-y-auto overscroll-contain">
+                    {mergedIdSuggestions.map((sug) => {
+                      const alreadyInBill = people.some((p) => p.numericId === sug.numericId);
+                      return (
+                        <button
+                          key={sug.numericId}
+                          type="button"
+                          disabled={alreadyInBill}
+                          onClick={() => handleSelectSuggestedUser(sug)}
+                          className={`w-full flex items-center justify-between gap-2.5 p-2.5 rounded-2xl border text-start transition cursor-pointer active:scale-[0.98] ${
+                            alreadyInBill
+                              ? 'bg-[var(--accent-soft)] border-[var(--accent-primary)]/40 opacity-75'
+                              : 'bg-[var(--bg-secondary)] border-[var(--border-subtle)] hover:border-[var(--accent-primary)]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <BillPersonAvatar
+                              name={sug.name}
+                              avatar={sug.avatar}
+                              photoURL={sug.photoURL}
+                              size="md"
+                            />
+                            <div className="min-w-0">
+                              <div dir="auto" className="text-xs font-extrabold text-[var(--text-primary)] truncate">
+                                {sug.name}
+                              </div>
+                              <div dir="ltr" className="text-[10px] font-mono text-[var(--text-secondary)]">
+                                {format16DigitId(sug.numericId)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {alreadyInBill ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--accent-soft)] text-[var(--accent-primary)] text-[11px] font-bold shrink-0">
+                              <Check className="w-3 h-3" />
+                              <span>{t('billIdAlreadyAddedBadge')}</span>
+                            </span>
+                          ) : (
+                            <span className="px-3 py-1.5 rounded-xl bg-[var(--accent-primary)] text-[var(--text-on-accent)] text-xs font-bold shrink-0">
+                              {t('billIdAddCardBtn')}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Link sharing, permissions & auto-accept */}
@@ -707,7 +859,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
                     type="button"
                     onClick={handleSaveCurrentAsGroup}
                     disabled={!newGroupName.trim()}
-                    className="min-h-[40px] px-3 rounded-xl bg-[var(--accent-primary)] text-white text-xs font-bold disabled:opacity-45 cursor-pointer"
+                    className="min-h-[40px] px-3 rounded-xl bg-[var(--accent-primary)] text-[var(--text-on-accent)] text-xs font-bold disabled:opacity-45 cursor-pointer"
                   >
                     <Check className="w-4 h-4" />
                   </button>
@@ -747,7 +899,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
               )}
             </div>
 
-            {/* Saved Friends List */}
+            {/* Saved Friends Cards (Photo + Name) */}
             <div className="space-y-2 pt-1">
               <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)] block">
                 {t('billSavedFriendsTitle')}
@@ -755,7 +907,7 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
               {savedFriends.length === 0 ? (
                 <p className="text-xs text-[var(--text-tertiary)] py-2">{t('billNoSavedFriends')}</p>
               ) : (
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto overscroll-contain">
+                <div className="grid grid-cols-2 gap-2 max-h-52 overflow-y-auto overscroll-contain">
                   {savedFriends.map((f) => {
                     const isAdded = people.some(
                       (p) =>
@@ -765,9 +917,9 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
                     return (
                       <div
                         key={f.id}
-                        className={`flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-xl border ${
+                        className={`flex items-center justify-between gap-1.5 p-2 rounded-2xl border ${
                           isAdded
-                            ? 'bg-[var(--accent-soft)] border-[var(--accent-primary)]/40 opacity-70'
+                            ? 'bg-[var(--accent-soft)] border-[var(--accent-primary)]/40 opacity-75'
                             : 'bg-[var(--bg-tertiary)] border-[var(--border-subtle)]'
                         }`}
                       >
@@ -777,7 +929,12 @@ export const BillPeopleBar: React.FC<BillPeopleBarProps> = ({
                           onClick={() => handlePickFriend(f)}
                           className="flex items-center gap-2 min-w-0 flex-1 text-start cursor-pointer"
                         >
-                          <span className="text-base shrink-0">{f.avatar || '👤'}</span>
+                          <BillPersonAvatar
+                            name={f.name}
+                            avatar={f.avatar}
+                            photoURL={f.photoURL}
+                            size="sm"
+                          />
                           <span dir="auto" className="text-xs font-bold text-[var(--text-primary)] truncate">
                             {f.name}
                           </span>

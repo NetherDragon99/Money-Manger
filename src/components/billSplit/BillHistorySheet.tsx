@@ -161,11 +161,15 @@ export const BillHistorySheet: React.FC<BillHistorySheetProps> = ({
                         <span dir="auto" className="text-sm font-bold text-[var(--text-primary)] truncate">
                           {s.title.trim() || t('billDefaultTitle')}
                         </span>
-                        {s.status !== 'settled' && (
-                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                        {s.isFrozenSnapshot ? (
+                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent-primary)] shrink-0">
+                            {t('billFrozenSnapshotBadge')}
+                          </span>
+                        ) : s.status !== 'settled' ? (
+                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent-primary)] shrink-0">
                             {t('billDraftBadge')}
                           </span>
-                        )}
+                        ) : null}
                       </div>
                       <div className="text-[11px] font-mono tabular-nums text-[var(--text-secondary)] flex flex-wrap items-center gap-2">
                         <span>{formatMinorMoney(comp.computedTotalMinor, s.currency, language)}</span>
